@@ -585,9 +585,6 @@ Facts to plan for:
 
 - [ ] Windows and Linux: which Linux packages, which Windows signing route, and does Codex run natively on Windows?
 
-**Window and screens**
-
-
 **Releases and updates**
 
 - [ ] Which route for the iPhone app, when it ships: TestFlight, ad hoc or App Store? Apple's rules on downloaded code are a risk for a shell that downloads its UI package from the Mac (see Store rules).
