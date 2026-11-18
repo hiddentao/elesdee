@@ -25,10 +25,12 @@ Version 1 runs on macOS only. Windows and Linux follow soon after (see Windows a
 **Build order**
 
 1. The iroh test build (see Connection technology).
-2. First milestone: sessions on the Mac. Agent and terminal sessions, worktrees, presets and crash recovery.
+2. First milestone: sessions on the Mac. Agent and terminal sessions, worktrees, presets, crash recovery, and the session tools and skills that agents need from the start.
 3. The Android phone app.
 4. Provider switching.
 5. The built-in browser.
+6. The file viewer and code editor.
+7. Demo servers.
 
 **Privacy**
 
@@ -61,6 +63,11 @@ Sessions are the main view. A file viewer and code editor is an extra panel that
 - Agent session: runs Claude Code or Codex, with a preset, provider, branch and worktree.
 - Terminal session: a plain terminal, with no agent. It sits under a project in the sidebar and opens in a folder I choose, often an agent session's worktree. It has no branch or worktree of its own.
 
+**Session names and limits**
+
+- The app names each session from its first prompt, with the same short name used in the branch name. I can rename a session later; its branch keeps its name.
+- There is no limit on how many sessions run at the same time, and no warning. I manage it myself.
+
 **Sessions sidebar**
 
 - Shows all sessions in a vertical list, in one of two views:
@@ -85,6 +92,7 @@ Sessions are the main view. A file viewer and code editor is an extra panel that
 - If the push fails, or the branch has no remote, the app tells me before it deletes the worktree folder. The branch stays on my Mac.
 - The app does not open a pull request. I do that myself.
 - Reopen re-creates the worktree from the session branch.
+- Closed sessions stay until I delete them. For a closed session, the session menu has Delete, which removes its log from the app. The branch stays in Git.
 
 **Tabs**
 
@@ -125,6 +133,7 @@ Version 1 supports two coding agents: Claude Code and Codex. Other agents can co
 | Codex | Codex | OpenAI | ChatGPT/OpenAI login |
 
 - I can edit presets and add new ones.
+- Presets and config overrides are stored in elesdee's own settings on the Mac. Nothing is written into my repos.
 
 ## Built-in tools and skills for sessions
 
@@ -240,6 +249,7 @@ A project is a label that groups sessions.
 
 - Creating a project is fast: one action and a name.
 - I can drag a session from one project to another.
+- A project can store a default source (repo and branch) and a default preset. New sessions in the project start with these filled in, and I can change them for each session.
 
 ## Launching a session
 
@@ -475,7 +485,6 @@ Facts to plan for:
 
 **Scope**
 
-- [ ] Where in the build order do the session tools and skills, the file viewer and editor, and demo servers go?
 - [ ] Windows and Linux: which Linux packages, which Windows signing route, and does Codex run natively on Windows?
 
 **Releases and updates**
