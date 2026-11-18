@@ -50,7 +50,7 @@ The desktop app is a Tauri app. Version 1 is for macOS; Windows and Linux follow
 | --- | --- |
 | Core service (Rust) | Runs agent sessions in terminals, manages Git branches and worktrees, tracks usage, saves session state, holds the iroh connection to the phone |
 | Desktop window (Tauri) | Shows sessions, usage and projects. Sends my input to the core service. |
-| Mobile app (React Native) | Same view and input as the window, over iroh |
+| Mobile app (Tauri shell) | A small shell that shows the screens the desktop app sends it, over iroh |
 
 - If the window crashes or I close it, sessions keep running and the phone stays connected. When the window opens again, it reconnects.
 - Start at login: a setting, "Start elesdee when the system starts", is off by default. When it is on, the core service starts when I log in and resumes the sessions; the window opens only when I click the app. When it is off, elesdee starts only when I open it.
@@ -322,7 +322,22 @@ To share a demo with people outside my Tailscale network, Tailscale Funnel can m
 
 ## Mobile companion app
 
-The mobile app is the only way to control the IDE remotely. It is built with React Native, for iOS and Android. The Android app ships first (see Releases and updates). There is no web interface. The app talks to the desktop app in real time.
+The mobile app is the only way to control the IDE remotely. It is for iOS and Android. The Android app ships first (see Releases and updates). There is no web interface. The app talks to the desktop app in real time.
+
+**A thin shell: the desktop app sends the screens**
+
+- The phone app is a small shell. It holds only what must be native: QR pairing, the list of paired Macs, the iroh connection, the screen cache, and the native features the screens need (file picker for uploads, notifications while the app is open, demo-server forwarding, and the Android self-updater).
+- All screens come from the desktop app. The desktop window and the phone screens are one web UI with two layouts: desktop and phone.
+- Each Mac sends the UI of its own version. So after I update the desktop app, the phone gets the new screens the next time it connects. The phone app needs no update.
+- The phone keeps a copy of each Mac's screens. On connect, it compares versions and downloads the screens only when the Mac has a new version.
+- The shell shows the cached screens through a Tauri custom protocol, which serves web pages from the app's own code ([Tauri docs](https://docs.rs/tauri/latest/tauri/struct.Builder.html)).
+- The shell loads screens only from paired Macs, over the authenticated connection. The screens cannot load code from the internet.
+- The shell offers its native features to the screens through a small bridge with its own version number. If a Mac's screens need a newer bridge, the phone tells me to update the phone app.
+
+**Store rules for screens sent by the desktop**
+
+- Google Play: an app may not download executable code from a source other than Google Play, but this does not apply to code that runs in an interpreter, "such as JavaScript in a webview or browser" ([Google Play policy](https://support.google.com/googleplay/android-developer/answer/9888379)). So the thin shell is allowed on Android, from GitHub and from Google Play.
+- Apple: guideline 2.5.2 says apps may not "download, install, or execute code which introduces or changes features or functionality of the app". Guideline 4.2.7 allows remote desktop clients only when the software runs and renders on the host, and limits them to a user-owned host on a local network ([Apple](https://developer.apple.com/app-store/review/guidelines/)). Screens sent from the Mac over the internet do not clearly fit, so App Store and TestFlight review are a risk for the iPhone app. This is part of the later iPhone decision.
 
 From the mobile app I can:
 
@@ -387,12 +402,19 @@ Recommendation: iroh. Each device is reached by its public key. iroh tries a dir
 - When the phone and the desktop are on the same local network, they connect directly, with no relay.
 - iroh's optional mDNS lookup announces each device on the local network and finds the other, so a connection can be made directly without a relay ([iroh docs](https://docs.iroh.computer/connecting/local-address-lookup.md)). It is a separate crate and is not on by default, so we must add it.
 
-**Mobile app (React Native)**
+**Mobile shell (Tauri mobile)**
 
-- I found no React Native library for iroh. Its official mobile libraries are for Swift and Kotlin.
-- Plan: write one small Rust library that holds iroh and our message format. Turn it into a React Native module for iOS and Android with uniffi-bindgen-react-native, a tool from Mozilla ([Mozilla](https://hacks.mozilla.org/2024/12/introducing-uniffi-for-react-native-rust-powered-turbo-modules/)). The iroh team names this route as one that works ([iroh blog](https://iroh.computer/blog/ffi-updates)).
-- The desktop service uses the same Rust library, so pairing, messages and reconnection are written once.
-- The test build must run this module on a real Android phone. The iPhone test comes when the iPhone app starts.
+- One small Rust library holds iroh and our message format. The desktop core service and the phone shell both use it, so pairing, messages and reconnection are written once.
+- The phone shell is built with Tauri mobile. Tauri's core is Rust, so the shell uses this library directly, with no bridge to another language.
+- Why Tauri mobile is mature enough for this shell:
+  - Tauri 2.0 has been stable since October 2024 and builds apps for iOS and Android ([Tauri blog](https://v2.tauri.app/blog/tauri-20/)).
+  - The shell needs few native features, and Tauri's official plugins cover them on Android and iOS: QR scanning ([Barcode Scanner](https://v2.tauri.app/plugin/barcode-scanner/)), notifications ([Notification](https://v2.tauri.app/plugin/notification/)) and file picking ([Dialog](https://v2.tauri.app/plugin/dialog/); no folder picker on mobile). Demo-server forwarding and the screen cache are plain Rust.
+  - The screens are web pages, so React Native's native UI parts would not be used.
+- Known gaps:
+  - At the 2.0 release, Tauri said not all official plugins support mobile, and that it was not happy with the mobile developer experience yet. Its GitHub Action did not build mobile apps yet ([Tauri blog](https://v2.tauri.app/blog/tauri-20/)). So our release workflow may need to call the Tauri CLI for the Android build.
+  - The updater plugin is set up for desktop targets only ([Tauri docs](https://v2.tauri.app/plugin/updater/)). The Android self-updater is our own code.
+- Fallback: if the test build finds a blocker in Tauri mobile, the shell moves to React Native with a web view. iroh then needs a bridge to React Native: uniffi-bindgen-react-native, a tool from Mozilla ([Mozilla](https://hacks.mozilla.org/2024/12/introducing-uniffi-for-react-native-rust-powered-turbo-modules/)), a route the iroh team names as one that works ([iroh blog](https://iroh.computer/blog/ffi-updates)).
+- The test build must run the shell on a real Android phone. The iPhone test comes when the iPhone app starts.
 
 **iroh compared with WebRTC**
 
@@ -407,11 +429,12 @@ Recommendation: iroh. Each device is reached by its public key. iroh tries a dir
 
 - iroh is new, so there is less real-world use behind it.
 - The iroh team paused its mobile libraries in 2025 ([iroh blog](https://iroh.computer/blog/ffi-updates)). They are official again now, but we must test them on real phones.
+- Tauri mobile is younger than React Native. The test build checks it before we commit to it.
 - The public relays are rate-limited and have no uptime guarantee. If n0.computer drops support for an old iroh version, users who do not update lose the relay. Direct connections on the same Wi-Fi still work.
 
 **First step: a test build**
 
-Build this test before the real app. Pair an Android phone and the desktop app by QR code and stream a live session over iroh. Test on Wi-Fi and on mobile data. If it works well, commit to iroh. If not, switch to WebRTC.
+Build this test before the real app. Build the Tauri mobile shell, pair an Android phone and the desktop app by QR code, load the screens from the desktop, and stream a live session over iroh. Test on Wi-Fi and on mobile data. If iroh works well, commit to iroh; if not, switch to WebRTC. If Tauri mobile has a blocker, switch the shell to React Native.
 
 **Design rules**
 
@@ -460,7 +483,8 @@ The Android app ships on GitHub first and moves to Google Play later.
 
 *GitHub phase*
 
-- The app updates itself. It checks GitHub for a new release, downloads the APK, and asks Android to install it over the old app. Android asks the user to confirm.
+- The app updates itself. It checks GitHub for a new release of the shell, downloads the APK, and asks Android to install it over the old app. Android asks the user to confirm.
+- Shell updates are rare: new screens come from the desktop app, not from an app update.
 - To install an APK, an app that targets API level 26 or newer must hold the `REQUEST_INSTALL_PACKAGES` permission ([Google Play policy](https://support.google.com/googleplay/android-developer/answer/12085295)).
 - Users who prefer it can use Obtainium, an Android app that installs and updates apps from their GitHub release pages ([Obtainium](https://github.com/ImranR98/Obtainium)).
 
@@ -504,9 +528,10 @@ Facts to plan for:
 
 **Version numbers**
 
-- The desktop app and the mobile apps share one version number. They are built and released together.
-- A store review can make the mobile app reach users later than the desktop app. So for a short time, the phone and the desktop can run different versions.
-- The message format between them carries a version number. When the two versions cannot work together, the older side shows "update needed".
+- The phone's screens come from the desktop app, so they always have the desktop app's version.
+- The phone shell has its own version number. A new shell is released only when its native features or its bridge change, so users are not asked to update a shell that did not change.
+- Both are built by the same release workflow. A release that changes the shell attaches the new APK.
+- The message format between the phone and the desktop carries a version number, and the bridge has its own version number. When the shell is too old for a Mac's screens, the phone shows "update the phone app". When a Mac is too old for the shell, the phone shows "update elesdee on this Mac".
 
 ## Open questions
 
@@ -520,4 +545,4 @@ Facts to plan for:
 
 **Releases and updates**
 
-- [ ] Which route for the iPhone app, when it ships: TestFlight, ad hoc or App Store?
+- [ ] Which route for the iPhone app, when it ships: TestFlight, ad hoc or App Store? Apple's rules on downloaded code are a risk for a shell whose screens come from the Mac (see Store rules).
