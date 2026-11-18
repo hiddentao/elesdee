@@ -80,7 +80,7 @@ Sessions are the main view. A file viewer and code editor is an extra panel that
 
 - Right-click a session in the sidebar, or its tab, to open a menu of actions.
 - One action is Close. Close stops the session. The app asks me to confirm first.
-- Close is the only way to stop a session.
+- Close is the only way to stop a session for good. The app can also pause a session that is out of usage (see Auto-switch).
 
 **Closed sessions**
 
@@ -146,6 +146,8 @@ Every agent session gets the same app tools and skills, whatever the agent or pr
 **How sessions get them**
 
 - The core service runs one MCP server, "elesdee". Claude Code and Codex both support MCP servers ([Codex docs](https://developers.openai.com/codex/mcp)).
+- The server listens on localhost and has no access check: any program on the Mac can call it. Starting a session still needs my approval, so a local program cannot start agents on its own.
+- Each session gets its own address on the server, so the server knows which session made each call.
 - At launch, the app adds this MCP server and the skills to the agent through the launch overrides. It does not change global config or write into the repo.
 - Skills use the SKILL.md format, which both Claude Code and Codex read ([Codex docs](https://developers.openai.com/codex/skills.md)).
 - Agents read only a skill's name and description at start, and load the rest when they decide they need it. So a short note in each agent's starting instructions also tells it that it runs inside elesdee and points it to the elesdee skill.
@@ -238,8 +240,14 @@ Shows every account at the same time:
 1. The IDE watches the usage of the current provider.
 2. When usage nears its limit, the IDE switches the session to an allowed provider that has usage left (see the rules below).
 3. If no allowed provider has usage left, the IDE tells the agent to commit all its work to the session branch, write a handoff note, and push the branch to the remote.
-4. The IDE then stops the session.
-5. Later, I can resume the session from that saved state with little effort.
+4. The IDE then pauses the session. A paused session keeps its worktree and stays in the sidebar, marked as paused. This is not a Close.
+5. The session resumes by itself when an allowed provider has usage again. I can also click Resume at any time.
+
+**Where usage numbers come from**
+
+- The app uses only official sources for usage numbers. Where a provider has no official source, the usage panel hides that number.
+- Without a number, auto-switch acts when the agent reports that it hit a limit.
+- Open item: check which official sources Anthropic and OpenAI offer for subscription usage.
 
 **Auto-switch rules**
 
@@ -277,7 +285,7 @@ When I launch a session, I choose where the code comes from, and the IDE gets th
 - Every new session gets its own Git branch when it is created.
 - The branch name is `elesdee/<project>/<name>`, for example `elesdee/web/fix-login`. The short name comes from the session's first prompt. Both parts are written in lowercase, with dashes in place of spaces.
 - Every session gets its own Git worktree, so sessions never change each other's files.
-- Before a session stops for good (Close, or out of usage), the agent pushes its branch to the remote.
+- Before a session closes or pauses, the agent pushes its branch to the remote.
 
 ## Demo servers
 
@@ -311,7 +319,7 @@ From the mobile app I can:
 
 - See all running sessions, updated in real time.
 - Type and send input to any session.
-- Upload files into a session.
+- Upload files into a session. An uploaded file goes in elesdee's own folder for that session, outside the repo, and the agent is told its path. Nothing is added to the repo unless the agent copies it in.
 - View what a session creates: files, images, diffs and running demo servers.
 - Start new sessions: pick a preset, project and source, and type the first prompt.
 - Close sessions, with the same confirmation as on the Mac.
