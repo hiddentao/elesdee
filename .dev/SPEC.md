@@ -36,6 +36,10 @@ Version 1 runs on macOS only. Windows and Linux follow soon after (see Windows a
 
 - The app sends no crash reports and no usage data. Users report bugs on GitHub.
 
+**Moving to a new Mac**
+
+- There is no export, import or sync. I set up a new Mac from scratch.
+
 This spec is a first draft. More requirements will follow.
 
 ## Desktop app architecture
@@ -271,8 +275,12 @@ When I launch a session, I choose where the code comes from, and the IDE gets th
 **Sources**
 
 - A local Git branch
-- A remote GitHub branch
+- A remote branch on any Git host that Git can fetch from and push to (GitHub, GitLab, Bitbucket or self-hosted)
 - A plain folder (no Git)
+
+**Git access**
+
+- The app uses the Git credentials and SSH keys already on my Mac, the same way Git does in a terminal. There is no Git or GitHub login inside elesdee.
 
 **Auto-sync at launch**
 
