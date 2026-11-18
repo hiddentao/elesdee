@@ -118,6 +118,7 @@ Both agents write their conversation to files on disk, but both say the file for
 - A session on a plain folder (no Git) has no branch or worktree. Close only stops it; the folder stays as it is.
 - The app does not open a pull request. I do that myself.
 - Reopen re-creates the worktree from the session branch.
+- At Close and at pause, the app stops the session's demo servers and closes its browser tabs. Browser logins are kept.
 - Closed sessions stay until I delete them. For a closed session, the session menu has Delete, which removes its log from the app. The branch stays in Git.
 
 **Tabs**
@@ -132,6 +133,7 @@ Both agents write their conversation to files on disk, but both say the file for
 - Code editor with full syntax highlighting. I can edit and save files.
 - Not a main feature: it supports quick edits, not full IDE work.
 - Mac only for now. The phone does not have the file viewer and editor yet.
+- The editor is CodeMirror: light, with full syntax highlighting, and it works on touch screens, so it can come to the phone later.
 
 ## Agent support and presets
 
@@ -329,6 +331,7 @@ When I launch a session, I choose where the code comes from, and the IDE gets th
 - Every new session gets its own Git branch when it is created.
 - The branch name is `elesdee/<project>/<name>`, for example `elesdee/web/fix-login`. The short name comes from the session's first prompt. Both parts are written in lowercase, with dashes in place of spaces.
 - Every session gets its own Git worktree, so sessions never change each other's files.
+- Worktree folders live in elesdee's own data folder on the Mac, outside the repo, so my editor, file watchers and test runners in the repo do not see them.
 - Before a session closes or pauses, the agent pushes its branch to the remote.
 
 ## Demo servers
@@ -381,7 +384,7 @@ From the mobile app I can:
 - See all running sessions, updated in real time.
 - Type and send input to any session.
 - Upload files into a session. An uploaded file goes in elesdee's own folder for that session, outside the repo, and the agent is told its path. Nothing is added to the repo unless the agent copies it in.
-- View what a session creates: files, images, diffs and running demo servers.
+- View what a session creates: files, images, diffs and running demo servers. A diff shows all the session's changes since it branched off, committed or not, like a pull request view. The Mac shows diffs the same way.
 - Start new sessions: pick a preset, project and source, and type the first prompt.
 - Close sessions, with the same confirmation as on the Mac.
 - Switch provider with the one-button switch, and see the usage panel.
@@ -584,13 +587,6 @@ Facts to plan for:
 
 **Window and screens**
 
-- [ ] Which editor component for the file viewer on the Mac: CodeMirror (light, works on touch screens, easier to bring to the phone later) or Monaco (the VS Code editor, richer, heavier)?
-
-**Sessions**
-
-- [ ] Where do session worktree folders live: in the app's data folder, next to the repo, or inside the repo in a Git-ignored folder?
-- [ ] When a session closes or pauses, do its demo servers and browser tabs stop (browser logins are kept)?
-- [ ] What does a session's diff compare against: the branch it started from, uncommitted changes only, or a choice in the view?
 
 **Releases and updates**
 
