@@ -38,9 +38,21 @@ Version 1 runs on macOS only. Windows and Linux follow soon after (see Windows a
 - The app sends no crash reports and no usage data. Users report bugs on GitHub.
 - The app keeps local logs. An "Export diagnostics" button saves one file with the logs and app versions, with secrets and session content removed, for the user to attach to a GitHub issue.
 
-**Language**
+**Languages and formats**
 
-- The interface is in English only. All interface text is kept in one place, so translations can come later.
+The approach follows hezo.ai's languages and formats ([hezo docs](https://github.com/hezo-ai/hezo/blob/main/docs/concepts/languages-and-formats.md)).
+
+- The interface comes in 12 languages: English, Deutsch (German), Français (French), Español (Spanish), Italiano (Italian), Português do Brasil (Brazilian Portuguese), Nederlands (Dutch), Polski (Polish), Svenska (Swedish), 简体中文 (Simplified Chinese), 日本語 (Japanese) and 한국어 (Korean).
+- European Portuguese falls back to Brazilian Portuguese, and Traditional Chinese falls back to Simplified Chinese. There are no right-to-left languages.
+- On first launch, the app uses the Mac's system language. A language button on the first screen lets me pick another one.
+- Settings has a "Languages & formats" page with three separate choices. Their defaults follow the language, and each option shows a real example:
+  - Language.
+  - Date format: day first (29/07/2026), month first (07/29/2026), year first ISO (2026-07-29), or day, month name, year (29 Jul 2026). Month names follow the language.
+  - Number format: 1,234.56, 1.234,56, or 1 234,56.
+- The phone: the UI package holds all languages. The phone uses its own system language, and has its own "Languages & formats" setting, so the phone and the Mac can differ.
+- The phone shell's own screens (pairing, the list of Macs, "update needed") are translated inside the shell, because they show before any UI package is downloaded.
+- What is not translated: agent output, prompts, session logs and other session content stay in the language they were written in. The skills and starting instructions that elesdee gives agents stay in English. To make an agent work in another language, I say so in a preset or in my prompt. The documentation is in English only.
+- Interface text is kept in one catalog per language. Each pull request that adds interface text adds it in all 12 languages, translated by an agent. CI fails if any language is missing a text.
 
 **Moving to a new Mac**
 
@@ -63,7 +75,7 @@ The desktop app is a Tauri app. Version 1 is for macOS; Windows and Linux follow
 - Sleep: a setting, "Keep the Mac awake while agents work", is off by default. When it is on, the Mac does not go to sleep on its own while any agent session is running. When it is off, sessions pause while the Mac sleeps, and the phone cannot connect.
 - When I quit the app while sessions are running, the app asks me first. If I confirm, the core service saves every session and stops. On the next launch, the sessions resume. Crash recovery (below) covers a crash of the core service or a restart of the Mac.
 - All parts live in this one repository: the core service and the shared connection library (Rust), the Mac app (Tauri), the phone shell (Tauri mobile) and the shared UI (React). One change can update them together, and one release workflow builds them.
-- Every pull request runs lint and format checks, unit tests, the Mac and Android builds, and end-to-end tests that start the app and drive real sessions with a test agent.
+- Every pull request runs lint and format checks, unit tests, the Mac and Android builds, a check that every interface text exists in all 12 languages, and end-to-end tests that start the app and drive real sessions with a test agent.
 - Why Tauri and not Electron: iroh is written in Rust, so the service uses it directly. Tauri also uses less memory, which matters for an app that runs all day. On macOS, Tauri's built-in web view works well.
 
 ## Window layout and sessions
