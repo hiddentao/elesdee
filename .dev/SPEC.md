@@ -170,6 +170,7 @@ Every agent session gets the same app tools and skills, whatever the agent or pr
 | Start session | Starts a new session with a preset, project, source branch and first prompt. I must approve each new session first, on the desktop or the phone. The approval has an option, "Allow further sessions from this session", so a coordinating agent can start helpers without more questions. The sidebar marks which session started it. |
 | Send message | Sends input to another session |
 | Read session | Reads another session's recent output and status: running, waiting for input, or finished |
+| Report done | Tells the app that this session's task is done. Only then does the session count as finished; an idle agent counts as waiting for input. |
 | Wait for session | Waits until another session finishes or needs input |
 | Register demo server | Tells the app that a demo server runs on a port. Returns an address I can open remotely (see Demo servers). |
 | Notify me | Sends me a notification on the desktop, and on the phone while the phone app is open |
@@ -188,7 +189,7 @@ Every agent session gets the same app tools and skills, whatever the agent or pr
 | Handoff | The standard handoff note, and when to commit, write it and push: switch to a different agent, out of usage, Close |
 | Browser checks | Check UI changes in the built-in browser, take screenshots and share them with me |
 | Ask and notify | Ask me through the app when blocked, instead of waiting. Tell me when work is done. |
-| Coordinate sessions | Split a large task across sessions, write clear briefs, track progress, and merge their branches |
+| Coordinate sessions | Split a large task across helper sessions, write clear briefs, and track progress. The coordinating agent merges each helper's branch into its own session branch and resolves conflicts. |
 
 **Handoff note**
 
@@ -332,6 +333,12 @@ The phone app has no lock of its own. The phone's screen lock is enough.
 
 - The phone shows notifications and questions from sessions only while the elesdee app is open. There are no push notifications when the app is closed.
 - When I open the app, it shows what I missed. The desktop always shows notifications.
+
+**What triggers a notification**
+
+- The app sends a notification only when a session is waiting for me: it needs input, a permission answer, or an approval.
+- Agents can also send one with the Notify me tool.
+- Other events (an agent's turn ended, a provider switch or pause, errors) show in the app but do not send a notification.
 
 **Pairing (one time)**
 
