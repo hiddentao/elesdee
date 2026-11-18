@@ -85,6 +85,53 @@ Version 1 supports two coding agents: Claude Code and Codex. Other agents can co
 
 - I can edit presets and add new ones.
 
+## Built-in tools and skills for sessions
+
+Every agent session gets the same app tools and skills, whatever the agent or provider. They come from elesdee itself, not from a provider's add-on such as a browser extension.
+
+**How sessions get them**
+
+- The core service runs one MCP server, "elesdee". Claude Code and Codex both support MCP servers ([Codex docs](https://developers.openai.com/codex/mcp)).
+- At launch, the app adds this MCP server and the skills to the agent through the launch overrides. It does not change global config or write into the repo.
+- Skills use the SKILL.md format, which both Claude Code and Codex read ([Codex docs](https://developers.openai.com/codex/skills.md)).
+- Agents read only a skill's name and description at start, and load the rest when they decide they need it. So a short note in each agent's starting instructions also tells it that it runs inside elesdee and points it to the elesdee skill.
+
+**Browser tools**
+
+- The core service runs its own browser (Chromium), separate from my personal browser. No browser extension is needed.
+- Each session gets its own browser context: its own tabs, cookies and storage. The session keeps its logins when I quit and relaunch the app, after a crash or a restart of the Mac, and when I close and reopen the session. Login data is stored encrypted on my Mac.
+- Tools: open a page, click, type, read the page, take screenshots, read console and network logs.
+- I can watch a session's browser from the desktop window and from the phone.
+- Starting point: Microsoft's Playwright MCP server, which already has 70+ browser tools ([Playwright](https://playwright.dev/mcp/introduction)).
+
+**Session tools**
+
+| Tool | What it does |
+| --- | --- |
+| List sessions | Lists sessions with their project, status and branch |
+| Start session | Starts a new session with a preset, project, source branch and first prompt. I must approve each new session first, on the desktop or the phone. The sidebar marks which session started it. |
+| Send message | Sends input to another session |
+| Read session | Reads another session's recent output and status: running, waiting for input, or finished |
+| Wait for session | Waits until another session finishes or needs input |
+| Register demo server | Tells the app that a demo server runs on a port. Returns an address I can open remotely (see Tailscale and demo servers). |
+| Notify me | Sends me a notification on the desktop and the phone |
+| Ask me | Asks me a question and waits for my answer, on the desktop or the phone |
+| Share file | Adds a file or screenshot to the session's view, so I can see it on any device |
+| Check usage | Shows the session's remaining context and the provider's remaining usage |
+
+- An agent cannot close a session. Only I can, through the session menu.
+
+**Skills given to every session**
+
+| Skill | What it teaches |
+| --- | --- |
+| elesdee | What elesdee is. The session has its own branch and worktree. How to use the session tools to start and coordinate other sessions. |
+| Demo servers | Start a demo server, register its port, and give me the address that works on my phone |
+| Handoff | The standard handoff note, and when to commit, write it and push: provider switch, out of usage, Close |
+| Browser checks | Check UI changes in the built-in browser, take screenshots and share them with me |
+| Ask and notify | Ask me through the app when blocked, instead of waiting. Tell me when work is done. |
+| Coordinate sessions | Split a large task across sessions, write clear briefs, track progress, and merge their branches |
+
 ## Crash recovery
 
 After a crash or restart, the IDE reopens every session that was running and resumes each one where it stopped.
@@ -265,3 +312,7 @@ Pair a phone and the desktop app by QR code and stream a live session over iroh.
 
 - [ ] Terminal sessions: do they belong to a project and get their own branch and worktree, or do they just open in a folder I choose?
 - [ ] After a crash, a terminal session cannot resume the programs that were running in it. Is it enough to reopen it in the same folder with its earlier output shown?
+
+**Tools and skills**
+
+- [ ] Browser tools: use Microsoft's Playwright MCP server as it is, or build browser tools into the elesdee server?
