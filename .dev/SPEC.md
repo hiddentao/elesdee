@@ -78,7 +78,8 @@ Sessions are the main view. A file viewer and code editor is an extra panel that
 
 - A closed session disappears from the sidebar.
 - A filter at the top of the sidebar, "Show closed sessions", brings closed sessions back into the list. They look different from open sessions, for example greyed out.
-- I can reopen a closed session. The app opens it in a new tab, loads its full log, and restarts the agent with the provider it last used. The agent gets the full log as context.
+- I can reopen a closed session. The app opens it in a new tab, loads its full log, and restarts the agent with the provider it last used.
+- If the agent can resume its own saved conversation, it does. If not (for example after a switch to a different agent), it gets the handoff note and the end of the log, because a long log may not fit in its context window.
 - Close keeps the session's branch but deletes its worktree folder, to save disk space. Before it deletes the folder, the app commits any uncommitted changes to the session branch, so no work is lost.
 - Before Close, the agent commits its work, writes the handoff note and pushes the session branch to the remote.
 - If the push fails, or the branch has no remote, the app tells me before it deletes the worktree folder. The branch stays on my Mac.
@@ -103,6 +104,11 @@ Version 1 supports two coding agents: Claude Code and Codex. Other agents can co
 
 - elesdee uses the Claude Code and Codex that I installed, and shows their versions.
 - If one is missing, elesdee installs its own copy.
+
+**Permission prompts**
+
+- When Claude Code or Codex asks for permission before an action (for example running a command or editing a file), the prompt appears in the session view on the Mac and on the phone.
+- I can approve or deny from either device. The session shows a "waiting for you" badge in the sidebar until I answer.
 
 **Config overrides**
 
@@ -293,6 +299,12 @@ From the mobile app I can:
 - Type and send input to any session.
 - Upload files into a session.
 - View what a session creates: files, images, diffs and running demo servers.
+- Start new sessions: pick a preset, project and source, and type the first prompt.
+- Close sessions, with the same confirmation as on the Mac.
+- Switch provider with the one-button switch, and see the usage panel.
+- Approve agent permission prompts and new sessions that agents start, and answer "Ask me" questions.
+
+The phone app has no lock of its own. The phone's screen lock is enough.
 
 **Notifications on the phone**
 
