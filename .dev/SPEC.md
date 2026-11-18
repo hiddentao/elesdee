@@ -65,7 +65,8 @@ Sessions are the main view. A file viewer and code editor is an extra panel that
 
 **Session names and limits**
 
-- The app names each session from its first prompt, with the same short name used in the branch name. I can rename a session later; its branch keeps its name.
+- The app names each agent session from its first prompt, with the same short name used in the branch name. I can rename a session later; its branch keeps its name.
+- A terminal session is named after its folder. I can rename it.
 - There is no limit on how many sessions run at the same time, and no warning. I manage it myself.
 
 **Sessions sidebar**
@@ -87,9 +88,12 @@ Sessions are the main view. A file viewer and code editor is an extra panel that
 - A filter at the top of the sidebar, "Show closed sessions", brings closed sessions back into the list. They look different from open sessions, for example greyed out.
 - I can reopen a closed session. The app opens it in a new tab, loads its full log, and restarts the agent with the provider it last used.
 - If the agent can resume its own saved conversation, it does. If not (for example after a switch to a different agent), it gets the handoff note and the end of the log, because a long log may not fit in its context window.
-- Close keeps the session's branch but deletes its worktree folder, to save disk space. Before it deletes the folder, the app commits any uncommitted changes to the session branch, so no work is lost.
-- Before Close, the agent commits its work, writes the handoff note and pushes the session branch to the remote.
-- If the push fails, or the branch has no remote, the app tells me before it deletes the worktree folder. The branch stays on my Mac.
+- Close keeps the session's branch but deletes its worktree folder, to save disk space. The steps:
+  1. The agent commits its work, writes the handoff note and pushes the session branch to the remote.
+  2. If anything is still uncommitted or unpushed, the app commits and pushes it, so no work is lost.
+  3. If the push fails, or the branch has no remote, the app tells me before it deletes the worktree folder. The branch stays on my Mac.
+  4. The app deletes the worktree folder.
+- A session on a plain folder (no Git) has no branch or worktree. Close only stops it; the folder stays as it is.
 - The app does not open a pull request. I do that myself.
 - Reopen re-creates the worktree from the session branch.
 - Closed sessions stay until I delete them. For a closed session, the session menu has Delete, which removes its log from the app. The branch stays in Git.
@@ -171,7 +175,7 @@ Every agent session gets the same app tools and skills, whatever the agent or pr
 | Share file | Adds a file or screenshot to the session's view, so I can see it on any device |
 | Check usage | Shows the session's remaining context and the provider's remaining usage |
 
-- An agent cannot close a session. Only I can, through the session menu.
+- An agent cannot close a session. Only I can, through the session menu on the Mac or the phone.
 
 **Skills given to every session**
 
@@ -179,14 +183,14 @@ Every agent session gets the same app tools and skills, whatever the agent or pr
 | --- | --- |
 | elesdee | What elesdee is. The session has its own branch and worktree. How to use the session tools to start and coordinate other sessions. |
 | Demo servers | Start a demo server, register its port, and give me the address that works on my phone |
-| Handoff | The standard handoff note, and when to commit, write it and push: provider switch, out of usage, Close |
+| Handoff | The standard handoff note, and when to commit, write it and push: switch to a different agent, out of usage, Close |
 | Browser checks | Check UI changes in the built-in browser, take screenshots and share them with me |
 | Ask and notify | Ask me through the app when blocked, instead of waiting. Tell me when work is done. |
 | Coordinate sessions | Split a large task across sessions, write clear briefs, track progress, and merge their branches |
 
 **Handoff note**
 
-- Agents write a handoff note when they switch provider, run out of usage, or Close.
+- Agents write a handoff note when the session switches to a different agent (Claude Code to Codex, or the reverse), runs out of usage, or closes. A switch inside Claude Code (for example Anthropic to DeepSeek) needs no note, because the same conversation continues.
 - The app keeps the note and gives it to the next agent that works on the session.
 - A copy goes in the message of the last commit on the session branch. So the note travels with the branch, and no file is added to the repo.
 
@@ -271,7 +275,7 @@ When I launch a session, I choose where the code comes from, and the IDE gets th
 **Branch and worktree per session**
 
 - Every new session gets its own Git branch when it is created.
-- The branch name is `elesdee/<project>/<name>`, for example `elesdee/web/fix-login`. The short name comes from the session's first prompt.
+- The branch name is `elesdee/<project>/<name>`, for example `elesdee/web/fix-login`. The short name comes from the session's first prompt. Both parts are written in lowercase, with dashes in place of spaces.
 - Every session gets its own Git worktree, so sessions never change each other's files.
 - Before a session stops for good (Close, or out of usage), the agent pushes its branch to the remote.
 
