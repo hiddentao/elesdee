@@ -40,7 +40,7 @@ Version 1 runs on macOS only. Windows and Linux follow soon after (see Windows a
 
 - There is no export, import or sync. I set up a new Mac from scratch.
 
-This spec is a first draft. More requirements will follow.
+This spec is a first draft. More requirements will follow. Detailed research notes, with quotes and sources, are in `.dev/research/`.
 
 ## Desktop app architecture
 
@@ -65,8 +65,20 @@ Sessions are the main view. A file viewer and code editor is an extra panel that
 **How a session looks**
 
 - On the Mac, an agent session shows the agent's real terminal.
-- On the phone, it shows a simpler message view, built from the agent's own record of the conversation. The real terminal is one tap away.
-- Open item: check that Claude Code and Codex each keep a record of the conversation that the app can read while the agent runs.
+- On the phone, it shows a simpler message view, built from structured events of the conversation. The real terminal is one tap away.
+
+**Where the message view gets its data**
+
+Both agents write their conversation to files on disk, but both say the file format is not a public interface. Claude Code: "The entry format is internal to Claude Code and changes between versions, so scripts that parse these files directly can break on any release" ([Claude Code docs](https://code.claude.com/docs/en/sessions)). Codex: "the transcript format isn't a stable interface for hooks and may change over time" ([Codex docs](https://learn.chatgpt.com/docs/hooks)). So the app does not parse these files. It uses each agent's official event interface, which runs next to the real terminal.
+
+- Claude Code: hooks, added at launch through `--settings`, like the other launch overrides.
+  - HTTP hooks "send the event's JSON input as an HTTP POST request to a URL" ([Claude Code docs](https://code.claude.com/docs/en/hooks)). The URL is the core service on localhost.
+  - Events for the message view: `UserPromptSubmit` (my prompt), `MessageDisplay` (assistant text, which "runs while an assistant message streams to the screen"), `PreToolUse` and `PostToolUse` (tool calls and results), `Stop` (the final reply) and `Notification` (permission prompts) ([Claude Code docs](https://code.claude.com/docs/en/hooks)).
+  - `MessageDisplay` holds the terminal's rendering until the hook returns, so the core service must answer at once.
+- Codex: the app-server protocol, shared with the terminal UI.
+  - The core service starts `codex app-server` on a local socket and launches the terminal UI with `codex --remote unix://PATH`, so the terminal UI is a client of that server ([Codex docs](https://learn.chatgpt.com/docs/app-server)).
+  - The core service connects its own client to the same server. It reads history with `thread/turns/list` and `thread/items/list`, and follows live `item/*` events ([Codex docs](https://learn.chatgpt.com/docs/app-server)).
+  - Risks: the `codex app-server` command is labelled experimental. The docs do not say outright that a second client can follow a thread that the terminal UI is running. The test build must check this.
 
 **Session types**
 
@@ -259,7 +271,23 @@ Shows every account at the same time:
 
 - The app uses only official sources for usage numbers. Where a provider has no official source, the usage panel hides that number.
 - Without a number, auto-switch acts when the agent reports that it hit a limit.
-- Open item: check which official sources Anthropic and OpenAI offer for subscription usage.
+
+Official sources:
+
+- Claude Code: the JSON that Claude Code gives a status line script has `rate_limits.five_hour` and `rate_limits.seven_day`, each with `used_percentage` ("from 0 to 100") and `resets_at` (Unix seconds) ([Claude Code docs](https://code.claude.com/docs/en/statusline)).
+  - The app sets the status line command at launch through `--settings`. The script passes the JSON to the core service.
+  - Limits: the field "appears only for claude.ai Pro, Max, and Ultra subscribers", only after the first reply in a session, and each window may be absent ([Claude Code docs](https://code.claude.com/docs/en/statusline)). So the numbers exist only while a session runs on that account. At other times, the usage panel shows the last numbers it read and when it read them.
+- Codex: the app-server request `account/rateLimits/read` and the `account/rateLimits/updated` notification. Each window has `usedPercent`, `windowDurationMins` and `resetsAt` ([Codex docs](https://learn.chatgpt.com/docs/app-server)).
+  - The docs do not name the windows, so the app tells them apart by length: 300 minutes is the 5-hour window, 10,080 minutes is the weekly window.
+  - "Pro plans currently have no five-hour limit" ([Codex docs](https://learn.chatgpt.com/docs/pricing)).
+- DeepSeek: `GET https://api.deepseek.com/user/balance` returns `total_balance` and other balance fields ([DeepSeek docs](https://api-docs.deepseek.com/api/get-user-balance)).
+
+Ruled out, because they are not official: the private usage endpoints that some third-party tools call with the user's login token, and parsing the agents' session files.
+
+Rules from the providers:
+
+- Anthropic: "developers may not collect, store, or intermediate Claude.ai credentials or session tokens" ([Claude Code docs](https://code.claude.com/docs/en/legal-and-compliance)), and "Unless previously approved, Anthropic does not allow third party developers to offer claude.ai login or rate limits for their products" ([Claude Code docs](https://code.claude.com/docs/en/agent-sdk/overview)). elesdee runs the user's own, unchanged Claude Code, never handles the Claude login, and does not use the Agent SDK to run sessions.
+- OpenAI: "If you've built a local or open-source application using Codex app-server authentication, you can continue using it", but "App-server authentication has never been permitted for commercial or hosted services" ([Codex docs](https://learn.chatgpt.com/docs/app-server)). elesdee is local and open source.
 
 **Auto-switch rules**
 
@@ -443,7 +471,13 @@ Recommendation: iroh. Each device is reached by its public key. iroh tries a dir
 
 **First step: a test build**
 
-Build this test before the real app. Build the Tauri mobile shell, pair an Android phone and the desktop app by QR code, load the screens from the desktop, and stream a live session over iroh. Test on Wi-Fi and on mobile data. If iroh works well, commit to iroh; if not, switch to WebRTC. If Tauri mobile has a blocker, switch the shell to React Native.
+Build this test before the real app.
+
+1. Build the Tauri mobile shell, pair an Android phone and the desktop app by QR code, and download the UI package from the desktop.
+2. Stream a live session over iroh, with the phone's message view fed by the Claude Code hooks and by a second client on the Codex app-server (see Where the message view gets its data).
+3. Test on Wi-Fi and on mobile data.
+
+If iroh works well, commit to iroh; if not, switch to WebRTC. If Tauri mobile has a blocker, switch the shell to React Native.
 
 **Design rules**
 
@@ -551,17 +585,12 @@ Facts to plan for:
 **Window and screens**
 
 - [ ] Which editor component for the file viewer on the Mac: CodeMirror (light, works on touch screens, easier to bring to the phone later) or Monaco (the VS Code editor, richer, heavier)?
-- [ ] Can the app read each agent's record of the conversation while it runs, for the phone's message view?
 
 **Sessions**
 
 - [ ] Where do session worktree folders live: in the app's data folder, next to the repo, or inside the repo in a Git-ignored folder?
 - [ ] When a session closes or pauses, do its demo servers and browser tabs stop (browser logins are kept)?
 - [ ] What does a session's diff compare against: the branch it started from, uncommitted changes only, or a choice in the view?
-
-**Providers**
-
-- [ ] Which official sources do Anthropic and OpenAI offer for subscription usage (5-hour and weekly)? This decides which numbers the usage panel can show.
 
 **Releases and updates**
 
