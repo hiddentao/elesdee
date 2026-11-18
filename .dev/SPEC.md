@@ -514,6 +514,10 @@ Facts to plan for:
 
 - [ ] Windows and Linux: which Linux packages, which Windows signing route, and does Codex run natively on Windows?
 
+**Providers**
+
+- [ ] Which official sources do Anthropic and OpenAI offer for subscription usage (5-hour and weekly)? This decides which numbers the usage panel can show.
+
 **Releases and updates**
 
 - [ ] Which route for the iPhone app, when it ships: TestFlight, ad hoc or App Store?
