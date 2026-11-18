@@ -6,6 +6,8 @@ Last updated: 18 November 2026
 
 Build an IDE that runs Claude Code and Codex sessions the way I want, with less manual work. It replaces onoRCA.dev, which does not give enough control and does not save enough time.
 
+The app is public. Anyone can install it from this repository's GitHub releases.
+
 This spec is a first draft. More requirements will follow.
 
 ## Desktop app architecture
@@ -99,6 +101,7 @@ Every agent session gets the same app tools and skills, whatever the agent or pr
 **Browser tools**
 
 - The core service runs its own browser (Chromium), separate from my personal browser. No browser extension is needed.
+- Chromium is not bundled in the app. The app downloads it the first time a session needs a browser. This keeps the app download and its updates small.
 - Each session gets its own browser context: its own tabs, cookies and storage. The session keeps its logins when I quit and relaunch the app, after a crash or a restart of the Mac, and when I close and reopen the session. Login data is stored encrypted on my Mac.
 - Tools: open a page, click, type, read the page, take screenshots, read console and network logs.
 - I can watch a session's browser from the desktop window and from the phone.
@@ -218,7 +221,7 @@ To share a demo with people outside my Tailscale network, Tailscale Funnel can m
 
 ## Mobile companion app
 
-The mobile app is the only way to control the IDE remotely. It is built with React Native, for iOS and Android. There is no web interface. The app talks to the desktop app in real time.
+The mobile app is the only way to control the IDE remotely. It is built with React Native, for iOS and Android. The Android app ships first (see Releases and updates). There is no web interface. The app talks to the desktop app in real time.
 
 From the mobile app I can:
 
@@ -284,12 +287,85 @@ Pair a phone and the desktop app by QR code and stream a live session over iroh.
 - Keep the app's messages separate from the transport, so a switch from iroh to WebRTC does not change the app.
 - Both sides prove their identity with the keys saved at QR pairing.
 
+## Releases and updates
+
+The desktop app and the mobile apps are published through GitHub Releases in this repository. The repository is public, so apps can download releases without a GitHub login. An update installs over the existing app and keeps all its data: sessions, presets, accounts, paired devices and browser logins.
+
+**Release builds**
+
+- A GitHub Actions workflow builds and publishes each release. The Git tag of the release sets the version number.
+- The signing keys are stored as GitHub Actions secrets, never in the repository.
+- The core service is bundled inside the desktop app as a sidecar binary ([Tauri docs](https://v2.tauri.app/develop/sidecar/)). One update replaces the window and the core service together, so the two always have the same version.
+
+**Desktop app (macOS)**
+
+- Tauri's updater plugin reads a static JSON file from the latest GitHub release, for example `https://github.com/<owner>/<repo>/releases/latest/download/latest.json` ([Tauri docs](https://v2.tauri.app/plugin/updater/)).
+- The `tauri-action` GitHub Action builds the app, signs the update files and uploads this JSON file to the release ([tauri-action](https://github.com/tauri-apps/tauri-action)).
+- The app checks the signature of each update before it installs it. Tauri does not allow this check to be turned off ([Tauri docs](https://v2.tauri.app/plugin/updater/)).
+- By default, macOS Gatekeeper checks that an app downloaded from outside the App Store is signed by a registered developer and notarized by Apple ([Apple](https://support.apple.com/guide/security/gatekeeper-and-runtime-protection-sec5599b66df/web)). This needs a Developer ID from the Apple Developer Program, which costs 99 USD per year ([Apple](https://developer.apple.com/programs/)).
+- I will join the Apple Developer Program before the first release, so every release is signed and notarized.
+
+**Update checks (desktop)**
+
+- The app checks GitHub for a new release at launch and every few hours.
+- When it finds one, it downloads it in the background and verifies its signature.
+- It then tells me that an update is ready. It installs the update only when I click Install.
+
+**Update while sessions run**
+
+- An update restarts the core service. When I click Install, the app uses the same steps as quit: it saves every session, stops the core service, installs the update, starts again and resumes the sessions (see Crash recovery).
+- An agent that is mid-task is interrupted. After the restart, it resumes its conversation.
+- Tauri does not force a restart right after it installs an update. The app chooses when to restart ([Tauri docs](https://v2.tauri.app/plugin/updater/)).
+
+**Android app**
+
+The Android app ships on GitHub first and moves to Google Play later.
+
+- Each GitHub release has the signed APK file attached.
+- Android installs an update over the existing app only if the update is signed with the same key ([Android docs](https://developer.android.com/studio/publish/app-signing)). So the signing key must never change. If the key is lost, no update can install over the existing app.
+
+*GitHub phase*
+
+- The app updates itself. It checks GitHub for a new release, downloads the APK, and asks Android to install it over the old app. Android asks the user to confirm.
+- To install an APK, an app that targets API level 26 or newer must hold the `REQUEST_INSTALL_PACKAGES` permission ([Google Play policy](https://support.google.com/googleplay/android-developer/answer/12085295)).
+- Users who prefer it can use Obtainium, an Android app that installs and updates apps from their GitHub release pages ([Obtainium](https://github.com/ImranR98/Obtainium)).
+
+*Google Play phase*
+
+- An app distributed on Google Play may not update itself by any method other than Google Play's update mechanism ([Google Play policy](https://support.google.com/googleplay/android-developer/answer/9888379)). Self-update is also not on Play's list of allowed uses for the install permission ([Google Play policy](https://support.google.com/googleplay/android-developer/answer/12085295)).
+- So the build for Google Play leaves out the self-updater and the install permission. The GitHub build keeps them.
+- Play App Signing lets a developer upload an existing app signing key, with Google's PEPK tool ([Play Console Help](https://support.google.com/googleplay/android-developer/answer/9842756)). We upload the key that signs the GitHub builds, so Play updates install over GitHub installs.
+
+*Developer verification (both phases)*
+
+- Google now verifies the identity of Android developers. From 30 September 2026, the protections begin for users in Brazil, Indonesia, Singapore and Thailand who install apps from participating stores on certified devices. In 2027, Google plans to expand verification worldwide to all apps on certified devices ([Android docs](https://developer.android.com/developer-verification)).
+- Users can still install apps from unverified developers through a one-time "advanced flow", which includes a one-day wait. A free "limited distribution" account lets a developer share an app with up to 20 devices, with no ID and no fee ([Android blog](https://android-developers.googleblog.com/2026/03/android-developer-verification.html)).
+
+**iPhone app**
+
+iOS does not install an app from a GitHub download. Apple's routes:
+
+| Route | Who can install | Limits |
+| --- | --- | --- |
+| TestFlight | Up to 10,000 external testers ([Apple](https://developer.apple.com/testflight/)) | The first build needs App Review ([Apple](https://developer.apple.com/testflight/)). Each build stops working after 90 days ([Apple](https://developer.apple.com/help/app-store-connect/test-a-beta-version/testflight-overview/)). |
+| Ad hoc | Only devices registered in the developer account | 100 iPhones per membership year ([Apple](https://developer.apple.com/help/account/devices/devices-overview/)) |
+| App Store | Anyone | Full App Review |
+| Web Distribution (EU only) | Users in the EU | The developer must meet one of Apple's criteria, for example one million first annual installs worldwide or a financial-stability score ([Apple](https://developer.apple.com/support/dma-and-apps-in-the-eu/)) |
+
+- All of these routes need the Apple Developer Program.
+- Decision: the Android app ships first. The iPhone route is decided later.
+
+**Version numbers**
+
+- The desktop app and the mobile apps share one version number. They are built and released together.
+- A store review can make the mobile app reach users later than the desktop app. So for a short time, the phone and the desktop can run different versions.
+- The message format between them carries a version number. When the two versions cannot work together, the older side shows "update needed".
+
 ## Open questions
 
 **Scope**
 
 - [ ] What exactly does onoRCA.dev fail to do? This sets the priorities.
-- [ ] Is the app only for me, or for other people too? "Anyone using this app" suggests other users. That changes accounts, hosting and relay costs.
 
 **Provider switching**
 
@@ -316,3 +392,11 @@ Pair a phone and the desktop app by QR code and stream a live session over iroh.
 **Tools and skills**
 
 - [ ] Browser tools: use Microsoft's Playwright MCP server as it is, or build browser tools into the elesdee server?
+
+**Releases and updates**
+
+- [ ] A beta channel (GitHub pre-releases) next to stable releases?
+- [ ] Apple Silicon only, or Intel Macs too?
+- [ ] Which route for the iPhone app, when it ships: TestFlight, ad hoc or App Store?
+- [ ] Register as a verified Android developer before the first GitHub release? Without it, once Google expands verification worldwide in 2027, users on certified devices must go through the "advanced flow" with its one-day wait.
+- [ ] The app is public, so strangers will use our relay server. Who pays for it, what limits apply, and can users run their own relay?
