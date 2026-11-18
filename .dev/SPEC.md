@@ -62,6 +62,12 @@ The desktop app is a Tauri app. Version 1 is for macOS; Windows and Linux follow
 
 Sessions are the main view. A file viewer and code editor is an extra panel that I open only when I need it. The layout will be settled through several rounds of UI mockups.
 
+**How a session looks**
+
+- On the Mac, an agent session shows the agent's real terminal.
+- On the phone, it shows a simpler message view, built from the agent's own record of the conversation. The real terminal is one tap away.
+- Open item: check that Claude Code and Codex each keep a record of the conversation that the app can read while the agent runs.
+
 **Session types**
 
 - Agent session: runs Claude Code or Codex, with a preset, provider, branch and worktree.
@@ -113,6 +119,7 @@ Sessions are the main view. A file viewer and code editor is an extra panel that
 - Shows the file tree of the current session's worktree or folder.
 - Code editor with full syntax highlighting. I can edit and save files.
 - Not a main feature: it supports quick edits, not full IDE work.
+- Mac only for now. The phone does not have the file viewer and editor yet.
 
 ## Agent support and presets
 
@@ -327,7 +334,8 @@ The mobile app is the only way to control the IDE remotely. It is for iOS and An
 **A thin shell: the desktop app sends the screens**
 
 - The phone app is a small shell. It holds only what must be native: QR pairing, the list of paired Macs, the iroh connection, the screen cache, and the native features the screens need (file picker for uploads, notifications while the app is open, demo-server forwarding, and the Android self-updater).
-- All screens come from the desktop app. The desktop window and the phone screens are one web UI with two layouts: desktop and phone.
+- All screens come from the desktop app. The desktop window and the phone screens are one web UI, built with React, with two layouts: desktop and phone.
+- The phone shows one Mac at a time. The shell lists the paired Macs; I pick one, and its screens open. This keeps the shell thin, because each Mac can run a different version.
 - Each Mac sends the UI of its own version. So after I update the desktop app, the phone gets the new screens the next time it connects. The phone app needs no update.
 - The phone keeps a copy of each Mac's screens. On connect, it compares versions and downloads the screens only when the Mac has a new version.
 - The shell shows the cached screens through a Tauri custom protocol, which serves web pages from the app's own code ([Tauri docs](https://docs.rs/tauri/latest/tauri/struct.Builder.html)).
@@ -538,6 +546,11 @@ Facts to plan for:
 **Scope**
 
 - [ ] Windows and Linux: which Linux packages, which Windows signing route, and does Codex run natively on Windows?
+
+**Window and screens**
+
+- [ ] Which editor component for the file viewer on the Mac: CodeMirror (light, works on touch screens, easier to bring to the phone later) or Monaco (the VS Code editor, richer, heavier)?
+- [ ] Can the app read each agent's record of the conversation while it runs, for the phone's message view?
 
 **Providers**
 
