@@ -20,11 +20,25 @@ The app is public. Anyone can install it from this repository's GitHub releases.
 - The file viewer and code editor side panel
 - Demo servers that open on my phone (see Demo servers)
 
+Version 1 runs on macOS only. Windows and Linux follow soon after (see Windows and Linux).
+
+**Build order**
+
+1. The iroh test build (see Connection technology).
+2. First milestone: sessions on the Mac. Agent and terminal sessions, worktrees, presets and crash recovery.
+3. The Android phone app.
+4. Provider switching.
+5. The built-in browser.
+
+**Privacy**
+
+- The app sends no crash reports and no usage data. Users report bugs on GitHub.
+
 This spec is a first draft. More requirements will follow.
 
 ## Desktop app architecture
 
-The desktop app is a Tauri app for macOS. Its core is a separate Rust process, the core service. The app starts and stops it. It is not installed as a macOS system service. The window only shows what the core service does.
+The desktop app is a Tauri app. Version 1 is for macOS; Windows and Linux follow soon after, so the core service must not depend on macOS-only features. Its core is a separate Rust process, the core service. The app starts and stops it. It is not installed as a macOS system service. The window only shows what the core service does.
 
 | Part | Job |
 | --- | --- |
@@ -169,6 +183,7 @@ I can switch provider inside a running session with one button, and the IDE can 
 **Accounts**
 
 - I can add more than one account per provider, for example several Claude subscriptions.
+- API keys and account logins are stored in the system's own password store: the macOS Keychain in version 1, and the matching store on Windows and Linux later.
 - Each account is a provider choice in a session.
 
 **Manual switch**
@@ -358,6 +373,7 @@ The desktop app and the mobile apps are published through GitHub Releases in thi
 **Desktop app (macOS)**
 
 - The desktop app runs on Apple Silicon Macs only. There is no Intel build.
+- It supports the two latest major versions of macOS.
 - Tauri's updater plugin reads a static JSON file from the latest GitHub release, for example `https://github.com/<owner>/<repo>/releases/latest/download/latest.json` ([Tauri docs](https://v2.tauri.app/plugin/updater/)).
 - The `tauri-action` GitHub Action builds the app, signs the update files and uploads this JSON file to the release ([tauri-action](https://github.com/tauri-apps/tauri-action)).
 - The app checks the signature of each update before it installs it. Tauri does not allow this check to be turned off ([Tauri docs](https://v2.tauri.app/plugin/updater/)).
@@ -415,6 +431,18 @@ iOS does not install an app from a GitHub download. Apple's routes:
 - All of these routes need the Apple Developer Program.
 - Decision: the Android app ships first. The iPhone route is decided later.
 
+**Windows and Linux (after version 1)**
+
+Facts to plan for:
+
+- Web view: Tauri uses WebView2 on Windows and WebKitGTK (`webkit2gtk`) on Linux ([Tauri docs](https://v2.tauri.app/reference/webview-versions/)). The window must be tested on both.
+- Updates on Windows: Tauri quits the app before it installs an update, because of a limit of Windows installers ([Tauri docs](https://v2.tauri.app/plugin/updater/)). So the core service must save all sessions before the install starts.
+- Updates on Linux: the updater page describes updates only for the AppImage format ([Tauri docs](https://v2.tauri.app/plugin/updater/)). Tauri can also build Debian, RPM, Snap, Flatpak and AUR packages ([Tauri docs](https://v2.tauri.app/distribute/)), but those would update through their own package managers.
+- Signing on Windows: an unsigned app gets a SmartScreen warning. Tauri documents OV certificates, Azure Key Vault and Azure Artifact Signing (previously Azure Trusted Signing). Since 2024, an EV certificate no longer gives instant SmartScreen trust, and an OV certificate is cheaper and available to individuals ([Tauri docs](https://v2.tauri.app/distribute/sign/windows/)).
+- Azure Artifact Signing: individual developers must be located in the United States or Canada ([Microsoft](https://learn.microsoft.com/en-us/azure/artifact-signing/quickstart)).
+- Claude Code runs natively on Windows or inside WSL. Git for Windows is recommended, so Claude Code can use its Bash tool ([Claude Code docs](https://code.claude.com/docs/en/setup)).
+- Codex on Windows: not checked yet.
+
 **Version numbers**
 
 - The desktop app and the mobile apps share one version number. They are built and released together.
@@ -425,13 +453,8 @@ iOS does not install an app from a GitHub download. Apple's routes:
 
 **Scope**
 
-- [ ] Version 1 is large. In what order should the parts be built, and what is the first milestone after the iroh test?
-- [ ] Which is the oldest macOS version the app must run on?
-
-**Privacy and data**
-
-- [ ] Crash reports and usage data for a public app: none, or opt-in only?
-- [ ] Where are API keys and account logins stored: the macOS Keychain, or an encrypted file of the app?
+- [ ] Where in the build order do the session tools and skills, the file viewer and editor, and demo servers go?
+- [ ] Windows and Linux: which Linux packages, which Windows signing route, and does Codex run natively on Windows?
 
 **Sessions**
 
