@@ -8,6 +8,16 @@ Build an IDE that runs Claude Code and Codex sessions the way I want, with less 
 
 The app is public. Anyone can install it from this repository's GitHub releases.
 
+**Version 1 (first public release)** includes:
+
+- Agent and terminal sessions, each with its own branch and worktree
+- Presets and config overrides
+- Crash recovery
+- The Android phone app, with QR pairing
+- Provider switching: usage panel, one-button switch and auto-switch
+- The built-in browser for agents
+- The session tools and skills that let agents start and coordinate sessions, ask me questions and notify me
+
 This spec is a first draft. More requirements will follow.
 
 ## Desktop app architecture
@@ -52,7 +62,9 @@ Sessions are the main view. A file viewer and code editor is an extra panel that
 - A filter at the top of the sidebar, "Show closed sessions", brings closed sessions back into the list. They look different from open sessions, for example greyed out.
 - I can reopen a closed session. The app opens it in a new tab, loads its full log, and restarts the agent with the provider it last used. The agent gets the full log as context.
 - Close keeps the session's branch but deletes its worktree folder, to save disk space. Before it deletes the folder, the app commits any uncommitted changes to the session branch, so no work is lost.
-- If the session branch has work that is not pushed to the remote, the Close confirmation warns me. The app does not push for me.
+- Before Close, the agent commits its work, writes the handoff note and pushes the session branch to the remote.
+- If the push fails, or the branch has no remote, the app tells me before it deletes the worktree folder. The branch stays on my Mac.
+- The app does not open a pull request. I do that myself.
 - Reopen re-creates the worktree from the session branch.
 
 **Tabs**
@@ -163,8 +175,8 @@ Shows every account at the same time:
 
 | Account type | What the panel shows |
 | --- | --- |
-| Claude Code (each subscription) | Weekly usage remaining; context remaining in the current session |
-| Codex | Weekly usage remaining; context remaining in the current session |
+| Claude Code (each subscription) | Usage remaining for each limit of the plan (5-hour and weekly); context remaining in the current session |
+| Codex | Usage remaining for each limit of the plan (5-hour and weekly, where the plan has them); context remaining in the current session |
 | DeepSeek (through Claude Code) | Account balance from the DeepSeek API, so I know when to top up; context remaining in the current session |
 
 **Allowed providers per session**
@@ -175,10 +187,16 @@ Shows every account at the same time:
 **Auto-switch**
 
 1. The IDE watches the usage of the current provider.
-2. When usage nears its limit, the IDE switches the session to an allowed provider that has usage left.
+2. When usage nears its limit, the IDE switches the session to an allowed provider that has usage left (see the rules below).
 3. If no allowed provider has usage left, the IDE tells the agent to commit all its work to the session branch, write a handoff note, and push the branch to the remote.
 4. The IDE then stops the session.
 5. Later, I can resume the session from that saved state with little effort.
+
+**Auto-switch rules**
+
+- Subscriptions (Claude, Codex): "near the limit" means 90% of any limit of the plan, the 5-hour limit or the weekly limit, whichever comes first. The margin leaves room for the agent to commit and hand off.
+- DeepSeek: each account has a minimum balance that I set, for example 5 USD. Below it, auto-switch moves the session away and the app tells me to top up.
+- Order: auto-switch picks subscription accounts first, then pay-per-use accounts such as DeepSeek.
 
 ## Projects
 
@@ -205,8 +223,9 @@ When I launch a session, I choose where the code comes from, and the IDE gets th
 **Branch and worktree per session**
 
 - Every new session gets its own Git branch when it is created.
+- The branch name is `elesdee/<project>/<name>`, for example `elesdee/web/fix-login`. The short name comes from the session's first prompt.
 - Every session gets its own Git worktree, so sessions never change each other's files.
-- Before a session stops for good, the agent is told to push its branch to the remote.
+- Before a session stops for good (Close, or out of usage), the agent pushes its branch to the remote.
 
 ## Tailscale and demo servers
 
@@ -254,8 +273,18 @@ Recommendation: iroh. Each device is reached by its public key. iroh tries a dir
 
 **Relay server**
 
-- We run our own relay for all users. iroh accepts a custom list of relay servers instead of its default ones.
 - The relay does the jobs that WebRTC splits across three services: introduction, address discovery and backup relay.
+- Version 1 uses iroh's public relays. n0.computer runs them and they are free to use ([iroh docs](https://docs.iroh.computer/iroh-services/relays/public.md)). Users cannot change the relay in the app.
+- The public relays have limits. Traffic is rate-limited, there is no uptime guarantee, and n0.computer can drop support for older iroh versions at any time. The relays can see connection metadata, such as IP addresses, connection times and the amount of data, but not the content. iroh says they are for development and hobby use only ([iroh docs](https://docs.iroh.computer/iroh-services/relays/public.md)).
+- iroh accepts a custom list of relay servers ([iroh docs](https://docs.rs/iroh/latest/iroh/endpoint/enum.RelayMode.html)). The list ships inside the app, so a later app update can move all users to another relay.
+- Options for that move:
+  - iroh Shared Relays, run by n0.computer: 19 USD per month for up to 10,000 connections at a time and 100 GB of relay traffic per month, with a 5 MB/s rate limit ([iroh docs](https://docs.iroh.computer/iroh-services/relays/shared.md)).
+  - Our own server running iroh's open-source relay program, `iroh-relay` ([iroh docs](https://docs.iroh.computer/iroh-services/relays/self-hosted.md)).
+
+**Same Wi-Fi**
+
+- When the phone and the desktop are on the same local network, they connect directly, with no relay.
+- iroh's optional mDNS lookup announces each device on the local network and finds the other, so a connection can be made directly without a relay ([iroh docs](https://docs.iroh.computer/connecting/local-address-lookup.md)). It is a separate crate and is not on by default, so we must add it.
 
 **Mobile app (React Native)**
 
@@ -268,7 +297,7 @@ Recommendation: iroh. Each device is reached by its public key. iroh tries a dir
 
 | Question | iroh (recommended) | WebRTC data channels (fallback) |
 | --- | --- | --- |
-| Servers to run | One relay server | Rendezvous server, STUN, TURN relay |
+| Servers to run | None at first (iroh public relays); later one relay server or a paid relay service | Rendezvous server, STUN, TURN relay |
 | Pairing | QR code holds one public key | QR code holds keys and server details; an offer/answer exchange on each connect |
 | Mobile libraries | Official Swift and Kotlin ([iroh docs](https://docs.iroh.computer/languages)) | Mature native WebRTC libraries |
 | Maturity | Version 1.0 since June 2026 ([Pinggy](https://pinggy.io/blog/iroh_1_0_dial_keys_not_ips/)) | Used in production for many years |
@@ -277,6 +306,7 @@ Recommendation: iroh. Each device is reached by its public key. iroh tries a dir
 
 - iroh is new, so there is less real-world use behind it.
 - The iroh team paused its mobile libraries in 2025 ([iroh blog](https://iroh.computer/blog/ffi-updates)). They are official again now, but we must test them on real phones.
+- The public relays are rate-limited and have no uptime guarantee. If n0.computer drops support for an old iroh version, users who do not update lose the relay. Direct connections on the same Wi-Fi still work.
 
 **First step: a test build**
 
@@ -294,11 +324,13 @@ The desktop app and the mobile apps are published through GitHub Releases in thi
 **Release builds**
 
 - A GitHub Actions workflow builds and publishes each release. The Git tag of the release sets the version number.
+- There are only stable releases: no beta and no nightly builds. Every release goes to every user.
 - The signing keys are stored as GitHub Actions secrets, never in the repository.
 - The core service is bundled inside the desktop app as a sidecar binary ([Tauri docs](https://v2.tauri.app/develop/sidecar/)). One update replaces the window and the core service together, so the two always have the same version.
 
 **Desktop app (macOS)**
 
+- The desktop app runs on Apple Silicon Macs only. There is no Intel build.
 - Tauri's updater plugin reads a static JSON file from the latest GitHub release, for example `https://github.com/<owner>/<repo>/releases/latest/download/latest.json` ([Tauri docs](https://v2.tauri.app/plugin/updater/)).
 - The `tauri-action` GitHub Action builds the app, signs the update files and uploads this JSON file to the release ([tauri-action](https://github.com/tauri-apps/tauri-action)).
 - The app checks the signature of each update before it installs it. Tauri does not allow this check to be turned off ([Tauri docs](https://v2.tauri.app/plugin/updater/)).
@@ -340,6 +372,7 @@ The Android app ships on GitHub first and moves to Google Play later.
 
 - Google now verifies the identity of Android developers. From 30 September 2026, the protections begin for users in Brazil, Indonesia, Singapore and Thailand who install apps from participating stores on certified devices. In 2027, Google plans to expand verification worldwide to all apps on certified devices ([Android docs](https://developer.android.com/developer-verification)).
 - Users can still install apps from unverified developers through a one-time "advanced flow", which includes a one-day wait. A free "limited distribution" account lets a developer share an app with up to 20 devices, with no ID and no fee ([Android blog](https://android-developers.googleblog.com/2026/03/android-developer-verification.html)).
+- Decision: I register as a verified Android developer before the first public Android release, so users install with no extra steps.
 
 **iPhone app**
 
@@ -365,13 +398,11 @@ iOS does not install an app from a GitHub download. Apple's routes:
 
 **Scope**
 
-- [ ] What exactly does onoRCA.dev fail to do? This sets the priorities.
+- [ ] Are the file viewer and code editor, and the Tailscale demo-server addresses, in version 1?
 
 **Provider switching**
 
-- [ ] Auto-switch threshold: what percent of the limit? Weekly limit only, or also the 5-hour limit?
-- [ ] Switch order: a fixed priority list per session, or the provider with the most usage left?
-- [ ] DeepSeek has a balance, not a weekly limit. At what balance does auto-switch treat it as "near the limit"?
+- [ ] Order inside each group: with two or more subscription accounts left, which one comes first?
 
 **Remote access and mobile**
 
@@ -380,8 +411,6 @@ iOS does not install an app from a GitHub download. Apple's routes:
 
 **Git**
 
-- [ ] Session branch names: a fixed pattern (for example `session/<project>/<short-name>`)?
-- [ ] Should the IDE open a pull request when a session finishes?
 - [ ] If the base branch has uncommitted changes at launch, should the IDE stash them, stop, or ask?
 
 **Sessions and terminals**
@@ -395,8 +424,5 @@ iOS does not install an app from a GitHub download. Apple's routes:
 
 **Releases and updates**
 
-- [ ] A beta channel (GitHub pre-releases) next to stable releases?
-- [ ] Apple Silicon only, or Intel Macs too?
 - [ ] Which route for the iPhone app, when it ships: TestFlight, ad hoc or App Store?
-- [ ] Register as a verified Android developer before the first GitHub release? Without it, once Google expands verification worldwide in 2027, users on certified devices must go through the "advanced flow" with its one-day wait.
-- [ ] The app is public, so strangers will use our relay server. Who pays for it, what limits apply, and can users run their own relay?
+- [ ] When do we move off iroh's public relays: at a number of users, or when rate limits cause problems?
