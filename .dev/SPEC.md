@@ -47,6 +47,8 @@ The desktop app is a Tauri app. Version 1 is for macOS; Windows and Linux follow
 | Mobile app (React Native) | Same view and input as the window, over iroh |
 
 - If the window crashes or I close it, sessions keep running and the phone stays connected. When the window opens again, it reconnects.
+- Start at login: a setting, "Start elesdee when the system starts", is off by default. When it is on, the core service starts when I log in and resumes the sessions; the window opens only when I click the app. When it is off, elesdee starts only when I open it.
+- Sleep: a setting, "Keep the Mac awake while agents work", is off by default. When it is on, the Mac does not go to sleep on its own while any agent session is running. When it is off, sessions pause while the Mac sleeps, and the phone cannot connect.
 - When I quit the app while sessions are running, the app asks me first. If I confirm, the core service saves every session and stops. On the next launch, the sessions resume. Crash recovery (below) covers a crash of the core service or a restart of the Mac.
 - Why Tauri and not Electron: iroh is written in Rust, so the service uses it directly. Tauri also uses less memory, which matters for an app that runs all day. On macOS, Tauri's built-in web view works well.
 
@@ -144,7 +146,7 @@ Every agent session gets the same app tools and skills, whatever the agent or pr
 | Tool | What it does |
 | --- | --- |
 | List sessions | Lists sessions with their project, status and branch |
-| Start session | Starts a new session with a preset, project, source branch and first prompt. I must approve each new session first, on the desktop or the phone. The sidebar marks which session started it. |
+| Start session | Starts a new session with a preset, project, source branch and first prompt. I must approve each new session first, on the desktop or the phone. The approval has an option, "Allow further sessions from this session", so a coordinating agent can start helpers without more questions. The sidebar marks which session started it. |
 | Send message | Sends input to another session |
 | Read session | Reads another session's recent output and status: running, waiting for input, or finished |
 | Wait for session | Waits until another session finishes or needs input |
@@ -167,9 +169,15 @@ Every agent session gets the same app tools and skills, whatever the agent or pr
 | Ask and notify | Ask me through the app when blocked, instead of waiting. Tell me when work is done. |
 | Coordinate sessions | Split a large task across sessions, write clear briefs, track progress, and merge their branches |
 
+**Handoff note**
+
+- Agents write a handoff note when they switch provider, run out of usage, or Close.
+- The app keeps the note and gives it to the next agent that works on the session.
+- A copy goes in the message of the last commit on the session branch. So the note travels with the branch, and no file is added to the repo.
+
 ## Crash recovery
 
-After a crash or restart, the IDE reopens every session that was running and resumes each one where it stopped.
+After a crash or restart, the IDE reopens every session that was running and resumes each one where it stopped. After a restart of the Mac, this happens when elesdee next starts: at login if the start-at-login setting is on, or else when I open the app.
 
 - The IDE saves the state of each session while it runs: agent, preset, provider, folder, branch, and the agent's own session ID.
 - On restart, the IDE relaunches each session with the same settings and resumes the agent's conversation.
@@ -301,6 +309,7 @@ From the mobile app I can:
 
 - The phone connects to the desktop app from any network, with no more setup.
 - The desktop app lists paired devices. I can remove a device at any time.
+- Pairing is many to many. One Mac can pair with several phones, and one phone can pair with several Macs. The phone app lets me pick which Mac to control.
 
 ## Connection technology
 
@@ -319,6 +328,7 @@ Recommendation: iroh. Each device is reached by its public key. iroh tries a dir
 - Version 1 uses iroh's public relays. n0.computer runs them and they are free to use ([iroh docs](https://docs.iroh.computer/iroh-services/relays/public.md)). Users cannot change the relay in the app.
 - The public relays have limits. Traffic is rate-limited, there is no uptime guarantee, and n0.computer can drop support for older iroh versions at any time. The relays can see connection metadata, such as IP addresses, connection times and the amount of data, but not the content. iroh says they are for development and hobby use only ([iroh docs](https://docs.iroh.computer/iroh-services/relays/public.md)).
 - iroh accepts a custom list of relay servers ([iroh docs](https://docs.rs/iroh/latest/iroh/endpoint/enum.RelayMode.html)). The list ships inside the app, so a later app update can move all users to another relay.
+- We stay on the public relays until users see slow or dropped connections. Then an app update moves everyone to one of the options below.
 - Options for that move:
   - iroh Shared Relays, run by n0.computer: 19 USD per month for up to 10,000 connections at a time and 100 GB of relay traffic per month, with a 5 MB/s rate limit ([iroh docs](https://docs.iroh.computer/iroh-services/relays/shared.md)).
   - Our own server running iroh's open-source relay program, `iroh-relay` ([iroh docs](https://docs.iroh.computer/iroh-services/relays/self-hosted.md)).
@@ -467,4 +477,3 @@ Facts to plan for:
 **Releases and updates**
 
 - [ ] Which route for the iPhone app, when it ships: TestFlight, ad hoc or App Store?
-- [ ] When do we move off iroh's public relays: at a number of users, or when rate limits cause problems?
