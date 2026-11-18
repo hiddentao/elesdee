@@ -50,7 +50,7 @@ The desktop app is a Tauri app. Version 1 is for macOS; Windows and Linux follow
 | --- | --- |
 | Core service (Rust) | Runs agent sessions in terminals, manages Git branches and worktrees, tracks usage, saves session state, holds the iroh connection to the phone |
 | Desktop window (Tauri) | Shows sessions, usage and projects. Sends my input to the core service. |
-| Mobile app (Tauri shell) | A small shell that shows the screens the desktop app sends it, over iroh |
+| Mobile app (Tauri shell) | A small shell that runs the UI package it downloads from the desktop app, and talks to the core service over iroh |
 
 - If the window crashes or I close it, sessions keep running and the phone stays connected. When the window opens again, it reconnects.
 - Start at login: a setting, "Start elesdee when the system starts", is off by default. When it is on, the core service starts when I log in and resumes the sessions; the window opens only when I click the app. When it is off, elesdee starts only when I open it.
@@ -331,21 +331,22 @@ To share a demo with people outside my Tailscale network, Tailscale Funnel can m
 
 The mobile app is the only way to control the IDE remotely. It is for iOS and Android. The Android app ships first (see Releases and updates). There is no web interface. The app talks to the desktop app in real time.
 
-**A thin shell: the desktop app sends the screens**
+**A thin shell: the UI comes from the Mac as a package**
 
 - The phone app is a small shell. It holds only what must be native: QR pairing, the list of paired Macs, the iroh connection, the screen cache, and the native features the screens need (file picker for uploads, notifications while the app is open, demo-server forwarding, and the Android self-updater).
-- All screens come from the desktop app. The desktop window and the phone screens are one web UI, built with React, with two layouts: desktop and phone.
+- The phone's UI comes from the desktop app as a package. The desktop window and the phone screens are one web UI, built with React, with two layouts: desktop and phone.
 - The phone shows one Mac at a time. The shell lists the paired Macs; I pick one, and its screens open. This keeps the shell thin, because each Mac can run a different version.
-- Each Mac sends the UI of its own version. So after I update the desktop app, the phone gets the new screens the next time it connects. The phone app needs no update.
-- The phone keeps a copy of each Mac's screens. On connect, it compares versions and downloads the screens only when the Mac has a new version.
-- The shell shows the cached screens through a Tauri custom protocol, which serves web pages from the app's own code ([Tauri docs](https://docs.rs/tauri/latest/tauri/struct.Builder.html)).
-- The shell loads screens only from paired Macs, over the authenticated connection. The screens cannot load code from the internet.
+- Each Mac holds the UI package of its own version. On connect, the phone compares that version with its stored copy for that Mac. If the Mac has a new version, the phone downloads the whole package once and stores it.
+- The UI is not streamed. It runs from the stored package on the phone. Only data goes over the connection: session output, my input, and events.
+- So after I update the desktop app, the phone gets the new UI the next time it connects. The phone app needs no update.
+- The shell shows the stored UI package through a Tauri custom protocol, which serves web pages from the app's own code ([Tauri docs](https://docs.rs/tauri/latest/tauri/struct.Builder.html)).
+- The shell downloads UI packages only from paired Macs, over the authenticated connection. The UI cannot load code from the internet.
 - The shell offers its native features to the screens through a small bridge with its own version number. If a Mac's screens need a newer bridge, the phone tells me to update the phone app.
 
-**Store rules for screens sent by the desktop**
+**Store rules for a UI package downloaded from the Mac**
 
 - Google Play: an app may not download executable code from a source other than Google Play, but this does not apply to code that runs in an interpreter, "such as JavaScript in a webview or browser" ([Google Play policy](https://support.google.com/googleplay/android-developer/answer/9888379)). So the thin shell is allowed on Android, from GitHub and from Google Play.
-- Apple: guideline 2.5.2 says apps may not "download, install, or execute code which introduces or changes features or functionality of the app". Guideline 4.2.7 allows remote desktop clients only when the software runs and renders on the host, and limits them to a user-owned host on a local network ([Apple](https://developer.apple.com/app-store/review/guidelines/)). Screens sent from the Mac over the internet do not clearly fit, so App Store and TestFlight review are a risk for the iPhone app. This is part of the later iPhone decision.
+- Apple: guideline 2.5.2 says apps may not "download, install, or execute code which introduces or changes features or functionality of the app". Guideline 4.2.7 allows remote desktop clients only when the software runs and renders on the host, and limits them to a user-owned host on a local network ([Apple](https://developer.apple.com/app-store/review/guidelines/)). A UI package downloaded from the Mac over the internet does not clearly fit, so App Store and TestFlight review are a risk for the iPhone app. This is part of the later iPhone decision.
 
 From the mobile app I can:
 
@@ -492,7 +493,7 @@ The Android app ships on GitHub first and moves to Google Play later.
 *GitHub phase*
 
 - The app updates itself. It checks GitHub for a new release of the shell, downloads the APK, and asks Android to install it over the old app. Android asks the user to confirm.
-- Shell updates are rare: new screens come from the desktop app, not from an app update.
+- Shell updates are rare: a new UI comes as a package from the desktop app, not from an app update.
 - To install an APK, an app that targets API level 26 or newer must hold the `REQUEST_INSTALL_PACKAGES` permission ([Google Play policy](https://support.google.com/googleplay/android-developer/answer/12085295)).
 - Users who prefer it can use Obtainium, an Android app that installs and updates apps from their GitHub release pages ([Obtainium](https://github.com/ImranR98/Obtainium)).
 
@@ -536,7 +537,7 @@ Facts to plan for:
 
 **Version numbers**
 
-- The phone's screens come from the desktop app, so they always have the desktop app's version.
+- The phone's UI package comes from the desktop app, so it always has the desktop app's version.
 - The phone shell has its own version number. A new shell is released only when its native features or its bridge change, so users are not asked to update a shell that did not change.
 - Both are built by the same release workflow. A release that changes the shell attaches the new APK.
 - The message format between the phone and the desktop carries a version number, and the bridge has its own version number. When the shell is too old for a Mac's screens, the phone shows "update the phone app". When a Mac is too old for the shell, the phone shows "update elesdee on this Mac".
@@ -552,10 +553,16 @@ Facts to plan for:
 - [ ] Which editor component for the file viewer on the Mac: CodeMirror (light, works on touch screens, easier to bring to the phone later) or Monaco (the VS Code editor, richer, heavier)?
 - [ ] Can the app read each agent's record of the conversation while it runs, for the phone's message view?
 
+**Sessions**
+
+- [ ] Where do session worktree folders live: in the app's data folder, next to the repo, or inside the repo in a Git-ignored folder?
+- [ ] When a session closes or pauses, do its demo servers and browser tabs stop (browser logins are kept)?
+- [ ] What does a session's diff compare against: the branch it started from, uncommitted changes only, or a choice in the view?
+
 **Providers**
 
 - [ ] Which official sources do Anthropic and OpenAI offer for subscription usage (5-hour and weekly)? This decides which numbers the usage panel can show.
 
 **Releases and updates**
 
-- [ ] Which route for the iPhone app, when it ships: TestFlight, ad hoc or App Store? Apple's rules on downloaded code are a risk for a shell whose screens come from the Mac (see Store rules).
+- [ ] Which route for the iPhone app, when it ships: TestFlight, ad hoc or App Store? Apple's rules on downloaded code are a risk for a shell that downloads its UI package from the Mac (see Store rules).
