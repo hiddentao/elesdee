@@ -10,13 +10,15 @@ The app is public. Anyone can install it from this repository's GitHub releases.
 
 **Version 1 (first public release)** includes:
 
-- Agent and terminal sessions, each with its own branch and worktree
+- Agent sessions, each with its own branch and worktree, and terminal sessions
 - Presets and config overrides
 - Crash recovery
 - The Android phone app, with QR pairing
 - Provider switching: usage panel, one-button switch and auto-switch
 - The built-in browser for agents
 - The session tools and skills that let agents start and coordinate sessions, ask me questions and notify me
+- The file viewer and code editor side panel
+- Demo servers that open on my phone (see Demo servers)
 
 This spec is a first draft. More requirements will follow.
 
@@ -41,7 +43,7 @@ Sessions are the main view. A file viewer and code editor is an extra panel that
 **Session types**
 
 - Agent session: runs Claude Code or Codex, with a preset, provider, branch and worktree.
-- Terminal session: a plain terminal, with no agent.
+- Terminal session: a plain terminal, with no agent. It sits under a project in the sidebar and opens in a folder I choose, often an agent session's worktree. It has no branch or worktree of its own.
 
 **Sessions sidebar**
 
@@ -83,6 +85,9 @@ Sessions are the main view. A file viewer and code editor is an extra panel that
 
 Version 1 supports two coding agents: Claude Code and Codex. Other agents can come later.
 
+- elesdee uses the Claude Code and Codex that I installed, and shows their versions.
+- If one is missing, elesdee installs its own copy.
+
 **Config overrides**
 
 - Each launch can override the agent's environment variables and config settings.
@@ -116,8 +121,9 @@ Every agent session gets the same app tools and skills, whatever the agent or pr
 - Chromium is not bundled in the app. The app downloads it the first time a session needs a browser. This keeps the app download and its updates small.
 - Each session gets its own browser context: its own tabs, cookies and storage. The session keeps its logins when I quit and relaunch the app, after a crash or a restart of the Mac, and when I close and reopen the session. Login data is stored encrypted on my Mac.
 - Tools: open a page, click, type, read the page, take screenshots, read console and network logs.
-- I can watch a session's browser from the desktop window and from the phone.
-- Starting point: Microsoft's Playwright MCP server, which already has 70+ browser tools ([Playwright](https://playwright.dev/mcp/introduction)).
+- On the Mac, I can watch a session's browser live and click or type in it, for example to log in to a site for the agent.
+- The phone has no live view of the browser. It gets the screenshots that agents share.
+- The elesdee server wraps Microsoft's Playwright MCP server, which already has 70+ browser tools ([Playwright](https://playwright.dev/mcp/introduction)). It runs Playwright MCP for each session and passes its tools through, so agents see one server. elesdee adds the per-session logins and the live view.
 
 **Session tools**
 
@@ -128,8 +134,8 @@ Every agent session gets the same app tools and skills, whatever the agent or pr
 | Send message | Sends input to another session |
 | Read session | Reads another session's recent output and status: running, waiting for input, or finished |
 | Wait for session | Waits until another session finishes or needs input |
-| Register demo server | Tells the app that a demo server runs on a port. Returns an address I can open remotely (see Tailscale and demo servers). |
-| Notify me | Sends me a notification on the desktop and the phone |
+| Register demo server | Tells the app that a demo server runs on a port. Returns an address I can open remotely (see Demo servers). |
+| Notify me | Sends me a notification on the desktop, and on the phone while the phone app is open |
 | Ask me | Asks me a question and waits for my answer, on the desktop or the phone |
 | Share file | Adds a file or screenshot to the session's view, so I can see it on any device |
 | Check usage | Shows the session's remaining context and the provider's remaining usage |
@@ -154,6 +160,7 @@ After a crash or restart, the IDE reopens every session that was running and res
 - The IDE saves the state of each session while it runs: agent, preset, provider, folder, branch, and the agent's own session ID.
 - On restart, the IDE relaunches each session with the same settings and resumes the agent's conversation.
 - I do not need to do anything to restore my work.
+- Terminal sessions cannot resume the programs that ran in them. The IDE reopens each terminal in the same folder and shows its earlier output above a new prompt.
 
 ## Providers, usage and auto-switch
 
@@ -196,7 +203,7 @@ Shows every account at the same time:
 
 - Subscriptions (Claude, Codex): "near the limit" means 90% of any limit of the plan, the 5-hour limit or the weekly limit, whichever comes first. The margin leaves room for the agent to commit and hand off.
 - DeepSeek: each account has a minimum balance that I set, for example 5 USD. Below it, auto-switch moves the session away and the app tells me to top up.
-- Order: auto-switch picks subscription accounts first, then pay-per-use accounts such as DeepSeek.
+- Order: auto-switch picks subscription accounts first, then pay-per-use accounts such as DeepSeek. Among subscription accounts, it picks the one with the most usage left.
 
 ## Projects
 
@@ -219,6 +226,8 @@ When I launch a session, I choose where the code comes from, and the IDE gets th
 
 - From a remote branch: the IDE gets the latest version of that branch.
 - From a local branch that tracks a remote branch (for example `main`): the IDE pulls the latest changes before the agent starts.
+- The session starts from the latest commit, in its own new worktree, so the IDE never changes my own checkout.
+- If my checkout has uncommitted changes, the launch form asks me: copy them into the new session, or leave them out.
 
 **Branch and worktree per session**
 
@@ -227,14 +236,27 @@ When I launch a session, I choose where the code comes from, and the IDE gets th
 - Every session gets its own Git worktree, so sessions never change each other's files.
 - Before a session stops for good (Close, or out of usage), the agent pushes its branch to the remote.
 
-## Tailscale and demo servers
+## Demo servers
 
-When I work remotely, every demo server a session starts must have an address my remote device can open. The IDE finds or makes that address.
+A session can start a demo server to show me its work, for example a page to review and give feedback on, or the visual output of the code base. I must be able to open it in a browser on my phone, wherever I am. On the Mac, I open `localhost` directly.
+
+**Main way: forwarding through the phone app**
+
+- The phone app opens the same port on the phone, for example `localhost:3000`, and forwards it over the paired iroh connection to that port on the Mac. Any browser on the phone can then open `http://localhost:3000`.
+- Because the port is the same, links, live reload and cookies work as they do on the Mac. If the port is already in use on the phone, the app picks another port and shows me the address.
+- The iroh team (n0) makes a tool, `dumbpipe`, that forwards a local web server port to another machine over iroh in the same way ([dumbpipe](https://github.com/n0-computer/dumbpipe)).
+- Browsers treat `http://localhost` as a secure context ([MDN](https://developer.mozilla.org/en-US/docs/Web/Security/Secure_Contexts)), so pages that need HTTPS-only features still work.
+- This needs no Tailscale. It works on the same Wi-Fi and through the relay.
+- Risk: the forwarding works only while the phone app runs. Android may stop the app in the background when I switch to the browser. The test build must check this.
+
+**Optional: Tailscale**
+
+If Tailscale runs, the IDE also gives each demo server a Tailscale address. This helps for devices that do not have the elesdee app, such as another computer or a tablet, and for sharing with other people.
 
 1. The IDE checks if Tailscale runs. `tailscale status --json` returns a `BackendState` field, which is `Running` when Tailscale is up ([check](https://alexwlchan.net/til/2025/check-tailscale-is-running/)). The same output gives the machine's Tailscale name ([forum](https://forum.tailscale.com/t/find-out-tailnet-name-from-script/5271)).
 2. If Tailscale runs, the IDE runs `tailscale serve <port>` for each demo server. This gives an HTTPS address that only devices in my Tailscale network can open ([Tailscale docs](https://tailscale.com/docs/use-cases/application-testing/share-local-dev-server-with-team)).
-3. If Tailscale is not installed or not running, the IDE suggests that I install or start it. Until then, it uses a fallback (open question below).
-4. The IDE tells the agent which address to use, so links the agent prints work on my remote device.
+3. If Tailscale is not installed or not running, demo servers use only the forwarding through the phone app.
+4. The IDE tells the agent which addresses to use, so links the agent prints work on my phone.
 
 To share a demo with people outside my Tailscale network, Tailscale Funnel can make it public ([Tailscale docs](https://tailscale.com/docs/use-cases/application-testing/share-local-dev-server-with-internet)). The IDE does this only when I ask.
 
@@ -248,6 +270,11 @@ From the mobile app I can:
 - Type and send input to any session.
 - Upload files into a session.
 - View what a session creates: files, images, diffs and running demo servers.
+
+**Notifications on the phone**
+
+- The phone shows notifications and questions from sessions only while the elesdee app is open. There are no push notifications when the app is closed.
+- When I open the app, it shows what I missed. The desktop always shows notifications.
 
 **Pairing (one time)**
 
@@ -291,7 +318,7 @@ Recommendation: iroh. Each device is reached by its public key. iroh tries a dir
 - I found no React Native library for iroh. Its official mobile libraries are for Swift and Kotlin.
 - Plan: write one small Rust library that holds iroh and our message format. Turn it into a React Native module for iOS and Android with uniffi-bindgen-react-native, a tool from Mozilla ([Mozilla](https://hacks.mozilla.org/2024/12/introducing-uniffi-for-react-native-rust-powered-turbo-modules/)). The iroh team names this route as one that works ([iroh blog](https://iroh.computer/blog/ffi-updates)).
 - The desktop service uses the same Rust library, so pairing, messages and reconnection are written once.
-- The test build must run this module on a real iPhone and a real Android phone.
+- The test build must run this module on a real Android phone. The iPhone test comes when the iPhone app starts.
 
 **iroh compared with WebRTC**
 
@@ -310,7 +337,7 @@ Recommendation: iroh. Each device is reached by its public key. iroh tries a dir
 
 **First step: a test build**
 
-Pair a phone and the desktop app by QR code and stream a live session over iroh. Test on Wi-Fi and on mobile data. If it works well, commit to iroh. If not, switch to WebRTC.
+Build this test before the real app. Pair an Android phone and the desktop app by QR code and stream a live session over iroh. Test on Wi-Fi and on mobile data. If it works well, commit to iroh. If not, switch to WebRTC.
 
 **Design rules**
 
@@ -398,29 +425,21 @@ iOS does not install an app from a GitHub download. Apple's routes:
 
 **Scope**
 
-- [ ] Are the file viewer and code editor, and the Tailscale demo-server addresses, in version 1?
+- [ ] Version 1 is large. In what order should the parts be built, and what is the first milestone after the iroh test?
+- [ ] Which is the oldest macOS version the app must run on?
 
-**Provider switching**
+**Privacy and data**
 
-- [ ] Order inside each group: with two or more subscription accounts left, which one comes first?
+- [ ] Crash reports and usage data for a public app: none, or opt-in only?
+- [ ] Where are API keys and account logins stored: the macOS Keychain, or an encrypted file of the app?
+
+**Sessions**
+
+- [ ] Where does the handoff note live: a file committed to the session branch, or only inside the app?
 
 **Remote access and mobile**
 
-- [ ] Build the iroh test first (phone and desktop, on Wi-Fi and mobile data) before committing to iroh?
-- [ ] Demo servers without Tailscale: is it OK to show them through the paired connection inside the app, as a fallback?
-
-**Git**
-
-- [ ] If the base branch has uncommitted changes at launch, should the IDE stash them, stop, or ask?
-
-**Sessions and terminals**
-
-- [ ] Terminal sessions: do they belong to a project and get their own branch and worktree, or do they just open in a folder I choose?
-- [ ] After a crash, a terminal session cannot resume the programs that were running in it. Is it enough to reopen it in the same folder with its earlier output shown?
-
-**Tools and skills**
-
-- [ ] Browser tools: use Microsoft's Playwright MCP server as it is, or build browser tools into the elesdee server?
+- [ ] Can one Mac pair with more than one phone, and can one phone pair with more than one Mac?
 
 **Releases and updates**
 
