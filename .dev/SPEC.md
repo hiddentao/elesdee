@@ -466,14 +466,6 @@ Facts to plan for:
 - [ ] Where in the build order do the session tools and skills, the file viewer and editor, and demo servers go?
 - [ ] Windows and Linux: which Linux packages, which Windows signing route, and does Codex run natively on Windows?
 
-**Sessions**
-
-- [ ] Where does the handoff note live: a file committed to the session branch, or only inside the app?
-
-**Remote access and mobile**
-
-- [ ] Can one Mac pair with more than one phone, and can one phone pair with more than one Mac?
-
 **Releases and updates**
 
 - [ ] Which route for the iPhone app, when it ships: TestFlight, ad hoc or App Store?
