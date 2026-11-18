@@ -24,17 +24,23 @@ Version 1 runs on macOS only. Windows and Linux follow soon after (see Windows a
 
 **Build order**
 
-1. The iroh test build (see Connection technology).
-2. First milestone: sessions on the Mac. Agent and terminal sessions, worktrees, presets, crash recovery, and the session tools and skills that agents need from the start.
-3. The Android phone app.
-4. Provider switching.
-5. The built-in browser.
-6. The file viewer and code editor.
-7. Demo servers.
+1. UI mockups of the Mac window and the phone layout, in several rounds, before any code is written.
+2. The iroh test build (see Connection technology).
+3. First milestone: sessions on the Mac. Agent and terminal sessions, worktrees, presets, crash recovery, and the session tools and skills that agents need from the start.
+4. The Android phone app.
+5. Provider switching.
+6. The built-in browser.
+7. The file viewer and code editor.
+8. Demo servers.
 
 **Privacy**
 
 - The app sends no crash reports and no usage data. Users report bugs on GitHub.
+- The app keeps local logs. An "Export diagnostics" button saves one file with the logs and app versions, with secrets and session content removed, for the user to attach to a GitHub issue.
+
+**Language**
+
+- The interface is in English only. All interface text is kept in one place, so translations can come later.
 
 **Moving to a new Mac**
 
@@ -56,16 +62,19 @@ The desktop app is a Tauri app. Version 1 is for macOS; Windows and Linux follow
 - Start at login: a setting, "Start elesdee when the system starts", is off by default. When it is on, the core service starts when I log in and resumes the sessions; the window opens only when I click the app. When it is off, elesdee starts only when I open it.
 - Sleep: a setting, "Keep the Mac awake while agents work", is off by default. When it is on, the Mac does not go to sleep on its own while any agent session is running. When it is off, sessions pause while the Mac sleeps, and the phone cannot connect.
 - When I quit the app while sessions are running, the app asks me first. If I confirm, the core service saves every session and stops. On the next launch, the sessions resume. Crash recovery (below) covers a crash of the core service or a restart of the Mac.
+- All parts live in this one repository: the core service and the shared connection library (Rust), the Mac app (Tauri), the phone shell (Tauri mobile) and the shared UI (React). One change can update them together, and one release workflow builds them.
+- Every pull request runs lint and format checks, unit tests, the Mac and Android builds, and end-to-end tests that start the app and drive real sessions with a test agent.
 - Why Tauri and not Electron: iroh is written in Rust, so the service uses it directly. Tauri also uses less memory, which matters for an app that runs all day. On macOS, Tauri's built-in web view works well.
 
 ## Window layout and sessions
 
-Sessions are the main view. A file viewer and code editor is an extra panel that I open only when I need it. The layout will be settled through several rounds of UI mockups.
+Sessions are the main view. A file viewer and code editor is an extra panel that I open only when I need it. The layout will be settled through several rounds of UI mockups, before any code is written.
 
 **How a session looks**
 
 - On the Mac, an agent session shows the agent's real terminal.
 - On the phone, it shows a simpler message view, built from structured events of the conversation. The real terminal is one tap away.
+- The message view shows my prompts and the agent's replies in full. Tool calls (commands, file edits) appear as one-line rows that I can tap to open.
 
 **Where the message view gets its data**
 
