@@ -1,6 +1,6 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../api/client';
 import type { Account, Project } from '../api/types';
 import { makeSession } from '../test/fixtures';
@@ -61,6 +61,70 @@ const createdSession = makeSession({
   preview: '',
 });
 
+function jsonResponse(body: unknown): Response {
+  return {
+    ok: true,
+    status: 200,
+    json: async () => body,
+  } as Response;
+}
+
+interface Deferred<T> {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+}
+
+function deferred<T>(): Deferred<T> {
+  let resolve: (value: T) => void = () => undefined;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
+function matches(text: string, query: string): boolean {
+  return text.toLowerCase().includes(query.toLowerCase());
+}
+
+function pickerResponse(input: RequestInfo | URL): Promise<Response> {
+  const url = new URL(String(input), 'http://localhost');
+  const query = url.searchParams.get('q') ?? '';
+
+  if (url.pathname === '/api/projects') {
+    return Promise.resolve(
+      jsonResponse(
+        projects.filter(
+          (project) =>
+            matches(project.name, query) || matches(project.folder, query),
+        ),
+      ),
+    );
+  }
+
+  if (url.pathname === '/api/accounts') {
+    return Promise.resolve(
+      jsonResponse(
+        accounts.filter(
+          (account) =>
+            matches(account.name, query) ||
+            matches(account.client, query) ||
+            matches(account.plan, query),
+        ),
+      ),
+    );
+  }
+
+  return Promise.reject(new Error(`Unexpected request: ${String(input)}`));
+}
+
+beforeEach(() => {
+  vi.stubGlobal('fetch', vi.fn(pickerResponse));
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
 function renderDialog(
   onCreate = vi.fn(),
   initialProjectId: string | null = null,
@@ -84,7 +148,9 @@ async function chooseProject(user: ReturnType<typeof userEvent.setup>, name: str
   const input = screen.getByLabelText('Project');
   await user.click(input);
   await user.type(input, name);
-  await user.click(screen.getByRole('option', { name: new RegExp(name) }));
+  await user.click(
+    await screen.findByRole('option', { name: new RegExp(name) }),
+  );
 }
 
 describe('NewSessionDialog', () => {
@@ -103,7 +169,7 @@ describe('NewSessionDialog', () => {
     const accountInput = screen.getByLabelText('Account');
     await user.click(accountInput);
     expect(
-      screen.getByRole('option', { name: /42% left/ }),
+      await screen.findByRole('option', { name: /42% left/ }),
     ).toBeInTheDocument();
     await user.click(screen.getByRole('option', { name: /Work/ }));
 
@@ -136,7 +202,7 @@ describe('NewSessionDialog', () => {
     await user.click(screen.getByRole('radio', { name: 'Claude Code' }));
     const accountInput = screen.getByLabelText('Account');
     await user.click(accountInput);
-    await user.click(screen.getByRole('option', { name: /Work/ }));
+    await user.click(await screen.findByRole('option', { name: /Work/ }));
 
     expect(screen.getByText('42% left')).toBeInTheDocument();
     expect(screen.getByText('Sample')).toBeInTheDocument();
@@ -174,7 +240,7 @@ describe('NewSessionDialog', () => {
     const accountInput = screen.getByLabelText('Account');
     await user.click(accountInput);
 
-    const option = screen.getByRole('option', { name: /Google work/ });
+    const option = await screen.findByRole('option', { name: /Google work/ });
     expect(option).toHaveTextContent('No usage data');
     await user.click(option);
 
@@ -214,5 +280,162 @@ describe('NewSessionDialog', () => {
 
     expect(screen.getByText('Enter a folder.')).toBeInTheDocument();
     expect(onCreate).not.toHaveBeenCalled();
+  });
+
+  it('shows a loading row while the project list loads', async () => {
+    const user = userEvent.setup();
+    const pending = deferred<Response>();
+    vi.stubGlobal('fetch', vi.fn().mockReturnValue(pending.promise));
+    renderDialog();
+
+    await user.click(screen.getByLabelText('Project'));
+
+    expect(await screen.findByText('Loading…')).toBeInTheDocument();
+
+    pending.resolve(jsonResponse(projects));
+
+    expect(
+      await screen.findByRole('option', { name: /core/ }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('Loading…')).not.toBeInTheDocument();
+  });
+
+  it('debounces typing and sends the text as the query', async () => {
+    const user = userEvent.setup();
+    renderDialog();
+    const input = screen.getByLabelText('Project');
+    const fetchMock = vi.mocked(fetch);
+
+    await user.click(input);
+    await screen.findByRole('option', { name: /core/ });
+    fetchMock.mockClear();
+
+    fireEvent.change(input, { target: { value: 'web' } });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await waitFor(
+      () =>
+        expect(fetchMock).toHaveBeenCalledWith(
+          '/api/projects?q=web',
+          expect.anything(),
+        ),
+      { timeout: 1000 },
+    );
+  });
+
+  it('ignores a stale project response', async () => {
+    const user = userEvent.setup();
+    const requests: Deferred<Response>[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL) => {
+        expect(String(input)).toContain('/api/projects?q=');
+        const request = deferred<Response>();
+        requests.push(request);
+        return request.promise;
+      }),
+    );
+    renderDialog();
+    const input = screen.getByLabelText('Project');
+
+    await user.click(input);
+    await waitFor(() => expect(requests).toHaveLength(1));
+    requests[0].resolve(jsonResponse(projects));
+    await screen.findByRole('option', { name: /web/ });
+
+    fireEvent.change(input, { target: { value: 'web' } });
+    await waitFor(() => expect(requests).toHaveLength(2), { timeout: 1000 });
+
+    fireEvent.change(input, { target: { value: 'core' } });
+    await waitFor(() => expect(requests).toHaveLength(3), { timeout: 1000 });
+
+    requests[2].resolve(jsonResponse([projects[0]]));
+    expect(
+      await screen.findByRole('option', { name: /core/ }),
+    ).toBeInTheDocument();
+
+    await act(async () => {
+      requests[1].resolve(jsonResponse([projects[1]]));
+      await Promise.resolve();
+    });
+
+    expect(screen.getByRole('option', { name: /core/ })).toBeInTheDocument();
+    expect(
+      screen.queryByRole('option', { name: /web/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('shows a no-match row when no project matches the query', async () => {
+    const user = userEvent.setup();
+    renderDialog();
+    const input = screen.getByLabelText('Project');
+
+    await user.click(input);
+    await screen.findByRole('option', { name: /core/ });
+
+    fireEvent.change(input, { target: { value: 'nothing' } });
+
+    expect(await screen.findByText('No matches.')).toBeInTheDocument();
+    expect(screen.queryByRole('option')).not.toBeInTheDocument();
+  });
+
+  it('keeps keyboard navigation and focus on the async list', async () => {
+    const user = userEvent.setup();
+    renderDialog();
+    const input = screen.getByLabelText('Project');
+
+    await user.click(input);
+    await screen.findByRole('option', { name: /core/ });
+    expect(input).toHaveFocus();
+
+    await user.keyboard('{ArrowDown}{Enter}');
+
+    expect(input).toHaveValue('web');
+    expect(input).toHaveFocus();
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+  });
+
+  it('says when the chosen client has no account', async () => {
+    const user = userEvent.setup();
+    render(
+      <NewSessionDialog
+        projects={projects}
+        accounts={[]}
+        onCreate={vi.fn()}
+        onCreated={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole('radio', { name: 'Claude Code' }));
+
+    expect(
+      screen.getByText('No account is set up for Claude Code yet.'),
+    ).toBeInTheDocument();
+  });
+
+  it('filters accounts to the chosen client and asks for a client first', async () => {
+    const user = userEvent.setup();
+    renderDialog();
+
+    expect(screen.getByLabelText('Account')).toHaveAttribute(
+      'placeholder',
+      'Choose a client first',
+    );
+
+    await user.click(screen.getByRole('radio', { name: 'Claude Code' }));
+    await user.click(screen.getByLabelText('Account'));
+
+    expect(
+      await screen.findByRole('option', { name: /Work/ }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('option', { name: /Personal/ }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('option', { name: /Google work/ }),
+    ).not.toBeInTheDocument();
+    expect(fetch).toHaveBeenCalledWith('/api/accounts?q=', expect.anything());
   });
 });

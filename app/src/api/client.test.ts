@@ -6,6 +6,8 @@ import {
   createAccount,
   createProject,
   deleteSession,
+  listAccounts,
+  listProjects,
   renameSession,
   reopenSession,
   resizeSession,
@@ -116,6 +118,37 @@ describe('API client', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
     });
+  });
+
+  it('loads projects with a query and an abort signal', async () => {
+    const projects = [{ id: 'p1', name: 'core', folder: '/dev/core' }];
+    const fetchMock = vi.fn().mockResolvedValue(response(200, projects));
+    vi.stubGlobal('fetch', fetchMock);
+    const controller = new AbortController();
+
+    await expect(listProjects('core', controller.signal)).resolves.toEqual(
+      projects,
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/projects?q=core', {
+      signal: controller.signal,
+    });
+  });
+
+  it('loads accounts with a query and an abort signal', async () => {
+    const accounts = [{ id: 'a1', name: 'Work' }];
+    const fetchMock = vi.fn().mockResolvedValue(response(200, accounts));
+    vi.stubGlobal('fetch', fetchMock);
+    const controller = new AbortController();
+
+    await expect(listAccounts('work account', controller.signal)).resolves.toEqual(
+      accounts,
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/accounts?q=work+account',
+      { signal: controller.signal },
+    );
   });
 
   it('creates a project and returns it', async () => {

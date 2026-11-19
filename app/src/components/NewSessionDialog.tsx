@@ -1,5 +1,5 @@
-import { useEffect, useState, type FormEvent } from 'react';
-import { ApiError } from '../api/client';
+import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { ApiError, listAccounts, listProjects } from '../api/client';
 import type {
   Account,
   Client,
@@ -12,7 +12,11 @@ import { CLIENTS } from '../api/types';
 import { accountUsage } from '../state/usage';
 import { Dialog } from './Dialog';
 import { AlertIcon } from './icons';
-import { Combobox, type ComboboxOption } from './Combobox';
+import {
+  Combobox,
+  type ComboboxLoader,
+  type ComboboxOption,
+} from './Combobox';
 
 interface NewSessionDialogProps {
   projects: Project[];
@@ -29,6 +33,23 @@ interface FormErrors {
   account?: string;
   folder?: string;
   form?: string;
+}
+
+function projectOption(project: Project): ComboboxOption {
+  return {
+    id: project.id,
+    label: project.name,
+    meta: project.folder,
+  };
+}
+
+function accountOption(account: Account): ComboboxOption {
+  return {
+    id: account.id,
+    label: account.name,
+    meta: `${accountUsage(account).summary} · ${account.plan}`,
+    tag: account.sample ? 'Sample' : undefined,
+  };
 }
 
 export function NewSessionDialog({
@@ -68,27 +89,39 @@ export function NewSessionDialog({
     setFocusTarget(null);
   }, [focusTarget]);
 
-  const projectOptions: ComboboxOption[] = projects.map((project) => ({
-    id: project.id,
-    label: project.name,
-    meta: project.folder,
-  }));
+  const loadProjectOptions = useCallback<ComboboxLoader>(
+    async (query, signal) => {
+      const list = await listProjects(query, signal);
+      return list.map(projectOption);
+    },
+    [],
+  );
 
-  const accountOptions: ComboboxOption[] = accounts
-    .filter((account) => account.client === client)
-    .map((account) => ({
-      id: account.id,
-      label: account.name,
-      meta: `${accountUsage(account).summary} · ${account.plan}`,
-      tag: account.sample ? 'Sample' : undefined,
-    }));
+  const loadAccountOptions = useCallback<ComboboxLoader>(
+    async (query, signal) => {
+      if (!client) {
+        return [];
+      }
+      const list = await listAccounts(query, signal);
+      return list
+        .filter((account) => account.client === client)
+        .map(accountOption);
+    },
+    [client],
+  );
 
+  const selectedProject = projectId
+    ? projects.find((project) => project.id === projectId) ?? null
+    : null;
   const selectedAccount = accountId
     ? accounts.find((account) => account.id === accountId) ?? null
     : null;
   const selectedUsage = selectedAccount
     ? accountUsage(selectedAccount)
     : null;
+  const accountsForClient = client
+    ? accounts.filter((account) => account.client === client)
+    : [];
 
   function chooseProject(id: string | null) {
     const nextProject = projects.find((project) => project.id === id);
@@ -203,7 +236,10 @@ export function NewSessionDialog({
             id="new-session-project"
             label="Project"
             value={projectId}
-            options={projectOptions}
+            loadOptions={loadProjectOptions}
+            selectedOption={
+              selectedProject ? projectOption(selectedProject) : null
+            }
             onChange={chooseProject}
             placeholder="Type to find a project"
             error={errors.project}
@@ -275,11 +311,14 @@ export function NewSessionDialog({
                 id="new-session-account"
                 label="Account"
                 value={accountId}
-                options={accountOptions}
+                loadOptions={loadAccountOptions}
+                selectedOption={
+                  selectedAccount ? accountOption(selectedAccount) : null
+                }
                 onChange={chooseAccount}
                 placeholder={client ? 'Type to find an account' : 'Choose a client first'}
                 hint={
-                  client && accountOptions.length === 0
+                  client && accountsForClient.length === 0
                     ? `No account is set up for ${client} yet.`
                     : undefined
                 }

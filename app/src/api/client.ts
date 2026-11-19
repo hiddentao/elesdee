@@ -61,6 +61,28 @@ export function health(): Promise<HealthResponse> {
   return request<HealthResponse>('/api/health');
 }
 
+export function listProjects(
+  query: string,
+  signal?: AbortSignal,
+): Promise<Project[]> {
+  const params = new URLSearchParams({ q: query });
+  return request<Project[]>(
+    `/api/projects?${params.toString()}`,
+    signal ? { signal } : undefined,
+  );
+}
+
+export function listAccounts(
+  query: string,
+  signal?: AbortSignal,
+): Promise<Account[]> {
+  const params = new URLSearchParams({ q: query });
+  return request<Account[]>(
+    `/api/accounts?${params.toString()}`,
+    signal ? { signal } : undefined,
+  );
+}
+
 export function createProject(input: CreateProjectInput): Promise<Project> {
   return request<Project>('/api/projects', post(input));
 }

@@ -110,7 +110,9 @@ test('terminal session create, echo, close, reopen and delete', async ({
   await row.click({ button: 'right' });
   await page.getByRole('menuitem', { name: 'Delete…' }).click();
   const deleteDialog = page.getByRole('dialog');
-  await expect(deleteDialog).toContainText('Delete the log?');
+  await expect(deleteDialog).toContainText(
+    'The session and its log are removed from the app.',
+  );
   await deleteDialog.getByRole('button', { name: 'Delete' }).click();
   await expect(deleteDialog).not.toBeVisible();
   await expect(row).not.toBeVisible();

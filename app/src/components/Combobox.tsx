@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -15,11 +16,18 @@ export interface ComboboxOption {
   tag?: string;
 }
 
+export type ComboboxLoader = (
+  query: string,
+  signal: AbortSignal,
+) => Promise<ComboboxOption[]>;
+
 interface ComboboxProps {
   id: string;
   label: string;
   value: string | null;
-  options: ComboboxOption[];
+  options?: ComboboxOption[];
+  loadOptions?: ComboboxLoader;
+  selectedOption?: ComboboxOption | null;
   onChange: (id: string | null) => void;
   placeholder?: string;
   hint?: string;
@@ -29,11 +37,15 @@ interface ComboboxProps {
   disabled?: boolean;
 }
 
+const LOAD_DELAY_MS = 220;
+
 export function Combobox({
   id,
   label,
   value,
-  options,
+  options = [],
+  loadOptions,
+  selectedOption,
   onChange,
   placeholder,
   hint,
@@ -42,7 +54,17 @@ export function Combobox({
   autoFocus = false,
   disabled = false,
 }: ComboboxProps) {
-  const selected = options.find((option) => option.id === value) ?? null;
+  const [asyncOptions, setAsyncOptions] = useState<ComboboxOption[]>([]);
+  const [asyncLoaded, setAsyncLoaded] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [loadedQuery, setLoadedQuery] = useState<string | null>(null);
+
+  const selected =
+    selectedOption ??
+    options.find((option) => option.id === value) ??
+    asyncOptions.find((option) => option.id === value) ??
+    null;
   const selectedLabel = selected?.label ?? '';
   const [query, setQuery] = useState(selectedLabel);
   const [open, setOpen] = useState(false);
@@ -50,12 +72,25 @@ export function Combobox({
   const [popoverStyle, setPopoverStyle] = useState<CSSProperties | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  const requestSeqRef = useRef(0);
+  const openRef = useRef(false);
+  const openQueryRef = useRef<string | null>(null);
+  const async = Boolean(loadOptions);
 
   useEffect(() => {
     if (autoFocus) {
       inputRef.current?.focus();
     }
   }, [autoFocus]);
+
+  useEffect(
+    () => () => {
+      requestSeqRef.current += 1;
+      abortRef.current?.abort();
+    },
+    [],
+  );
 
   useEffect(() => {
     if (selectedLabel) {
@@ -66,14 +101,95 @@ export function Combobox({
   const normalized = query.trim().toLowerCase();
   const queryIsSelection =
     selectedLabel !== '' && normalized === selectedLabel.toLowerCase();
-  const filtered =
-    normalized === '' || queryIsSelection
+  const listOptions = async
+    ? asyncOptions
+    : normalized === '' || queryIsSelection
       ? options
       : options.filter(
           (option) =>
             option.label.toLowerCase().includes(normalized) ||
             (option.meta ? option.meta.toLowerCase().includes(normalized) : false),
         );
+  const showLoading = async && (loading || !asyncLoaded);
+  const filtered = showLoading ? [] : listOptions;
+
+  const load = useCallback(
+    async (queryText: string) => {
+      if (!loadOptions) {
+        return;
+      }
+
+      abortRef.current?.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
+      const seq = ++requestSeqRef.current;
+
+      setLoading(true);
+      setLoadFailed(false);
+      try {
+        const next = await loadOptions(queryText, controller.signal);
+        if (seq !== requestSeqRef.current || controller.signal.aborted) {
+          return;
+        }
+        setAsyncOptions(next);
+        setLoadedQuery(queryText);
+        setAsyncLoaded(true);
+      } catch {
+        if (seq !== requestSeqRef.current || controller.signal.aborted) {
+          return;
+        }
+        setAsyncOptions([]);
+        setLoadedQuery(queryText);
+        setAsyncLoaded(true);
+        setLoadFailed(true);
+      } finally {
+        if (seq === requestSeqRef.current) {
+          setLoading(false);
+        }
+      }
+    },
+    [loadOptions],
+  );
+
+  useEffect(() => {
+    if (!open) {
+      openRef.current = false;
+      openQueryRef.current = null;
+      abortRef.current?.abort();
+      return;
+    }
+    if (!loadOptions) {
+      return;
+    }
+
+    const justOpened = !openRef.current;
+    openRef.current = true;
+    const normalizedQuery = query.trim();
+    const effectiveQuery =
+      justOpened || queryIsSelection ? '' : normalizedQuery;
+
+    if (!justOpened) {
+      if (query === openQueryRef.current) {
+        return;
+      }
+      openQueryRef.current = null;
+    } else {
+      openQueryRef.current = query;
+    }
+
+    if (!justOpened && effectiveQuery === loadedQuery) {
+      return;
+    }
+
+    const timer = window.setTimeout(
+      () => {
+        void load(effectiveQuery);
+      },
+      justOpened ? 0 : LOAD_DELAY_MS,
+    );
+
+    return () => window.clearTimeout(timer);
+  }, [open, query, queryIsSelection, loadedQuery, loadOptions, load]);
 
   useEffect(() => {
     setActiveIndex((index) => Math.min(index, Math.max(filtered.length - 1, 0)));
@@ -205,9 +321,9 @@ export function Combobox({
     }
 
     if (event.key === 'Enter' && open) {
+      event.preventDefault();
       const option = filtered[activeIndex];
       if (option) {
-        event.preventDefault();
         select(option);
       }
       return;
@@ -268,6 +384,7 @@ export function Combobox({
                 id={listboxId}
                 role="listbox"
                 aria-label={`${label} options`}
+                aria-busy={async ? showLoading : undefined}
               >
                 {filtered.map((option, index) => (
                   <li
@@ -295,7 +412,15 @@ export function Combobox({
                   </li>
                 ))}
               </ul>
-              {filtered.length === 0 ? (
+              {showLoading ? (
+                <p className="combo-empty" role="status">
+                  Loading…
+                </p>
+              ) : loadFailed ? (
+                <p className="combo-empty" role="alert">
+                  Could not load options.
+                </p>
+              ) : filtered.length === 0 ? (
                 <p className="combo-empty" role="status">
                   No matches.
                 </p>

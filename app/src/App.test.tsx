@@ -11,6 +11,8 @@ import {
   createProject,
   deleteSession,
   health,
+  listAccounts,
+  listProjects,
   renameSession,
   reopenSession,
   respondPermission,
@@ -30,6 +32,8 @@ vi.mock('./api/client', async (importOriginal) => {
     createProject: vi.fn(),
     deleteSession: vi.fn(),
     health: vi.fn(),
+    listAccounts: vi.fn(),
+    listProjects: vi.fn(),
     renameSession: vi.fn(),
     reopenSession: vi.fn(),
     respondPermission: vi.fn(),
@@ -90,6 +94,10 @@ beforeEach(() => {
     version: '0.1.0',
     agents: [],
   });
+  vi.mocked(listProjects).mockResolvedValue([
+    { id: 'p1', name: 'web', folder: '/dev/web' },
+  ]);
+  vi.mocked(listAccounts).mockResolvedValue([]);
   vi.mocked(createProject).mockResolvedValue({
     id: 'p2',
     name: 'added',
@@ -794,6 +802,7 @@ describe('settings', () => {
       model: 'gemini-3.8-flash-medium',
     };
     vi.mocked(createAccount).mockResolvedValue(google);
+    vi.mocked(listAccounts).mockResolvedValue([google]);
 
     const user = userEvent.setup();
     render(<App />);
@@ -864,7 +873,9 @@ describe('settings', () => {
       within(sessionDialog).getByRole('radio', { name: 'Antigravity' }),
     );
     await user.click(within(sessionDialog).getByLabelText('Account'));
-    await user.click(screen.getByRole('option', { name: /Google work/ }));
+    await user.click(
+      await screen.findByRole('option', { name: /Google work/ }),
+    );
 
     expect(within(sessionDialog).getByText('No usage data')).toBeInTheDocument();
   });
