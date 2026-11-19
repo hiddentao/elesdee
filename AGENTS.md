@@ -23,7 +23,7 @@ This file carries the rules that bind every prompt. Detail and decisions live in
 
 The application has its first working slice. The core service runs real PTYs, projects, accounts, Git branches and worktrees, persistence and a secured local API. The desktop UI runs real terminals and agent CLIs, creates, renames, closes, reopens and deletes sessions, adds projects, shows live previews and usage, and answers Claude Code permission prompts from a card. The Tauri shell starts the core and embeds the UI.
 
-Not built yet: hook adapters for Codex and OpenCode 2 (only Claude Code sends permission prompts to the app), usage-based auto-switch, the phone shell, the full settings page and provider add flow, and packaging. The spec describes the target; the mockup is the visual reference.
+Not built yet: hook adapters for Codex and OpenCode 2 (only Claude Code sends permission prompts to the app), usage-based auto-switch, full provider setup for subscription accounts, agent conversation resume on reopen, a quit confirmation while sessions run, the first-milestone session tools and skills, source and branch selection at launch, the phone shell, and packaging. The spec describes the target; the mockup is the visual reference.
 
 ## Running the app
 

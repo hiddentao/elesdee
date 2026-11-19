@@ -9,12 +9,30 @@ use tauri::Manager;
 
 struct CoreProcess(Mutex<Option<Child>>);
 
+fn stop_core(child: &mut Child) {
+    #[cfg(unix)]
+    {
+        // Ask the core to save its state and stop, then wait before forcing it.
+        unsafe {
+            libc::kill(child.id() as i32, libc::SIGTERM);
+        }
+        for _ in 0..50 {
+            match child.try_wait() {
+                Ok(Some(_)) => return,
+                Ok(None) => std::thread::sleep(std::time::Duration::from_millis(100)),
+                Err(_) => break
+            }
+        }
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
 impl Drop for CoreProcess {
     fn drop(&mut self) {
         if let Ok(mut guard) = self.0.lock() {
             if let Some(mut child) = guard.take() {
-                let _ = child.kill();
-                let _ = child.wait();
+                stop_core(&mut child);
             }
         }
     }
@@ -70,8 +88,7 @@ fn main() {
                 state.0.lock().ok().and_then(|mut guard| guard.take())
             };
             if let Some(mut child) = child {
-                let _ = child.kill();
-                let _ = child.wait();
+                stop_core(&mut child);
             }
         }
     });
