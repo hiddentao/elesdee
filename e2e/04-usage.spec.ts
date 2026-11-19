@@ -1,9 +1,19 @@
 import { expect, test } from '@playwright/test';
-import { openApp } from './helpers';
+import {
+  createProject,
+  createProjectFolder,
+  openApp,
+  uniqueName,
+} from './helpers';
 
 test('the usage footer opens the panel with every seeded account', async ({
   page,
+  request,
 }) => {
+  const label = uniqueName('usage-project');
+  const folder = createProjectFolder(label);
+  await createProject(request, label, folder);
+
   await openApp(page);
 
   await page.locator('.usage-summary-button').click();

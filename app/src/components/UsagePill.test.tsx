@@ -11,6 +11,7 @@ const account: Account = {
   client: 'Claude Code',
   provider: 'Anthropic',
   auth: 'subscription',
+  sample: true,
   rows: [
     { label: '5-hour', used: 58 },
     { label: 'Weekly', used: 20 },

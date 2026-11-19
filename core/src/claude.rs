@@ -16,6 +16,14 @@ const HOOK_EVENTS: [&str; 6] = [
     "UserPromptSubmit",
     "MessageDisplay",
 ];
+const CARD_TOOLS: [&str; 6] = [
+    "Bash",
+    "Edit",
+    "Write",
+    "MultiEdit",
+    "NotebookEdit",
+    "WebFetch",
+];
 
 pub struct ClaudeSettings {
     pub token: String,
@@ -32,12 +40,16 @@ pub fn write_settings(data_dir: &Path, session_id: &str, port: u16) -> io::Resul
         uuid::Uuid::new_v4().simple()
     );
     let url = format!("http://127.0.0.1:{port}/internal/hooks/claude/{session_id}?token={token}");
-    let handler = json!({
-        "hooks": [{ "type": "http", "url": url }]
-    });
+    let http_hook = json!({ "type": "http", "url": url });
+    let matcher = permission_matcher();
     let mut hooks = serde_json::Map::new();
     for event in HOOK_EVENTS {
-        hooks.insert(event.to_owned(), json!([handler.clone()]));
+        let groups = if event == "PreToolUse" || event == "PostToolUse" {
+            json!([{ "matcher": matcher, "hooks": [http_hook.clone()] }])
+        } else {
+            json!([{ "hooks": [http_hook.clone()] }])
+        };
+        hooks.insert(event.to_owned(), groups);
     }
     let bytes = serde_json::to_vec_pretty(&json!({ "hooks": hooks })).map_err(io::Error::other)?;
 
@@ -92,6 +104,14 @@ pub fn add_settings_argument(command: &mut CommandBuilder, path: &Path) {
     }
 }
 
+pub fn permission_matcher() -> String {
+    CARD_TOOLS.join("|")
+}
+
+pub fn tool_needs_card(tool: &str) -> bool {
+    CARD_TOOLS.contains(&tool.trim())
+}
+
 pub fn token_matches(expected: &str, provided: &str) -> bool {
     let expected = expected.as_bytes();
     let provided = provided.as_bytes();
@@ -121,6 +141,34 @@ mod tests {
             .map(|argument| argument.to_string_lossy().into_owned())
             .collect::<Vec<_>>();
         assert_eq!(arguments, ["claude", "--settings", "/tmp/settings.json"]);
+    }
+
+    #[test]
+    fn permission_matcher_covers_mutating_tools_only() {
+        assert_eq!(
+            permission_matcher(),
+            "Bash|Edit|Write|MultiEdit|NotebookEdit|WebFetch"
+        );
+        for tool in [
+            "Bash",
+            "Edit",
+            "Write",
+            "MultiEdit",
+            "NotebookEdit",
+            "WebFetch",
+        ] {
+            assert!(tool_needs_card(tool), "{tool}");
+        }
+        for tool in [
+            "Read",
+            "Glob",
+            "Grep",
+            "AskUserQuestion",
+            "ExitPlanMode",
+            "TodoWrite",
+        ] {
+            assert!(!tool_needs_card(tool), "{tool}");
+        }
     }
 
     #[test]

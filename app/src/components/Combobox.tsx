@@ -12,6 +12,7 @@ export interface ComboboxOption {
   id: string;
   label: string;
   meta?: string;
+  tag?: string;
 }
 
 interface ComboboxProps {
@@ -282,7 +283,12 @@ export function Combobox({
                     onMouseEnter={() => setActiveIndex(index)}
                     onClick={() => select(option)}
                   >
-                    <span>{option.label}</span>
+                    <span className="combo-label-row">
+                      <span>{option.label}</span>
+                      {option.tag ? (
+                        <span className="sample-tag">{option.tag}</span>
+                      ) : null}
+                    </span>
                     {option.meta ? (
                       <span className="combo-meta">{option.meta}</span>
                     ) : null}

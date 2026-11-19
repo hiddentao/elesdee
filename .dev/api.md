@@ -14,7 +14,7 @@ The service binds `127.0.0.1` only. It accepts requests only for loopback hostna
 - Every POST and PATCH request must send `Content-Type: application/json`. The media type may carry parameters such as `charset`. A missing or different content type returns 415.
 - A project name must not be empty. Its folder must exist and be a directory. The folder is canonicalized, and two projects cannot use the same canonical folder.
 - A project id is a unique slug of its name. A repeated name gets a numeric suffix.
-- At most 64 sessions may be active at one time. A new session above the cap returns 429. Closing a session frees its slot.
+- At most 64 sessions may be active at one time. This is a safety cap for memory and process limits. A new session above the cap returns 429. Closing a session frees its slot.
 - At most 32 output streams and 32 event streams may be open at once. More returns 429.
 - The optional `folder` is canonicalized. When it is absent, the project folder is used. A terminal session runs in that folder. For an agent, the folder must be inside a Git repository; the session runs in a new worktree under `<data dir>/worktrees/<session id>`.
 - A session starts at 120 columns by 32 rows unless `cols` and `rows` are supplied. Column values must be 20–500 and row values 5–300; any other value returns 400.
@@ -36,6 +36,7 @@ The service binds `127.0.0.1` only. It accepts requests only for loopback hostna
 - This version accepts `providerId: "google"` with `client: "Antigravity"`. Any other provider and client pair, or another auth mode, returns 422. An empty name, an empty key or a model over 120 characters returns 400.
 - The account id is a unique slug of the name. A repeated name gets a numeric suffix. The model defaults to `gemini-3.8-flash-medium`; model names use Antigravity's own slugs.
 - The key is stored in the system keychain through the secret store. It is not written to `state.json`, returned by the API or written to logs. Account metadata is saved and returned in bootstrap.
+- Seed accounts have `sample: true`. Accounts created through this endpoint have `sample: false`. Samples have no usage rows and exist only to show the interface.
 - Antigravity runs `agy`. The core finds it on `PATH` and in common install paths.
 - A launch reads the key, creates `<data dir>/homes/<session id>/.gemini/antigravity-cli/settings.json` with mode 0600 and `{"modelProvider":"gemini"}`, sets `HOME` to the session home and `GEMINI_API_KEY` to the key in the child environment, and runs the client in the worktree.
 - The home is removed on close, agent exit, delete and shutdown. Reopen creates it again and reads the key again.
@@ -60,7 +61,7 @@ The service binds `127.0.0.1` only. It accepts requests only for loopback hostna
 - Projects, accounts, sessions, each session's desired columns and rows, its output log, and an agent's repository root are saved. Account keys are not saved. No runtime handles are saved.
 - State is saved on project create, account create, session create, rename, close, reopen, delete, resize, and graceful shutdown. It is not written for each output chunk.
 - A session that was active on save is restored as closed, with preview `"The app restarted. Reopen to continue."` and no process. Its log and sequence numbers are kept, and reopen continues from the next sequence. A pending permission request is not written to the file and is not restored.
-- Seed projects and seed accounts are used only when no state file exists, when the state file is corrupt, or when an older state file has no account list. A corrupt file is moved to `state.bad.json` and the problem is logged.
+- A new state starts with no projects. Seed accounts are used only when no state file exists, when the state file is corrupt, or when an older state file has no account list. A corrupt file is moved to `state.bad.json` and the problem is logged.
 
 ## Types
 
@@ -125,6 +126,7 @@ interface Account {
   client: Client;
   provider: string;
   auth: "subscription" | "key" | "local";
+  sample: boolean;              // seed account, not added by the user
   rows: UsageRow[];
   foot: string;
   server: string | null;

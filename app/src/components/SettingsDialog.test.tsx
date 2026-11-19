@@ -12,6 +12,7 @@ const accounts: Account[] = [
     client: 'Claude Code',
     provider: 'anthropic',
     auth: 'subscription',
+    sample: true,
     rows: [{ label: '5-hour', used: 58 }],
     foot: 'Resets in 2h.',
     server: null,
@@ -24,6 +25,7 @@ const accounts: Account[] = [
     client: 'Antigravity',
     provider: 'google',
     auth: 'key',
+    sample: false,
     rows: [],
     foot: 'No official usage source.',
     server: null,
@@ -57,13 +59,14 @@ describe('SettingsDialog', () => {
     ).toHaveAttribute('aria-current', 'page');
 
     expect(within(dialog).getByText('Work')).toBeInTheDocument();
+    expect(within(dialog).getByText('Sample')).toBeInTheDocument();
     expect(within(dialog).getByText('Claude Code · Max')).toBeInTheDocument();
     expect(within(dialog).getByText('42% left')).toBeInTheDocument();
 
-    expect(within(dialog).getByText('Google work')).toBeInTheDocument();
-    expect(
-      within(dialog).getByText('Antigravity · Google AI'),
-    ).toBeInTheDocument();
+    const googleRow = within(dialog).getByText('Google work').closest('li');
+    expect(googleRow).not.toBeNull();
+    expect(within(googleRow as HTMLElement).queryByText('Sample')).not.toBeInTheDocument();
+    expect(within(dialog).getByText('Antigravity · Google AI')).toBeInTheDocument();
     expect(within(dialog).getByText('No usage data')).toBeInTheDocument();
   });
 

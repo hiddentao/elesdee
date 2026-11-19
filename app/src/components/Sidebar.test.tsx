@@ -403,6 +403,7 @@ describe('Sidebar', () => {
       client: 'Claude Code',
       provider: 'Anthropic',
       auth: 'subscription',
+      sample: true,
       rows: [{ label: '5-hour', used: 58 }],
       foot: 'Resets soon.',
       server: null,

@@ -13,8 +13,8 @@ The core starts Claude Code with a per-session settings file:
 ```json
 {
   "hooks": {
-    "PreToolUse": [{ "hooks": [{ "type": "http", "url": "http://127.0.0.1:4319/internal/hooks/claude/<sessionId>?token=<token>" }] }],
-    "PostToolUse": [{ "hooks": [{ "type": "http", "url": "..." }] }],
+    "PreToolUse": [{ "matcher": "Bash|Edit|Write|MultiEdit|NotebookEdit|WebFetch", "hooks": [{ "type": "http", "url": "http://127.0.0.1:4319/internal/hooks/claude/<sessionId>?token=<token>" }] }],
+    "PostToolUse": [{ "matcher": "Bash|Edit|Write|MultiEdit|NotebookEdit|WebFetch", "hooks": [{ "type": "http", "url": "..." }] }],
     "Notification": [{ "hooks": [{ "type": "http", "url": "..." }] }],
     "Stop": [{ "hooks": [{ "type": "http", "url": "..." }] }],
     "UserPromptSubmit": [{ "hooks": [{ "type": "http", "url": "..." }] }],
@@ -29,7 +29,8 @@ The core starts Claude Code with a per-session settings file:
 - `PostToolUse` sets waitingFor to null and keeps the session active.
 - `MessageDisplay` and `Stop` update the preview with the last non-empty line, capped at about 80 characters; `Stop` sets the work state to done.
 - `Notification` with a permission message sets waitingFor to permission.
-- `PreToolUse` creates a pending permission:
+- The matcher on `PreToolUse` and `PostToolUse` limits the card to mutating actions: `Bash|Edit|Write|MultiEdit|NotebookEdit|WebFetch`. Read-only tools, `AskUserQuestion` and `ExitPlanMode` do not reach the hook. If a hook arrives for another tool anyway, the core returns 204 and creates no card; the TUI handles that tool.
+- `PreToolUse` for a matching tool creates a pending permission:
   - `requestId`: the `tool_use_id`, or a generated id when absent.
   - `tool`: `tool_name`.
   - `summary`: a short, safe text for the card, such as the command for Bash or the path for Edit.

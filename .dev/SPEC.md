@@ -119,7 +119,7 @@ The agents write their conversation to files on disk, and each keeps its own int
 
 - The launch form has an optional session name. If it is empty, the app names an agent session from its first prompt and a terminal session after its folder.
 - The branch uses the same short name as the session. I can rename a session later; its branch keeps its name.
-- There is no limit on how many sessions run at the same time, and no warning. I manage it myself.
+- At most 64 sessions may run at the same time. This is a safety cap: each session holds a terminal and a process, and an unbounded number can exhaust memory and process limits. A new session above the cap is refused with a warning to close one. Closing a session frees its slot.
 
 **Session states**
 
@@ -129,7 +129,7 @@ The agents write their conversation to files on disk, and each keeps its own int
 
 **First launch**
 
-- The first screen checks for Claude Code, Codex, OpenCode 2 and Antigravity and shows their versions.
+- A new install starts with no projects. The first screen checks for Claude Code, Codex, OpenCode 2 and Antigravity and shows their versions.
 - It offers one action: Add a project. The project form asks for a name and a folder.
 - The language button sits in the title bar.
 - Until the Mac starts a session, the phone shows an empty session list.
@@ -304,6 +304,7 @@ I can switch provider inside a running session with one button, and the IDE can 
 - I can add more than one account per provider, for example several Claude subscriptions.
 - API keys and subscription tokens are stored in the macOS Keychain. The app writes API keys; each agent writes its own subscription token. No secret is written into your repos.
 - Each account is a provider choice in a session.
+- A new install shows sample accounts, marked as samples, so the interface is not empty. They have no usage data. Accounts I add are not samples.
 
 Supported providers:
 

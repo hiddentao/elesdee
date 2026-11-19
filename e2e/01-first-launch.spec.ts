@@ -1,13 +1,18 @@
 import { expect, test } from '@playwright/test';
 import { createProjectFolder, openApp, uniqueName } from './helpers';
 
-test('seeded projects appear and a new project is added and selected', async ({
+test('first launch welcomes the user and a new project is selected', async ({
   page,
 }) => {
   await openApp(page);
 
-  await expect(page.getByRole('button', { name: /^web,/ })).toBeVisible();
-  await expect(page.getByRole('button', { name: /^core,/ })).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: 'Welcome to elesdee' }),
+  ).toBeVisible();
+  await expect(
+    page.getByText('Add a project to start a session on this computer.'),
+  ).toBeVisible();
+  await expect(page.getByRole('list', { name: 'Agent check' })).toBeVisible();
 
   const name = uniqueName('ui-project');
   const folder = createProjectFolder(name);
@@ -20,6 +25,9 @@ test('seeded projects appear and a new project is added and selected', async ({
   await dialog.getByRole('button', { name: 'Add project' }).click();
 
   await expect(dialog).not.toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: 'Welcome to elesdee' }),
+  ).not.toBeVisible();
 
   const projectButton = page.getByRole('button', {
     name: new RegExp(`^${name},`),

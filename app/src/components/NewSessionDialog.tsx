@@ -80,6 +80,7 @@ export function NewSessionDialog({
       id: account.id,
       label: account.name,
       meta: `${accountUsage(account).summary} · ${account.plan}`,
+      tag: account.sample ? 'Sample' : undefined,
     }));
 
   const selectedAccount = accountId
@@ -292,6 +293,9 @@ export function NewSessionDialog({
                   <span className="selected-account-name">
                     {selectedAccount.name}
                   </span>
+                  {selectedAccount.sample ? (
+                    <span className="sample-tag">Sample</span>
+                  ) : null}
                   <span className="selected-account-plan">
                     {selectedAccount.plan}
                   </span>

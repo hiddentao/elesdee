@@ -65,6 +65,7 @@ export interface Account {
   client: Client;
   provider: string;
   auth: 'subscription' | 'key' | 'local';
+  sample: boolean;
   rows: UsageRow[];
   foot: string;
   server: string | null;

@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { Account } from '../api/types';
 import { UsageDialog } from './UsageDialog';
@@ -11,6 +11,7 @@ function makeAccount(overrides: Partial<Account> = {}): Account {
     client: 'Claude Code',
     provider: 'Anthropic',
     auth: 'subscription',
+    sample: false,
     rows: [],
     foot: '',
     server: null,
@@ -21,6 +22,7 @@ function makeAccount(overrides: Partial<Account> = {}): Account {
 
 const accounts: Account[] = [
   makeAccount({
+    sample: true,
     rows: [
       { label: '5-hour', used: 58 },
       { label: 'Weekly', used: 20 },
@@ -34,6 +36,7 @@ const accounts: Account[] = [
     client: 'OpenCode 2',
     provider: 'OpenRouter',
     auth: 'key',
+    sample: false,
     rows: [{ label: 'Credit', value: '$12.40', min: '$5.00' }],
     foot: 'Billed monthly.',
   }),
@@ -53,6 +56,9 @@ describe('UsageDialog', () => {
 
     expect(screen.getByRole('heading', { name: 'Usage' })).toBeInTheDocument();
     expect(screen.getByText('Work')).toBeInTheDocument();
+    expect(
+      within(screen.getByRole('region', { name: 'Work' })).getByText('Sample'),
+    ).toBeInTheDocument();
     expect(screen.getByText('Max · Claude Code')).toBeInTheDocument();
     expect(screen.getByText('5-hour')).toBeInTheDocument();
     expect(screen.getByText('42% left')).toBeInTheDocument();

@@ -12,6 +12,7 @@ const account: Account = {
   client: 'Antigravity',
   provider: 'google',
   auth: 'key',
+  sample: false,
   rows: [],
   foot: 'No official usage source.',
   server: null,

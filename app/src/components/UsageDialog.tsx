@@ -36,6 +36,9 @@ export function UsageDialog({ accounts, onClose }: UsageDialogProps) {
               <div className="usage-card-head">
                 <div className="usage-card-main">
                   <span className="usage-name">{account.name}</span>
+                  {account.sample ? (
+                    <span className="sample-tag">Sample</span>
+                  ) : null}
                   <span className="usage-plan">
                     {account.plan} · {account.client}
                   </span>

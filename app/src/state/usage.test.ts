@@ -15,6 +15,7 @@ function makeAccount(overrides: Partial<Account> = {}): Account {
     client: 'Claude Code',
     provider: 'Anthropic',
     auth: 'subscription',
+    sample: true,
     rows: [],
     foot: '',
     server: null,

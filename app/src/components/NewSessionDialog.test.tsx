@@ -19,6 +19,7 @@ const accounts: Account[] = [
     client: 'Claude Code',
     provider: 'Anthropic',
     auth: 'subscription',
+    sample: true,
     rows: [{ label: '5-hour', used: 58 }],
     foot: 'Resets in 2h.',
     server: null,
@@ -31,6 +32,7 @@ const accounts: Account[] = [
     client: 'Codex',
     provider: 'OpenAI',
     auth: 'subscription',
+    sample: true,
     rows: [],
     foot: '',
     server: null,
@@ -43,6 +45,7 @@ const accounts: Account[] = [
     client: 'Antigravity',
     provider: 'google',
     auth: 'key',
+    sample: false,
     rows: [],
     foot: 'No official usage source.',
     server: null,
@@ -136,6 +139,7 @@ describe('NewSessionDialog', () => {
     await user.click(screen.getByRole('option', { name: /Work/ }));
 
     expect(screen.getByText('42% left')).toBeInTheDocument();
+    expect(screen.getByText('Sample')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Start session' }));
 
@@ -175,6 +179,7 @@ describe('NewSessionDialog', () => {
     await user.click(option);
 
     expect(screen.getByText('No usage data')).toBeInTheDocument();
+    expect(screen.queryByText('Sample')).not.toBeInTheDocument();
   });
 
   it('labels the folder for the chosen session kind', async () => {

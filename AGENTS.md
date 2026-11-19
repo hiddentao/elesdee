@@ -21,7 +21,7 @@ This file carries the rules that bind every prompt. Detail and decisions live in
 
 ## Current phase
 
-The application has its first working slice. The core service runs real PTYs, projects, accounts, four agent clients, Git branches and worktrees, persistence and a secured local API. It detects Claude Code, Codex, OpenCode 2 and Google Antigravity (`agy`), and can add Google API-key accounts whose keys live in the system keychain. The desktop UI runs real terminals and agent CLIs, creates, renames, closes, reopens and deletes sessions, adds projects, shows live previews and usage, and answers Claude Code permission prompts from a card. The Tauri shell starts the core and embeds the UI.
+The application has its first working slice. The core service runs real PTYs, projects, accounts, four agent clients, Git branches and worktrees, persistence and a secured local API. It detects Claude Code, Codex, OpenCode 2 and Google Antigravity (`agy`), and can add Google API-key accounts whose keys live in the system keychain. A fresh install starts with no projects and sample accounts marked as samples. The desktop UI runs real terminals and agent CLIs, creates, renames, closes, reopens and deletes sessions, adds projects, shows live previews and usage, and answers Claude Code permission prompts from a card. The Tauri shell starts the core and embeds the UI.
 
 Not built yet: hook adapters for Codex and OpenCode 2 (only Claude Code sends permission prompts to the app; Antigravity keeps its prompts in its own terminal), usage-based auto-switch, full provider setup for subscription accounts, agent conversation resume on reopen, a quit confirmation while sessions run, the first-milestone session tools and skills, source and branch selection at launch, the phone shell, and packaging. The spec describes the target; the mockup is the visual reference.
 
@@ -64,6 +64,8 @@ Not built yet: hook adapters for Codex and OpenCode 2 (only Claude Code sends pe
 - **Usage belongs to the Mac, not to a session.** The sidebar summary opens the global usage panel. A session's side panel holds Files, Changes and Browser only.
 - **Each session has its own browser context.** Tabs, cookies, storage and logins never cross sessions.
 - **The user closes a session.** An agent can report done, but cannot close.
+- **A fresh install starts with no projects.** Seed accounts may exist, marked as samples with no usage data. The first-launch screen adds the first project.
+- **Permission cards are for mutating tools only.** The Claude matcher covers `Bash|Edit|Write|MultiEdit|NotebookEdit|WebFetch`. Read-only tools, `AskUserQuestion` and `ExitPlanMode` stay in the TUI.
 - **Antigravity keeps its own prompts.** The `agy` terminal handles permission prompts. Do not add a Claude hook settings file or a permission card for it. Its session gets the base keys only.
 - **API keys live in the system keychain.** Account metadata may be saved. Never write a key to `state.json`, an API response, a log or a session output.
 - **Interface copy never names the operating system.** Say "this computer", the "system keychain" or the desktop window, never "this Mac" or "macOS". Version 1 runs on macOS; Windows and Linux follow.

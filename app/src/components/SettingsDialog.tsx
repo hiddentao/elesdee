@@ -124,9 +124,14 @@ export function SettingsDialog({
                       return (
                         <li key={account.id} className="settings-account">
                           <div className="settings-account-main">
-                            <span className="settings-account-name">
-                              {account.name}
-                            </span>
+                            <div className="settings-account-title">
+                              <span className="settings-account-name">
+                                {account.name}
+                              </span>
+                              {account.sample ? (
+                                <span className="sample-tag">Sample</span>
+                              ) : null}
+                            </div>
                             <span className="settings-account-sub">
                               {account.client} · {account.plan}
                             </span>

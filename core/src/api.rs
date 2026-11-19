@@ -498,6 +498,7 @@ async fn create_account(
         client: Client::Antigravity,
         provider,
         auth: Auth::Key,
+        sample: false,
         rows: Vec::new(),
         foot: "No official usage source.".to_owned(),
         server: None,
@@ -1267,6 +1268,11 @@ async fn pre_tool_use(
     entry: &SessionEntry,
     input: HookInput,
 ) -> Result<Response, ApiError> {
+    let tool_name = input.tool_name.as_deref().unwrap_or_default();
+    if !claude::tool_needs_card(tool_name) {
+        return Ok(StatusCode::NO_CONTENT.into_response());
+    }
+
     let request_id = input
         .tool_use_id
         .as_deref()

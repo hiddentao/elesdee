@@ -1,26 +1,7 @@
 use std::env;
 use std::path::PathBuf;
 
-use crate::state::{Account, Auth, Client, Project};
-
-pub fn projects() -> Vec<Project> {
-    vec![
-        Project {
-            id: "web".to_owned(),
-            name: "web".to_owned(),
-            folder: expand_tilde("~/dev/elesdee/web")
-                .to_string_lossy()
-                .into_owned(),
-        },
-        Project {
-            id: "core".to_owned(),
-            name: "core".to_owned(),
-            folder: expand_tilde("~/dev/elesdee/core")
-                .to_string_lossy()
-                .into_owned(),
-        },
-    ]
-}
+use crate::state::{Account, Auth, Client};
 
 pub fn accounts() -> Vec<Account> {
     vec![
@@ -31,6 +12,7 @@ pub fn accounts() -> Vec<Account> {
             client: Client::ClaudeCode,
             provider: "anthropic".to_owned(),
             auth: Auth::Subscription,
+            sample: true,
             rows: Vec::new(),
             foot: "No official usage source.".to_owned(),
             server: None,
@@ -43,6 +25,7 @@ pub fn accounts() -> Vec<Account> {
             client: Client::Codex,
             provider: "openai".to_owned(),
             auth: Auth::Subscription,
+            sample: true,
             rows: Vec::new(),
             foot: "No official usage source.".to_owned(),
             server: None,
@@ -55,6 +38,7 @@ pub fn accounts() -> Vec<Account> {
             client: Client::ClaudeCode,
             provider: "deepseek".to_owned(),
             auth: Auth::Key,
+            sample: true,
             rows: Vec::new(),
             foot: "No official usage source.".to_owned(),
             server: None,
@@ -67,6 +51,7 @@ pub fn accounts() -> Vec<Account> {
             client: Client::Codex,
             provider: "custom".to_owned(),
             auth: Auth::Key,
+            sample: true,
             rows: Vec::new(),
             foot: "No official usage source.".to_owned(),
             server: Some("http://localhost:4000/v1".to_owned()),

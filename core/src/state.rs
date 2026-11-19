@@ -185,6 +185,8 @@ pub struct Account {
     pub client: Client,
     pub provider: String,
     pub auth: Auth,
+    #[serde(default)]
+    pub sample: bool,
     pub rows: Vec<UsageRow>,
     pub foot: String,
     pub server: Option<String>,
@@ -347,7 +349,7 @@ impl AppState {
     #[doc(hidden)]
     pub fn ephemeral() -> Self {
         Self::from_parts(
-            seed::projects(),
+            Vec::new(),
             seed::accounts(),
             Arc::new(MemorySecretStore::default()),
             None,
@@ -378,7 +380,7 @@ impl AppState {
     #[doc(hidden)]
     pub fn with_test_command(argv: Vec<String>) -> Self {
         Self::from_parts(
-            seed::projects(),
+            Vec::new(),
             seed::accounts(),
             Arc::new(MemorySecretStore::default()),
             Some(argv),
@@ -412,7 +414,7 @@ impl AppState {
     #[doc(hidden)]
     pub fn with_test_command_and_session_cap(argv: Vec<String>, session_cap: usize) -> Self {
         Self::from_parts(
-            seed::projects(),
+            Vec::new(),
             seed::accounts(),
             Arc::new(MemorySecretStore::default()),
             Some(argv),
@@ -425,7 +427,7 @@ impl AppState {
     #[doc(hidden)]
     pub fn with_test_stalled_writer(argv: Vec<String>) -> Self {
         Self::from_parts(
-            seed::projects(),
+            Vec::new(),
             seed::accounts(),
             Arc::new(MemorySecretStore::default()),
             Some(argv),
@@ -449,9 +451,19 @@ impl AppState {
                 state.sessions,
             ),
             Some(LoadResult::Missing | LoadResult::Corrupt) | None => {
-                (seed::projects(), seed::accounts(), Vec::new())
+                (Vec::new(), seed::accounts(), Vec::new())
             }
         };
+        let mut accounts = accounts;
+        let seed_ids = seed::accounts()
+            .into_iter()
+            .map(|account| account.id)
+            .collect::<HashSet<_>>();
+        for account in &mut accounts {
+            if seed_ids.contains(&account.id) {
+                account.sample = true;
+            }
+        }
 
         let state = Self::from_parts(
             projects,

@@ -77,7 +77,31 @@ async fn call(app: &Router, method: &str, uri: &str, body: Option<Value>) -> (St
     send(app, request).await
 }
 
+async fn ensure_test_project(app: &Router, folder: &Path) {
+    let (_, bootstrap) = call(app, "GET", "/api/bootstrap", None).await;
+    if bootstrap["projects"]
+        .as_array()
+        .is_some_and(|projects| projects.iter().any(|project| project["id"] == "web"))
+    {
+        return;
+    }
+
+    let (status, project) = call(
+        app,
+        "POST",
+        "/api/projects",
+        Some(json!({
+            "name": "web",
+            "folder": folder.to_string_lossy()
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "create test project: {project}");
+    assert_eq!(project["id"], "web");
+}
+
 async fn create_terminal(app: &Router, folder: &Path) -> Value {
+    ensure_test_project(app, folder).await;
     let (status, body) = call(
         app,
         "POST",
@@ -202,24 +226,18 @@ async fn wait_for_preview(app: &Router, id: &str, expected: &str) {
 }
 
 #[tokio::test]
-async fn bootstrap_has_the_seed_shape() {
+async fn bootstrap_has_sample_accounts_and_no_projects() {
     let app = router(AppState::ephemeral());
     let (status, body) = call(&app, "GET", "/api/bootstrap", None).await;
 
     assert_eq!(status, StatusCode::OK);
-    let projects = body["projects"].as_array().expect("projects array");
-    let project_ids = projects
-        .iter()
-        .map(|project| project["id"].as_str().unwrap_or_default())
-        .collect::<Vec<_>>();
-    assert_eq!(project_ids, ["web", "core"]);
-    for project in projects {
-        assert!(
-            project["folder"]
-                .as_str()
-                .is_some_and(|folder| !folder.is_empty())
-        );
-    }
+    assert!(
+        body["projects"]
+            .as_array()
+            .expect("projects array")
+            .is_empty(),
+        "a fresh state must have no projects"
+    );
 
     let accounts = body["accounts"].as_array().expect("accounts array");
     assert_eq!(accounts.len(), 4);
@@ -257,12 +275,25 @@ async fn bootstrap_has_the_seed_shape() {
             "seed usage rows are invented"
         );
         assert_eq!(account["foot"], "No official usage source.");
+        assert_eq!(account["sample"], true, "seed accounts are samples");
     }
 
     assert_eq!(
         body["sessions"].as_array().expect("sessions array").len(),
         0
     );
+}
+
+#[tokio::test]
+async fn fresh_data_dir_starts_with_no_projects() {
+    let data_dir = TempDirectory::new("fresh-first-launch");
+    let app = router(AppState::with_data_dir(data_dir.path.clone()));
+    let (status, body) = call(&app, "GET", "/api/bootstrap", None).await;
+
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(body["projects"].as_array().expect("projects").is_empty());
+    assert_eq!(body["accounts"].as_array().expect("accounts").len(), 4);
+    assert!(body["sessions"].as_array().expect("sessions").is_empty());
 }
 
 #[tokio::test]
@@ -381,6 +412,7 @@ async fn post_requests_need_json_and_close_takes_an_object() {
 async fn terminal_session_with_a_missing_folder_is_rejected() {
     let app = router(AppState::ephemeral());
     let parent = TempDirectory::new("missing-folder");
+    ensure_test_project(&app, &parent.path).await;
     let missing = parent.path.join("not-here");
 
     let (status, body) = call(
@@ -406,6 +438,8 @@ async fn terminal_session_with_a_missing_folder_is_rejected() {
 #[tokio::test]
 async fn agent_session_with_an_unknown_account_is_rejected() {
     let app = router(AppState::ephemeral());
+    let folder = TempDirectory::new("unknown-account-project");
+    ensure_test_project(&app, &folder.path).await;
 
     let (status, body) = call(
         &app,
@@ -941,6 +975,7 @@ async fn agent_sessions_use_the_supplied_folder_and_unique_short_names() {
         vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
         data_dir.path.clone(),
     ));
+    ensure_test_project(&app, &repo.path).await;
     let body = json!({
         "projectId": "web",
         "kind": "agent",
@@ -1101,7 +1136,7 @@ async fn project_creation_returns_the_new_project() {
     let (status, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
     assert_eq!(status, StatusCode::OK);
     let projects = bootstrap["projects"].as_array().expect("projects");
-    assert_eq!(projects.len(), 3);
+    assert_eq!(projects.len(), 1);
     assert!(projects.iter().any(|stored| stored["id"] == "new-app"));
 }
 
@@ -1212,6 +1247,7 @@ async fn create_session_uses_the_requested_terminal_size() {
         "printf 'SIZE:'; stty size; sleep 30".to_owned(),
     ]));
     let folder = TempDirectory::new("create-size");
+    ensure_test_project(&app, &folder.path).await;
 
     let (status, session) = call(
         &app,
@@ -1991,7 +2027,7 @@ async fn graceful_shutdown_saves_the_restart_note_and_logs() {
 }
 
 #[tokio::test]
-async fn corrupt_state_falls_back_to_seeds() {
+async fn corrupt_state_falls_back_to_sample_accounts() {
     let data_dir = TempDirectory::new("persist-corrupt-data");
     let state_path = data_dir.path.join("state.json");
     fs::write(&state_path, b"{ this is not json").expect("write corrupt state");
@@ -1999,13 +2035,13 @@ async fn corrupt_state_falls_back_to_seeds() {
     let app = router(AppState::with_data_dir(data_dir.path.clone()));
     let (status, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
     assert_eq!(status, StatusCode::OK);
-    let project_ids = bootstrap["projects"]
-        .as_array()
-        .expect("projects")
-        .iter()
-        .map(|project| project["id"].as_str().unwrap_or_default())
-        .collect::<Vec<_>>();
-    assert_eq!(project_ids, ["web", "core"]);
+    assert!(
+        bootstrap["projects"]
+            .as_array()
+            .expect("projects")
+            .is_empty()
+    );
+    assert_eq!(bootstrap["accounts"].as_array().expect("accounts").len(), 4);
     assert_eq!(bootstrap["sessions"].as_array().expect("sessions").len(), 0);
     assert!(data_dir.path.join("state.bad.json").exists());
     assert!(!state_path.exists());
@@ -2020,6 +2056,7 @@ async fn dirty_agent_close_commits_and_removes_the_worktree() {
         vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
         data_dir.path.clone(),
     ));
+    ensure_test_project(&app, &repo.path).await;
 
     let (status, session) = call(
         &app,
@@ -2067,6 +2104,7 @@ async fn push_failure_keeps_the_worktree() {
         vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
         data_dir.path.clone(),
     ));
+    ensure_test_project(&app, &repo.path).await;
     let (status, session) = call(
         &app,
         "POST",
@@ -2117,6 +2155,7 @@ async fn push_success_removes_the_worktree_and_keeps_the_remote_branch() {
         vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
         data_dir.path.clone(),
     ));
+    ensure_test_project(&app, &repo.path).await;
     let (status, session) = call(
         &app,
         "POST",
@@ -2152,6 +2191,7 @@ async fn reopen_recreates_the_worktree_and_repo_root_survives_reload() {
         command.clone(),
         data_dir.path.clone(),
     ));
+    ensure_test_project(&app, &repo.path).await;
     let (status, session) = call(
         &app,
         "POST",
@@ -2214,6 +2254,7 @@ async fn non_git_folder_is_rejected_for_agent_sessions() {
         vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
         data_dir.path.clone(),
     ));
+    ensure_test_project(&app, &folder.path).await;
 
     let (status, body) = call(
         &app,
@@ -2242,6 +2283,7 @@ async fn close_and_reopen_are_serialized_during_slow_git() {
         vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
         data_dir.path.clone(),
     ));
+    ensure_test_project(&app, &repo.path).await;
 
     let (status, session) = call(
         &app,
@@ -2317,6 +2359,7 @@ async fn slow_git_times_out_and_keeps_the_worktree() {
     )
     .with_test_git_timeout(Duration::from_millis(500), Duration::from_millis(500));
     let app = router(state);
+    ensure_test_project(&app, &repo.path).await;
 
     let (status, session) = call(
         &app,
@@ -2355,6 +2398,7 @@ async fn branch_name_reuse_after_delete_gets_a_new_suffix() {
         vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
         data_dir.path.clone(),
     ));
+    ensure_test_project(&app, &repo.path).await;
     let body = json!({
         "projectId": "web",
         "kind": "agent",
@@ -2396,6 +2440,7 @@ async fn close_pushes_to_a_single_non_origin_remote() {
         vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
         data_dir.path.clone(),
     ));
+    ensure_test_project(&app, &repo.path).await;
 
     let (status, session) = call(
         &app,
@@ -2431,6 +2476,7 @@ async fn spawn_failure_rolls_back_the_worktree_and_branch() {
         vec!["/definitely/not/a/real/command".to_owned()],
         data_dir.path.clone(),
     ));
+    ensure_test_project(&app, &repo.path).await;
 
     let (status, body) = call(
         &app,
@@ -2469,6 +2515,7 @@ async fn reopen_replaces_a_stale_worktree_directory() {
         vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
         data_dir.path.clone(),
     ));
+    ensure_test_project(&app, &repo.path).await;
 
     let (status, session) = call(
         &app,
@@ -2518,6 +2565,7 @@ async fn refused_worktree_removal_keeps_it_with_a_preview() {
         vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
         data_dir.path.clone(),
     ));
+    ensure_test_project(&app, &repo.path).await;
 
     let (status, session) = call(
         &app,
@@ -2557,6 +2605,7 @@ async fn close_with_a_missing_worktree_sets_a_truthful_preview() {
         vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
         data_dir.path.clone(),
     ));
+    ensure_test_project(&app, &repo.path).await;
 
     let (status, session) = call(
         &app,
@@ -2741,6 +2790,17 @@ async fn claude_agent_writes_private_hook_settings_and_rejects_bad_tokens() {
         );
     }
 
+    let matcher = "Bash|Edit|Write|MultiEdit|NotebookEdit|WebFetch";
+    for event in ["PreToolUse", "PostToolUse"] {
+        assert_eq!(settings["hooks"][event][0]["matcher"], matcher, "{event}");
+    }
+    for event in ["Notification", "Stop", "UserPromptSubmit", "MessageDisplay"] {
+        assert!(
+            settings["hooks"][event][0].get("matcher").is_none(),
+            "{event} must stay unmatcher"
+        );
+    }
+
     let body = json!({"hook_event_name": "UnknownEvent"});
     let (status, response) = send_hook(&app, &id, Some(&token), body.clone()).await;
     assert_eq!(status, StatusCode::NO_CONTENT, "{response}");
@@ -2851,6 +2911,75 @@ async fn pre_tool_use_allow_answer_returns_and_clears_on_post_tool_use() {
     assert_eq!(current["waitingFor"], Value::Null);
     assert_eq!(current["workState"], "working");
     assert_eq!(current["status"], "active");
+}
+
+#[tokio::test]
+async fn permission_cards_skip_read_only_question_and_plan_tools() {
+    let data_dir = TempDirectory::new("claude-filter-data");
+    let repo = TempDirectory::new("claude-filter-repo");
+    init_git_repo(&repo.path);
+    let app = router(AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    ));
+    let session = create_claude_agent(&app, &repo.path, "Filter Tools").await;
+    let id = session["id"].as_str().expect("session id").to_owned();
+    let (_, settings) = claude_settings(&data_dir.path, &id);
+    let token = settings_token(&settings);
+
+    for (index, tool) in ["Read", "Glob", "Grep", "AskUserQuestion", "ExitPlanMode"]
+        .into_iter()
+        .enumerate()
+    {
+        let (status, body) = send_hook(
+            &app,
+            &id,
+            Some(&token),
+            json!({
+                "hook_event_name": "PreToolUse",
+                "tool_name": tool,
+                "tool_input": {"file_path": "/etc/passwd"},
+                "tool_use_id": format!("toolu-filter-{index}")
+            }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT, "{tool}: {body}");
+
+        let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+        let current = bootstrap_session(&bootstrap, &id);
+        assert_eq!(current["pendingPermission"], Value::Null, "{tool}");
+        assert_eq!(current["waitingFor"], Value::Null, "{tool}");
+    }
+
+    let hook = send_hook(
+        &app,
+        &id,
+        Some(&token),
+        json!({
+            "hook_event_name": "PreToolUse",
+            "tool_name": "Bash",
+            "tool_input": {"command": "echo allowed"},
+            "tool_use_id": "toolu-filter-bash"
+        }),
+    );
+    let answer = async {
+        let pending = wait_for_pending(&app, &id).await;
+        assert_eq!(pending["requestId"], "toolu-filter-bash");
+        assert_eq!(pending["tool"], "Bash");
+        let (status, body) = call(
+            &app,
+            "POST",
+            &format!("/api/sessions/{id}/permission"),
+            Some(json!({"requestId": "toolu-filter-bash", "decision": "allow"})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+    };
+
+    let ((status, body), ()) = tokio::join!(hook, answer);
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["hookSpecificOutput"]["permissionDecision"], "allow");
+    close_session(&app, &id).await;
 }
 
 #[tokio::test]
@@ -3738,6 +3867,7 @@ async fn google_account_is_stored_without_its_key_and_validated() {
     assert_eq!(account["client"], "Antigravity");
     assert_eq!(account["provider"], "google");
     assert_eq!(account["auth"], "key");
+    assert_eq!(account["sample"], false);
     assert_eq!(account["model"], "gemini-3.8-flash-medium");
     assert_eq!(account["rows"].as_array().expect("rows").len(), 0);
     assert_eq!(account["foot"], "No official usage source.");
@@ -3869,6 +3999,7 @@ async fn account_metadata_restores_and_a_missing_key_blocks_the_launch() {
         .find(|account| account["id"].as_str() == Some(id.as_str()))
         .expect("restored account");
     assert_eq!(restored_account["client"], "Antigravity");
+    assert_eq!(restored_account["sample"], false);
     assert_eq!(restored_account["model"], "gemini-3.8-flash-medium");
     assert_eq!(
         restored_secrets.get_key(&id).expect("read restored key"),
@@ -3877,6 +4008,7 @@ async fn account_metadata_restores_and_a_missing_key_blocks_the_launch() {
 
     let repo = TempDirectory::new("google-missing-key-repo");
     init_git_repo(&repo.path);
+    ensure_test_project(&restored_app, &repo.path).await;
     let (status, body) = call(
         &restored_app,
         "POST",
@@ -3914,6 +4046,7 @@ async fn antigravity_session_uses_a_private_home_and_key_environment() {
     )
     .with_test_secret_store(secrets.clone());
     let app = router(state);
+    ensure_test_project(&app, &repo.path).await;
     let account = create_google_account(&app, "Launch Google", key).await;
     let account_id = account["id"].as_str().expect("account id");
 
@@ -4020,6 +4153,7 @@ async fn reopen_recreates_the_antigravity_home() {
     )
     .with_test_secret_store(secrets.clone());
     let app = router(state);
+    ensure_test_project(&app, &repo.path).await;
     let account = create_google_account(&app, "Reopen Google", key).await;
     let account_id = account["id"].as_str().expect("account id");
     let (status, session) = call(
@@ -4093,6 +4227,7 @@ async fn create_google_account(app: &Router, name: &str, key: &str) -> Value {
 }
 
 async fn create_agent(app: &Router, repo: &Path, account: &str, name: &str) -> Value {
+    ensure_test_project(app, repo).await;
     let (status, session) = call(
         app,
         "POST",
