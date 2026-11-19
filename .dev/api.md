@@ -30,6 +30,13 @@ The service binds `127.0.0.1` only. It accepts requests only for loopback hostna
 - Deleting requires a closed session and removes the session and its log. An agent branch is kept. If a failed close left a worktree, delete attempts to remove it.
 - The client version check is cached for 10 seconds.
 
+## List endpoints
+
+- `GET /api/projects?q=` and `GET /api/accounts?q=` return a plain array for the pickers.
+- `q` is optional and case-insensitive. A missing or empty value returns every item.
+- Projects match on name or folder. Accounts match on name, client, provider or plan.
+- Results are sorted by name, then id. Account responses never include a key. The Host and Origin rules apply.
+
 ## Accounts and Antigravity
 
 - `POST /api/accounts` adds an API-key account. The body is `{ name, providerId, client, auth: "key", key, model? }`.
@@ -158,7 +165,9 @@ interface OutputEvent {
 | --- | --- | --- | --- |
 | GET | `/api/health` | | `{ ok, version, agents: AgentCheck[] }` |
 | GET | `/api/bootstrap` | | `{ projects, accounts, sessions }` |
+| GET | `/api/projects?q={text}` | | `Project[]` |
 | POST | `/api/projects` | `{ name, folder }` | `Project` |
+| GET | `/api/accounts?q={text}` | | `Account[]` |
 | POST | `/api/accounts` | `{ name, providerId, client, auth: "key", key, model? }` | `Account` |
 | POST | `/api/sessions` | `{ projectId, kind, accountId?, name?, folder?, cols?, rows? }` | `Session` |
 | POST | `/api/sessions/{id}/close` | `{}` | `Session` |

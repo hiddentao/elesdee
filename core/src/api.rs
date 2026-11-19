@@ -182,6 +182,11 @@ struct CreateAccountRequest {
 }
 
 #[derive(Debug, Deserialize)]
+struct ListQuery {
+    q: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
 struct InputRequest {
     data: String,
 }
@@ -252,8 +257,8 @@ pub fn router(state: AppState) -> Router {
     let regular = Router::new()
         .route("/api/health", get(health))
         .route("/api/bootstrap", get(bootstrap))
-        .route("/api/projects", post(create_project))
-        .route("/api/accounts", post(create_account))
+        .route("/api/projects", get(list_projects).post(create_project))
+        .route("/api/accounts", get(list_accounts).post(create_account))
         .route("/api/sessions", post(create_session))
         .route(
             "/api/sessions/{id}",
@@ -432,6 +437,55 @@ async fn health(State(state): State<AppState>) -> Json<HealthResponse> {
 
 async fn bootstrap(State(state): State<AppState>) -> Json<Bootstrap> {
     Json(state.bootstrap())
+}
+
+async fn list_projects(
+    State(state): State<AppState>,
+    query: Result<Query<ListQuery>, QueryRejection>,
+) -> Result<Json<Vec<Project>>, ApiError> {
+    let filter = list_filter(query)?;
+    let mut projects = state.projects();
+    if let Some(filter) = filter.as_deref() {
+        projects.retain(|project| {
+            matches_filter(&project.name, filter) || matches_filter(&project.folder, filter)
+        });
+    }
+    projects.sort_by_cached_key(|project| (project.name.to_lowercase(), project.id.clone()));
+    Ok(Json(projects))
+}
+
+async fn list_accounts(
+    State(state): State<AppState>,
+    query: Result<Query<ListQuery>, QueryRejection>,
+) -> Result<Json<Vec<Account>>, ApiError> {
+    let filter = list_filter(query)?;
+    let mut accounts = state.accounts();
+    if let Some(filter) = filter.as_deref() {
+        accounts.retain(|account| {
+            matches_filter(&account.name, filter)
+                || matches_filter(account.client.display_name(), filter)
+                || matches_filter(&account.provider, filter)
+                || matches_filter(&account.plan, filter)
+        });
+    }
+    accounts.sort_by_cached_key(|account| (account.name.to_lowercase(), account.id.clone()));
+    Ok(Json(accounts))
+}
+
+fn list_filter(
+    query: Result<Query<ListQuery>, QueryRejection>,
+) -> Result<Option<String>, ApiError> {
+    let Query(query) = query.map_err(|_| ApiError::bad_request("Invalid list query."))?;
+    Ok(query
+        .q
+        .as_deref()
+        .map(str::trim)
+        .filter(|filter| !filter.is_empty())
+        .map(str::to_lowercase))
+}
+
+fn matches_filter(value: &str, filter: &str) -> bool {
+    value.to_lowercase().contains(filter)
 }
 
 async fn create_project(

@@ -364,6 +364,44 @@ async fn host_and_origin_are_validated() {
 }
 
 #[tokio::test]
+async fn list_endpoints_keep_the_host_and_origin_rules() {
+    let app = router(AppState::ephemeral());
+
+    for path in ["/api/projects?q=", "/api/accounts?q="] {
+        let request = Request::builder()
+            .method("GET")
+            .uri(path)
+            .body(Body::empty())
+            .expect("build request");
+        let (status, body) = send(&app, request).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{path} host: {body}");
+
+        let request = Request::builder()
+            .method("GET")
+            .uri(path)
+            .header(header::HOST, "evil.example")
+            .body(Body::empty())
+            .expect("build request");
+        let (status, body) = send(&app, request).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{path} host: {body}");
+
+        let request = request_builder("GET", path)
+            .header(header::ORIGIN, "http://evil.example")
+            .body(Body::empty())
+            .expect("build request");
+        let (status, body) = send(&app, request).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{path} origin: {body}");
+
+        let request = request_builder("GET", path)
+            .header(header::ORIGIN, "http://localhost:5173")
+            .body(Body::empty())
+            .expect("build request");
+        let (status, body) = send(&app, request).await;
+        assert_eq!(status, StatusCode::OK, "{path} allowed: {body}");
+    }
+}
+
+#[tokio::test]
 async fn post_requests_need_json_and_close_takes_an_object() {
     let app = router(AppState::with_test_command(vec![
         "/bin/sh".to_owned(),
@@ -1219,6 +1257,67 @@ async fn project_creation_appends_a_suffix_for_a_duplicate_name() {
 
     assert_eq!(status, StatusCode::OK, "{second}");
     assert_eq!(second["id"], "new-app-2");
+}
+
+#[tokio::test]
+async fn project_list_filters_by_name_and_folder() {
+    let app = router(AppState::ephemeral());
+    let root = TempDirectory::new("project-list");
+    let alpha_folder = root.path.join("alpha");
+    let beta_folder = root.path.join("beta");
+    fs::create_dir_all(&alpha_folder).expect("create alpha folder");
+    fs::create_dir_all(&beta_folder).expect("create beta folder");
+
+    let (status, first) = call(
+        &app,
+        "POST",
+        "/api/projects",
+        Some(json!({
+            "name": "Zeta App",
+            "folder": alpha_folder.to_string_lossy()
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{first}");
+    let (status, second) = call(
+        &app,
+        "POST",
+        "/api/projects",
+        Some(json!({
+            "name": "Alpha Tool",
+            "folder": beta_folder.to_string_lossy()
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{second}");
+
+    let (status, all) = call(&app, "GET", "/api/projects", None).await;
+    assert_eq!(status, StatusCode::OK, "{all}");
+    let names = all
+        .as_array()
+        .expect("projects")
+        .iter()
+        .map(|project| project["name"].as_str().unwrap_or_default())
+        .collect::<Vec<_>>();
+    assert_eq!(names, ["Alpha Tool", "Zeta App"]);
+
+    let (status, filtered) = call(&app, "GET", "/api/projects?q=APP", None).await;
+    assert_eq!(status, StatusCode::OK, "{filtered}");
+    assert_eq!(filtered.as_array().expect("projects").len(), 1);
+    assert_eq!(filtered[0]["id"], "zeta-app");
+
+    let (status, by_folder) = call(&app, "GET", "/api/projects?q=beta", None).await;
+    assert_eq!(status, StatusCode::OK, "{by_folder}");
+    assert_eq!(by_folder.as_array().expect("projects").len(), 1);
+    assert_eq!(by_folder[0]["id"], "alpha-tool");
+
+    let (status, empty) = call(&app, "GET", "/api/projects?q=", None).await;
+    assert_eq!(status, StatusCode::OK, "{empty}");
+    assert_eq!(empty.as_array().expect("projects").len(), 2);
+
+    let (status, miss) = call(&app, "GET", "/api/projects?q=missing", None).await;
+    assert_eq!(status, StatusCode::OK, "{miss}");
+    assert!(miss.as_array().expect("projects").is_empty());
 }
 
 #[tokio::test]
@@ -3952,6 +4051,69 @@ async fn google_account_is_stored_without_its_key_and_validated() {
     }
     let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
     assert_eq!(bootstrap["accounts"].as_array().expect("accounts").len(), 7);
+}
+
+#[tokio::test]
+async fn account_list_filters_and_never_includes_keys() {
+    let data_dir = TempDirectory::new("account-list-data");
+    let secrets = Arc::new(MemorySecretStore::default());
+    let state = AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    )
+    .with_test_secret_store(secrets.clone());
+    let app = router(state);
+    let key = "AIza-account-list-secret";
+    create_google_account(&app, "Google Gemini", key).await;
+
+    let (status, all) = call(&app, "GET", "/api/accounts", None).await;
+    assert_eq!(status, StatusCode::OK, "{all}");
+    let accounts = all.as_array().expect("accounts");
+    assert_eq!(accounts.len(), 5);
+    let names = accounts
+        .iter()
+        .map(|account| account["name"].as_str().unwrap_or_default())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        names,
+        [
+            "Anthropic Max 20×",
+            "ChatGPT Pro",
+            "DeepSeek API",
+            "Google Gemini",
+            "LiteLLM gateway"
+        ]
+    );
+    assert!(
+        !all.to_string().contains(key),
+        "the key leaked into the list"
+    );
+    for account in accounts {
+        assert!(account.get("key").is_none(), "an account carried a key");
+    }
+
+    for (filter, expected) in [
+        ("chatgpt", "ChatGPT Pro"),
+        ("antigravity", "Google Gemini"),
+        ("google", "Google Gemini"),
+        ("team", "LiteLLM gateway"),
+        ("anthropic", "Anthropic Max 20×"),
+    ] {
+        let (status, filtered) =
+            call(&app, "GET", &format!("/api/accounts?q={filter}"), None).await;
+        assert_eq!(status, StatusCode::OK, "{filter}: {filtered}");
+        let matches = filtered.as_array().expect("accounts");
+        assert_eq!(matches.len(), 1, "{filter}: {filtered}");
+        assert_eq!(matches[0]["name"], expected, "{filter}");
+    }
+
+    let (status, empty) = call(&app, "GET", "/api/accounts?q=", None).await;
+    assert_eq!(status, StatusCode::OK, "{empty}");
+    assert_eq!(empty.as_array().expect("accounts").len(), 5);
+
+    let (status, miss) = call(&app, "GET", "/api/accounts?q=missing", None).await;
+    assert_eq!(status, StatusCode::OK, "{miss}");
+    assert!(miss.as_array().expect("accounts").is_empty());
 }
 
 #[tokio::test]
