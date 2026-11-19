@@ -4,7 +4,7 @@ Last updated: 19 November 2026
 
 ## Purpose
 
-Build an IDE that runs Claude Code and Codex sessions the way I want, with less manual work. It replaces onoRCA.dev, which does not give enough control and does not save enough time.
+Build an IDE that runs Claude Code, Codex and OpenCode 2 sessions the way I want, with less manual work. It replaces onoRCA.dev, which does not give enough control and does not save enough time.
 
 The app is public. Anyone can install it from this repository's GitHub releases.
 
@@ -88,7 +88,7 @@ Sessions are the main view. A file viewer and code editor is an extra panel that
 
 **Where the message view gets its data**
 
-Both agents write their conversation to files on disk, but both say the file format is not a public interface. Claude Code: "The entry format is internal to Claude Code and changes between versions, so scripts that parse these files directly can break on any release" ([Claude Code docs](https://code.claude.com/docs/en/sessions)). Codex: "the transcript format isn't a stable interface for hooks and may change over time" ([Codex docs](https://learn.chatgpt.com/docs/hooks)). So the app does not parse these files. It uses each agent's official event interface, which runs next to the real terminal.
+The agents write their conversation to files on disk, and each keeps its own internal format. Claude Code: "The entry format is internal to Claude Code and changes between versions, so scripts that parse these files directly can break on any release" ([Claude Code docs](https://code.claude.com/docs/en/sessions)). Codex: "the transcript format isn't a stable interface for hooks and may change over time" ([Codex docs](https://learn.chatgpt.com/docs/hooks)). So the app does not parse these files. It uses each agent's official event interface, which runs next to the real terminal.
 
 - Claude Code: hooks, added at launch through `--settings`, like the other launch overrides.
   - HTTP hooks "send the event's JSON input as an HTTP POST request to a URL" ([Claude Code docs](https://code.claude.com/docs/en/hooks)). The URL is the core service on localhost.
@@ -98,10 +98,14 @@ Both agents write their conversation to files on disk, but both say the file for
   - The core service starts `codex app-server` on a local socket and launches the terminal UI with `codex --remote unix://PATH`, so the terminal UI is a client of that server ([Codex docs](https://learn.chatgpt.com/docs/app-server)).
   - The core service connects its own client to the same server. It reads history with `thread/turns/list` and `thread/items/list`, and follows live `item/*` events ([Codex docs](https://learn.chatgpt.com/docs/app-server)).
   - Risks: the `codex app-server` command is labelled experimental. The docs do not say outright that a second client can follow a thread that the terminal UI is running. The test build must check this.
+- OpenCode 2: its server API.
+  - The API has session, event, permission, command and PTY routes ([OpenCode docs](https://opencode.ai/docs/server/)).
+  - The core service starts the OpenCode 2 server and connects to it as a client, next to the real terminal.
+  - The test build must check which events carry streamed assistant text, tool rows and permission prompts.
 
 **Session types**
 
-- Agent session: runs Claude Code or Codex, with a preset, provider, branch and worktree.
+- Agent session: runs Claude Code, Codex or OpenCode 2, with a preset, provider, branch and worktree.
 - Terminal session: a plain terminal, with no agent. It sits under a project in the sidebar and opens in a folder I choose, often an agent session's worktree. It has no branch or worktree of its own.
 
 **Session names and limits**
@@ -118,7 +122,7 @@ Both agents write their conversation to files on disk, but both say the file for
 
 **First launch**
 
-- The first screen checks for Claude Code and Codex and shows their versions.
+- The first screen checks for Claude Code, Codex and OpenCode 2 and shows their versions.
 - It offers one action: Add a project. The project form asks for a name and a folder.
 - The language button sits in the title bar.
 - Until the Mac starts a session, the phone shows an empty session list.
@@ -175,14 +179,18 @@ Both agents write their conversation to files on disk, but both say the file for
 
 ## Agent support and presets
 
-Version 1 supports two coding agents: Claude Code and Codex. Other agents can come later.
+Version 1 supports three coding agents: Claude Code, Codex and OpenCode 2. Other agents can come later.
 
-- elesdee uses the Claude Code and Codex that I installed, and shows their versions.
+- Claude Code runs Anthropic and the Anthropic-compatible providers.
+- Codex runs OpenAI and the OpenAI-compatible providers.
+- OpenCode 2 runs OpenRouter, and any custom provider that I do not give to another client.
+- elesdee uses the copies of the three agents that I installed, and shows their versions.
 - If one is missing, elesdee installs its own copy.
+- Each provider account names the client that runs it. For a custom provider, I pick the client when I add it.
 
 **Permission prompts**
 
-- When Claude Code or Codex asks for permission before an action (for example running a command or editing a file), the prompt appears in the session view on the Mac and on the phone.
+- When Claude Code, Codex or OpenCode 2 asks for permission before an action (for example running a command or editing a file), the prompt appears in the session view on the Mac and on the phone.
 - I can approve or deny from either device. The session shows a "waiting for you" badge in the sidebar until I answer.
 
 **Config overrides**
@@ -194,7 +202,7 @@ Version 1 supports two coding agents: Claude Code and Codex. Other agents can co
 
 **Launch presets**
 
-- Every connected account is a preset in the launch form, with its provider, runtime and remaining usage.
+- Every connected account is a preset in the launch form, with its provider, client and remaining usage.
 - I can edit a preset's default account, model and config overrides, and add more.
 - The launch form shows the provider list with remaining usage. The selected provider keeps its usage value in the closed field.
 - Presets and config overrides are stored in elesdee's own settings on the Mac. Nothing is written into my repos.
@@ -205,11 +213,11 @@ Every agent session gets the same app tools and skills, whatever the agent or pr
 
 **How sessions get them**
 
-- The core service runs one MCP server, "elesdee". Claude Code and Codex both support MCP servers ([Codex docs](https://developers.openai.com/codex/mcp)).
+- The core service runs one MCP server, "elesdee". All three clients support MCP servers ([Codex docs](https://developers.openai.com/codex/mcp), [OpenCode docs](https://opencode.ai/docs/mcp-servers/)).
 - The server listens on localhost and has no access check: any program on the Mac can call it. Starting a session still needs my approval, so a local program cannot start agents on its own.
 - Each session gets its own address on the server, so the server knows which session made each call.
 - At launch, the app adds this MCP server and the skills to the agent through the launch overrides. It does not change global config or write into the repo.
-- Skills use the SKILL.md format, which both Claude Code and Codex read ([Codex docs](https://developers.openai.com/codex/skills.md)).
+- Skills use the SKILL.md format, which all three clients read ([Codex docs](https://developers.openai.com/codex/skills.md), [OpenCode docs](https://opencode.ai/docs/skills/)).
 - Agents read only a skill's name and description at start, and load the rest when they decide they need it. So a short note in each agent's starting instructions also tells it that it runs inside elesdee and points it to the elesdee skill.
 
 **Browser tools**
@@ -265,7 +273,7 @@ Every agent session gets the same app tools and skills, whatever the agent or pr
 
 **Handoff note**
 
-- Agents write a handoff note when the session switches to a different agent (Claude Code to Codex, or the reverse), runs out of usage, or closes. A switch inside Claude Code (for example Anthropic to DeepSeek) needs no note, because the same conversation continues.
+- Agents write a handoff note when the session switches to a different client (between Claude Code, Codex and OpenCode 2), runs out of usage, or closes. A switch inside the same client (for example Anthropic to DeepSeek on Claude Code) needs no note, because the same conversation continues.
 - The app keeps the note and gives it to the next agent that works on the session.
 - A copy goes in the message of the last commit on the session branch. So the note travels with the branch, and no file is added to the repo.
 
@@ -290,18 +298,27 @@ I can switch provider inside a running session with one button, and the IDE can 
 
 Supported providers:
 
-| Provider | Models | Runtime | Sign-in |
+| Provider | Models | Client | Sign-in |
 | --- | --- | --- | --- |
 | Anthropic | Claude | Claude Code | Subscription or API key |
 | OpenAI | ChatGPT / GPT | Codex | Subscription or API key |
-| Google | Gemini | Antigravity | API key |
-| xAI | Grok | Grok Build | API key |
 | Kimi (Moonshot) | Kimi | Claude Code | API key |
 | DeepSeek | DeepSeek | Claude Code | API key |
 | Z.ai | GLM | Claude Code | API key |
-| OpenRouter | Many models | OpenCode | API key |
+| OpenRouter | Many models | OpenCode 2 | API key |
 | Ollama | Local models | Claude Code | Server URL |
 | LM Studio | Local models | Claude Code | Server URL |
+
+- A provider appears in this list only if one of the three clients runs it. Google (Antigravity), xAI (Grok Build) and Kimi Code need clients that elesdee does not support yet, so they are out of the list. When one of those services offers an OpenAI- or Anthropic-compatible API, I can add it as a custom provider.
+
+**Custom providers**
+
+- Add provider has a "Custom provider" choice for any server that speaks the OpenAI API or the Anthropic API. Examples are a LiteLLM gateway, a company proxy, a self-hosted server or a service that offers a compatible endpoint.
+- I choose the API style: OpenAI-compatible or Anthropic-compatible. I enter the base URL, the model name and an optional API key.
+- The client follows the style. An OpenAI-compatible provider can run on Codex or OpenCode 2. An Anthropic-compatible provider can run on Claude Code or OpenCode 2. OpenCode 2 is the default.
+- I can edit the address, model and client later in Settings. The key stays in the system keychain.
+- The app shows usage numbers only when the server reports them. Otherwise the account shows "No usage data", and auto-switch skips it.
+- I type the model name. The app checks it against the server's model list when the server answers, and accepts the name when it cannot.
 
 **Subscription sign-in**
 
@@ -315,7 +332,7 @@ Supported providers:
 **Manual switch**
 
 - One button switches the current session to another provider or account.
-- The work and context of the session carry over to the new provider. Inside Claude Code (for example Anthropic to DeepSeek), the same conversation continues. Between Claude Code and Codex, the new agent gets a handoff summary of the work so far.
+- The work and context of the session carry over to the new provider. Inside the same client (for example Anthropic to DeepSeek on Claude Code), the same conversation continues. Between different clients, the new agent gets a handoff summary of the work so far.
 
 **Usage panel**
 
@@ -486,10 +503,12 @@ The approach follows Orca Mobile's terminal shortcut rail ([Orca docs](https://o
 
 - The phone sends text two ways. The message view composer sends a whole prompt. The terminal view has a one-line input that sends text straight to the terminal.
 - A key rail sits above the input in both views. It sends desktop keys to the active session: Esc, Tab, Shift+Tab, Backspace, Delete, the four arrows, Ctrl+C and Ctrl+D.
+- The desktop returns the keys of each session's agent in the session API. The phone keeps no list of agent keys, so a new agent, a new agent version or a changed binding reaches the phone without a phone update.
+- The rail shows those agent keys on its own, with their purpose. For Claude Code: Shift+Tab cycles permission modes, Ctrl+O shows the verbose transcript, Ctrl+T shows the to-do list, Ctrl+R opens history search and Ctrl+G opens the external editor. For Codex: Shift+Tab cycles approval modes, Ctrl+T shows the transcript, Ctrl+R opens history search and Ctrl+G opens the external editor. For OpenCode 2: Ctrl+P opens the command palette and Ctrl+L clears the screen. Keys the rail already has keep one chip, with the agent's meaning on it. A terminal session gets the base keys only.
 - Shift, Ctrl and Alt are latches. Tap one, then tap a key, and the two go together. A latch clears after one key.
 - Hold an arrow, Backspace or Delete to repeat it, as a held desktop key does.
 - The rail scrolls sideways. A keyboard button in the input row shows or hides it, and the session keeps its place when the rail opens again.
-- The + at the end of the rail opens "Keyboard keys". I pick modifiers, name a key (C, F5, PageUp), and add it. I can remove saved keys there. There are up to 8.
+- The + at the end of the rail opens "Keyboard keys". The sheet lists the agent's keys with their purpose, then my saved keys. I pick modifiers, name a key (C, F5, PageUp), and add it. I can remove saved keys there. There are up to 8.
 - Saved keys belong to the phone, not to a session. They sit on the rail and send to the terminal like the built-in keys.
 - A hardware keyboard, or a keyboard app with Ctrl and Alt keys, sends chords to the terminal too. Plain text still goes to the focused input.
 - Keys go to the session's terminal input as the bytes a terminal expects. Ctrl+C interrupts, Esc cancels, Tab completes. They never run an action in the phone interface.
@@ -581,7 +600,7 @@ Recommendation: iroh. Each device is reached by its public key. iroh tries a dir
 Build this test before the real app.
 
 1. Build the Tauri mobile shell, pair an Android phone and the desktop app by QR code, and download the UI package from the desktop.
-2. Stream a live session over iroh, with the phone's message view fed by the Claude Code hooks and by a second client on the Codex app-server (see Where the message view gets its data).
+2. Stream a live session over iroh, with the phone's message view fed by the Claude Code hooks, by a second client on the Codex app-server, or by the OpenCode 2 server events (see Where the message view gets its data).
 3. Test on Wi-Fi and on mobile data.
 
 If iroh works well, commit to iroh; if not, switch to WebRTC. If Tauri mobile has a blocker, switch the shell to React Native.

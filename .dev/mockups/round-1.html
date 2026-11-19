@@ -1113,7 +1113,8 @@ svg { display: block; }
   font-size: var(--fs-ui);
   overflow-y: auto;
 }
-.overlay-panel.is-dialog { overflow: hidden; }
+.overlay-panel.is-dialog { overflow: hidden; display: flex; flex-direction: column; }
+.overlay-panel.is-dialog .dialog-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
 .overlay-panel.is-menu { width: 250px; }
 .overlay-panel.is-popover { width: 320px; }
 .overlay-panel.is-usage { width: 360px; max-height: 600px; }
@@ -1181,7 +1182,7 @@ svg { display: block; }
 .language-item:hover { background: var(--surface-3); }
 .language-item .check { margin-left: auto; color: var(--accent); }
 .language-item svg { width: 12px; height: 12px; }
-.dialog-title { margin: 0; padding: 13px 14px 4px; font-size: var(--fs-card); font-weight: 600; }
+.dialog-title { flex: 0 0 auto; margin: 0; padding: 13px 14px 4px; font-size: var(--fs-card); font-weight: 600; }
 .dialog-body { padding: 0 14px 12px; color: var(--text-2); font-size: var(--fs-small); line-height: 1.55; }
 .dialog-body p { margin: 0 0 7px; }
 .dialog-field { display: flex; flex-direction: column; gap: 4px; margin-top: 9px; color: var(--text-3); font-size: var(--fs-label); }
@@ -1354,6 +1355,7 @@ svg { display: block; }
 .key-chip.key-add { border-style: dashed; color: var(--accent); }
 .key-chip.key-custom { border-color: var(--border-strong, var(--border)); }
 .key-sep { flex: 0 0 auto; width: 1px; height: 20px; margin: 0 3px; background: var(--border); }
+.key-group { flex: 0 0 auto; margin-right: 1px; color: var(--text-3); font-size: 11px; white-space: nowrap; }
 .key-mod-row { display: flex; gap: 6px; }
 .phone-shell[data-composer="off"] .phone-composer { display: none; }
 .phone-shell[data-composer="off"] .phone-keybar { display: none; }
@@ -1734,7 +1736,8 @@ svg { display: block; }
         <ul>
           <li><strong>Usage panel.</strong> A compact summary sits in the sidebar; click it for the full panel. Usage belongs to the computer, not to a session.</li>
           <li><strong>Phone navigation.</strong> There is no bottom bar. Usage opens from the top-right icon on the session list.</li>
-          <li><strong>Phone keys.</strong> A key rail above the phone input sends desktop keys and combos to the session: Esc, Tab, arrows, Ctrl+C and latched modifiers. Hold to repeat. Custom keys open from the plus. Should the rail be on by default, or start hidden behind the keyboard button?</li>
+          <li><strong>Phone keys.</strong> A key rail above the phone input sends desktop keys and combos to the session: Esc, Tab, arrows, Ctrl+C and latched modifiers. The session API adds the agent's known keys (Shift+Tab cycles modes, Ctrl+O shows the transcript). Hold to repeat; custom keys open from the plus. Should the rail be on by default, or start hidden behind the keyboard button?</li>
+          <li><strong>Custom providers.</strong> Any OpenAI- or Anthropic-compatible server can be added: a base URL, a model and an optional key. The client follows the API style: Codex or OpenCode 2 for OpenAI, Claude Code or OpenCode 2 for Anthropic. Should the form fetch the model list, or is a typed name enough?</li>
           <li><strong>Permission card.</strong> The app card docks at the bottom of the session, while the agent's own prompt is still in the terminal. Does the card replace it, overlay it, or sit beside it?</li>
           <li><strong>Right dock.</strong> The dock shrinks the terminal instead of covering it. It is 360px in A and 380px in B.</li>
           <li><strong>Project tabs.</strong> Each project has its own tab strip. Switching projects replaces the strip; active sessions are always there, and a clicked session is added. The last active tab is restored. There is no tab minimize. Expanding a project does not collapse the others; the project whose tabs are shown is highlighted.</li>
@@ -1886,6 +1889,31 @@ svg { display: block; }
     }
   ];
 
+  // The session API returns the keys of the agent that runs each session,
+  // so the phone renders them without its own list.
+  const AGENT_SHORTCUTS = {
+    "Claude Code": [
+      { key: "Shift+Tab", label: "⇧Tab", name: "Shift Tab", description: "Cycle permission modes" },
+      { key: "Ctrl+O", label: "^O", name: "Control O", description: "Verbose transcript" },
+      { key: "Ctrl+T", label: "^T", name: "Control T", description: "To-do list" },
+      { key: "Ctrl+R", label: "^R", name: "Control R", description: "History search" },
+      { key: "Ctrl+G", label: "^G", name: "Control G", description: "External editor" }
+    ],
+    "Codex": [
+      { key: "Shift+Tab", label: "⇧Tab", name: "Shift Tab", description: "Cycle approval modes" },
+      { key: "Ctrl+T", label: "^T", name: "Control T", description: "Transcript overlay" },
+      { key: "Ctrl+R", label: "^R", name: "Control R", description: "History search" },
+      { key: "Ctrl+G", label: "^G", name: "Control G", description: "External editor" }
+    ],
+    "OpenCode 2": [
+      { key: "Ctrl+P", label: "^P", name: "Control P", description: "Command palette" },
+      { key: "Ctrl+L", label: "^L", name: "Control L", description: "Clear screen" }
+    ]
+  };
+  BASE_SESSIONS.forEach(function (s) {
+    s.shortcuts = s.kind === "agent" ? (AGENT_SHORTCUTS[s.agent] || []) : [];
+  });
+
   let SESSIONS = BASE_SESSIONS.map(function (s) { return Object.assign({}, s); });
 
   const QUESTIONS = [
@@ -1923,20 +1951,24 @@ svg { display: block; }
       id: "deepseek", name: "DeepSeek API", plan: "pay as you go", agent: "Claude Code", provider: "deepseek", auth: "key",
       rows: [{ label: "Balance", value: "$12.40", min: "minimum $5.00" }],
       foot: "Below the minimum, auto-switch moves the session away.", context: 62, topUp: true
+    },
+    {
+      id: "litellm", name: "LiteLLM gateway", plan: "team", agent: "Codex", provider: "custom", auth: "key",
+      rows: [], foot: "No official usage source.",
+      server: "http://localhost:4000/v1", model: "gpt-5.2", authStyle: "openai"
     }
   ];
 
   const PROVIDER_CATALOG = [
     { id: "anthropic", name: "Anthropic", models: "Claude", agent: "Claude Code", auth: "subscription" },
     { id: "openai", name: "OpenAI", models: "ChatGPT / GPT", agent: "Codex", auth: "subscription" },
-    { id: "google", name: "Google", models: "Gemini", agent: "Antigravity", auth: "key" },
-    { id: "xai", name: "xAI", models: "Grok", agent: "Grok Build", auth: "key" },
     { id: "kimi", name: "Kimi (Moonshot)", models: "Kimi", agent: "Claude Code", auth: "key" },
     { id: "deepseek", name: "DeepSeek", models: "DeepSeek", agent: "Claude Code", auth: "key" },
     { id: "zai", name: "Z.ai", models: "GLM", agent: "Claude Code", auth: "key" },
-    { id: "openrouter", name: "OpenRouter", models: "Many models", agent: "OpenCode", auth: "key" },
+    { id: "openrouter", name: "OpenRouter", models: "Many models", agent: "OpenCode 2", auth: "key" },
     { id: "ollama", name: "Ollama", models: "Local models", agent: "Claude Code", auth: "local" },
-    { id: "lmstudio", name: "LM Studio", models: "Local models", agent: "Claude Code", auth: "local" }
+    { id: "lmstudio", name: "LM Studio", models: "Local models", agent: "Claude Code", auth: "local" },
+    { id: "custom", name: "Custom provider", models: "OpenAI or Anthropic API", agent: null, auth: "custom" }
   ];
 
   const LANGS = [
@@ -2995,7 +3027,8 @@ svg { display: block; }
       addNewSession({
         id: id, name: base, short: slugify(base) || "terminal", project: project.id,
         kind: "terminal", agent: null, provider: null, status: "running",
-        branch: null, folder: folder, context: 0, preview: "Terminal session"
+        branch: null, folder: folder, context: 0, preview: "Terminal session",
+        shortcuts: []
       });
       showToast("Terminal session started in " + project.name + ".");
       return;
@@ -3011,7 +3044,8 @@ svg { display: block; }
       agent: provider.agent, provider: provider.label, account: ns.provider, status: "running",
       repo: ns.source === "folder" ? null : ns.repo,
       branch: branch, folder: folder, context: 100, preview: "Starting with " + provider.label,
-      firstPrompt: promptText || "Continue the task."
+      firstPrompt: promptText || "Continue the task.",
+      shortcuts: AGENT_SHORTCUTS[provider.agent] || []
     });
     showToast(name + " started with " + provider.label + ".");
   }
@@ -3268,7 +3302,7 @@ svg { display: block; }
       const accountRows = ACCOUNTS.map(function (a) {
         const summary = accountSummary(a);
         return '<div class="setting-row provider-row"><div class="setting-main"><div class="setting-title">' + esc(a.name) + '</div><div class="setting-sub">' + esc(a.agent) + " · " + esc(a.plan) + '</div></div>' +
-          '<span class="provider-usage' + (summary.warn ? " is-warn" : "") + '">' + esc(summary.text) + "</span>" +
+          '<span class="provider-usage' + (summary.warn ? " is-warn" : "") + '">' + esc(summary.text || "No usage data") + "</span>" +
           '<button class="provider-configure" data-action="configure-provider" data-account="' + a.id + '">Configure</button></div>';
       }).join("");
       content = '<section class="settings-section"><h3 class="settings-section-title">Providers</h3>' +
@@ -3337,14 +3371,14 @@ svg { display: block; }
     if (draft.loading) return '<div class="ns-combo-state"><span class="spinner"></span>Loading providers…</div>';
     const query = (draft.filter || "").trim().toLowerCase();
     const list = PROVIDER_CATALOG.filter(function (p) {
-      return !query || (p.name + " " + p.models + " " + p.agent).toLowerCase().indexOf(query) >= 0;
+      return !query || (p.name + " " + p.models + " " + (p.agent || "")).toLowerCase().indexOf(query) >= 0;
     });
     if (!list.length) return '<div class="ns-combo-state">No providers match.</div>';
     return list.map(function (p) {
       const on = p.id === draft.provider;
-      const authLabel = p.auth === "subscription" ? "Subscription" : p.auth === "local" ? "Local" : "API key";
+      const authLabel = p.auth === "subscription" ? "Subscription" : p.auth === "local" ? "Local" : p.auth === "custom" ? "Custom" : "API key";
       return '<button type="button" class="provider-pick' + (on ? " is-on" : "") + '" data-action="provider-pick" data-provider-id="' + p.id + '">' +
-        '<span class="provider-pick-main"><span class="provider-pick-name">' + esc(p.name) + '</span><span class="provider-pick-meta">' + esc(p.models) + " · " + esc(p.agent) + "</span></span>" +
+        '<span class="provider-pick-main"><span class="provider-pick-name">' + esc(p.name) + '</span><span class="provider-pick-meta">' + esc(p.models) + (p.agent ? " · " + esc(p.agent) : "") + "</span></span>" +
         '<span class="provider-pick-auth">' + esc(authLabel) + "</span>" +
         (on ? '<span class="ns-combo-check">' + icon("check") + "</span>" : "") +
       "</button>";
@@ -3384,30 +3418,53 @@ svg { display: block; }
         "</div>" +
         '<div class="dialog-actions"><button class="btn btn-ghost" data-action="provider-back">Back</button><button class="btn btn-primary" data-action="confirm-provider-signin">I finished</button></div>';
     }
+    const isCustom = catalog.auth === "custom";
     const isLocal = catalog.auth === "local";
     const subscription = catalog.auth === "subscription";
-    return '<h2 class="dialog-title">Add provider</h2>' +
-      '<div class="dialog-body">' +
-        '<div class="ns-label">Provider</div>' +
-        '<input class="ns-input" data-provider-filter value="' + esc(draft.filter) + '" placeholder="Filter providers" aria-label="Filter providers" autocomplete="off">' +
-        '<div class="provider-pick-list" data-provider-pick-list>' + providerPickHTML() + "</div>" +
-        (subscription
-          ? '<div class="ns-label">Sign in with</div><div class="ns-types">' +
-              '<button class="ns-type' + (draft.auth === "subscription" ? " is-on" : "") + '" data-action="provider-auth" data-auth="subscription">Subscription</button>' +
-              '<button class="ns-type' + (draft.auth === "key" ? " is-on" : "") + '" data-action="provider-auth" data-auth="key">API key</button>' +
-            "</div>"
-          : isLocal ? "" : '<p class="ns-note">This provider uses an API key.</p>') +
-        '<label class="dialog-field"><span>Account name</span><input data-provider-name value="' + esc(draft.name) + '" placeholder="' + esc(catalog.name) + '" autocomplete="off"></label>' +
-        '<label class="dialog-field"><span>Plan label</span><input data-provider-plan value="' + esc(draft.plan) + '" placeholder="work" autocomplete="off"></label>' +
-        (isLocal
-          ? '<label class="dialog-field"><span>Server URL</span><input data-provider-server value="' + esc(draft.server) + '" placeholder="' + (catalog.id === "ollama" ? "http://host.docker.internal:11434" : "http://host.docker.internal:1234") + '" autocomplete="off"></label>'
-          : draft.auth === "key"
-            ? '<label class="dialog-field"><span>API key</span><input type="password" data-provider-key value="' + esc(draft.key) + '" placeholder="Stored in the system keychain" autocomplete="off"></label>'
-            : "") +
-        '<p class="ns-note">' + (isLocal ? "Agents run against this local model server." : draft.auth === "subscription" ? "The subscription sign-in uses the installed agent's own login." : "The key is stored in the system keychain.") + "</p>" +
+    const editing = !!draft.customEdit;
+    const style = draft.style || "openai";
+    const clientOptions = style === "anthropic" ? ["Claude Code", "OpenCode 2"] : ["Codex", "OpenCode 2"];
+    const agent = clientOptions.indexOf(draft.agent) === -1 ? "OpenCode 2" : draft.agent;
+    const nameField = '<label class="dialog-field"><span>Account name</span><input data-provider-name value="' + esc(draft.name) + '" placeholder="' + esc(isCustom ? "LiteLLM gateway" : catalog.name) + '" autocomplete="off"></label>' +
+      '<label class="dialog-field"><span>Plan label</span><input data-provider-plan value="' + esc(draft.plan) + '" placeholder="work" autocomplete="off"></label>';
+    const customFields =
+      '<div class="ns-label">API style</div><div class="ns-types">' +
+        '<button class="ns-type' + (style === "openai" ? " is-on" : "") + '" data-action="provider-style" data-style="openai">OpenAI-compatible</button>' +
+        '<button class="ns-type' + (style === "anthropic" ? " is-on" : "") + '" data-action="provider-style" data-style="anthropic">Anthropic-compatible</button>' +
       "</div>" +
-      '<div class="dialog-actions"><button class="btn btn-ghost" data-action="close-dialog">Cancel</button><button class="btn btn-primary" data-action="add-provider">' +
-        (subscription && draft.auth === "subscription" ? "Sign in" : "Add provider") + "</button></div>";
+      '<label class="dialog-field"><span>Base URL</span><input data-provider-base value="' + esc(draft.baseUrl) + '" placeholder="http://localhost:4000/v1" autocomplete="off"></label>' +
+      '<label class="dialog-field"><span>Model</span><input data-provider-model value="' + esc(draft.model) + '" placeholder="gpt-5.2" autocomplete="off"></label>' +
+      '<div class="ns-label">Client</div><div class="ns-types">' + clientOptions.map(function (a) {
+        return '<button class="ns-type' + (agent === a ? " is-on" : "") + '" data-action="provider-agent" data-agent="' + a + '">' + esc(a) + "</button>";
+      }).join("") + "</div>" +
+      nameField +
+      '<label class="dialog-field"><span>API key (optional)</span><input type="password" data-provider-key value="' + esc(draft.key) + '" placeholder="Stored in the system keychain" autocomplete="off"></label>' +
+      '<p class="ns-note">Works with a gateway such as LiteLLM, or any server that speaks this API. Usage numbers show only when the server provides them.</p>';
+    return '<h2 class="dialog-title">' + (editing ? "Configure provider" : "Add provider") + "</h2>" +
+      '<div class="dialog-body">' +
+        (editing
+          ? ""
+          : '<div class="ns-label">Provider</div>' +
+            '<input class="ns-input" data-provider-filter value="' + esc(draft.filter) + '" placeholder="Filter providers" aria-label="Filter providers" autocomplete="off">' +
+            '<div class="provider-pick-list" data-provider-pick-list>' + providerPickHTML() + "</div>") +
+        (isCustom
+          ? customFields
+          : (subscription
+              ? '<div class="ns-label">Sign in with</div><div class="ns-types">' +
+                  '<button class="ns-type' + (draft.auth === "subscription" ? " is-on" : "") + '" data-action="provider-auth" data-auth="subscription">Subscription</button>' +
+                  '<button class="ns-type' + (draft.auth === "key" ? " is-on" : "") + '" data-action="provider-auth" data-auth="key">API key</button>' +
+                "</div>"
+              : isLocal ? "" : '<p class="ns-note">This provider uses an API key.</p>') +
+            nameField +
+            (isLocal
+              ? '<label class="dialog-field"><span>Server URL</span><input data-provider-server value="' + esc(draft.server) + '" placeholder="' + (catalog.id === "ollama" ? "http://host.docker.internal:11434" : "http://host.docker.internal:1234") + '" autocomplete="off"></label>'
+              : draft.auth === "key"
+                ? '<label class="dialog-field"><span>API key</span><input type="password" data-provider-key value="' + esc(draft.key) + '" placeholder="Stored in the system keychain" autocomplete="off"></label>'
+                : "") +
+            '<p class="ns-note">' + (isLocal ? "Agents run against this local model server." : draft.auth === "subscription" ? "The subscription sign-in uses the installed agent's own login." : "The key is stored in the system keychain.") + "</p>") +
+      "</div>" +
+      '<div class="dialog-actions"><button class="btn btn-ghost" data-action="close-dialog">Cancel</button><button class="btn btn-primary" data-action="' + (editing ? "save-custom-provider" : "add-provider") + '">' +
+        (editing ? "Save" : subscription && draft.auth === "subscription" ? "Sign in" : "Add provider") + "</button></div>";
   }
 
   function closeMacDialog() {
@@ -3418,6 +3475,11 @@ svg { display: block; }
 
   function addProviderAccount(draft) {
     const catalog = PROVIDER_CATALOG.find(function (p) { return p.id === draft.provider; }) || PROVIDER_CATALOG[0];
+    const custom = catalog.auth === "custom";
+    if (custom) {
+      if (!(draft.baseUrl || "").trim()) { showToast("Add a base URL."); return; }
+      if (!(draft.model || "").trim()) { showToast("Add a model name."); return; }
+    }
     const name = (draft.name || "").trim() || catalog.name;
     const base = slugify(name) || "account";
     let id = base;
@@ -3426,7 +3488,7 @@ svg { display: block; }
       id = base + "-" + suffix;
       suffix += 1;
     }
-    const auth = catalog.auth === "subscription" ? draft.auth : catalog.auth;
+    const auth = custom ? "key" : catalog.auth === "subscription" ? draft.auth : catalog.auth;
     const rows = auth === "subscription"
       ? catalog.id === "anthropic"
         ? [{ label: "5-hour", used: 0 }, { label: "Weekly", used: 0 }]
@@ -3434,9 +3496,12 @@ svg { display: block; }
       : [];
     ACCOUNTS.push({
       id: id, name: name, plan: (draft.plan || "").trim() || "work",
-      agent: catalog.agent, provider: catalog.id, auth: auth, rows: rows,
-      foot: auth === "subscription" ? "Read when a session starts." : auth === "local" ? "Local model server. No usage limits." : "API key stored in the system keychain.",
-      server: draft.server || null
+      agent: custom ? (draft.agent || "OpenCode 2") : catalog.agent,
+      provider: catalog.id, auth: auth, rows: rows,
+      foot: custom ? "No official usage source." : auth === "subscription" ? "Read when a session starts." : auth === "local" ? "Local model server. No usage limits." : "API key stored in the system keychain.",
+      server: custom ? draft.baseUrl : (draft.server || null),
+      model: custom ? draft.model : null,
+      authStyle: custom ? (draft.style || "openai") : null
     });
     state.providerDraft = null;
     state.macDialog = null;
@@ -3458,7 +3523,7 @@ svg { display: block; }
     }
     if (d.type === "provider") {
       const draft = state.providerDraft || { id: null, name: "", plan: "work", preset: "claude" };
-      if (draft.mode === "add") return addProviderDialogHTML(draft);
+      if (draft.mode === "add" || draft.customEdit) return addProviderDialogHTML(draft);
       const presets = [["claude", "Claude Code"], ["deepseek", "DeepSeek"], ["codex", "Codex"]];
       return '<h2 class="dialog-title">' + (draft.id ? "Configure account" : "Add account") + '</h2>' +
         '<div class="dialog-body">' +
@@ -4053,7 +4118,11 @@ svg { display: block; }
       $$("[data-keybar]", shell).forEach(function (bar) {
         bar.hidden = !state.keysOpen;
         if (!state.keysOpen) return;
-        const sig = state.customKeys.join("|");
+        const sig = [
+          state.active,
+          state.customKeys.join("|"),
+          sessionShortcuts().map(function (x) { return x.key; }).join(",")
+        ].join("|");
         if (bar.dataset.sig !== sig || !bar.firstChild) {
           bar.innerHTML = phoneKeybarHTML();
           bar.dataset.sig = sig;
@@ -4130,31 +4199,62 @@ svg { display: block; }
     { key: "Ctrl+D", label: "^D", name: "Control D" }
   ];
 
+  function sessionShortcuts() {
+    const s = byId(state.active);
+    return s && s.shortcuts ? s.shortcuts : [];
+  }
+
   function phoneKeybarHTML() {
+    const shortcuts = sessionShortcuts();
+    const s = byId(state.active);
     const latches = ["Shift", "Ctrl", "Alt"].map(function (mod) {
       const on = state.latchMods.indexOf(mod) !== -1;
       return '<button class="key-chip' + (on ? " is-on" : "") + '" data-action="key-latch" data-mod="' + mod + '" aria-pressed="' + on + '">' + mod + "</button>";
     }).join("");
     const keys = PHONE_KEYS.map(function (k) {
+      const known = shortcuts.find(function (x) { return x.key === k.key; });
+      const desc = known ? known.description : "";
       const attrs = k.hold
         ? ' data-key-hold="' + esc(k.key) + '" data-key-label="' + esc(k.label) + '"'
         : ' data-action="key-press" data-key="' + esc(k.key) + '" data-key-label="' + esc(k.label) + '"';
-      return '<button class="key-chip"' + attrs + ' aria-label="' + esc(k.name) + '">' + esc(k.label) + "</button>";
+      return '<button class="key-chip"' + attrs + (desc ? ' title="' + esc(desc) + '"' : "") + ' aria-label="' + esc(k.name + (desc ? ". " + desc : "")) + '">' + esc(k.label) + "</button>";
     }).join("");
-    const custom = state.customKeys.map(function (label) {
-      return '<button class="key-chip key-custom" data-action="key-press" data-key="' + esc(label) + '" data-key-label="' + esc(label) + '">' + esc(label) + "</button>";
-    }).join("");
+    const baseKeys = PHONE_KEYS.map(function (k) { return k.key; });
+    const extras = shortcuts.filter(function (x) {
+      return baseKeys.indexOf(x.key) === -1 && state.customKeys.indexOf(x.key) === -1;
+    });
+    const groups = [];
+    if (extras.length) {
+      groups.push('<span class="key-group">' + esc(s.agent) + "</span>" + extras.map(function (x) {
+        return '<button class="key-chip" data-action="key-press" data-key="' + esc(x.key) + '" data-key-label="' + esc(x.label || x.key) + '" title="' + esc(x.description) + '" aria-label="' + esc(x.name + ". " + x.description) + '">' + esc(x.label || x.key) + "</button>";
+      }).join(""));
+    }
+    if (state.customKeys.length) {
+      const custom = state.customKeys.map(function (label) {
+        return '<button class="key-chip key-custom" data-action="key-press" data-key="' + esc(label) + '" data-key-label="' + esc(label) + '">' + esc(label) + "</button>";
+      }).join("");
+      groups.push('<span class="key-group">Saved</span>' + custom);
+    }
     return '<div class="key-rail" role="toolbar" aria-label="Terminal keys">' +
-      latches + '<span class="key-sep" aria-hidden="true"></span>' +
-      keys + '<span class="key-sep" aria-hidden="true"></span>' + custom +
+      latches + '<span class="key-sep" aria-hidden="true"></span>' + keys +
+      groups.map(function (g) { return '<span class="key-sep" aria-hidden="true"></span>' + g; }).join("") +
       '<button class="key-chip key-add" data-action="open-keys-sheet" aria-label="Add a key">' + icon("plus") + "</button></div>";
   }
 
   function phoneKeysSheetHTML() {
+    const s = byId(state.active);
+    const shortcuts = sessionShortcuts();
     const mods = ["Shift", "Ctrl", "Alt"].map(function (mod) {
       const on = state.keyDraft.mods.indexOf(mod) !== -1;
       return '<button class="key-chip' + (on ? " is-on" : "") + '" data-action="key-draft-mod" data-mod="' + mod + '" aria-pressed="' + on + '">' + mod + "</button>";
     }).join("");
+    const known = shortcuts.length
+      ? '<h4 class="settings-subhead">' + esc(s.agent) + ' keys</h4><div class="settings-group">' +
+        shortcuts.map(function (x) {
+          return '<div class="setting-row"><div class="setting-main"><div class="setting-title">' + esc(x.key) + '</div><div class="setting-sub">' + esc(x.description) + '</div></div><span class="provider-usage">On the rail</span></div>';
+        }).join("") + "</div>" +
+        '<p class="ns-note">These come with the session. They are always on the rail.</p>'
+      : '<p class="ns-note">This session has no agent keys. Terminal sessions use the base keys.</p>';
     const saved = state.customKeys.map(function (label) {
       return '<div class="setting-row"><div class="setting-main"><div class="setting-title">' + esc(label) + '</div></div>' +
         '<button class="provider-configure" data-action="remove-custom-key" data-key-label="' + esc(label) + '">Remove</button></div>';
@@ -4164,6 +4264,7 @@ svg { display: block; }
         '<div class="ns-field"><label>Modifiers</label><div class="key-mod-row">' + mods + "</div></div>" +
         '<div class="ns-field"><label>Key</label><input class="ns-input" data-key-input value="' + esc(state.keyDraft.key) + '" placeholder="C, F5, PageUp" autocomplete="off"></div>' +
         '<button class="btn btn-primary" data-action="add-custom-key">Add key</button>' +
+        known +
         '<h4 class="settings-subhead">Saved keys</h4>' +
         '<div class="settings-group">' + saved + "</div>" +
         '<p class="ns-note">Keys go to the active session, never to the phone interface. Hold the arrows, Backspace or Delete to repeat.</p>' +
@@ -5037,8 +5138,14 @@ svg { display: block; }
         const id = target.dataset.account;
         const account = id ? ACCOUNTS.find(function (a) { return a.id === id; }) : null;
         state.providerDraft = account
-          ? { id: account.id, name: account.name, plan: account.plan, preset: account.provider === "openai" ? "codex" : account.provider === "deepseek" ? "deepseek" : "claude" }
-          : { mode: "add", step: "form", provider: "anthropic", auth: "subscription", name: "", plan: "work", key: "", server: "", filter: "", loading: true, signinCode: "" };
+          ? account.provider === "custom"
+            ? {
+                id: account.id, customEdit: true, provider: "custom", name: account.name, plan: account.plan,
+                style: account.authStyle || "openai", baseUrl: account.server || "", model: account.model || "",
+                agent: account.agent, key: "", filter: "", loading: false
+              }
+            : { id: account.id, name: account.name, plan: account.plan, preset: account.provider === "openai" ? "codex" : account.provider === "deepseek" ? "deepseek" : "claude" }
+          : { mode: "add", step: "form", provider: "anthropic", auth: "subscription", name: "", plan: "work", key: "", server: "", filter: "", loading: true, signinCode: "", style: "openai", baseUrl: "", model: "", agent: "OpenCode 2" };
         state.macDialog = { type: "provider" };
         state.newSession = null;
         syncUI();
@@ -5063,10 +5170,47 @@ svg { display: block; }
           if (catalog) {
             state.providerDraft.provider = catalog.id;
             state.providerDraft.auth = catalog.auth === "subscription" ? "subscription" : catalog.auth;
+            if (catalog.auth === "custom") {
+              state.providerDraft.style = state.providerDraft.style || "openai";
+              state.providerDraft.agent = state.providerDraft.agent || "OpenCode 2";
+            }
             syncUI();
           }
         }
         break;
+      case "provider-style": {
+        const draft = state.providerDraft;
+        if (!draft) break;
+        draft.style = target.dataset.style;
+        const allowed = draft.style === "anthropic" ? ["Claude Code", "OpenCode 2"] : ["Codex", "OpenCode 2"];
+        if (allowed.indexOf(draft.agent) === -1) draft.agent = "OpenCode 2";
+        syncUI();
+        break;
+      }
+      case "provider-agent":
+        if (state.providerDraft) {
+          state.providerDraft.agent = target.dataset.agent;
+          syncUI();
+        }
+        break;
+      case "save-custom-provider": {
+        const draft = state.providerDraft;
+        const account = draft ? ACCOUNTS.find(function (a) { return a.id === draft.id; }) : null;
+        if (!account) break;
+        if (!(draft.baseUrl || "").trim()) { showToast("Add a base URL."); break; }
+        if (!(draft.model || "").trim()) { showToast("Add a model name."); break; }
+        account.name = (draft.name || "").trim() || account.name;
+        account.plan = (draft.plan || "").trim() || account.plan;
+        account.agent = draft.agent || "OpenCode 2";
+        account.authStyle = draft.style || "openai";
+        account.server = draft.baseUrl;
+        account.model = draft.model;
+        state.providerDraft = null;
+        state.macDialog = null;
+        syncUI();
+        showToast("Provider saved.");
+        break;
+      }
       case "provider-auth":
         if (state.providerDraft && state.providerDraft.mode === "add") {
           state.providerDraft.auth = target.dataset.auth;
@@ -5482,6 +5626,12 @@ svg { display: block; }
     }
     if (el.matches("[data-provider-server]") && state.providerDraft) {
       state.providerDraft.server = el.value;
+    }
+    if (el.matches("[data-provider-base]") && state.providerDraft) {
+      state.providerDraft.baseUrl = el.value;
+    }
+    if (el.matches("[data-provider-model]") && state.providerDraft) {
+      state.providerDraft.model = el.value;
     }
     if (el.matches("[data-provider-filter]") && state.providerDraft && state.providerDraft.mode === "add") {
       state.providerDraft.filter = el.value;
