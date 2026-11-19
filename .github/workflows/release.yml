@@ -1,0 +1,112 @@
+name: Release
+
+# Manually prepare a release: open a PR that bumps versions and updates
+# CHANGELOG.md. Merging that PR triggers release-publish.yml, which tags the
+# commit, builds the macOS app and publishes the GitHub Release.
+
+on:
+  workflow_dispatch:
+    inputs:
+      release-type:
+        description: Version bump (auto derives it from conventional commits)
+        type: choice
+        options: [auto, major, minor, patch]
+        default: auto
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    if: github.ref == 'refs/heads/main'
+    steps:
+      # Optional GitHub App token. A PR opened with GITHUB_TOKEN does not start
+      # workflow runs, so its CI would never run. Set the repository variable
+      # RELEASE_APP_ID and the secret RELEASE_APP_PRIVATE_KEY to enable it; the
+      # app needs Contents and Pull requests write access. Without them the
+      # release PR opens with GITHUB_TOKEN and its CI does not start.
+      - name: Mint app token
+        id: app-token
+        if: ${{ vars.RELEASE_APP_ID != '' }}
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          token: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
+
+      # Wait for the CI run on this exact commit to finish, then require success.
+      - name: Verify CI passed for HEAD
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          sha="$(git rev-parse HEAD)"
+          deadline=$(( $(date +%s) + 3600 ))
+          while :; do
+            info="$(gh run list --workflow=ci.yml --branch=main --commit="$sha" \
+              --json status,conclusion,headSha \
+              --jq 'map(select(.headSha=="'"$sha"'")) | first | "\(.status)|\(.conclusion)"' || true)"
+            status="${info%%|*}"
+            conclusion="${info##*|}"
+            echo "CI for $sha: status='${status}' conclusion='${conclusion}'"
+            [ "$status" = "completed" ] && break
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              echo "::error::Timed out waiting for CI on $sha"
+              exit 1
+            fi
+            sleep 30
+          done
+          if [ "$conclusion" != "success" ]; then
+            echo "::error::CI for $sha concluded '${conclusion}', not success"
+            exit 1
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+
+      - name: Compute version, bump files and generate changelog
+        id: release
+        run: node scripts/release.mjs --release-type "${{ inputs.release-type }}" --apply
+
+      - name: Push release branch and open PR
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.release.outputs.version }}
+          NOTES: ${{ steps.release.outputs.changelog }}
+        run: |
+          branch="release/${VERSION}"
+
+          stale="$(gh pr list --state open --json number,headRefName \
+            --jq '.[] | select(.headRefName | startswith("release/")) | .number')"
+          for pr in $stale; do
+            echo "Superseding stale release PR #${pr}"
+            gh pr close "$pr" --delete-branch || true
+          done
+          git push origin --delete "$branch" 2>/dev/null || true
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          git add -A
+          git commit -m "chore(release): ${VERSION}"
+          git push -u origin "$branch"
+
+          gh label create release --color 0e8a16 --description "Release PR" --force || true
+          body="$(printf 'Automated release for **%s**.\n\nMerging this PR tags the release and publishes the GitHub Release.\n\n---\n\n%s' "$VERSION" "$NOTES")"
+          gh pr create --base main --head "$branch" \
+            --title "chore(release): ${VERSION}" --label release --body "$body"

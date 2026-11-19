@@ -31,6 +31,22 @@ Not built yet: hook adapters for Codex and OpenCode 2 (only Claude Code sends pe
 - UI in a browser: `npm run dev`. Vite proxies `/api` to the core.
 - Desktop shell: `npm run desktop`. It starts the core if none runs and loads the UI.
 
+## Releases
+
+- Run the **Release** workflow from `main`; it opens a `release/<version>` PR that bumps every version file and writes `CHANGELOG.md`. The PR is gated on CI for the current `main` commit.
+- Merging the release PR runs **Release Publish**: it tags the merge commit (no `v` prefix), builds the Apple Silicon macOS app and the core binary, and publishes the GitHub Release.
+- `scripts/release.mjs` is the version and changelog tool. `node scripts/release.mjs --dry-run` previews the next version.
+- Set the repository variable `RELEASE_APP_ID` and the secret `RELEASE_APP_PRIVATE_KEY` so the release PR triggers its own CI. Without them the PR opens with `GITHUB_TOKEN` and its CI does not start.
+- The macOS build is unsigned. It will be signed and notarized when the Apple Developer certificate secrets are added.
+
+## Commit gates
+
+- **Conventional commits.** `commitlint` checks every commit message through `.husky/commit-msg`.
+- **`Docs-Checked:`** is required when a commit changes `core/src/`, `app/src/`, `src-tauri/src/`, `scripts/` or `.github/workflows/`. The value names the docs updated or verified, or why none apply.
+- **`Design-Checked:`** is also required when a commit changes `app/src/components/`, `app/src/styles/`, `app/src/App.tsx` or `app/index.html`. The value names the mockup, theme and width checks done.
+- Release and merge commits are exempt. `HUSKY=0` is set only for generated release commits in CI.
+- The checker is `scripts/check-commit-acks.mjs`; its tests run with `npm run acks`.
+
 ## Keep this file and `.dev/` current
 
 - **Every change updates the documents it affects, in the same commit.** That includes `.dev/SPEC.md` and this file.

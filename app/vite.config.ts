@@ -1,6 +1,8 @@
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vitest/config';
 
+const apiPort = process.env.ELESDEE_API_PORT || '4319';
+
 export default defineConfig({
   plugins: [react()],
   server: {
@@ -8,8 +10,18 @@ export default defineConfig({
     strictPort: true,
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:4319',
+        target: `http://127.0.0.1:${apiPort}`,
         changeOrigin: false,
+        configure: process.env.ELESDEE_API_PORT
+          ? (proxy) => {
+              // The local core checks the browser origin. The test proxy
+              // forwards local UI requests without it, while the core still
+              // checks the host.
+              proxy.on('proxyReq', (proxyRequest) => {
+                proxyRequest.removeHeader('origin');
+              });
+            }
+          : undefined,
       },
     },
   },

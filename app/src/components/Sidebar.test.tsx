@@ -350,6 +350,15 @@ describe('Sidebar', () => {
     );
   });
 
+  it('lists projects when there are no sessions', () => {
+    renderSidebar([]);
+
+    expect(
+      screen.getByRole('button', { name: /^core,/ }),
+    ).toBeInTheDocument();
+    expect(screen.getByText('No sessions')).toBeInTheDocument();
+  });
+
   it('keeps a project visible when the filter hides all its sessions', () => {
     renderSidebar([makeClosed()]);
 

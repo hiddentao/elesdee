@@ -306,10 +306,10 @@ export function Sidebar({
           <p className="sidebar-empty">
             No projects yet. Sessions appear here after a project is added.
           </p>
-        ) : sessions.length === 0 ? (
-          <p className="sidebar-empty">No sessions yet. Start one from the top of the window.</p>
         ) : view === 'flat' ? (
-          visibleSessions.length === 0 ? (
+          sessions.length === 0 ? (
+            <p className="sidebar-empty">No sessions yet. Start one from the top of the window.</p>
+          ) : visibleSessions.length === 0 ? (
             <p className="sidebar-empty">No sessions match this filter.</p>
           ) : (
             visibleSessions.map((session) => (

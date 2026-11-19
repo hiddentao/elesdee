@@ -1,0 +1,51 @@
+import path from 'node:path';
+import { defineConfig } from '@playwright/test';
+import { createRunDir } from './e2e/env';
+
+const runDir = createRunDir();
+const corePort = 4399;
+const webPort = 5199;
+
+export default defineConfig({
+  testDir: './e2e',
+  fullyParallel: false,
+  workers: 1,
+  forbidOnly: Boolean(process.env.CI),
+  retries: 0,
+  timeout: 180_000,
+  expect: { timeout: 15_000 },
+  reporter: 'list',
+  use: {
+    baseURL: `http://127.0.0.1:${webPort}`,
+    permissions: ['clipboard-read', 'clipboard-write'],
+    viewport: { width: 1440, height: 900 },
+    trace: 'retain-on-failure',
+    screenshot: 'only-on-failure',
+  },
+  projects: [
+    {
+      name: 'chromium',
+      use: { browserName: 'chromium' },
+    },
+  ],
+  globalSetup: './e2e/global-setup.ts',
+  globalTeardown: './e2e/global-teardown.ts',
+  webServer: [
+    {
+      command: `ELESDEE_PORT=${corePort} ELESDEE_DATA_DIR=${JSON.stringify(path.join(runDir, 'data'))} cargo run --manifest-path core/Cargo.toml`,
+      url: `http://127.0.0.1:${corePort}/api/health`,
+      timeout: 300_000,
+      reuseExistingServer: false,
+      stdout: 'pipe',
+      stderr: 'pipe',
+    },
+    {
+      command: `ELESDEE_API_PORT=${corePort} npm --workspace app run dev -- --port ${webPort} --strictPort --host 127.0.0.1`,
+      url: `http://127.0.0.1:${webPort}`,
+      timeout: 120_000,
+      reuseExistingServer: false,
+      stdout: 'pipe',
+      stderr: 'pipe',
+    },
+  ],
+});

@@ -1,0 +1,100 @@
+name: Release Publish
+
+# Fires when a release PR (head branch release/<version>, opened by release.yml)
+# is merged. Tags the merge commit, builds the macOS app and core binary, and
+# publishes the GitHub Release with the CHANGELOG section as its notes.
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: >-
+      github.event.pull_request.merged == true &&
+      startsWith(github.event.pull_request.head.ref, 'release/')
+    runs-on: macos-14
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          fetch-tags: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: core
+
+      - run: npm ci
+      - run: npm run build
+
+      # Tauri needs a full icon set to bundle, not just the source PNG.
+      - name: Generate app icons
+        run: npx tauri icon src-tauri/icons/icon.png
+
+      - name: Build the desktop bundle
+        run: npm run desktop:build
+
+      - name: Build the core binary
+        run: cargo build --release --manifest-path core/Cargo.toml
+
+      - name: Add the core to the app bundle
+        run: |
+          app="src-tauri/target/release/bundle/macos/elesdee.app"
+          cp core/target/release/elesdee-core "$app/Contents/MacOS/elesdee-core"
+          # The bundle was signed before the copy; re-sign it ad hoc so macOS
+          # does not reject the modified app. This is not a Developer ID signature.
+          codesign --force --deep --sign - "$app"
+
+      - name: Package artifacts
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          version="${HEAD_REF#release/}"
+          mkdir -p dist/release
+          ditto -c -k --keepParent \
+            src-tauri/target/release/bundle/macos/elesdee.app \
+            "dist/release/elesdee-${version}-macos-arm64.zip"
+          tar -czf "dist/release/elesdee-core-${version}-macos-arm64.tar.gz" \
+            -C core/target/release elesdee-core
+          shasum -a 256 dist/release/* > "dist/release/elesdee-${version}-checksums.txt"
+
+      - name: Tag and publish the GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          version="${HEAD_REF#release/}"
+          if git rev-parse "$version" >/dev/null 2>&1; then
+            echo "::error::Tag ${version} already exists"
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "$version" -m "Release ${version}"
+          git push origin "refs/tags/${version}"
+
+          node scripts/release.mjs --notes "$version" > /tmp/release-notes.md
+          if [ ! -s /tmp/release-notes.md ]; then
+            printf 'elesdee %s\n' "$version" > /tmp/release-notes.md
+          fi
+          printf '\n\n---\n\nThe macOS builds are unsigned and Apple Silicon only. macOS will warn on first open; allow the app in System Settings > Privacy & Security.\n' >> /tmp/release-notes.md
+          gh release create "$version" --title "$version" \
+            --notes-file /tmp/release-notes.md dist/release/*
