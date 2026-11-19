@@ -38,25 +38,23 @@ Version 1 runs on macOS only. Windows and Linux follow soon after (see Windows a
 - The app sends no crash reports and no usage data. Users report bugs on GitHub.
 - The app keeps local logs. An "Export diagnostics" button saves one file with the logs and app versions, with secrets and session content removed, for the user to attach to a GitHub issue.
 
-**Languages and formats**
+**Languages and interface copy**
 
-The approach follows hezo.ai's languages and formats ([hezo docs](https://github.com/hezo-ai/hezo/blob/main/docs/concepts/languages-and-formats.md)).
+The language list follows hezo.ai's languages and formats ([hezo docs](https://github.com/hezo-ai/hezo/blob/main/docs/concepts/languages-and-formats.md)).
 
 - The interface comes in 12 languages: English, Deutsch (German), Français (French), Español (Spanish), Italiano (Italian), Português do Brasil (Brazilian Portuguese), Nederlands (Dutch), Polski (Polish), Svenska (Swedish), 简体中文 (Simplified Chinese), 日本語 (Japanese) and 한국어 (Korean).
 - European Portuguese falls back to Brazilian Portuguese, and Traditional Chinese falls back to Simplified Chinese. There are no right-to-left languages.
-- On first launch, the app uses the Mac's system language. A language button on the first screen lets me pick another one.
-- Settings has a "Languages & formats" page with three separate choices. Their defaults follow the language, and each option shows a real example:
-  - Language.
-  - Date format: day first (29/07/2026), month first (07/29/2026), year first ISO (2026-07-29), or day, month name, year (29 Jul 2026). Month names follow the language.
-  - Number format: 1,234.56, 1.234,56, or 1 234,56.
-- The phone: the UI package holds all languages. The phone uses its own system language, and has its own "Languages & formats" setting, so the phone and the Mac can differ.
-- The phone shell's own screens (pairing, the list of Macs, "update needed") are translated inside the shell, because they show before any UI package is downloaded.
+- On first launch, the app uses the computer's system language. A language button on the first screen lets me pick another one.
+- Settings has a "Languages" page with one choice: the interface language. Dates and numbers follow that language. There are no separate format settings.
+- The phone: the UI package holds all languages. The phone uses its own system language, and has its own "Languages" setting, so the phone and the computer can differ.
+- The phone shell's own screens (pairing, the list of computers, "update needed") are translated inside the shell, because they show before any UI package is downloaded.
+- Interface copy does not name the operating system. It says "this computer", not "this Mac". Version 1 runs on macOS; Windows and Linux follow soon after.
 - What is not translated: agent output, prompts, session logs and other session content stay in the language they were written in. The skills and starting instructions that elesdee gives agents stay in English. To make an agent work in another language, I say so in a preset or in my prompt. The documentation is in English only.
 - Interface text is kept in one catalog per language. Each pull request that adds interface text adds it in all 12 languages, translated by an agent. CI fails if any language is missing a text.
 
-**Moving to a new Mac**
+**Moving to a new computer**
 
-- There is no export, import or sync. I set up a new Mac from scratch.
+- There is no export, import or sync. I set up a new computer from scratch.
 
 This spec is a first draft. More requirements will follow. Detailed research notes, with quotes and sources, are in `.dev/research/`.
 
@@ -72,7 +70,7 @@ The desktop app is a Tauri app. Version 1 is for macOS; Windows and Linux follow
 
 - If the window crashes or I close it, sessions keep running and the phone stays connected. When the window opens again, it reconnects.
 - Start at login: a setting, "Start elesdee when the system starts", is off by default. When it is on, the core service starts when I log in and resumes the sessions; the window opens only when I click the app. When it is off, elesdee starts only when I open it.
-- Sleep: a setting, "Keep the Mac awake while agents work", is off by default. When it is on, the Mac does not go to sleep on its own while any agent session is running. When it is off, sessions pause while the Mac sleeps, and the phone cannot connect.
+- Sleep: a setting, "Keep the computer awake while agents work", is off by default. When it is on, the computer does not go to sleep on its own while any agent session is running. When it is off, sessions pause while the Mac sleeps, and the phone cannot connect.
 - When I quit the app while sessions are running, the app asks me first. If I confirm, the core service saves every session and stops. On the next launch, the sessions resume. Crash recovery (below) covers a crash of the core service or a restart of the Mac.
 - All parts live in this one repository: the core service and the shared connection library (Rust), the Mac app (Tauri), the phone shell (Tauri mobile) and the shared UI (React). One change can update them together, and one release workflow builds them.
 - Every pull request runs lint and format checks, unit tests, the Mac and Android builds, a check that every interface text exists in all 12 languages, and end-to-end tests that start the app and drive real sessions with a test agent.
@@ -108,8 +106,8 @@ Both agents write their conversation to files on disk, but both say the file for
 
 **Session names and limits**
 
-- The app names each agent session from its first prompt, with the same short name used in the branch name. I can rename a session later; its branch keeps its name.
-- A terminal session is named after its folder. I can rename it.
+- The launch form has an optional session name. If it is empty, the app names an agent session from its first prompt and a terminal session after its folder.
+- The branch uses the same short name as the session. I can rename a session later; its branch keeps its name.
 - There is no limit on how many sessions run at the same time, and no warning. I manage it myself.
 
 **Session states**
@@ -118,12 +116,20 @@ Both agents write their conversation to files on disk, but both say the file for
 - Active covers an agent that is working, waiting for me, paused, or has reported done. A reported done task stays active until I close the session.
 - Closed means I closed it. The worktree is removed and the branch stays.
 
+**First launch**
+
+- The first screen checks for Claude Code and Codex and shows their versions.
+- It offers one action: Add a project. The project form asks for a name and a folder.
+- The language button sits in the title bar.
+- Until the Mac starts a session, the phone shows an empty session list.
+
 **Sessions sidebar**
 
 - Shows all sessions in a vertical list, in one of two views:
   - Grouped: sessions sit under their project. I can collapse a project. A collapsed project shows one small blot for each active session. Hovering a blot shows the session name and whether it needs me.
   - Flat: no project groups. Each session shows its project name in small text under the session name.
 - Expanding a project does not collapse the others. The project whose sessions are in the tabs is highlighted.
+- A session row shows "Waiting for you" when it needs me; otherwise it shows a short summary of its last output. A helper session keeps its "from" marker.
 - A filter shows only active sessions. In the grouped view, the filter expands every project that has an active session.
 
 **Session menu**
@@ -163,7 +169,7 @@ Both agents write their conversation to files on disk, but both say the file for
 - Files shows the file tree of the session's worktree or folder. It opens a CodeMirror editor with full syntax highlighting, which works on touch screens. I can edit and save files.
 - Changes shows every change since the branch point, committed or not.
 - Browser shows a live view of the session's browser. Each session has its own browser context: separate tabs, cookies, storage and logins.
-- Usage is not in this panel. Usage belongs to the Mac and opens from the sidebar summary.
+- Usage is not in this panel. Usage belongs to the computer and opens from the sidebar summary.
 - Not a main feature: the editor supports quick edits, not full IDE work.
 - Mac only for now. The phone does not have the file viewer and editor yet.
 
@@ -184,16 +190,13 @@ Version 1 supports two coding agents: Claude Code and Codex. Other agents can co
 - Each launch can override the agent's environment variables and config settings.
 - Overrides apply only to that launch. They do not change the global config on the machine.
 - Overrides are easy to see and edit in the IDE, not hidden in files.
+- The launch form groups the first prompt, the uncommitted-changes choice and the overrides under Additional settings.
 
-**Built-in presets (version 1)**
+**Launch presets**
 
-| Preset | Agent | Model provider | What the preset sets |
-| --- | --- | --- | --- |
-| Anthropic Claude | Claude Code | Anthropic | Claude subscription login |
-| DeepSeek | Claude Code | DeepSeek | DeepSeek endpoint, API key, model names |
-| Codex | Codex | OpenAI | ChatGPT/OpenAI login |
-
-- I can edit presets and add new ones.
+- Every connected account is a preset in the launch form, with its provider, runtime and remaining usage.
+- I can edit a preset's default account, model and config overrides, and add more.
+- The launch form shows the provider list with remaining usage. The selected provider keeps its usage value in the closed field.
 - Presets and config overrides are stored in elesdee's own settings on the Mac. Nothing is written into my repos.
 
 ## Built-in tools and skills for sessions
@@ -231,11 +234,22 @@ Every agent session gets the same app tools and skills, whatever the agent or pr
 | Wait for session | Waits until another session finishes or needs input |
 | Register demo server | Tells the app that a demo server runs on a port. Returns an address I can open remotely (see Demo servers). |
 | Notify me | Sends me a notification on the desktop, and on the phone while the phone app is open |
-| Ask me | Asks me a question and waits for my answer, on the desktop or the phone |
+| Ask me | Records a question for me. It stays pending until I answer, the agent withdraws it, or the session closes. The agent can continue working. |
+| Wait for answer | Waits until I answer a question, or the agent withdraws it |
+| Withdraw question | Removes a question that the agent no longer needs |
 | Share file | Adds a file or screenshot to the session's view, so I can see it on any device |
-| Check usage | Shows the session's remaining context and the provider's remaining usage |
+| Check usage | Shows the provider's remaining usage for the session's account |
 
 - An agent cannot close a session. Only I can, through the session menu on the Mac or the phone.
+
+**Questions from agents**
+
+- An agent asks through the Ask me tool. The app never parses agent output for questions.
+- Every question is a record with its session, text, options, status and time. The record is pending until I answer, the agent withdraws it, or the session closes.
+- The agent can keep working after asking. If it needs the answer, it calls Wait for answer. If it no longer needs it, it calls Withdraw question; the pending list drops it.
+- The Mac sidebar has a Questions list with every pending question across sessions. The session card and the list share the record; answering in either removes it.
+- The phone shows the same pending questions and notifies me while the app is open.
+- The Ask and notify skill tells agents to use the tool and to withdraw stale questions.
 
 **Skills given to every session**
 
@@ -245,7 +259,7 @@ Every agent session gets the same app tools and skills, whatever the agent or pr
 | Demo servers | Start a demo server, register its port, and give me the address that works on my phone |
 | Handoff | The standard handoff note, and when to commit, write it and push: switch to a different agent, out of usage, Close |
 | Browser checks | Check UI changes in the built-in browser, take screenshots and share them with me |
-| Ask and notify | Ask me through the app when blocked, instead of waiting. Tell me when work is done. |
+| Ask and notify | Ask me through the app when blocked. Withdraw questions that no longer matter. Tell me when work is done. |
 | Coordinate sessions | Split a large task across helper sessions, write clear briefs, and track progress. The coordinating agent merges each helper's branch into its own session branch and resolves conflicts. |
 | Frontend design | Make deliberate visual choices for the subject. Avoid generic layouts and template defaults. Check for redundant controls before adding one. |
 
@@ -259,7 +273,7 @@ Every agent session gets the same app tools and skills, whatever the agent or pr
 
 After a crash or restart, the IDE reopens every session that was running and resumes each one where it stopped. After a restart of the Mac, this happens when elesdee next starts: at login if the start-at-login setting is on, or else when I open the app.
 
-- The IDE saves the state of each session while it runs: agent, preset, provider, folder, branch, and the agent's own session ID.
+- The IDE saves the state of each session while it runs: agent, preset, provider, repository, folder, branch, and the agent's own session ID.
 - On restart, the IDE relaunches each session with the same settings and resumes the agent's conversation.
 - I do not need to do anything to restore my work.
 - Terminal sessions cannot resume the programs that ran in them. The IDE reopens each terminal in the same folder and shows its earlier output above a new prompt.
@@ -271,8 +285,32 @@ I can switch provider inside a running session with one button, and the IDE can 
 **Accounts**
 
 - I can add more than one account per provider, for example several Claude subscriptions.
-- API keys and account logins are stored in the system's own password store: the macOS Keychain in version 1, and the matching store on Windows and Linux later.
+- API keys and subscription tokens are stored in the macOS Keychain. The app writes API keys; each agent writes its own subscription token. No secret is written into your repos.
 - Each account is a provider choice in a session.
+
+Supported providers:
+
+| Provider | Models | Runtime | Sign-in |
+| --- | --- | --- | --- |
+| Anthropic | Claude | Claude Code | Subscription or API key |
+| OpenAI | ChatGPT / GPT | Codex | Subscription or API key |
+| Google | Gemini | Antigravity | API key |
+| xAI | Grok | Grok Build | API key |
+| Kimi (Moonshot) | Kimi | Claude Code | API key |
+| DeepSeek | DeepSeek | Claude Code | API key |
+| Z.ai | GLM | Claude Code | API key |
+| OpenRouter | Many models | OpenCode | API key |
+| Ollama | Local models | Claude Code | Server URL |
+| LM Studio | Local models | Claude Code | Server URL |
+
+**Subscription sign-in**
+
+- Anthropic and OpenAI accept a subscription sign-in. It is the first option in the add form; an API key is one click away.
+- The app signs in through the agent it runs. It starts the login command of the installed Claude Code or Codex. That command opens the system browser. I sign in there, the browser returns to the app by itself, and the agent stores the credential. The app reads the credential and checks it before it adds the account.
+- The app never asks for a provider password and never shows a provider sign-in page of its own. Anthropic does not allow third-party apps to run the claude.ai sign-in, so the installed agent owns that login.
+- A one-time code is the fallback for a computer with no browser, such as a remote session. The app shows the code and a link. I open the link on any device and enter the code.
+- If the sign-in expires or fails, the app says why and offers a new attempt.
+- Codex refreshes its token as it runs. Do not use the same Codex login on the Mac and in elesdee at the same time.
 
 **Manual switch**
 
@@ -281,7 +319,7 @@ I can switch provider inside a running session with one button, and the IDE can 
 
 **Usage panel**
 
-Usage belongs to the Mac, not to a session. The sidebar shows a compact summary. I click it to open the full panel, which shows every account at the same time:
+Usage belongs to the computer, not to a session. The sidebar shows a compact summary. I click it to open the full panel, which shows every account at the same time:
 
 | Account type | What the panel shows |
 | --- | --- |
@@ -289,7 +327,9 @@ Usage belongs to the Mac, not to a session. The sidebar shows a compact summary.
 | Codex | Usage remaining for each limit of the plan (5-hour and weekly, where the plan has them) |
 | DeepSeek (through Claude Code) | Account balance from the DeepSeek API, so I know when to top up |
 
-Context remaining belongs to the session and appears beside the session title, not in the usage panel.
+- The provider pill in the session header includes a usage bar for the current account. The bar shows available usage, not context.
+- Hover the bar for the account's limits and the session's context left. Click the pill to switch accounts.
+- Context compacts automatically. The app does not show a context warning.
 
 **Allowed providers per session**
 
@@ -334,19 +374,20 @@ Rules from the providers:
 
 ## Settings
 
-- Settings opens as a full page over the Mac window. A left submenu holds the sections.
-- General: start elesdee at login, and keep the Mac awake while agents work.
-- Providers: auto-switch.
-- Language & formats: the interface language, dates and numbers.
+- Settings opens as a full page over the desktop window. A left submenu holds the sections.
+- A dialog that opens from Settings, such as Add provider, opens over the page. Closing it returns to the same Settings section.
+- General: start elesdee at login, and keep the computer awake while agents work.
+- Providers: auto-switch, the account list, and add or configure a provider. Adding a provider follows the supported list above. Subscription sign-in opens the provider page, and API keys or local server URLs are entered in the same form.
+- Languages: the interface language.
 - Devices: paired phones, with a Remove action.
 - Diagnostics: export logs and system details.
 - A version label sits at the bottom of the submenu.
 
 ## Projects
 
-A project is a label that groups sessions.
+A project groups sessions.
 
-- Creating a project is fast: one action and a name.
+- Creating a project is fast: one action, a name and a folder. The folder can be a Git repository or a plain folder.
 - I can drag a session from one project to another.
 - A project can store a default source (repo and branch) and a default preset. New sessions in the project start with these filled in, and I can change them for each session.
 
@@ -360,9 +401,12 @@ When I launch a session, I choose where the code comes from, and the IDE gets th
 - A remote branch on any Git host that Git can fetch from and push to (GitHub, GitLab, Bitbucket or self-hosted)
 - A plain folder (no Git)
 
+For a branch source, the launch form shows the repository. I can pick a repository from recent sessions or search GitHub after connecting.
+
 **Git access**
 
-- The app uses the Git credentials and SSH keys already on my Mac, the same way Git does in a terminal. There is no Git or GitHub login inside elesdee.
+- The app uses the Git credentials and SSH keys already on my Mac, the same way Git does in a terminal. Git commands use these credentials.
+- I can connect GitHub to search my repositories in the launch form. The connection uses a device code, and the token stays in the macOS Keychain. It is used only to list repositories. Git commands still use the Mac's credentials.
 
 **Auto-sync at launch**
 
@@ -430,10 +474,25 @@ From the mobile app I can:
 - Type and send input to any session.
 - Upload files into a session. An uploaded file goes in elesdee's own folder for that session, outside the repo, and the agent is told its path. Nothing is added to the repo unless the agent copies it in.
 - View what a session creates: files, images, diffs and running demo servers. A diff shows all the session's changes since it branched off, committed or not, like a pull request view. The Mac shows diffs the same way.
-- Start new sessions: pick a preset, project and source, and type the first prompt.
+- Start new sessions: pick a project and provider, choose a source, add a name if I want one, and type the first prompt.
 - Close sessions, with the same confirmation as on the Mac.
 - Switch provider with the one-button switch, and see the usage panel.
+- See every pending question across sessions and answer it.
 - Approve agent permission prompts and new sessions that agents start, and answer "Ask me" questions.
+
+**Keyboard input from the phone**
+
+The approach follows Orca Mobile's terminal shortcut rail ([Orca docs](https://orca.dev/docs/mobile)).
+
+- The phone sends text two ways. The message view composer sends a whole prompt. The terminal view has a one-line input that sends text straight to the terminal.
+- A key rail sits above the input in both views. It sends desktop keys to the active session: Esc, Tab, Shift+Tab, Backspace, Delete, the four arrows, Ctrl+C and Ctrl+D.
+- Shift, Ctrl and Alt are latches. Tap one, then tap a key, and the two go together. A latch clears after one key.
+- Hold an arrow, Backspace or Delete to repeat it, as a held desktop key does.
+- The rail scrolls sideways. A keyboard button in the input row shows or hides it, and the session keeps its place when the rail opens again.
+- The + at the end of the rail opens "Keyboard keys". I pick modifiers, name a key (C, F5, PageUp), and add it. I can remove saved keys there. There are up to 8.
+- Saved keys belong to the phone, not to a session. They sit on the rail and send to the terminal like the built-in keys.
+- A hardware keyboard, or a keyboard app with Ctrl and Alt keys, sends chords to the terminal too. Plain text still goes to the focused input.
+- Keys go to the session's terminal input as the bytes a terminal expects. Ctrl+C interrupts, Esc cancels, Tab completes. They never run an action in the phone interface.
 
 The phone app has no lock of its own. The phone's screen lock is enough.
 
@@ -622,7 +681,7 @@ Facts to plan for:
 - The phone's UI package comes from the desktop app, so it always has the desktop app's version.
 - The phone shell has its own version number. A new shell is released only when its native features or its bridge change, so users are not asked to update a shell that did not change.
 - Both are built by the same release workflow. A release that changes the shell attaches the new APK.
-- The message format between the phone and the desktop carries a version number, and the bridge has its own version number. When the shell is too old for a Mac's screens, the phone shows "update the phone app". When a Mac is too old for the shell, the phone shows "update elesdee on this Mac".
+- The message format between the phone and the desktop carries a version number, and the bridge has its own version number. When the shell is too old for a Mac's screens, the phone shows "update the phone app". When a Mac is too old for the shell, the phone shows "update elesdee on this computer".
 
 ## Open questions
 
