@@ -36,6 +36,6 @@ test('the usage footer opens the panel with every seeded account', async ({
     dialog.getByRole('region', { name: 'LiteLLM gateway' }),
   ).toContainText('No usage data');
 
-  await dialog.getByRole('button', { name: 'Close' }).click();
+  await dialog.getByRole('button', { name: 'Close usage' }).click();
   await expect(dialog).not.toBeVisible();
 });

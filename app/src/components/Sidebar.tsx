@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import type { Account, Project, Session } from '../api/types';
 import {
   sessionKindLabel,
@@ -6,7 +6,7 @@ import {
   statusTone,
   tabStateLabel,
 } from '../state/sessionStatus';
-import { accountUsage, tightestAccount } from '../state/usage';
+import { accountUsage } from '../state/usage';
 import {
   AlertIcon,
   ChevronDownIcon,
@@ -16,6 +16,7 @@ import {
   PlusIcon,
   SettingsIcon,
 } from './icons';
+import { UsagePopover } from './UsagePopover';
 
 type SessionView = 'grouped' | 'flat';
 type Filter = 'active' | 'closed';
@@ -34,7 +35,7 @@ interface SidebarProps {
     trigger: HTMLElement,
   ) => void;
   onAddProject: () => void;
-  onOpenUsage: () => void;
+  onNewSession: (projectId: string) => void;
   onOpenSettings: () => void;
 }
 
@@ -54,12 +55,6 @@ function SessionRow({
   onMenu,
 }: SessionRowProps) {
   const waiting = Boolean(session.waitingFor);
-  const stateLabel =
-    session.status === 'closed'
-      ? 'Closed'
-      : session.waitingFor
-        ? null
-        : tabStateLabel(session);
   const classes = [
     'session-row',
     isActive ? 'is-active' : '',
@@ -107,10 +102,12 @@ function SessionRow({
             session.preview || 'No output yet.'
           )}
         </span>
-        <span className="session-meta">
-          {sessionKindLabel(session)}
-          {stateLabel ? ` · ${stateLabel}` : ''}
+        <span className="sr-only">
+          {sessionKindLabel(session)} · {tabStateLabel(session)}
         </span>
+      </span>
+      <span className="session-status-label">
+        {session.status === 'closed' ? 'Closed' : 'Active'}
       </span>
     </button>
   );
@@ -136,63 +133,57 @@ export function Sidebar({
   onSelectSession,
   onSessionMenu,
   onAddProject,
-  onOpenUsage,
+  onNewSession,
   onOpenSettings,
 }: SidebarProps) {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [manualCollapsed, setManualCollapsed] = useState<Set<string>>(new Set());
-  const [showActive, setShowActive] = useState(true);
+  const [activeOnly, setActiveOnly] = useState(false);
   const [showClosed, setShowClosed] = useState(false);
   const [view, setView] = useState<SessionView>('grouped');
+  const [usageOpen, setUsageOpen] = useState(false);
+  const usageButtonRef = useRef<HTMLButtonElement>(null);
 
-  const activeCount = sessions.filter((session) => session.status === 'active').length;
-  const closedCount = sessions.filter((session) => session.status === 'closed').length;
-  const tightest = tightestAccount(accounts);
-  const tightestUsage = tightest ? accountUsage(tightest) : null;
+  const hasProjects = projects.length > 0;
+  const activeCount = sessions.filter(
+    (session) => session.status === 'active',
+  ).length;
   const projectNames = new Map(
     projects.map((project) => [project.id, project.name]),
   );
 
-  const filtersOn = showActive || showClosed;
-  const visibleSessions = sessions.filter((session) =>
-    session.status === 'active' ? showActive : showClosed,
-  );
+  const showClosedSessions = showClosed && !activeOnly;
+  const filtersOn = activeOnly || showClosed;
 
+  function isVisible(session: Session): boolean {
+    return session.status === 'active' || showClosedSessions;
+  }
+
+  const visibleSessions = sessions.filter(isVisible);
   const allByProject = groupSessions(sessions);
   const byProject = groupSessions(visibleSessions);
 
-  function matchesFilter(
-    session: Session,
-    active: boolean,
-    closed: boolean,
-  ): boolean {
-    return session.status === 'active' ? active : closed;
-  }
-
   function projectMatches(projectId: string): boolean {
     return sessions.some(
-      (session) =>
-        session.projectId === projectId &&
-        matchesFilter(session, showActive, showClosed),
+      (session) => session.projectId === projectId && isVisible(session),
     );
   }
 
   function toggleFilter(filter: Filter) {
-    const nextActive = filter === 'active' ? !showActive : showActive;
-    const nextClosed = filter === 'closed' ? !showClosed : showClosed;
-    const wasOn = showActive || showClosed;
-    const nextOn = nextActive || nextClosed;
+    const nextActiveOnly = filter === 'active' ? !activeOnly : activeOnly;
+    const nextShowClosed = filter === 'closed' ? !showClosed : showClosed;
+    const wasOn = activeOnly || showClosed;
+    const nextOn = nextActiveOnly || nextShowClosed;
 
     if (!wasOn || !nextOn) {
       setManualCollapsed(new Set());
     }
 
-    setShowActive(nextActive);
-    setShowClosed(nextClosed);
+    setActiveOnly(nextActiveOnly);
+    setShowClosed(nextShowClosed);
   }
 
   function toggleProject(projectId: string) {
-    const filtersOn = showActive || showClosed;
     const matching = filtersOn && projectMatches(projectId);
     const autoExpanded = matching && !manualCollapsed.has(projectId);
     const isCollapsed = Boolean(collapsed[projectId]) && !autoExpanded;
@@ -223,11 +214,11 @@ export function Sidebar({
 
   function emptyText(projectId: string): string {
     const all = allByProject.get(projectId) ?? [];
-    if (all.length === 0 || showActive === showClosed) {
+    if (all.length === 0) {
       return 'No sessions';
     }
 
-    return showActive ? 'No active sessions' : 'No closed sessions';
+    return 'No active sessions';
   }
 
   return (
@@ -237,7 +228,7 @@ export function Sidebar({
           Sessions <span className="count">{visibleSessions.length}</span>
         </h2>
 
-        {projects.length > 0 ? (
+        {hasProjects ? (
           <div
             className="seg-mini"
             role="radiogroup"
@@ -272,7 +263,7 @@ export function Sidebar({
           </div>
         ) : null}
 
-        {projects.length > 0 ? (
+        {hasProjects ? (
           <button
             type="button"
             className="sidebar-add"
@@ -285,35 +276,41 @@ export function Sidebar({
         ) : null}
       </div>
 
-      <div className="sidebar-filters" role="group" aria-label="Session filter">
-        <button
-          type="button"
-          className={showActive ? 'chip is-on' : 'chip'}
-          aria-pressed={showActive}
-          onClick={() => toggleFilter('active')}
+      {hasProjects ? (
+        <div
+          className="sidebar-filters"
+          role="group"
+          aria-label="Session filter"
         >
-          Active <span className="chip-count">{activeCount}</span>
-        </button>
-        <button
-          type="button"
-          className={showClosed ? 'chip is-on' : 'chip'}
-          aria-pressed={showClosed}
-          onClick={() => toggleFilter('closed')}
-        >
-          Closed <span className="chip-count">{closedCount}</span>
-        </button>
-      </div>
+          <button
+            type="button"
+            className={activeOnly ? 'chip is-on' : 'chip'}
+            aria-pressed={activeOnly}
+            onClick={() => toggleFilter('active')}
+          >
+            Active <span className="chip-count">{activeCount}</span>
+          </button>
+          <button
+            type="button"
+            className={showClosed ? 'chip is-on' : 'chip'}
+            aria-pressed={showClosed}
+            onClick={() => toggleFilter('closed')}
+          >
+            Show closed
+          </button>
+        </div>
+      ) : null}
 
       <div className="session-list">
-        {projects.length === 0 ? (
-          <p className="sidebar-empty">
-            No projects yet. Sessions appear here after a project is added.
-          </p>
+        {!hasProjects ? (
+          <p className="sidebar-empty">No sessions yet.</p>
         ) : view === 'flat' ? (
           sessions.length === 0 ? (
-            <p className="sidebar-empty">No sessions yet. Start one from the top of the window.</p>
+            <p className="sidebar-empty">
+              No sessions yet. Start one from the top of the window.
+            </p>
           ) : visibleSessions.length === 0 ? (
-            <p className="sidebar-empty">No sessions match this filter.</p>
+            <p className="sidebar-empty">No active sessions.</p>
           ) : (
             visibleSessions.map((session) => (
               <SessionRow
@@ -381,6 +378,16 @@ export function Sidebar({
                       {projectSessions.length}
                     </span>
                   </button>
+
+                  <button
+                    type="button"
+                    className="project-add"
+                    aria-label={`New session in ${project.name}`}
+                    title="New session"
+                    onClick={() => onNewSession(project.id)}
+                  >
+                    <PlusIcon />
+                  </button>
                 </div>
 
                 {isCollapsed && blots.length > 0 ? (
@@ -411,9 +418,7 @@ export function Sidebar({
                   hidden={isCollapsed}
                 >
                   {projectSessions.length === 0 ? (
-                    <p className="project-empty">
-                      {emptyText(project.id)}
-                    </p>
+                    <p className="project-empty">{emptyText(project.id)}</p>
                   ) : (
                     projectSessions.map((session) => (
                       <SessionRow
@@ -435,55 +440,73 @@ export function Sidebar({
       </div>
 
       <div className="sidebar-foot">
-        <button
-          type="button"
-          className="usage-summary-button"
-          aria-haspopup="dialog"
-          onClick={onOpenUsage}
-        >
-          <span className="usage-summary-head">
-            <span className="usage-summary-title">Usage</span>
-            {tightest ? (
-              <span className="usage-summary-account">{tightest.name}</span>
-            ) : null}
-          </span>
-
-          {tightest && tightestUsage ? (
-            <span className="usage-summary-row">
-              {tightestUsage.tightestRow ? (
-                <span className="usage-summary-label">
-                  {tightestUsage.tightestRow.label}
-                </span>
-              ) : null}
-              {tightestUsage.remaining !== null ? (
-                <span
-                  className={
-                    tightestUsage.warn
-                      ? 'usage-mini-bar is-warn'
-                      : 'usage-mini-bar'
-                  }
-                  aria-hidden="true"
-                >
-                  <span
-                    className="usage-mini-fill"
-                    style={{ width: `${tightestUsage.remaining}%` }}
-                  />
-                </span>
-              ) : null}
-              <span
-                className={
-                  tightestUsage.warn
-                    ? 'usage-summary-value is-warn'
-                    : 'usage-summary-value'
-                }
-              >
-                {tightestUsage.summary}
+        {hasProjects ? (
+          <>
+            <button
+              ref={usageButtonRef}
+              type="button"
+              className="usage-summary-button"
+              aria-haspopup="dialog"
+              aria-expanded={usageOpen}
+              onClick={() => setUsageOpen((open) => !open)}
+            >
+              <span className="usage-summary-head">
+                <span className="usage-summary-title">Usage</span>
               </span>
-            </span>
-          ) : (
-            <span className="usage-summary-value">No usage data</span>
-          )}
-        </button>
+
+              {accounts.length === 0 ? (
+                <span className="usage-summary-value">No usage data</span>
+              ) : (
+                accounts.slice(0, 3).map((account) => {
+                  const usage = accountUsage(account);
+                  return (
+                    <span
+                      className="usage-summary-row"
+                      key={account.id}
+                      title={account.name}
+                    >
+                      <span className="usage-summary-label">
+                        {account.name}
+                      </span>
+                      {usage.remaining !== null ? (
+                        <span
+                          className={
+                            usage.warn
+                              ? 'usage-mini-bar is-warn'
+                              : 'usage-mini-bar'
+                          }
+                          aria-hidden="true"
+                        >
+                          <span
+                            className="usage-mini-fill"
+                            style={{ width: `${usage.remaining}%` }}
+                          />
+                        </span>
+                      ) : null}
+                      <span
+                        className={
+                          usage.warn
+                            ? 'usage-summary-value is-warn'
+                            : 'usage-summary-value'
+                        }
+                      >
+                        {usage.summary}
+                      </span>
+                    </span>
+                  );
+                })
+              )}
+            </button>
+
+            {usageOpen ? (
+              <UsagePopover
+                accounts={accounts}
+                trigger={usageButtonRef.current}
+                onClose={() => setUsageOpen(false)}
+              />
+            ) : null}
+          </>
+        ) : null}
 
         <button
           type="button"

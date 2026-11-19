@@ -36,7 +36,7 @@ test('first launch welcomes the user and a new project is selected', async ({
   await expect(projectButton).toHaveAttribute('aria-current', 'true');
   await expect(page.locator('.tabbar-project')).toContainText(name);
 
-  await page.getByRole('button', { name: /New session/ }).click();
+  await page.locator('.titlebar').getByRole('button', { name: 'New session' }).click();
   const sessionDialog = page.getByRole('dialog');
   await expect(
     sessionDialog.getByRole('combobox', { name: 'Project' }),

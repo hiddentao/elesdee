@@ -1,11 +1,7 @@
 import { useRef, type KeyboardEvent } from 'react';
 import type { Project, Session } from '../api/types';
-import {
-  statusText,
-  statusTone,
-  tabStateLabel,
-} from '../state/sessionStatus';
-import { FolderIcon } from './icons';
+import { statusText, statusTone } from '../state/sessionStatus';
+import { FolderIcon, PlusIcon } from './icons';
 
 interface TabStripProps {
   project: Project;
@@ -17,6 +13,7 @@ interface TabStripProps {
     point: { x: number; y: number },
     trigger: HTMLElement,
   ) => void;
+  onNewSession: () => void;
 }
 
 export function TabStrip({
@@ -25,6 +22,7 @@ export function TabStrip({
   activeSessionId,
   onSelectSession,
   onSessionMenu,
+  onNewSession,
 }: TabStripProps) {
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
@@ -112,12 +110,21 @@ export function TabStrip({
                   aria-hidden="true"
                 />
                 <span className="tab-name">{session.name}</span>
-                <span className="tab-state">{tabStateLabel(session)}</span>
               </button>
             );
           })}
         </div>
       )}
+
+      <button
+        type="button"
+        className="tab-add"
+        aria-label="New session"
+        title="New session"
+        onClick={onNewSession}
+      >
+        <PlusIcon />
+      </button>
     </div>
   );
 }

@@ -20,7 +20,7 @@ test('terminal session create, echo, close, reopen and delete', async ({
   await createProject(request, label, folder);
   await openApp(page);
 
-  await page.getByRole('button', { name: /New session/ }).click();
+  await page.locator('.titlebar').getByRole('button', { name: 'New session' }).click();
   const dialog = page.getByRole('dialog');
 
   const projectCombo = dialog.getByRole('combobox', { name: 'Project' });
@@ -83,7 +83,7 @@ test('terminal session create, echo, close, reopen and delete', async ({
   ).not.toBeVisible();
   await expect(row).not.toBeVisible();
 
-  await page.getByRole('button', { name: /^Closed/ }).click();
+  await page.getByRole('button', { name: 'Show closed' }).click();
   await expect(row).toBeVisible();
   await expect(row).toContainText('Closed');
 

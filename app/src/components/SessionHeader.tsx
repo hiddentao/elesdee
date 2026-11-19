@@ -15,6 +15,8 @@ interface SessionHeaderProps {
   accounts: Account[];
   actionsOpen: boolean;
   onOpenMenu: (trigger: HTMLElement) => void;
+  branchOpen: boolean;
+  onOpenBranchMenu: (trigger: HTMLElement) => void;
 }
 
 export function SessionHeader({
@@ -22,6 +24,8 @@ export function SessionHeader({
   accounts,
   actionsOpen,
   onOpenMenu,
+  branchOpen,
+  onOpenBranchMenu,
 }: SessionHeaderProps) {
   const account = accountFor(accounts, session.accountId);
 
@@ -48,10 +52,17 @@ export function SessionHeader({
           )}
 
           {session.branch ? (
-            <span className="chip-meta is-mono">
+            <button
+              type="button"
+              className="chip-meta is-mono branch-pill"
+              aria-haspopup="menu"
+              aria-expanded={branchOpen}
+              title={session.branch}
+              onClick={(event) => onOpenBranchMenu(event.currentTarget)}
+            >
               <BranchIcon />
               <span className="chip-text">{session.branch}</span>
-            </span>
+            </button>
           ) : null}
 
           {session.kind === 'terminal' ? (

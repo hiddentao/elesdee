@@ -17,6 +17,7 @@ function renderStrip(
   activeSessionId: string | null = 's2',
   onSelectSession = vi.fn(),
   onSessionMenu = vi.fn(),
+  onNewSession = vi.fn(),
 ) {
   render(
     <TabStrip
@@ -25,13 +26,14 @@ function renderStrip(
       activeSessionId={activeSessionId}
       onSelectSession={onSelectSession}
       onSessionMenu={onSessionMenu}
+      onNewSession={onNewSession}
     />,
   );
   return onSelectSession;
 }
 
 describe('TabStrip', () => {
-  it('uses a roving tab stop, a visible state and a panel relationship', () => {
+  it('uses a roving tab stop and a panel relationship without a state line', () => {
     renderStrip();
     const tabs = screen.getAllByRole('tab');
 
@@ -39,7 +41,18 @@ describe('TabStrip', () => {
     expect(tabs[1]).toHaveAttribute('tabindex', '0');
     expect(tabs[0]).toHaveAttribute('aria-controls', 'session-panel');
     expect(tabs[1]).toHaveAttribute('aria-selected', 'true');
-    expect(within(tabs[1]).getByText('Working')).toBeInTheDocument();
+    expect(within(tabs[1]).getByText('Second')).toBeInTheDocument();
+    expect(within(tabs[1]).queryByText('Working')).not.toBeInTheDocument();
+  });
+
+  it('opens a new session from the trailing plus', async () => {
+    const user = userEvent.setup();
+    const onNewSession = vi.fn();
+    renderStrip('s2', vi.fn(), vi.fn(), onNewSession);
+
+    await user.click(screen.getByRole('button', { name: 'New session' }));
+
+    expect(onNewSession).toHaveBeenCalledTimes(1);
   });
 
   it('opens the session menu on right-click', () => {

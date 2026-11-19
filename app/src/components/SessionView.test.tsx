@@ -1,4 +1,5 @@
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import type { Session } from '../api/types';
 import { makeSession } from '../test/fixtures';
@@ -14,14 +15,18 @@ const permission = {
   summary: 'pnpm test --filter web',
 };
 
-function renderView(session: Session) {
+function renderView(session: Session, onReopen = vi.fn()) {
   return render(
-    <SessionView session={session} onRespondPermission={vi.fn()} />,
+    <SessionView
+      session={session}
+      onRespondPermission={vi.fn()}
+      onReopen={onReopen}
+    />,
   );
 }
 
 describe('SessionView permission card', () => {
-  it('docks the card above the terminal for an active agent', async () => {
+  it('docks the card below the terminal for an active agent', async () => {
     renderView(
       makeSession({
         waitingFor: 'permission',
@@ -35,7 +40,7 @@ describe('SessionView permission card', () => {
     const terminal = await screen.findByText('Terminal pane');
 
     expect(
-      title.compareDocumentPosition(terminal) & Node.DOCUMENT_POSITION_FOLLOWING,
+      terminal.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     expect(screen.queryByText('Waiting for you')).not.toBeInTheDocument();
   });
@@ -81,5 +86,29 @@ describe('SessionView permission card', () => {
     renderView(makeSession({ waitingFor: 'permission' }));
 
     expect(screen.getByText('Waiting for you')).toBeInTheDocument();
+  });
+
+  it('shows a closed banner with the branch and a visible Reopen button', async () => {
+    const user = userEvent.setup();
+    const onReopen = vi.fn();
+    renderView(
+      makeSession({
+        status: 'closed',
+        workState: null,
+        branch: 'elesdee/core/fix-login',
+      }),
+      onReopen,
+    );
+
+    expect(screen.getByText('Closed')).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'The session log is kept. The branch elesdee/core/fix-login stays.',
+      ),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Reopen' }));
+
+    expect(onReopen).toHaveBeenCalledTimes(1);
   });
 });

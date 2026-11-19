@@ -3,14 +3,19 @@ import type {
   PendingPermission,
   PermissionDecision,
 } from '../api/types';
+import { AlertIcon } from './icons';
 
 interface PermissionCardProps {
   permission: PendingPermission;
+  client: string | null;
+  sessionName: string;
   onRespond: (decision: PermissionDecision) => Promise<void>;
 }
 
 export function PermissionCard({
   permission,
+  client,
+  sessionName,
   onRespond,
 }: PermissionCardProps) {
   const titleId = useId();
@@ -39,35 +44,47 @@ export function PermissionCard({
       aria-labelledby={titleId}
       aria-busy={decision !== null}
     >
-      <div className="permission-main">
-        <div className="permission-copy" role="status">
+      <div className="permission-head">
+        <span className="permission-icon" aria-hidden="true">
+          <AlertIcon />
+        </span>
+        <div className="permission-head-text">
           <h2 className="permission-title" id={titleId}>
             Permission needed
           </h2>
-          <p className="permission-tool">
-            <span className="permission-label">Tool</span> {permission.tool}
-          </p>
-          <pre className="permission-summary">{permission.summary}</pre>
+          <span className="permission-context">
+            {client ?? 'Agent'} · {sessionName}
+          </span>
         </div>
+      </div>
 
-        <div className="permission-actions">
-          <button
-            type="button"
-            className="btn btn-primary"
-            disabled={decision !== null}
-            onClick={() => void answer('allow')}
-          >
-            {decision === 'allow' ? 'Allowing…' : 'Allow'}
-          </button>
-          <button
-            type="button"
-            className="btn btn-ghost"
-            disabled={decision !== null}
-            onClick={() => void answer('deny')}
-          >
-            {decision === 'deny' ? 'Denying…' : 'Deny'}
-          </button>
-        </div>
+      <div className="permission-copy" role="status">
+        <p className="permission-tool">
+          <span className="permission-label">Tool</span> {permission.tool}
+        </p>
+        <pre className="permission-summary">{permission.summary}</pre>
+        <p className="permission-rationale">
+          The agent is paused until you answer.
+        </p>
+      </div>
+
+      <div className="permission-actions">
+        <button
+          type="button"
+          className="btn btn-ghost"
+          disabled={decision !== null}
+          onClick={() => void answer('deny')}
+        >
+          {decision === 'deny' ? 'Denying…' : 'Deny'}
+        </button>
+        <button
+          type="button"
+          className="btn btn-primary"
+          disabled={decision !== null}
+          onClick={() => void answer('allow')}
+        >
+          {decision === 'allow' ? 'Allowing…' : 'Allow'}
+        </button>
       </div>
 
       {error ? (

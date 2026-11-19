@@ -9,12 +9,28 @@ const permission = {
   summary: 'pnpm test --filter web',
 };
 
+function renderCard(onRespond = vi.fn()) {
+  render(
+    <PermissionCard
+      permission={permission}
+      client="Claude Code"
+      sessionName="Fix checkout"
+      onRespond={onRespond}
+    />,
+  );
+}
+
 describe('PermissionCard', () => {
   it('announces the request and shows the tool and summary', () => {
-    render(<PermissionCard permission={permission} onRespond={vi.fn()} />);
+    renderCard();
 
     expect(
       screen.getByRole('heading', { name: 'Permission needed' }),
+    ).toBeInTheDocument();
+
+    expect(screen.getByText('Claude Code · Fix checkout')).toBeInTheDocument();
+    expect(
+      screen.getByText('The agent is paused until you answer.'),
     ).toBeInTheDocument();
 
     const status = screen.getByRole('status');
@@ -35,7 +51,7 @@ describe('PermissionCard', () => {
       }),
     );
 
-    render(<PermissionCard permission={permission} onRespond={onRespond} />);
+    renderCard(onRespond);
 
     await user.click(screen.getByRole('button', { name: 'Allow' }));
 
@@ -56,7 +72,7 @@ describe('PermissionCard', () => {
     const user = userEvent.setup();
     const onRespond = vi.fn().mockResolvedValue(undefined);
 
-    render(<PermissionCard permission={permission} onRespond={onRespond} />);
+    renderCard(onRespond);
 
     await user.click(screen.getByRole('button', { name: 'Deny' }));
 
@@ -71,7 +87,7 @@ describe('PermissionCard', () => {
     const user = userEvent.setup();
     const onRespond = vi.fn().mockRejectedValue(new Error('Network error.'));
 
-    render(<PermissionCard permission={permission} onRespond={onRespond} />);
+    renderCard(onRespond);
 
     await user.click(screen.getByRole('button', { name: 'Allow' }));
 

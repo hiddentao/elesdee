@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import type { Account, Project, Session } from '../api/types';
@@ -33,6 +33,23 @@ function makeClosed(overrides: Partial<Session> = {}): Session {
   });
 }
 
+function makeAccount(overrides: Partial<Account> = {}): Account {
+  return {
+    id: 'a1',
+    name: 'Work',
+    plan: 'Max',
+    client: 'Claude Code',
+    provider: 'Anthropic',
+    auth: 'subscription',
+    sample: true,
+    rows: [{ label: '5-hour', used: 58 }],
+    foot: 'Resets soon.',
+    server: null,
+    model: null,
+    ...overrides,
+  };
+}
+
 interface SidebarOptions {
   projects?: Project[];
   accounts?: Account[];
@@ -44,7 +61,7 @@ interface SidebarOptions {
     trigger: HTMLElement,
   ) => void;
   onAddProject?: () => void;
-  onOpenUsage?: () => void;
+  onNewSession?: (projectId: string) => void;
   onOpenSettings?: () => void;
 }
 
@@ -57,7 +74,7 @@ function renderSidebar(
     onSelectSession = vi.fn(),
     onSessionMenu = vi.fn(),
     onAddProject = vi.fn(),
-    onOpenUsage = vi.fn(),
+    onNewSession = vi.fn(),
     onOpenSettings = vi.fn(),
   }: SidebarOptions = {},
 ) {
@@ -72,36 +89,74 @@ function renderSidebar(
       onSelectSession={onSelectSession}
       onSessionMenu={onSessionMenu}
       onAddProject={onAddProject}
-      onOpenUsage={onOpenUsage}
+      onNewSession={onNewSession}
       onOpenSettings={onOpenSettings}
     />,
   );
 }
 
 describe('Sidebar', () => {
-  it('shows the waiting text and the session kind and client', () => {
+  it('shows two-line rows with the status word and accessible detail', () => {
     renderSidebar([
-      makeSession({ waitingFor: 'permission' }),
-      makeClosed(),
+      makeSession(),
+      makeSession({
+        id: 's2',
+        name: 'Wait task',
+        waitingFor: 'permission',
+      }),
     ]);
 
     expect(screen.getByText('Fix login')).toBeInTheDocument();
+    expect(screen.getByText('Running the login tests')).toBeInTheDocument();
+    expect(
+      within(screen.getByRole('button', { name: /Fix login/ })).getByText(
+        'Active',
+      ),
+    ).toBeInTheDocument();
     expect(screen.getByText('Waiting for you')).toBeInTheDocument();
-    expect(screen.getByText('Agent · Claude Code')).toBeInTheDocument();
-    expect(screen.queryByText('Old task')).not.toBeInTheDocument();
+    expect(
+      screen.getByText('Agent · Claude Code · Input'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText('Agent · Claude Code · Waiting'),
+    ).toBeInTheDocument();
   });
 
-  it('filters between active and closed sessions', async () => {
+  it('shows the closed status word when closed sessions are shown', async () => {
     const user = userEvent.setup();
     renderSidebar([makeSession(), makeClosed()]);
 
-    await user.click(screen.getByRole('button', { name: /^Closed/ }));
+    await user.click(screen.getByRole('button', { name: 'Show closed' }));
+
     expect(screen.getByText('Old task')).toBeInTheDocument();
+    expect(
+      within(screen.getByRole('button', { name: /Old task/ })).getByText(
+        'Closed',
+      ),
+    ).toBeInTheDocument();
+    expect(
+      within(screen.getByRole('button', { name: /Fix login/ })).getByText(
+        'Active',
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('adds closed sessions without emptying the list', async () => {
+    const user = userEvent.setup();
+    renderSidebar([makeSession(), makeClosed()]);
+
+    await user.click(screen.getByRole('button', { name: 'Show closed' }));
     expect(screen.getByText('Fix login')).toBeInTheDocument();
-    expect(screen.getByText('Agent · Claude Code · Input')).toBeInTheDocument();
+    expect(screen.getByText('Old task')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: /^Active/ }));
-    expect(screen.queryByText('Fix login')).not.toBeInTheDocument();
+    expect(screen.getByText('Fix login')).toBeInTheDocument();
+    expect(screen.queryByText('Old task')).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /^Active/ }),
+    ).toHaveAttribute('aria-pressed', 'true');
+
+    await user.click(screen.getByRole('button', { name: /^Active/ }));
     expect(screen.getByText('Old task')).toBeInTheDocument();
   });
 
@@ -176,6 +231,20 @@ describe('Sidebar', () => {
     ).toHaveAttribute('aria-current', 'true');
   });
 
+  it('opens a new session for a project from its plus', async () => {
+    const user = userEvent.setup();
+    const onNewSession = vi.fn();
+    const onSelectProject = vi.fn();
+    renderSidebar([makeSession()], { onNewSession, onSelectProject });
+
+    await user.click(
+      screen.getByRole('button', { name: 'New session in core' }),
+    );
+
+    expect(onNewSession).toHaveBeenCalledWith('p1');
+    expect(onSelectProject).not.toHaveBeenCalled();
+  });
+
   it('lists sessions flat with their project and applies filters', async () => {
     const user = userEvent.setup();
     const onSelectSession = vi.fn();
@@ -217,19 +286,19 @@ describe('Sidebar', () => {
       screen.queryByRole('button', { name: /Old task/ }),
     ).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: /^Active/ }));
-    await user.click(screen.getByRole('button', { name: /^Closed/ }));
-
-    expect(
-      screen.queryByRole('button', { name: /Fix login/ }),
-    ).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Show closed' }));
     expect(
       screen.getByRole('button', { name: /Old task/ }),
     ).toHaveTextContent('core');
 
-    await user.click(screen.getByRole('button', { name: /Old task/ }));
+    await user.click(screen.getByRole('button', { name: /^Active/ }));
+    expect(
+      screen.queryByRole('button', { name: /Old task/ }),
+    ).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /Fix login/ }));
     expect(onSelectSession).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 's2' }),
+      expect.objectContaining({ id: 's1' }),
     );
   });
 
@@ -253,7 +322,7 @@ describe('Sidebar', () => {
       screen.getByRole('button', { name: 'Expand core' }),
     ).toHaveAttribute('aria-expanded', 'false');
 
-    await user.click(screen.getByRole('button', { name: /^Closed/ }));
+    await user.click(screen.getByRole('button', { name: 'Show closed' }));
 
     expect(
       screen.getByRole('button', { name: 'Collapse core' }),
@@ -262,7 +331,7 @@ describe('Sidebar', () => {
       screen.getByRole('button', { name: /Old task/ }),
     ).toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: /^Closed/ }));
+    await user.click(screen.getByRole('button', { name: 'Show closed' }));
 
     expect(
       screen.getByRole('button', { name: 'Expand core' }),
@@ -286,9 +355,8 @@ describe('Sidebar', () => {
       { projects: [project, webProject] },
     );
 
-    await user.click(screen.getByRole('button', { name: /^Active/ }));
     await user.click(screen.getByRole('button', { name: 'Collapse core' }));
-    await user.click(screen.getByRole('button', { name: /^Active/ }));
+    await user.click(screen.getByRole('button', { name: 'Show closed' }));
 
     expect(
       screen.getByRole('button', { name: 'Collapse core' }),
@@ -299,14 +367,14 @@ describe('Sidebar', () => {
       screen.getByRole('button', { name: 'Expand core' }),
     ).toHaveAttribute('aria-expanded', 'false');
 
-    await user.click(screen.getByRole('button', { name: /^Closed/ }));
+    await user.click(screen.getByRole('button', { name: /^Active/ }));
 
     expect(
       screen.getByRole('button', { name: 'Expand core' }),
     ).toHaveAttribute('aria-expanded', 'false');
   });
 
-  it('expands a collapsed project when a session closes under the filter', async () => {
+  it('expands a collapsed project when a session appears under the filter', async () => {
     const user = userEvent.setup();
     const other = makeSession({
       id: 's3',
@@ -316,13 +384,12 @@ describe('Sidebar', () => {
       preview: 'Reviewing the web app',
     });
     const view = renderSidebar(
-      [makeSession(), other],
+      [other],
       { projects: [project, webProject] },
     );
 
-    await user.click(screen.getByRole('button', { name: /^Active/ }));
     await user.click(screen.getByRole('button', { name: 'Collapse core' }));
-    await user.click(screen.getByRole('button', { name: /^Closed/ }));
+    await user.click(screen.getByRole('button', { name: 'Show closed' }));
 
     expect(
       screen.getByRole('button', { name: 'Expand core' }),
@@ -342,7 +409,7 @@ describe('Sidebar', () => {
         onSelectSession={vi.fn()}
         onSessionMenu={vi.fn()}
         onAddProject={vi.fn()}
-        onOpenUsage={vi.fn()}
+        onNewSession={vi.fn()}
         onOpenSettings={vi.fn()}
       />,
     );
@@ -367,62 +434,76 @@ describe('Sidebar', () => {
     renderSidebar([makeClosed()]);
 
     expect(screen.getByText('No active sessions')).toBeInTheDocument();
+  });
+
+  it('hides sidebar chrome before the first project', () => {
+    renderSidebar([], { projects: [] });
+
+    expect(screen.getByText('No sessions yet.')).toBeInTheDocument();
     expect(
-      screen.queryByText('No sessions match this filter.'),
+      screen.queryByRole('button', { name: /^Active/ }),
     ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Show closed' }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('radiogroup', { name: 'Session list view' }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Add project' }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: /^Usage/ }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Settings' }),
+    ).toBeInTheDocument();
   });
 
-  it('names the active filter under a project with hidden sessions', async () => {
+  it('shows three compact usage rows and opens the account popover', async () => {
     const user = userEvent.setup();
-    renderSidebar(
-      [
-        makeSession({ id: 's1', projectId: 'p1', name: 'Fix login' }),
-        makeClosed({ id: 's2', projectId: 'p2', name: 'Old task' }),
-      ],
-      { projects: [project, webProject] },
-    );
+    const accounts = [
+      makeAccount({ id: 'a1', name: 'Work' }),
+      makeAccount({
+        id: 'a2',
+        name: 'ChatGPT Pro',
+        client: 'Codex',
+        rows: [{ label: 'Weekly', used: 78 }],
+      }),
+      makeAccount({
+        id: 'a3',
+        name: 'DeepSeek API',
+        rows: [{ label: 'Balance', value: '$12.40', min: '$5.00' }],
+      }),
+      makeAccount({ id: 'a4', name: 'LiteLLM gateway', rows: [] }),
+    ];
 
-    expect(screen.getByText('No active sessions')).toBeInTheDocument();
+    renderSidebar([makeSession()], { accounts });
 
-    await user.click(screen.getByRole('button', { name: /^Closed/ }));
-    expect(screen.queryByText('No closed sessions')).not.toBeInTheDocument();
-    expect(screen.queryByText('No active sessions')).not.toBeInTheDocument();
+    const usage = screen.getByRole('button', { name: /^Usage/ });
+    expect(usage).toHaveTextContent('Work');
+    expect(usage).toHaveTextContent('ChatGPT Pro');
+    expect(usage).toHaveTextContent('DeepSeek API');
+    expect(usage).not.toHaveTextContent('LiteLLM gateway');
+    expect(usage).toHaveTextContent('42% left');
+    expect(usage).toHaveTextContent('$12.40');
 
-    await user.click(screen.getByRole('button', { name: /^Active/ }));
-    expect(screen.getByText('No closed sessions')).toBeInTheDocument();
-    expect(screen.queryByText('No active sessions')).not.toBeInTheDocument();
-  });
+    await user.click(usage);
+    const popover = screen.getByRole('dialog', { name: 'Usage' });
+    expect(within(popover).getByText('LiteLLM gateway')).toBeInTheDocument();
+    expect(within(popover).getByText('No usage data')).toBeInTheDocument();
 
-  it('shows the tightest account usage and opens the panel', async () => {
-    const user = userEvent.setup();
-    const onOpenUsage = vi.fn();
-    const account: Account = {
-      id: 'a1',
-      name: 'Work',
-      plan: 'Max',
-      client: 'Claude Code',
-      provider: 'Anthropic',
-      auth: 'subscription',
-      sample: true,
-      rows: [{ label: '5-hour', used: 58 }],
-      foot: 'Resets soon.',
-      server: null,
-      model: null,
-    };
+    await user.keyboard('{Escape}');
+    expect(
+      screen.queryByRole('dialog', { name: 'Usage' }),
+    ).not.toBeInTheDocument();
+    expect(usage).toHaveFocus();
 
-    renderSidebar([makeSession()], {
-      accounts: [account],
-      onOpenUsage,
-    });
-
-    expect(screen.getByText('Usage')).toBeInTheDocument();
-    expect(screen.getByText('Work')).toBeInTheDocument();
-    expect(screen.getByText('5-hour')).toBeInTheDocument();
-    expect(screen.getByText('42% left')).toBeInTheDocument();
-
-    await user.click(screen.getByRole('button', { name: /^Usage/ }));
-
-    expect(onOpenUsage).toHaveBeenCalledTimes(1);
+    await user.click(usage);
+    fireEvent.mouseDown(document.body);
+    expect(
+      screen.queryByRole('dialog', { name: 'Usage' }),
+    ).not.toBeInTheDocument();
   });
 
   it('opens settings from the footer', async () => {

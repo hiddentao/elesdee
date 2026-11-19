@@ -27,6 +27,10 @@ import type {
   Session,
 } from './api/types';
 import { AddProjectDialog } from './components/AddProjectDialog';
+import {
+  BranchActionsMenu,
+  type BranchMenuAction,
+} from './components/BranchActionsMenu';
 import { CloseSessionDialog } from './components/CloseSessionDialog';
 import { DeleteSessionDialog } from './components/DeleteSessionDialog';
 import { FirstLaunch } from './components/FirstLaunch';
@@ -41,7 +45,6 @@ import { SessionView } from './components/SessionView';
 import { SettingsDialog } from './components/SettingsDialog';
 import { Sidebar } from './components/Sidebar';
 import { TabStrip } from './components/TabStrip';
-import { UsageDialog } from './components/UsageDialog';
 import { PlusIcon, SparkIcon, TerminalIcon } from './components/icons';
 import {
   closeSessionTab,
@@ -62,6 +65,11 @@ interface SessionMenuState {
 interface ToastState {
   message: string;
   error: boolean;
+}
+
+interface BranchMenuState {
+  sessionId: string;
+  trigger: HTMLElement;
 }
 
 function messageFor(error: unknown): string {
@@ -87,7 +95,8 @@ export default function App() {
   const [renameSessionId, setRenameSessionId] = useState<string | null>(null);
   const [deleteSessionId, setDeleteSessionId] = useState<string | null>(null);
   const [sessionMenu, setSessionMenu] = useState<SessionMenuState | null>(null);
-  const [usageOpen, setUsageOpen] = useState(false);
+  const [branchMenu, setBranchMenu] = useState<BranchMenuState | null>(null);
+  const [dialogProjectId, setDialogProjectId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [toast, setToast] = useState<ToastState | null>(null);
   const [eventsPaused, setEventsPaused] = useState(false);
@@ -121,7 +130,7 @@ export default function App() {
       setRenameSessionId(null);
       setDeleteSessionId(null);
       setSessionMenu(null);
-      setUsageOpen(false);
+      setBranchMenu(null);
       setSettingsOpen(false);
       setProjectDialogOpen(false);
       setActiveProjectId(
@@ -157,13 +166,15 @@ export default function App() {
   const menuSession = sessionMenu
     ? sessions.find((session) => session.id === sessionMenu.sessionId) ?? null
     : null;
+  const branchSession = branchMenu
+    ? sessions.find((session) => session.id === branchMenu.sessionId) ?? null
+    : null;
   const anyDialogOpen =
     dialogOpen ||
     projectDialogOpen ||
     closeTarget !== null ||
     renameTarget !== null ||
     deleteTarget !== null ||
-    usageOpen ||
     settingsOpen;
 
   activeSessionIdRef.current = activeSessionId;
@@ -246,7 +257,7 @@ export default function App() {
       return;
     }
 
-    document.querySelector<HTMLElement>('.titlebar .btn-primary')?.focus();
+    document.querySelector<HTMLElement>('.titlebar-new')?.focus();
   }, [focusSessionChangeTick]);
 
   useEffect(() => {
@@ -261,6 +272,11 @@ export default function App() {
   const openProject = useCallback((project: Project) => {
     setActiveProjectId(project.id);
   }, []);
+
+  function openNewSession(projectId?: string | null) {
+    setDialogProjectId(projectId ?? activeProjectId ?? null);
+    setDialogOpen(true);
+  }
 
   const openSession = useCallback((session: Session) => {
     setActiveProjectId(session.projectId);
@@ -318,6 +334,7 @@ export default function App() {
   }
 
   function openHeaderMenu(session: Session, trigger: HTMLElement) {
+    setBranchMenu(null);
     const rect = trigger.getBoundingClientRect();
     setSessionMenu({
       sessionId: session.id,
@@ -333,6 +350,7 @@ export default function App() {
     point: { x: number; y: number },
     trigger: HTMLElement,
   ) {
+    setBranchMenu(null);
     setSessionMenu({
       sessionId: session.id,
       point,
@@ -340,6 +358,26 @@ export default function App() {
       trigger,
       fromHeader: false,
     });
+  }
+
+  function openBranchMenu(session: Session, trigger: HTMLElement) {
+    setSessionMenu(null);
+    setBranchMenu({ sessionId: session.id, trigger });
+  }
+
+  function handleBranchAction(action: BranchMenuAction, session: Session) {
+    switch (action) {
+      case 'copy-branch':
+        if (session.branch) {
+          void copyText(session.branch, 'Branch name copied.');
+        }
+        break;
+      case 'copy-folder':
+        if (session.folder) {
+          void copyText(session.folder, 'Folder path copied.');
+        }
+        break;
+    }
   }
 
   async function copyText(value: string, message: string) {
@@ -508,8 +546,8 @@ export default function App() {
           {projects.length > 0 ? (
             <button
               type="button"
-              className="btn btn-primary"
-              onClick={() => setDialogOpen(true)}
+              className="btn titlebar-new"
+              onClick={() => openNewSession()}
             >
               <PlusIcon />
               New session
@@ -541,7 +579,7 @@ export default function App() {
             onSelectSession={openSession}
             onSessionMenu={openSessionMenu}
             onAddProject={() => setProjectDialogOpen(true)}
-            onOpenUsage={() => setUsageOpen(true)}
+            onNewSession={(projectId) => openNewSession(projectId)}
             onOpenSettings={() => setSettingsOpen(true)}
           />
 
@@ -558,6 +596,7 @@ export default function App() {
                 activeSessionId={activeSessionId}
                 onSelectSession={openSession}
                 onSessionMenu={openSessionMenu}
+                onNewSession={() => openNewSession(activeProjectId)}
               />
             ) : null}
 
@@ -584,6 +623,10 @@ export default function App() {
                   onOpenMenu={(trigger) =>
                     openHeaderMenu(activeSession, trigger)
                   }
+                  branchOpen={branchMenu?.sessionId === activeSession.id}
+                  onOpenBranchMenu={(trigger) =>
+                    openBranchMenu(activeSession, trigger)
+                  }
                 />
                 <SessionView
                   key={activeSession.id}
@@ -591,6 +634,7 @@ export default function App() {
                   onRespondPermission={(decision) =>
                     answerPermission(activeSession, decision)
                   }
+                  onReopen={() => void handleReopen(activeSession)}
                 />
               </div>
             ) : (
@@ -604,6 +648,13 @@ export default function App() {
                     Open a session from the sidebar to see its terminal, or start a
                     new one.
                   </p>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={() => openNewSession()}
+                  >
+                    New session
+                  </button>
                 </div>
               </div>
             )}
@@ -615,7 +666,7 @@ export default function App() {
         <NewSessionDialog
           projects={projects}
           accounts={accounts}
-          initialProjectId={activeProjectId}
+          initialProjectId={dialogProjectId ?? activeProjectId}
           onCreate={createSession}
           onCreated={handleCreated}
           onClose={() => setDialogOpen(false)}
@@ -654,10 +705,6 @@ export default function App() {
         />
       ) : null}
 
-      {usageOpen ? (
-        <UsageDialog accounts={accounts} onClose={() => setUsageOpen(false)} />
-      ) : null}
-
       {settingsOpen ? (
         <SettingsDialog
           accounts={accounts}
@@ -665,6 +712,15 @@ export default function App() {
           onCreateAccount={createAccount}
           onAccountCreated={handleAccountCreated}
           onClose={() => setSettingsOpen(false)}
+        />
+      ) : null}
+
+      {branchMenu && branchSession ? (
+        <BranchActionsMenu
+          session={branchSession}
+          trigger={branchMenu.trigger}
+          onAction={(action) => handleBranchAction(action, branchSession)}
+          onClose={() => setBranchMenu(null)}
         />
       ) : null}
 

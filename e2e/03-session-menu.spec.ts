@@ -69,7 +69,7 @@ test('session menu renames, copies, and shows the active and closed items', asyn
     .toBe('closed');
   await expect(renamedRow).not.toBeVisible();
 
-  await page.getByRole('button', { name: /^Closed/ }).click();
+  await page.getByRole('button', { name: 'Show closed' }).click();
   await expect(renamedRow).toBeVisible();
 
   await renamedRow.click({ button: 'right' });

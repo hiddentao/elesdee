@@ -48,6 +48,17 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+
+function topNewSessionButton() {
+  const titlebar = document.querySelector('.titlebar');
+  if (!titlebar) {
+    throw new Error('The titlebar is missing.');
+  }
+  return within(titlebar as HTMLElement).getByRole('button', {
+    name: 'New session',
+  });
+}
+
 const activeSession = makeSession({
   name: 'Check close',
   short: 'check-close',
@@ -117,6 +128,15 @@ describe('first launch', () => {
     ).toBeInTheDocument();
     expect(screen.getByText('2.1.328')).toBeInTheDocument();
     expect(screen.getAllByText('Not installed')).toHaveLength(2);
+    expect(
+      screen.queryByRole('button', { name: /^Active/ }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Show closed' }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: /^Usage/ }),
+    ).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Add project' }));
     const dialog = screen.getByRole('dialog');
@@ -140,11 +160,11 @@ describe('first launch', () => {
       screen.getByRole('button', { name: 'Add project' }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole('button', { name: /New session/ }),
+      topNewSessionButton(),
     ).toBeEnabled();
     expect(screen.getByRole('main')).toHaveFocus();
 
-    await user.click(screen.getByRole('button', { name: /New session/ }));
+    await user.click(topNewSessionButton());
     expect(
       within(screen.getByRole('dialog')).getByLabelText('Project'),
     ).toHaveValue('core');
@@ -299,7 +319,7 @@ describe('session actions', () => {
     const user = userEvent.setup();
     render(<App />);
 
-    await user.click(await screen.findByRole('button', { name: /^Closed/ }));
+    await user.click(await screen.findByRole('button', { name: 'Show closed' }));
     fireEvent.contextMenu(screen.getByRole('button', { name: /Old task/ }));
     await user.click(screen.getByRole('menuitem', { name: 'Reopen' }));
 
@@ -333,7 +353,7 @@ describe('session actions', () => {
     const user = userEvent.setup();
     render(<App />);
 
-    await user.click(await screen.findByRole('button', { name: /^Closed/ }));
+    await user.click(await screen.findByRole('button', { name: 'Show closed' }));
     fireEvent.contextMenu(screen.getByRole('button', { name: /Old task/ }));
     await user.click(screen.getByRole('menuitem', { name: 'Reopen' }));
 
@@ -368,7 +388,7 @@ describe('session actions', () => {
     await user.click(
       await screen.findByRole('button', { name: /Check close/ }),
     );
-    await user.click(screen.getByRole('button', { name: /^Closed/ }));
+    await user.click(screen.getByRole('button', { name: 'Show closed' }));
     await user.click(screen.getByRole('button', { name: /Old task/ }));
 
     const tab = screen.getByRole('tab', { name: /Old task/ });
@@ -439,11 +459,13 @@ describe('closing a session', () => {
     ).not.toBeInTheDocument();
     expect(screen.getByText('Choose a session')).toBeInTheDocument();
     expect(
-      screen.getByRole('button', { name: /New session/ }),
+      topNewSessionButton(),
     ).toHaveFocus();
 
-    await user.click(screen.getByRole('button', { name: /^Closed/ }));
-    expect(screen.getByText('Terminal · Closed')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Show closed' }));
+    expect(
+      screen.getByRole('button', { name: /Check close/ }),
+    ).toHaveTextContent('Closed');
   });
 
   it('keeps the session open when the close is cancelled', async () => {
@@ -514,7 +536,7 @@ describe('usage', () => {
     expect(within(dialog).getByText('Wallet')).toBeInTheDocument();
     expect(within(dialog).getByText('$12.40')).toBeInTheDocument();
 
-    await user.click(within(dialog).getByRole('button', { name: 'Close' }));
+    await user.click(within(dialog).getByRole('button', { name: 'Close usage' }));
 
     await waitFor(() =>
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument(),
@@ -816,9 +838,9 @@ describe('settings', () => {
     expect(
       within(usage).getByRole('region', { name: 'Google work' }),
     ).toHaveTextContent('No usage data');
-    await user.click(within(usage).getByRole('button', { name: 'Close' }));
+    await user.click(within(usage).getByRole('button', { name: 'Close usage' }));
 
-    await user.click(screen.getByRole('button', { name: /New session/ }));
+    await user.click(topNewSessionButton());
     const sessionDialog = screen.getByRole('dialog', { name: 'New session' });
     await user.click(
       within(sessionDialog).getByRole('radio', { name: 'Antigravity' }),
@@ -827,5 +849,131 @@ describe('settings', () => {
     await user.click(screen.getByRole('option', { name: /Google work/ }));
 
     expect(within(sessionDialog).getByText('No usage data')).toBeInTheDocument();
+  });
+});
+
+
+describe('shell controls and closed state', () => {
+  it('starts a new session from the empty main', async () => {
+    vi.mocked(bootstrap).mockResolvedValue({
+      projects: [{ id: 'p1', name: 'web', folder: '/dev/web' }],
+      accounts: [],
+      sessions: [],
+    });
+
+    const user = userEvent.setup();
+    render(<App />);
+
+    await screen.findByRole('heading', { name: 'Choose a session' });
+    const empty = document.querySelector('.empty-main') as HTMLElement;
+    await user.click(
+      within(empty).getByRole('button', { name: 'New session' }),
+    );
+
+    const dialog = screen.getByRole('dialog', { name: 'New session' });
+    expect(
+      within(dialog).getByRole('combobox', { name: 'Project' }),
+    ).toHaveValue('web');
+  });
+
+  it('opens the form from a project plus and the tab plus', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(
+      await screen.findByRole('button', { name: /Check close/ }),
+    );
+
+    await user.click(
+      screen.getByRole('button', { name: 'New session in web' }),
+    );
+    let dialog = screen.getByRole('dialog', { name: 'New session' });
+    expect(
+      within(dialog).getByRole('combobox', { name: 'Project' }),
+    ).toHaveValue('web');
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+
+    const tabbar = document.querySelector('.tabbar') as HTMLElement;
+    await user.click(
+      within(tabbar).getByRole('button', { name: 'New session' }),
+    );
+    dialog = screen.getByRole('dialog', { name: 'New session' });
+    expect(
+      within(dialog).getByRole('combobox', { name: 'Project' }),
+    ).toHaveValue('web');
+  });
+
+  it('reopens from the closed banner', async () => {
+    const closed = makeSession({
+      id: 's2',
+      name: 'Old task',
+      short: 'old-task',
+      status: 'closed',
+      workState: null,
+      kind: 'terminal',
+      client: null,
+      accountId: null,
+      branch: null,
+    });
+    vi.mocked(bootstrap).mockResolvedValue({
+      projects: [{ id: 'p1', name: 'web', folder: '/dev/web' }],
+      accounts: [],
+      sessions: [closed],
+    });
+    vi.mocked(reopenSession).mockResolvedValue({
+      ...closed,
+      status: 'active',
+      workState: 'working',
+    });
+
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Show closed' }),
+    );
+    await user.click(screen.getByRole('button', { name: /Old task/ }));
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Reopen' }),
+    );
+
+    await waitFor(() => expect(reopenSession).toHaveBeenCalledWith('s2'));
+    expect(await screen.findByRole('tab', { name: /Old task/ })).toBeVisible();
+  });
+
+  it('copies from the branch pill menu', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    const fakeNavigator = Object.create(navigator) as Navigator;
+    Object.defineProperty(fakeNavigator, 'clipboard', {
+      value: { writeText },
+    });
+    vi.stubGlobal('navigator', fakeNavigator);
+
+    const branchSession = makeSession({
+      id: 's1',
+      name: 'Branch task',
+      short: 'branch-task',
+      branch: 'elesdee/web/branch-task',
+      folder: '/data/worktrees/s1',
+    });
+    vi.mocked(bootstrap).mockResolvedValue({
+      projects: [{ id: 'p1', name: 'web', folder: '/dev/web' }],
+      accounts: [],
+      sessions: [branchSession],
+    });
+
+    render(<App />);
+    fireEvent.click(
+      await screen.findByRole('button', { name: /Branch task/ }),
+    );
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'elesdee/web/branch-task' }),
+    );
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Copy branch name' }));
+
+    expect(writeText).toHaveBeenCalledWith('elesdee/web/branch-task');
+    expect(await screen.findByText('Branch name copied.')).toBeInTheDocument();
   });
 });
