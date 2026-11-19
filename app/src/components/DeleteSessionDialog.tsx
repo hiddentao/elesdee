@@ -52,7 +52,7 @@ export function DeleteSessionDialog({
 
       <div className="dialog-body close-body">
         <p className="close-copy">
-          Delete the log? The session is removed from the app. The branch stays.
+          The session and its log are removed from the app. The branch stays.
         </p>
 
         {error ? (

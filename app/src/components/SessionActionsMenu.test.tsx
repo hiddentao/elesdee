@@ -98,6 +98,24 @@ describe('SessionActionsMenu', () => {
     ).not.toBeInTheDocument();
   });
 
+  it('shows the session header, action icons and a menu close control', async () => {
+    const user = userEvent.setup();
+    await openMenu(user, makeSession());
+
+    expect(screen.getByText('Session')).toBeInTheDocument();
+    expect(screen.getByText('Active, Working')).toBeInTheDocument();
+    expect(
+      screen
+        .getByRole('menuitem', { name: 'Rename…' })
+        .querySelector('svg'),
+    ).not.toBeNull();
+
+    await user.click(screen.getByRole('button', { name: 'Close menu' }));
+
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Trigger' })).toHaveFocus();
+  });
+
   it('hides copy actions when there is no folder or branch', async () => {
     const user = userEvent.setup();
     await openMenu(user, makeSession({ folder: '', branch: null }));

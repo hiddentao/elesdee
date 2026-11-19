@@ -7,6 +7,10 @@ interface FirstLaunchProps {
   onAddProject: () => void;
 }
 
+function shortVersion(version: string): string {
+  return version.replace(/\s*\([^)]*\)\s*$/, '').trim();
+}
+
 export function FirstLaunch({
   agents,
   agentsChecked,
@@ -36,22 +40,34 @@ export function FirstLaunch({
               <span className="agent-check-state">No results</span>
             </li>
           ) : (
-            agents.map((agent) => (
-              <li className="agent-check" key={agent.name}>
-                <span className="agent-check-name">{agent.name}</span>
-                <span
-                  className={
-                    agent.installed
-                      ? 'agent-check-state'
-                      : 'agent-check-state is-missing'
-                  }
-                >
-                  {agent.installed
-                    ? agent.version || 'Installed'
-                    : 'Not installed'}
-                </span>
-              </li>
-            ))
+            agents.map((agent) => {
+              const version = agent.version
+                ? shortVersion(agent.version)
+                : '';
+              return (
+                <li className="agent-check" key={agent.name}>
+                  <span className="agent-check-name">{agent.name}</span>
+                  <span
+                    className={
+                      agent.installed
+                        ? 'agent-check-state is-installed'
+                        : 'agent-check-state is-missing'
+                    }
+                  >
+                    {agent.installed
+                      ? version
+                        ? `Installed · ${version}`
+                        : 'Installed'
+                      : 'Not installed'}
+                  </span>
+                  {!agent.installed ? (
+                    <span className="agent-check-hint">
+                      Install {agent.name} to start sessions with it.
+                    </span>
+                  ) : null}
+                </li>
+              );
+            })
           )}
         </ul>
 

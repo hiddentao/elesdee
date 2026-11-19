@@ -231,6 +231,36 @@ describe('Sidebar', () => {
     ).toHaveAttribute('aria-current', 'true');
   });
 
+  it('collapses a project into a blot pill with a session tooltip', async () => {
+    const user = userEvent.setup();
+    renderSidebar([
+      makeSession(),
+      makeSession({
+        id: 's2',
+        name: 'Wait task',
+        waitingFor: 'permission',
+      }),
+    ]);
+
+    await user.click(screen.getByRole('button', { name: 'Collapse core' }));
+
+    const group = screen.getByRole('group', {
+      name: 'core, 2 active sessions',
+    });
+    expect(within(group).getByText('2')).toBeInTheDocument();
+    expect(within(group).getByText('Fix login')).toBeInTheDocument();
+    expect(within(group).getByText('Wait task')).toBeInTheDocument();
+    expect(
+      within(group).getByText('No attention needed'),
+    ).toBeInTheDocument();
+    expect(within(group).getByText('Waiting for you')).toBeInTheDocument();
+    expect(
+      within(group).getByRole('button', {
+        name: 'Fix login, No attention needed',
+      }),
+    ).toBeInTheDocument();
+  });
+
   it('opens a new session for a project from its plus', async () => {
     const user = userEvent.setup();
     const onNewSession = vi.fn();

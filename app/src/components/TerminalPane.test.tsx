@@ -124,6 +124,7 @@ describe('TerminalPane', () => {
       scrollback: 5000,
       cursorBlink: true,
       fontSize: 13,
+      lineHeight: 1.55,
       screenReaderMode: true,
     });
     expect(mocks.fit).toHaveBeenCalled();

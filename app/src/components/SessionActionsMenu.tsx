@@ -6,6 +6,15 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import type { Session } from '../api/types';
+import { statusText } from '../state/sessionStatus';
+import {
+  BranchIcon,
+  CloseIcon,
+  FolderIcon,
+  PencilIcon,
+  ReopenIcon,
+  TrashIcon,
+} from './icons';
 
 export type SessionMenuAction =
   | 'rename'
@@ -74,6 +83,23 @@ export function menuItems(session: Session): MenuItem[] {
   }
 
   return items;
+}
+
+function actionIcon(action: SessionMenuAction) {
+  switch (action) {
+    case 'rename':
+      return <PencilIcon />;
+    case 'copy-folder':
+      return <FolderIcon />;
+    case 'copy-branch':
+      return <BranchIcon />;
+    case 'close':
+      return <CloseIcon />;
+    case 'reopen':
+      return <ReopenIcon />;
+    case 'delete':
+      return <TrashIcon />;
+  }
 }
 
 export function SessionActionsMenu({
@@ -168,6 +194,22 @@ export function SessionActionsMenu({
         style={{ left, top }}
         onKeyDown={handleKeyDown}
       >
+        <div className="menu-head">
+          <div>
+            <div className="menu-title">{session.name}</div>
+            <div className="menu-sub">{statusText(session)}</div>
+          </div>
+          <button
+            type="button"
+            className="menu-close"
+            aria-label="Close menu"
+            tabIndex={-1}
+            onClick={close}
+          >
+            <CloseIcon />
+          </button>
+        </div>
+
         {items.map((item, index) => (
           <Fragment key={item.action}>
             {item.separated ? (
@@ -183,6 +225,9 @@ export function SessionActionsMenu({
               tabIndex={-1}
               onClick={() => select(item.action)}
             >
+              <span className="menu-item-icon" aria-hidden="true">
+                {actionIcon(item.action)}
+              </span>
               {item.label}
             </button>
           </Fragment>

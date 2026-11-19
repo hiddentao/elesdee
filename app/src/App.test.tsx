@@ -136,8 +136,16 @@ describe('first launch', () => {
     expect(
       await screen.findByRole('heading', { name: 'Welcome to elesdee' }),
     ).toBeInTheDocument();
-    expect(screen.getByText('2.1.328')).toBeInTheDocument();
+    expect(
+      screen.getByText('Installed · 2.1.328'),
+    ).toBeInTheDocument();
     expect(screen.getAllByText('Not installed')).toHaveLength(2);
+    expect(
+      screen.getByText('Install Codex to start sessions with it.'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText('Install OpenCode 2 to start sessions with it.'),
+    ).toBeInTheDocument();
     expect(
       screen.queryByRole('button', { name: /^Active/ }),
     ).not.toBeInTheDocument();
@@ -408,7 +416,7 @@ describe('session actions', () => {
     const dialog = screen.getByRole('dialog');
     expect(
       within(dialog).getByText(
-        'Delete the log? The session is removed from the app. The branch stays.',
+        'The session and its log are removed from the app. The branch stays.',
       ),
     ).toBeInTheDocument();
 

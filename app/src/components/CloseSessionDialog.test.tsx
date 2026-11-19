@@ -33,6 +33,12 @@ describe('CloseSessionDialog', () => {
     expect(
       screen.getByText('The terminal stops. The folder stays as it is.'),
     ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Close session' }),
+    ).toHaveClass('btn-primary');
+    expect(
+      screen.getByRole('button', { name: 'Close session' }),
+    ).not.toHaveClass('btn-danger');
     expect(screen.getByRole('button', { name: 'Cancel' })).toHaveFocus();
 
     await user.click(screen.getByRole('button', { name: 'Cancel' }));

@@ -26,8 +26,14 @@ describe('FirstLaunch', () => {
       screen.getByRole('heading', { name: 'Welcome to elesdee' }),
     ).toBeInTheDocument();
     expect(screen.getByText('Claude Code')).toBeInTheDocument();
-    expect(screen.getByText('2.1.328 (Claude Code)')).toBeInTheDocument();
+    expect(screen.getByText('Installed · 2.1.328')).toBeInTheDocument();
     expect(screen.getAllByText('Not installed')).toHaveLength(2);
+    expect(
+      screen.getByText('Install Codex to start sessions with it.'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText('Install OpenCode 2 to start sessions with it.'),
+    ).toBeInTheDocument();
     expect(screen.getAllByRole('button')).toHaveLength(1);
 
     await user.click(screen.getByRole('button', { name: 'Add project' }));

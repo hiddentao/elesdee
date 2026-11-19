@@ -86,7 +86,7 @@ export function CloseSessionDialog({
         </button>
         <button
           type="button"
-          className="btn btn-danger"
+          className="btn btn-primary"
           onClick={() => void confirm()}
           disabled={submitting}
         >

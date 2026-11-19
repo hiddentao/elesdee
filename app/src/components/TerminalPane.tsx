@@ -78,6 +78,7 @@ export function TerminalPane({ session }: TerminalPaneProps) {
       cursorBlink: true,
       fontFamily: 'ui-monospace, "SF Mono", Menlo, Consolas, monospace',
       fontSize: 13,
+      lineHeight: 1.55,
       screenReaderMode: true,
       disableStdin: closedRef.current,
       theme: media?.matches ? DARK_THEME : LIGHT_THEME,

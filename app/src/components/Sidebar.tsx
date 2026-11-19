@@ -394,21 +394,61 @@ export function Sidebar({
                   <div
                     className="project-blots"
                     role="group"
-                    aria-label={`${project.name} active sessions`}
+                    aria-label={`${project.name}, ${blots.length} active ${
+                      blots.length === 1 ? 'session' : 'sessions'
+                    }`}
                   >
-                    {blots.map((session) => (
-                      <button
-                        key={session.id}
-                        type="button"
-                        className="project-blot"
-                        data-status={statusTone(session)}
-                        aria-label={`${session.name}, ${statusText(session)}`}
-                        title={`${session.name} — ${statusText(session)}`}
-                        onClick={() => onSelectSession(session)}
-                      >
-                        <span className="project-blot-dot" aria-hidden="true" />
-                      </button>
-                    ))}
+                    {blots.map((session) => {
+                      const waiting = Boolean(session.waitingFor);
+                      return (
+                        <button
+                          key={session.id}
+                          type="button"
+                          className="project-blot"
+                          data-status={statusTone(session)}
+                          aria-label={`${session.name}, ${
+                            waiting ? 'Waiting for you' : 'No attention needed'
+                          }`}
+                          onClick={() => onSelectSession(session)}
+                        >
+                          <span
+                            className="project-blot-dot"
+                            aria-hidden="true"
+                          />
+                        </button>
+                      );
+                    })}
+                    <span className="project-blots-count" aria-hidden="true">
+                      {blots.length}
+                    </span>
+                    <span
+                      className="project-blots-tip"
+                      role="tooltip"
+                      aria-hidden="true"
+                    >
+                      <span className="blot-tip-title">{project.name}</span>
+                      {blots.map((session) => {
+                        const waiting = Boolean(session.waitingFor);
+                        return (
+                          <span className="blot-tip-row" key={session.id}>
+                            <span className="blot-tip-name">
+                              {session.name}
+                            </span>
+                            <span
+                              className={
+                                waiting
+                                  ? 'blot-tip-state is-waiting'
+                                  : 'blot-tip-state'
+                              }
+                            >
+                              {waiting
+                                ? 'Waiting for you'
+                                : 'No attention needed'}
+                            </span>
+                          </span>
+                        );
+                      })}
+                    </span>
                   </div>
                 ) : null}
 
