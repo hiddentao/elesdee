@@ -1,0 +1,3452 @@
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::time::Duration;
+
+use axum::Router;
+use axum::body::Body;
+use axum::http::{Request, StatusCode, header};
+use http_body_util::BodyExt;
+use serde_json::{Value, json};
+use tower::ServiceExt;
+
+use elesdee_core::AppState;
+use elesdee_core::api::router;
+
+const TEST_HOST: &str = "127.0.0.1:4319";
+const TIMEOUT: Duration = Duration::from_secs(5);
+
+struct TempDirectory {
+    path: PathBuf,
+}
+
+impl TempDirectory {
+    fn new(label: &str) -> Self {
+        let path = std::env::temp_dir().join(format!(
+            "elesdee-core-{label}-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(&path).expect("create temporary folder");
+        Self { path }
+    }
+}
+
+impl Drop for TempDirectory {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.path);
+    }
+}
+
+fn request_builder(method: &str, uri: &str) -> axum::http::request::Builder {
+    Request::builder()
+        .method(method)
+        .uri(uri)
+        .header(header::HOST, TEST_HOST)
+}
+
+async fn send(app: &Router, request: Request<Body>) -> (StatusCode, Value) {
+    let response = app.clone().oneshot(request).await.expect("call route");
+    let status = response.status();
+    let bytes = response
+        .into_body()
+        .collect()
+        .await
+        .expect("read body")
+        .to_bytes();
+    let value = if bytes.is_empty() {
+        Value::Null
+    } else {
+        serde_json::from_slice(&bytes).unwrap_or(Value::Null)
+    };
+    (status, value)
+}
+
+async fn call(app: &Router, method: &str, uri: &str, body: Option<Value>) -> (StatusCode, Value) {
+    let mut builder = request_builder(method, uri);
+    let request = match body {
+        Some(value) => {
+            builder = builder.header(header::CONTENT_TYPE, "application/json");
+            builder.body(Body::from(value.to_string()))
+        }
+        None => builder.body(Body::empty()),
+    }
+    .expect("build request");
+
+    send(app, request).await
+}
+
+async fn create_terminal(app: &Router, folder: &Path) -> Value {
+    let (status, body) = call(
+        app,
+        "POST",
+        "/api/sessions",
+        Some(json!({
+            "projectId": "web",
+            "kind": "terminal",
+            "folder": folder.to_string_lossy()
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "create terminal session: {body}");
+    body
+}
+
+async fn close_session(app: &Router, id: &str) -> (StatusCode, Value) {
+    call(
+        app,
+        "POST",
+        &format!("/api/sessions/{id}/close"),
+        Some(json!({})),
+    )
+    .await
+}
+
+async fn read_sse_until(mut body: Body, ready: impl Fn(&str) -> bool) -> String {
+    let mut text = String::new();
+    let deadline = tokio::time::Instant::now() + TIMEOUT;
+
+    while !ready(&text) {
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        let frame = tokio::time::timeout(remaining, body.frame())
+            .await
+            .expect("SSE response timed out")
+            .expect("SSE stream ended")
+            .expect("SSE frame failed");
+        if let Ok(data) = frame.into_data() {
+            text.push_str(&String::from_utf8_lossy(&data));
+        }
+    }
+
+    text
+}
+
+fn sse_values(text: &str) -> Vec<Value> {
+    text.lines()
+        .filter_map(|line| line.strip_prefix("data:"))
+        .filter_map(|payload| serde_json::from_str(payload.trim()).ok())
+        .collect()
+}
+
+fn sse_data_text(text: &str) -> String {
+    sse_values(text)
+        .iter()
+        .filter_map(|event| event["data"].as_str())
+        .collect()
+}
+
+async fn read_output_until(mut body: Body, ready: impl Fn(&str) -> bool) -> String {
+    let mut text = String::new();
+    let deadline = tokio::time::Instant::now() + TIMEOUT;
+
+    while !ready(&sse_data_text(&text)) {
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        let frame = tokio::time::timeout(remaining, body.frame())
+            .await
+            .expect("output stream timed out")
+            .expect("output stream ended")
+            .expect("output frame failed");
+        if let Ok(data) = frame.into_data() {
+            text.push_str(&String::from_utf8_lossy(&data));
+        }
+    }
+
+    sse_data_text(&text)
+}
+
+async fn read_events_for(mut body: Body, duration: Duration) -> String {
+    let mut text = String::new();
+    let deadline = tokio::time::Instant::now() + duration;
+
+    loop {
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if remaining.is_zero() {
+            break;
+        }
+        match tokio::time::timeout(remaining, BodyExt::frame(&mut body)).await {
+            Ok(Some(Ok(frame))) => {
+                if let Ok(data) = frame.into_data() {
+                    text.push_str(&String::from_utf8_lossy(&data));
+                }
+            }
+            Ok(Some(Err(_))) | Ok(None) | Err(_) => break,
+        }
+    }
+
+    text
+}
+
+async fn wait_for_preview(app: &Router, id: &str, expected: &str) {
+    let deadline = tokio::time::Instant::now() + TIMEOUT;
+    loop {
+        let (status, body) = call(app, "GET", "/api/bootstrap", None).await;
+        assert_eq!(status, StatusCode::OK);
+        let preview = body["sessions"]
+            .as_array()
+            .expect("sessions")
+            .iter()
+            .find(|session| session["id"] == id)
+            .and_then(|session| session["preview"].as_str())
+            .unwrap_or_default()
+            .to_owned();
+        if preview == expected {
+            return;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "preview was {preview:?}, expected {expected:?}"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+#[tokio::test]
+async fn bootstrap_has_the_seed_shape() {
+    let app = router(AppState::ephemeral());
+    let (status, body) = call(&app, "GET", "/api/bootstrap", None).await;
+
+    assert_eq!(status, StatusCode::OK);
+    let projects = body["projects"].as_array().expect("projects array");
+    let project_ids = projects
+        .iter()
+        .map(|project| project["id"].as_str().unwrap_or_default())
+        .collect::<Vec<_>>();
+    assert_eq!(project_ids, ["web", "core"]);
+    for project in projects {
+        assert!(
+            project["folder"]
+                .as_str()
+                .is_some_and(|folder| !folder.is_empty())
+        );
+    }
+
+    let accounts = body["accounts"].as_array().expect("accounts array");
+    assert_eq!(accounts.len(), 4);
+
+    let max = accounts
+        .iter()
+        .find(|account| account["name"] == "Anthropic Max 20×")
+        .expect("Anthropic Max account");
+    assert_eq!(max["client"], "Claude Code");
+    assert_eq!(max["auth"], "subscription");
+    assert_eq!(max["rows"].as_array().expect("usage rows").len(), 2);
+    assert_eq!(max["rows"][0]["used"], 92);
+    assert_eq!(max["rows"][0]["warn"], true);
+
+    let codex = accounts
+        .iter()
+        .find(|account| account["name"] == "ChatGPT Pro")
+        .expect("ChatGPT Pro account");
+    assert_eq!(codex["client"], "Codex");
+    assert_eq!(codex["rows"].as_array().expect("usage rows").len(), 1);
+
+    let deepseek = accounts
+        .iter()
+        .find(|account| account["name"] == "DeepSeek API")
+        .expect("DeepSeek account");
+    assert_eq!(deepseek["rows"][0]["value"], "$12.40");
+    assert_eq!(deepseek["rows"][0]["min"], "minimum $5.00");
+
+    let litellm = accounts
+        .iter()
+        .find(|account| account["name"] == "LiteLLM gateway")
+        .expect("LiteLLM account");
+    assert_eq!(litellm["server"], "http://localhost:4000/v1");
+    assert_eq!(litellm["model"], "gpt-5.2");
+    assert_eq!(litellm["rows"].as_array().expect("usage rows").len(), 0);
+    assert_eq!(litellm["foot"], "No official usage source.");
+
+    assert_eq!(
+        body["sessions"].as_array().expect("sessions array").len(),
+        0
+    );
+}
+
+#[tokio::test]
+async fn host_and_origin_are_validated() {
+    let app = router(AppState::ephemeral());
+
+    for host in [
+        "127.0.0.1",
+        "127.0.0.1:4319",
+        "localhost:5173",
+        "[::1]:4444",
+    ] {
+        let request = Request::builder()
+            .method("GET")
+            .uri("/api/bootstrap")
+            .header(header::HOST, host)
+            .body(Body::empty())
+            .expect("build request");
+        let (status, body) = send(&app, request).await;
+        assert_eq!(status, StatusCode::OK, "allowed host {host}: {body}");
+    }
+
+    for host in [
+        "evil.example:4319",
+        "127.0.0.2:4319",
+        "localhost:not-a-port",
+        "[::2]:4319",
+    ] {
+        let request = Request::builder()
+            .method("GET")
+            .uri("/api/bootstrap")
+            .header(header::HOST, host)
+            .body(Body::empty())
+            .expect("build request");
+        let (status, body) = send(&app, request).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "bad host {host}: {body}");
+    }
+
+    let request = Request::builder()
+        .method("GET")
+        .uri("/api/bootstrap")
+        .body(Body::empty())
+        .expect("build request");
+    let (status, body) = send(&app, request).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "missing host: {body}");
+
+    for origin in [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "tauri://localhost",
+        "http://tauri.localhost",
+        "https://tauri.localhost",
+    ] {
+        let request = request_builder("GET", "/api/bootstrap")
+            .header(header::ORIGIN, origin)
+            .body(Body::empty())
+            .expect("build request");
+        let (status, body) = send(&app, request).await;
+        assert_eq!(status, StatusCode::OK, "allowed origin {origin}: {body}");
+    }
+
+    let request = request_builder("GET", "/api/bootstrap")
+        .header(header::ORIGIN, "http://evil.example")
+        .body(Body::empty())
+        .expect("build request");
+    let (status, body) = send(&app, request).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "bad origin: {body}");
+}
+
+#[tokio::test]
+async fn post_requests_need_json_and_close_takes_an_object() {
+    let app = router(AppState::with_test_command(vec![
+        "/bin/sh".to_owned(),
+        "-c".to_owned(),
+        "sleep 5".to_owned(),
+    ]));
+    let folder = TempDirectory::new("close-body");
+    let session = create_terminal(&app, &folder.path).await;
+    let id = session["id"].as_str().expect("session id").to_owned();
+    let close_uri = format!("/api/sessions/{id}/close");
+
+    let request = request_builder("POST", "/api/sessions")
+        .body(Body::from(
+            json!({"projectId": "web", "kind": "terminal"}).to_string(),
+        ))
+        .expect("build request");
+    let (status, body) = send(&app, request).await;
+    assert_eq!(status, StatusCode::UNSUPPORTED_MEDIA_TYPE, "{body}");
+
+    let request = request_builder("POST", &close_uri)
+        .body(Body::from("{}"))
+        .expect("build request");
+    let (status, body) = send(&app, request).await;
+    assert_eq!(status, StatusCode::UNSUPPORTED_MEDIA_TYPE, "{body}");
+
+    let request = request_builder("POST", &close_uri)
+        .header(header::CONTENT_TYPE, "text/plain")
+        .body(Body::from("{}"))
+        .expect("build request");
+    let (status, body) = send(&app, request).await;
+    assert_eq!(status, StatusCode::UNSUPPORTED_MEDIA_TYPE, "{body}");
+
+    let request = request_builder("POST", &close_uri)
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::empty())
+        .expect("build request");
+    let (status, body) = send(&app, request).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+
+    let (status, closed) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+    assert_eq!(closed["status"], "closed");
+}
+
+#[tokio::test]
+async fn terminal_session_with_a_missing_folder_is_rejected() {
+    let app = router(AppState::ephemeral());
+    let parent = TempDirectory::new("missing-folder");
+    let missing = parent.path.join("not-here");
+
+    let (status, body) = call(
+        &app,
+        "POST",
+        "/api/sessions",
+        Some(json!({
+            "projectId": "web",
+            "kind": "terminal",
+            "folder": missing.to_string_lossy()
+        })),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert!(
+        body["error"]
+            .as_str()
+            .is_some_and(|error| !error.is_empty())
+    );
+}
+
+#[tokio::test]
+async fn agent_session_with_an_unknown_account_is_rejected() {
+    let app = router(AppState::ephemeral());
+
+    let (status, body) = call(
+        &app,
+        "POST",
+        "/api/sessions",
+        Some(json!({
+            "projectId": "web",
+            "kind": "agent",
+            "accountId": "missing-account"
+        })),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+    assert!(
+        body["error"]
+            .as_str()
+            .is_some_and(|error| !error.is_empty())
+    );
+}
+
+#[tokio::test]
+async fn closing_an_unknown_session_returns_not_found() {
+    let app = router(AppState::ephemeral());
+    let (status, body) = call(&app, "POST", "/api/sessions/unknown/close", Some(json!({}))).await;
+
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+    assert!(
+        body["error"]
+            .as_str()
+            .is_some_and(|error| !error.is_empty())
+    );
+}
+
+#[tokio::test]
+async fn input_to_a_closed_session_returns_conflict() {
+    let app = router(AppState::with_test_command(vec![
+        "/bin/sh".to_owned(),
+        "-c".to_owned(),
+        "sleep 5".to_owned(),
+    ]));
+    let folder = TempDirectory::new("closed-input");
+    let session = create_terminal(&app, &folder.path).await;
+    let id = session["id"].as_str().expect("session id").to_owned();
+    assert_eq!(session["status"], "active");
+
+    let (status, closed) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+    assert_eq!(closed["status"], "closed");
+    assert!(closed["workState"].is_null());
+    assert!(closed["waitingFor"].is_null());
+
+    let (status, body) = call(
+        &app,
+        "POST",
+        &format!("/api/sessions/{id}/input"),
+        Some(json!({ "data": "hello" })),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    assert!(
+        body["error"]
+            .as_str()
+            .is_some_and(|error| !error.is_empty())
+    );
+}
+
+#[tokio::test]
+async fn output_replays_with_sequence_numbers() {
+    let app = router(AppState::with_test_command(vec![
+        "/bin/sh".to_owned(),
+        "-c".to_owned(),
+        "printf hello".to_owned(),
+    ]));
+    let folder = TempDirectory::new("folder with spaces");
+    let session = create_terminal(&app, &folder.path).await;
+    let id = session["id"].as_str().expect("session id").to_owned();
+
+    let request = request_builder("GET", &format!("/api/sessions/{id}/output?after=0"))
+        .body(Body::empty())
+        .expect("build output request");
+    let response = app.clone().oneshot(request).await.expect("open output");
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let text = read_sse_until(response.into_body(), |text| {
+        text.contains("hello") && text.contains("\n\n")
+    })
+    .await;
+    let events = sse_values(&text);
+
+    assert!(
+        events
+            .iter()
+            .any(|event| event["seq"] == 1 && event["data"] == "hello"),
+        "output events: {text}"
+    );
+}
+
+#[tokio::test]
+async fn close_emits_a_session_updated_event() {
+    let app = router(AppState::with_test_command(vec![
+        "/bin/sh".to_owned(),
+        "-c".to_owned(),
+        "sleep 5".to_owned(),
+    ]));
+    let folder = TempDirectory::new("close-event");
+    let session = create_terminal(&app, &folder.path).await;
+    let id = session["id"].as_str().expect("session id").to_owned();
+
+    let request = request_builder("GET", "/api/events")
+        .body(Body::empty())
+        .expect("build events request");
+    let response = app.clone().oneshot(request).await.expect("open events");
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let (status, closed) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+
+    let text = read_sse_until(response.into_body(), |text| {
+        text.contains("session.updated") && text.contains(&id)
+    })
+    .await;
+    let events = sse_values(&text);
+
+    assert!(
+        events.iter().any(|event| {
+            event["type"] == "session.updated"
+                && event["session"]["id"] == id
+                && event["session"]["status"] == "closed"
+        }),
+        "session events: {text}"
+    );
+}
+
+#[tokio::test]
+async fn output_stream_ends_when_the_session_closes() {
+    let app = router(AppState::with_test_command(vec![
+        "/bin/sh".to_owned(),
+        "-c".to_owned(),
+        "sleep 5".to_owned(),
+    ]));
+    let folder = TempDirectory::new("output-close");
+    let session = create_terminal(&app, &folder.path).await;
+    let id = session["id"].as_str().expect("session id").to_owned();
+
+    let request = request_builder("GET", &format!("/api/sessions/{id}/output?after=0"))
+        .body(Body::empty())
+        .expect("build output request");
+    let response = app.clone().oneshot(request).await.expect("open output");
+    assert_eq!(response.status(), StatusCode::OK);
+    let mut body = response.into_body();
+
+    let (status, closed) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+
+    loop {
+        let frame = tokio::time::timeout(TIMEOUT, BodyExt::frame(&mut body))
+            .await
+            .expect("output stream did not end");
+        match frame {
+            None => break,
+            Some(Ok(_)) => {}
+            Some(Err(error)) => panic!("output frame failed: {error}"),
+        }
+    }
+}
+
+#[tokio::test]
+async fn session_cap_rejects_new_sessions_and_frees_closed_slots() {
+    let app = router(AppState::with_test_command_and_session_cap(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "true".to_owned()],
+        2,
+    ));
+    let folder = TempDirectory::new("session-cap");
+
+    let first = create_terminal(&app, &folder.path).await;
+    create_terminal(&app, &folder.path).await;
+
+    let (status, body) = call(
+        &app,
+        "POST",
+        "/api/sessions",
+        Some(json!({
+            "projectId": "web",
+            "kind": "terminal",
+            "folder": folder.path.to_string_lossy()
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{body}");
+    assert!(
+        body["error"]
+            .as_str()
+            .is_some_and(|error| error.contains("Session limit"))
+    );
+
+    let first_id = first["id"].as_str().expect("first session id");
+    let (status, closed) = close_session(&app, first_id).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+
+    let replacement = create_terminal(&app, &folder.path).await;
+    assert_eq!(replacement["status"], "active");
+}
+
+#[tokio::test]
+async fn blocked_input_does_not_freeze_other_requests() {
+    let app = router(AppState::with_test_stalled_writer(vec![
+        "/bin/sh".to_owned(),
+        "-c".to_owned(),
+        "sleep 60".to_owned(),
+    ]));
+    let folder = TempDirectory::new("blocked-input");
+    let session = create_terminal(&app, &folder.path).await;
+    let id = session["id"].as_str().expect("session id").to_owned();
+
+    let payload = json!({ "data": "hello" }).to_string();
+    let request = request_builder("POST", &format!("/api/sessions/{id}/input"))
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(payload))
+        .expect("build input request");
+
+    let input_app = app.clone();
+    let input_task = tokio::spawn(async move {
+        let response = input_app.oneshot(request).await.expect("input request");
+        response.status()
+    });
+
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    if input_task.is_finished() {
+        let status = input_task.await.expect("input task failed");
+        panic!("the test input finished before it could block with status {status}");
+    }
+
+    let (status, body) = tokio::time::timeout(TIMEOUT, call(&app, "GET", "/api/bootstrap", None))
+        .await
+        .expect("bootstrap blocked behind input");
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    let (status, closed) = tokio::time::timeout(TIMEOUT, close_session(&app, &id))
+        .await
+        .expect("close blocked behind input");
+    assert_eq!(status, StatusCode::OK, "{closed}");
+
+    let input_status = tokio::time::timeout(TIMEOUT, input_task)
+        .await
+        .expect("input stayed blocked after close")
+        .expect("input task failed");
+    assert!(
+        input_status == StatusCode::NO_CONTENT || input_status == StatusCode::CONFLICT,
+        "unexpected input status: {input_status}"
+    );
+}
+
+#[tokio::test]
+async fn two_kb_input_round_trip_does_not_wedge_the_session() {
+    let app = router(AppState::ephemeral());
+    let folder = TempDirectory::new("input-round-trip");
+    let session = create_terminal(&app, &folder.path).await;
+    let id = session["id"].as_str().expect("session id").to_owned();
+
+    let payload = "a".repeat(2048);
+    let (status, body) = tokio::time::timeout(
+        TIMEOUT,
+        call(
+            &app,
+            "POST",
+            &format!("/api/sessions/{id}/input"),
+            Some(json!({ "data": payload })),
+        ),
+    )
+    .await
+    .expect("2 KB input wedged the server");
+    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+
+    let (status, body) = tokio::time::timeout(TIMEOUT, call(&app, "GET", "/api/bootstrap", None))
+        .await
+        .expect("bootstrap blocked after 2 KB input");
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    let (status, closed) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+}
+
+#[tokio::test]
+async fn child_exit_marks_the_session_done_and_rejects_input() {
+    let app = router(AppState::with_test_command(vec![
+        "/bin/sh".to_owned(),
+        "-c".to_owned(),
+        "true".to_owned(),
+    ]));
+
+    let request = request_builder("GET", "/api/events")
+        .body(Body::empty())
+        .expect("build events request");
+    let events = app.clone().oneshot(request).await.expect("open events");
+    assert_eq!(events.status(), StatusCode::OK);
+
+    let folder = TempDirectory::new("child-exit");
+    let session = create_terminal(&app, &folder.path).await;
+    let id = session["id"].as_str().expect("session id").to_owned();
+
+    let text = read_sse_until(events.into_body(), |text| {
+        text.contains(&id) && text.contains("\"workState\":\"done\"")
+    })
+    .await;
+    let updates = sse_values(&text);
+    assert!(
+        updates.iter().any(|event| {
+            event["type"] == "session.updated"
+                && event["session"]["id"] == id
+                && event["session"]["status"] == "active"
+                && event["session"]["workState"] == "done"
+        }),
+        "child exit events: {text}"
+    );
+
+    let (status, body) = call(&app, "GET", "/api/bootstrap", None).await;
+    assert_eq!(status, StatusCode::OK);
+    let stored = body["sessions"]
+        .as_array()
+        .expect("sessions array")
+        .iter()
+        .find(|stored| stored["id"] == id)
+        .cloned()
+        .expect("stored session");
+    assert_eq!(stored["status"], "active");
+    assert_eq!(stored["workState"], "done");
+    assert!(stored["waitingFor"].is_null());
+
+    let (status, body) = call(
+        &app,
+        "POST",
+        &format!("/api/sessions/{id}/input"),
+        Some(json!({ "data": "hello" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+
+    let (status, closed) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+}
+
+#[tokio::test]
+async fn output_after_is_bounded_by_the_newest_sequence() {
+    let app = router(AppState::with_test_command(vec![
+        "/bin/sh".to_owned(),
+        "-c".to_owned(),
+        "printf hello; sleep 30".to_owned(),
+    ]));
+    let folder = TempDirectory::new("after-bound");
+    let session = create_terminal(&app, &folder.path).await;
+    let id = session["id"].as_str().expect("session id").to_owned();
+
+    let request = request_builder("GET", &format!("/api/sessions/{id}/output?after=0"))
+        .body(Body::empty())
+        .expect("build output request");
+    let response = app.clone().oneshot(request).await.expect("open output");
+    assert_eq!(response.status(), StatusCode::OK);
+    let text = read_sse_until(response.into_body(), |text| text.contains("hello")).await;
+    assert!(sse_values(&text).iter().any(|event| event["seq"] == 1));
+
+    let (status, body) = call(
+        &app,
+        "GET",
+        &format!("/api/sessions/{id}/output?after=999999"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert!(
+        body["error"]
+            .as_str()
+            .is_some_and(|error| error.contains("newest"))
+    );
+
+    let request = request_builder("GET", &format!("/api/sessions/{id}/output?after=1"))
+        .body(Body::empty())
+        .expect("build output request");
+    let response = app.clone().oneshot(request).await.expect("open output");
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let (status, closed) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+}
+
+#[tokio::test]
+async fn output_after_replays_only_later_sequences() {
+    let app = router(AppState::with_test_command(vec![
+        "/bin/sh".to_owned(),
+        "-c".to_owned(),
+        "printf first; sleep 0.3; printf second; sleep 30".to_owned(),
+    ]));
+    let folder = TempDirectory::new("after-mid-log");
+    let session = create_terminal(&app, &folder.path).await;
+    let id = session["id"].as_str().expect("session id").to_owned();
+
+    let request = request_builder("GET", &format!("/api/sessions/{id}/output?after=0"))
+        .body(Body::empty())
+        .expect("build output request");
+    let response = app.clone().oneshot(request).await.expect("open output");
+    assert_eq!(response.status(), StatusCode::OK);
+    let text = read_sse_until(response.into_body(), |text| {
+        text.contains("first") && text.contains("second")
+    })
+    .await;
+    let events = sse_values(&text);
+    let first_seq = events
+        .iter()
+        .find(|event| event["data"] == "first")
+        .and_then(|event| event["seq"].as_u64())
+        .expect("first sequence");
+    let second_seq = events
+        .iter()
+        .find(|event| event["data"] == "second")
+        .and_then(|event| event["seq"].as_u64())
+        .expect("second sequence");
+    assert!(second_seq > first_seq);
+
+    let request = request_builder(
+        "GET",
+        &format!("/api/sessions/{id}/output?after={first_seq}"),
+    )
+    .body(Body::empty())
+    .expect("build output request");
+    let response = app.clone().oneshot(request).await.expect("open output");
+    assert_eq!(response.status(), StatusCode::OK);
+    let text = read_sse_until(response.into_body(), |text| text.contains("second")).await;
+    let replayed = sse_values(&text);
+    assert!(
+        replayed
+            .iter()
+            .any(|event| event["seq"] == second_seq && event["data"] == "second")
+    );
+    assert!(!text.contains("\"data\":\"first\""));
+
+    let (status, closed) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+}
+
+#[tokio::test]
+async fn rolled_output_log_signals_the_gap() {
+    let script = concat!(
+        "i=0; while [ $i -lt 4000 ]; do ",
+        "printf '0123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789\\n'; ",
+        "i=$((i+1)); done; touch gap-done; sleep 30"
+    );
+    let app = router(AppState::with_test_command(vec![
+        "/bin/sh".to_owned(),
+        "-c".to_owned(),
+        script.to_owned(),
+    ]));
+    let folder = TempDirectory::new("log-gap");
+    let session = create_terminal(&app, &folder.path).await;
+    let id = session["id"].as_str().expect("session id").to_owned();
+
+    let marker = folder.path.join("gap-done");
+    let deadline = tokio::time::Instant::now() + TIMEOUT;
+    while !marker.exists() {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "log writer did not finish"
+        );
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+
+    let request = request_builder("GET", &format!("/api/sessions/{id}/output?after=0"))
+        .body(Body::empty())
+        .expect("build output request");
+    let response = app.clone().oneshot(request).await.expect("open output");
+    assert_eq!(response.status(), StatusCode::OK);
+    let text = read_sse_until(response.into_body(), |text| text.contains("\"gap\"")).await;
+    let events = sse_values(&text);
+    let gap = events
+        .iter()
+        .find_map(|event| event.get("gap"))
+        .expect("gap metadata");
+
+    assert!(gap["oldestSeq"].as_u64().is_some_and(|seq| seq > 1));
+    assert!(
+        gap["newestSeq"]
+            .as_u64()
+            .is_some_and(|newest| newest >= gap["oldestSeq"].as_u64().unwrap_or_default())
+    );
+
+    let (status, closed) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn close_kills_a_nohup_child() {
+    let app = router(AppState::ephemeral());
+    let folder = TempDirectory::new("nohup-child");
+    let session = create_terminal(&app, &folder.path).await;
+    let id = session["id"].as_str().expect("session id").to_owned();
+
+    let (status, body) = call(
+        &app,
+        "POST",
+        &format!("/api/sessions/{id}/input"),
+        Some(json!({
+            "data": "nohup sleep 60 >/dev/null 2>&1 & echo CHILD:$!\r"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+
+    let request = request_builder("GET", &format!("/api/sessions/{id}/output?after=0"))
+        .body(Body::empty())
+        .expect("build output request");
+    let response = app.clone().oneshot(request).await.expect("open output");
+    assert_eq!(response.status(), StatusCode::OK);
+    let text = read_sse_until(response.into_body(), |text| child_pid(text).is_some()).await;
+    let pid = child_pid(&text).expect("child pid in output");
+
+    let (status, closed) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
+    while process_alive(pid) && tokio::time::Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(!process_alive(pid), "nohup child {pid} survived close");
+}
+
+#[tokio::test]
+async fn agent_sessions_use_the_supplied_folder_and_unique_short_names() {
+    let data_dir = TempDirectory::new("agent-data");
+    let repo = TempDirectory::new("agent-repo");
+    init_git_repo(&repo.path);
+    let app = router(AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    ));
+    let body = json!({
+        "projectId": "web",
+        "kind": "agent",
+        "accountId": "max",
+        "name": "Fix login",
+        "folder": repo.path.to_string_lossy()
+    });
+
+    let (status, first) = call(&app, "POST", "/api/sessions", Some(body.clone())).await;
+    assert_eq!(status, StatusCode::OK, "{first}");
+    let (status, second) = call(&app, "POST", "/api/sessions", Some(body)).await;
+    assert_eq!(status, StatusCode::OK, "{second}");
+
+    let data_dir = data_dir.path.clone();
+    assert_eq!(first["branch"], "elesdee/web/fix-login");
+    assert_eq!(second["branch"], "elesdee/web/fix-login-2");
+    assert_eq!(first["client"], "Claude Code");
+    assert_eq!(first["shortcuts"].as_array().expect("shortcuts").len(), 5);
+    assert_eq!(first["short"], "fix-login");
+    assert_eq!(second["short"], "fix-login-2");
+    let first_worktree = data_dir
+        .join("worktrees")
+        .join(first["id"].as_str().expect("session id"));
+    assert_eq!(first["folder"], first_worktree.to_string_lossy().as_ref());
+    assert!(first_worktree.is_dir());
+    assert!(git_ref_exists(
+        &repo.path,
+        "refs/heads/elesdee/web/fix-login"
+    ));
+    assert!(git_ref_exists(
+        &repo.path,
+        "refs/heads/elesdee/web/fix-login-2"
+    ));
+
+    for session in [&first, &second] {
+        let id = session["id"].as_str().expect("session id");
+        let (status, closed) = close_session(&app, id).await;
+        assert_eq!(status, StatusCode::OK, "{closed}");
+    }
+    assert!(!first_worktree.exists());
+    assert!(git_ref_exists(
+        &repo.path,
+        "refs/heads/elesdee/web/fix-login"
+    ));
+}
+
+#[tokio::test]
+async fn cors_preflight_and_allowed_origin_headers() {
+    let app = router(AppState::ephemeral());
+    let origins = [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "tauri://localhost",
+        "http://tauri.localhost",
+        "https://tauri.localhost",
+    ];
+
+    for origin in origins {
+        let request = request_builder("GET", "/api/bootstrap")
+            .header(header::ORIGIN, origin)
+            .body(Body::empty())
+            .expect("build request");
+        let response = app.clone().oneshot(request).await.expect("call route");
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response
+                .headers()
+                .get(header::ACCESS_CONTROL_ALLOW_ORIGIN)
+                .and_then(|value| value.to_str().ok()),
+            Some(origin)
+        );
+        assert_eq!(
+            response
+                .headers()
+                .get(header::VARY)
+                .and_then(|value| value.to_str().ok()),
+            Some("Origin")
+        );
+    }
+
+    let request = request_builder("OPTIONS", "/api/sessions")
+        .header(header::ORIGIN, "tauri://localhost")
+        .header(header::ACCESS_CONTROL_REQUEST_METHOD, "POST")
+        .header(header::ACCESS_CONTROL_REQUEST_HEADERS, "content-type")
+        .body(Body::empty())
+        .expect("build request");
+    let response = app.clone().oneshot(request).await.expect("call route");
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    assert_eq!(
+        response
+            .headers()
+            .get(header::ACCESS_CONTROL_ALLOW_ORIGIN)
+            .and_then(|value| value.to_str().ok()),
+        Some("tauri://localhost")
+    );
+    assert_eq!(
+        response
+            .headers()
+            .get(header::ACCESS_CONTROL_ALLOW_METHODS)
+            .and_then(|value| value.to_str().ok()),
+        Some("GET, POST, PATCH, DELETE, OPTIONS")
+    );
+    assert_eq!(
+        response
+            .headers()
+            .get(header::ACCESS_CONTROL_ALLOW_HEADERS)
+            .and_then(|value| value.to_str().ok()),
+        Some("content-type")
+    );
+    assert_eq!(
+        response
+            .headers()
+            .get(header::ACCESS_CONTROL_MAX_AGE)
+            .and_then(|value| value.to_str().ok()),
+        Some("600")
+    );
+
+    let request = request_builder("OPTIONS", "/api/sessions")
+        .header(header::ORIGIN, "http://evil.example")
+        .body(Body::empty())
+        .expect("build request");
+    let response = app.clone().oneshot(request).await.expect("call route");
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    assert!(
+        response
+            .headers()
+            .get(header::ACCESS_CONTROL_ALLOW_ORIGIN)
+            .is_none()
+    );
+}
+
+#[tokio::test]
+async fn project_creation_returns_the_new_project() {
+    let app = router(AppState::ephemeral());
+    let folder = TempDirectory::new("project-success");
+
+    let (status, project) = call(
+        &app,
+        "POST",
+        "/api/projects",
+        Some(json!({ "name": "New App", "folder": folder.path.to_string_lossy() })),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK, "{project}");
+    assert_eq!(project["id"], "new-app");
+    assert_eq!(project["name"], "New App");
+    assert_eq!(
+        project["folder"],
+        folder
+            .path
+            .canonicalize()
+            .expect("canonical folder")
+            .to_string_lossy()
+            .as_ref()
+    );
+
+    let (status, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    assert_eq!(status, StatusCode::OK);
+    let projects = bootstrap["projects"].as_array().expect("projects");
+    assert_eq!(projects.len(), 3);
+    assert!(projects.iter().any(|stored| stored["id"] == "new-app"));
+}
+
+#[tokio::test]
+async fn project_creation_rejects_an_empty_name() {
+    let app = router(AppState::ephemeral());
+    let folder = TempDirectory::new("project-empty-name");
+
+    let (status, body) = call(
+        &app,
+        "POST",
+        "/api/projects",
+        Some(json!({ "name": "   ", "folder": folder.path.to_string_lossy() })),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert!(
+        body["error"]
+            .as_str()
+            .is_some_and(|error| !error.is_empty())
+    );
+}
+
+#[tokio::test]
+async fn project_creation_rejects_a_missing_folder() {
+    let app = router(AppState::ephemeral());
+    let parent = TempDirectory::new("project-missing-folder");
+    let missing = parent.path.join("not-here");
+
+    let (status, body) = call(
+        &app,
+        "POST",
+        "/api/projects",
+        Some(json!({ "name": "Missing", "folder": missing.to_string_lossy() })),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+}
+
+#[tokio::test]
+async fn project_creation_rejects_a_duplicate_folder() {
+    let app = router(AppState::ephemeral());
+    let folder = TempDirectory::new("project-duplicate-folder");
+    let body = json!({ "name": "First", "folder": folder.path.to_string_lossy() });
+
+    let (status, project) = call(&app, "POST", "/api/projects", Some(body.clone())).await;
+    assert_eq!(status, StatusCode::OK, "{project}");
+
+    let mut duplicate = body;
+    duplicate["name"] = Value::String("Second".to_owned());
+    let (status, body) = call(&app, "POST", "/api/projects", Some(duplicate)).await;
+
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+}
+
+#[tokio::test]
+async fn project_creation_appends_a_suffix_for_a_duplicate_name() {
+    let app = router(AppState::ephemeral());
+    let first_folder = TempDirectory::new("project-duplicate-name-a");
+    let second_folder = TempDirectory::new("project-duplicate-name-b");
+
+    let (status, first) = call(
+        &app,
+        "POST",
+        "/api/projects",
+        Some(json!({ "name": "New App", "folder": first_folder.path.to_string_lossy() })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{first}");
+
+    let (status, second) = call(
+        &app,
+        "POST",
+        "/api/projects",
+        Some(json!({ "name": "New App", "folder": second_folder.path.to_string_lossy() })),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK, "{second}");
+    assert_eq!(second["id"], "new-app-2");
+}
+
+#[tokio::test]
+async fn method_not_allowed_returns_a_json_error() {
+    let app = router(AppState::ephemeral());
+
+    for method in ["GET", "PUT"] {
+        let request = request_builder(method, "/api/sessions")
+            .body(Body::empty())
+            .expect("build request");
+        let (status, body) = send(&app, request).await;
+        assert_eq!(status, StatusCode::METHOD_NOT_ALLOWED, "{method}: {body}");
+        assert!(
+            body["error"]
+                .as_str()
+                .is_some_and(|error| !error.is_empty())
+        );
+    }
+}
+
+#[tokio::test]
+async fn create_session_uses_the_requested_terminal_size() {
+    let app = router(AppState::with_test_command(vec![
+        "/bin/sh".to_owned(),
+        "-c".to_owned(),
+        "printf 'SIZE:'; stty size; sleep 30".to_owned(),
+    ]));
+    let folder = TempDirectory::new("create-size");
+
+    let (status, session) = call(
+        &app,
+        "POST",
+        "/api/sessions",
+        Some(json!({
+            "projectId": "web",
+            "kind": "terminal",
+            "folder": folder.path.to_string_lossy(),
+            "cols": 100,
+            "rows": 40
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let id = session["id"].as_str().expect("session id");
+
+    let request = request_builder("GET", &format!("/api/sessions/{id}/output?after=0"))
+        .body(Body::empty())
+        .expect("build output request");
+    let response = app.clone().oneshot(request).await.expect("open output");
+    assert_eq!(response.status(), StatusCode::OK);
+    let output = read_output_until(response.into_body(), |text| text.contains("40 100")).await;
+    assert!(output.contains("40 100"), "pty size output: {output}");
+
+    let (status, closed) = close_session(&app, id).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+
+    let (status, body) = call(
+        &app,
+        "POST",
+        "/api/sessions",
+        Some(json!({
+            "projectId": "web",
+            "kind": "terminal",
+            "folder": folder.path.to_string_lossy(),
+            "cols": 10,
+            "rows": 32
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+}
+
+#[tokio::test]
+async fn resize_applies_to_the_live_pty() {
+    let app = router(AppState::with_test_command(vec![
+        "/bin/sh".to_owned(),
+        "-c".to_owned(),
+        "sleep 1; stty size; sleep 30".to_owned(),
+    ]));
+    let folder = TempDirectory::new("resize-live");
+    let session = create_terminal(&app, &folder.path).await;
+    let id = session["id"].as_str().expect("session id").to_owned();
+
+    let (status, body) = call(
+        &app,
+        "POST",
+        &format!("/api/sessions/{id}/resize"),
+        Some(json!({ "cols": 100, "rows": 40 })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+
+    let request = request_builder("GET", &format!("/api/sessions/{id}/output?after=0"))
+        .body(Body::empty())
+        .expect("build output request");
+    let response = app.clone().oneshot(request).await.expect("open output");
+    assert_eq!(response.status(), StatusCode::OK);
+    let output = read_output_until(response.into_body(), |text| text.contains("40 100")).await;
+    assert!(output.contains("40 100"), "pty size output: {output}");
+
+    let (status, closed) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+}
+
+#[tokio::test]
+async fn resize_rejects_invalid_sizes() {
+    let app = router(AppState::with_test_command(vec![
+        "/bin/sh".to_owned(),
+        "-c".to_owned(),
+        "sleep 30".to_owned(),
+    ]));
+    let folder = TempDirectory::new("resize-invalid");
+    let session = create_terminal(&app, &folder.path).await;
+    let id = session["id"].as_str().expect("session id").to_owned();
+
+    for (cols, rows) in [(10, 32), (501, 32), (100, 4), (100, 301)] {
+        let (status, body) = call(
+            &app,
+            "POST",
+            &format!("/api/sessions/{id}/resize"),
+            Some(json!({ "cols": cols, "rows": rows })),
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::BAD_REQUEST,
+            "cols={cols} rows={rows}: {body}"
+        );
+    }
+
+    let (status, closed) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+}
+
+#[tokio::test]
+async fn resize_unknown_session_returns_not_found() {
+    let app = router(AppState::ephemeral());
+    let (status, body) = call(
+        &app,
+        "POST",
+        "/api/sessions/unknown/resize",
+        Some(json!({ "cols": 100, "rows": 40 })),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+}
+
+#[tokio::test]
+async fn resize_closed_session_returns_conflict() {
+    let app = router(AppState::with_test_command(vec![
+        "/bin/sh".to_owned(),
+        "-c".to_owned(),
+        "sleep 30".to_owned(),
+    ]));
+    let folder = TempDirectory::new("resize-closed");
+    let session = create_terminal(&app, &folder.path).await;
+    let id = session["id"].as_str().expect("session id").to_owned();
+
+    let (status, closed) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+
+    let (status, body) = call(
+        &app,
+        "POST",
+        &format!("/api/sessions/{id}/resize"),
+        Some(json!({ "cols": 100, "rows": 40 })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+}
+
+async fn wait_for_done(app: &Router, id: &str) {
+    let deadline = tokio::time::Instant::now() + TIMEOUT;
+    loop {
+        let (status, body) = call(app, "GET", "/api/bootstrap", None).await;
+        assert_eq!(status, StatusCode::OK);
+        let done = body["sessions"]
+            .as_array()
+            .expect("sessions array")
+            .iter()
+            .find(|session| session["id"] == id)
+            .is_some_and(|session| session["workState"] == "done");
+        if done {
+            return;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "session {id} did not finish"
+        );
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+}
+
+#[tokio::test]
+async fn rename_updates_the_display_name_only() {
+    let app = router(AppState::with_test_command(vec![
+        "/bin/sh".to_owned(),
+        "-c".to_owned(),
+        "sleep 30".to_owned(),
+    ]));
+    let folder = TempDirectory::new("rename");
+    let session = create_terminal(&app, &folder.path).await;
+    let id = session["id"].as_str().expect("session id").to_owned();
+    let short = session["short"].clone();
+
+    let (status, renamed) = call(
+        &app,
+        "PATCH",
+        &format!("/api/sessions/{id}"),
+        Some(json!({ "name": "  Renamed session  " })),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK, "{renamed}");
+    assert_eq!(renamed["name"], "Renamed session");
+    assert_eq!(renamed["short"], short);
+    assert_eq!(renamed["branch"], Value::Null);
+    assert_eq!(renamed["status"], "active");
+
+    let (status, closed) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+}
+
+#[tokio::test]
+async fn rename_rejects_an_empty_name() {
+    let app = router(AppState::with_test_command(vec![
+        "/bin/sh".to_owned(),
+        "-c".to_owned(),
+        "sleep 30".to_owned(),
+    ]));
+    let folder = TempDirectory::new("rename-empty");
+    let session = create_terminal(&app, &folder.path).await;
+    let id = session["id"].as_str().expect("session id");
+
+    let (status, body) = call(
+        &app,
+        "PATCH",
+        &format!("/api/sessions/{id}"),
+        Some(json!({ "name": "   " })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+
+    let (status, closed) = close_session(&app, id).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+}
+
+#[tokio::test]
+async fn rename_unknown_session_returns_not_found() {
+    let app = router(AppState::ephemeral());
+    let (status, body) = call(
+        &app,
+        "PATCH",
+        "/api/sessions/unknown",
+        Some(json!({ "name": "Renamed" })),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+}
+
+#[tokio::test]
+async fn reopen_restarts_a_closed_shell() {
+    let app = router(AppState::ephemeral());
+    let folder = TempDirectory::new("reopen-shell");
+    let session = create_terminal(&app, &folder.path).await;
+    let id = session["id"].as_str().expect("session id").to_owned();
+
+    tokio::time::sleep(Duration::from_millis(250)).await;
+    let (status, body) = call(
+        &app,
+        "POST",
+        &format!("/api/sessions/{id}/input"),
+        Some(json!({ "data": "exit\r" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+    wait_for_done(&app, &id).await;
+
+    let (status, closed) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+
+    let (status, reopened) = call(
+        &app,
+        "POST",
+        &format!("/api/sessions/{id}/reopen"),
+        Some(json!({})),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK, "{reopened}");
+    assert_eq!(reopened["status"], "active");
+    assert_eq!(reopened["workState"], "working");
+    assert!(reopened["waitingFor"].is_null());
+    assert_eq!(reopened["name"], closed["name"]);
+    assert_eq!(reopened["short"], closed["short"]);
+    assert_eq!(reopened["branch"], closed["branch"]);
+
+    let (status, closed) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+}
+
+#[tokio::test]
+async fn reopen_keeps_output_sequence_numbers() {
+    let app = router(AppState::with_test_command(vec![
+        "/bin/sh".to_owned(),
+        "-c".to_owned(),
+        "printf first; exit 0".to_owned(),
+    ]));
+    let folder = TempDirectory::new("reopen-sequence");
+    let session = create_terminal(&app, &folder.path).await;
+    let id = session["id"].as_str().expect("session id").to_owned();
+
+    let request = request_builder("GET", &format!("/api/sessions/{id}/output?after=0"))
+        .body(Body::empty())
+        .expect("build output request");
+    let response = app.clone().oneshot(request).await.expect("open output");
+    assert_eq!(response.status(), StatusCode::OK);
+    read_sse_until(response.into_body(), |text| text.contains("first")).await;
+    wait_for_done(&app, &id).await;
+
+    let (status, closed) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+
+    let (status, reopened) = call(
+        &app,
+        "POST",
+        &format!("/api/sessions/{id}/reopen"),
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{reopened}");
+
+    let request = request_builder("GET", &format!("/api/sessions/{id}/output?after=1"))
+        .body(Body::empty())
+        .expect("build output request");
+    let response = app.clone().oneshot(request).await.expect("open output");
+    assert_eq!(response.status(), StatusCode::OK);
+    let text = read_sse_until(response.into_body(), |text| text.contains("\"seq\":2")).await;
+    let events = sse_values(&text);
+    assert!(
+        events
+            .iter()
+            .any(|event| event["seq"] == 2 && event["data"] == "first")
+    );
+
+    let (status, closed) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+}
+
+#[tokio::test]
+async fn reopen_active_session_returns_conflict() {
+    let app = router(AppState::with_test_command(vec![
+        "/bin/sh".to_owned(),
+        "-c".to_owned(),
+        "sleep 30".to_owned(),
+    ]));
+    let folder = TempDirectory::new("reopen-active");
+    let session = create_terminal(&app, &folder.path).await;
+    let id = session["id"].as_str().expect("session id");
+
+    let (status, body) = call(
+        &app,
+        "POST",
+        &format!("/api/sessions/{id}/reopen"),
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+
+    let (status, closed) = close_session(&app, id).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+}
+
+#[tokio::test]
+async fn reopen_with_a_missing_folder_returns_unprocessable() {
+    let app = router(AppState::with_test_command(vec![
+        "/bin/sh".to_owned(),
+        "-c".to_owned(),
+        "sleep 30".to_owned(),
+    ]));
+    let folder = TempDirectory::new("reopen-missing-folder");
+    let session = create_terminal(&app, &folder.path).await;
+    let id = session["id"].as_str().expect("session id").to_owned();
+
+    let (status, closed) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+
+    fs::remove_dir_all(folder.path.canonicalize().expect("canonical folder"))
+        .expect("remove folder");
+
+    let (status, body) = call(
+        &app,
+        "POST",
+        &format!("/api/sessions/{id}/reopen"),
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+}
+
+#[tokio::test]
+async fn delete_closed_session_removes_it() {
+    let app = router(AppState::with_test_command(vec![
+        "/bin/sh".to_owned(),
+        "-c".to_owned(),
+        "sleep 30".to_owned(),
+    ]));
+    let folder = TempDirectory::new("delete-closed");
+    let session = create_terminal(&app, &folder.path).await;
+    let id = session["id"].as_str().expect("session id").to_owned();
+
+    let (status, closed) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+
+    let (status, body) = call(&app, "DELETE", &format!("/api/sessions/{id}"), None).await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+
+    let (status, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        !bootstrap["sessions"]
+            .as_array()
+            .expect("sessions")
+            .iter()
+            .any(|session| session["id"] == id)
+    );
+}
+
+#[tokio::test]
+async fn delete_active_session_returns_conflict() {
+    let app = router(AppState::with_test_command(vec![
+        "/bin/sh".to_owned(),
+        "-c".to_owned(),
+        "sleep 30".to_owned(),
+    ]));
+    let folder = TempDirectory::new("delete-active");
+    let session = create_terminal(&app, &folder.path).await;
+    let id = session["id"].as_str().expect("session id").to_owned();
+
+    let (status, body) = call(&app, "DELETE", &format!("/api/sessions/{id}"), None).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+
+    let (status, closed) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+}
+
+#[tokio::test]
+async fn delete_unknown_session_returns_not_found() {
+    let app = router(AppState::ephemeral());
+    let (status, body) = call(&app, "DELETE", "/api/sessions/unknown", None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+}
+
+#[tokio::test]
+async fn persistence_keeps_projects_sessions_and_logs() {
+    let data_dir = TempDirectory::new("persist-data");
+    let project_folder = TempDirectory::new("persist-project");
+    let session_folder = TempDirectory::new("persist-session");
+    let command = vec![
+        "/bin/sh".to_owned(),
+        "-c".to_owned(),
+        "printf hello; sleep 30".to_owned(),
+    ];
+    let app = router(AppState::with_test_command_and_data_dir(
+        command.clone(),
+        data_dir.path.clone(),
+    ));
+
+    let (status, project) = call(
+        &app,
+        "POST",
+        "/api/projects",
+        Some(json!({
+            "name": "Persisted Project",
+            "folder": project_folder.path.to_string_lossy()
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{project}");
+
+    let (status, session) = call(
+        &app,
+        "POST",
+        "/api/sessions",
+        Some(json!({
+            "projectId": "persisted-project",
+            "kind": "terminal",
+            "folder": session_folder.path.to_string_lossy()
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let id = session["id"].as_str().expect("session id").to_owned();
+
+    let request = request_builder("GET", &format!("/api/sessions/{id}/output?after=0"))
+        .body(Body::empty())
+        .expect("build output request");
+    let response = app.clone().oneshot(request).await.expect("open output");
+    assert_eq!(response.status(), StatusCode::OK);
+    read_sse_until(response.into_body(), |text| text.contains("hello")).await;
+
+    let (status, closed) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+    drop(app);
+
+    let state_path = data_dir.path.join("state.json");
+    let state_text = fs::read_to_string(&state_path).expect("state file");
+    let state: Value = serde_json::from_str(&state_text).expect("state json");
+    assert_eq!(state["version"], 1);
+    assert!(state.get("accounts").is_none());
+    assert!(
+        state["projects"]
+            .as_array()
+            .expect("projects")
+            .iter()
+            .any(|project| project["id"] == "persisted-project")
+    );
+    assert_eq!(state["sessions"].as_array().expect("sessions").len(), 1);
+    assert_eq!(state["sessions"][0]["session"]["id"], id);
+    assert_eq!(state["sessions"][0]["session"]["status"], "closed");
+    assert!(
+        !state["sessions"][0]["output"]
+            .as_array()
+            .expect("output")
+            .is_empty()
+    );
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let directory_mode = fs::metadata(&data_dir.path)
+            .expect("data dir")
+            .permissions()
+            .mode()
+            & 0o777;
+        let file_mode = fs::metadata(&state_path)
+            .expect("state file")
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(directory_mode, 0o700);
+        assert_eq!(file_mode, 0o600);
+    }
+
+    let restarted = router(AppState::with_test_command_and_data_dir(
+        command,
+        data_dir.path.clone(),
+    ));
+    let (status, bootstrap) = call(&restarted, "GET", "/api/bootstrap", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(bootstrap["accounts"].as_array().expect("accounts").len(), 4);
+    assert!(
+        bootstrap["projects"]
+            .as_array()
+            .expect("projects")
+            .iter()
+            .any(|project| project["id"] == "persisted-project")
+    );
+    let restored = bootstrap["sessions"]
+        .as_array()
+        .expect("sessions")
+        .iter()
+        .find(|session| session["id"] == id)
+        .cloned()
+        .expect("restored session");
+    assert_eq!(restored["status"], "closed");
+    assert_eq!(restored["projectId"], "persisted-project");
+
+    let request = request_builder("GET", &format!("/api/sessions/{id}/output?after=0"))
+        .body(Body::empty())
+        .expect("build output request");
+    let response = restarted
+        .clone()
+        .oneshot(request)
+        .await
+        .expect("open output");
+    assert_eq!(response.status(), StatusCode::OK);
+    let text = read_sse_until(response.into_body(), |text| text.contains("hello")).await;
+    assert!(sse_values(&text).iter().any(|event| event["seq"] == 1));
+}
+
+#[tokio::test]
+async fn active_session_restores_closed_with_the_restart_note() {
+    let data_dir = TempDirectory::new("persist-active-data");
+    let folder = TempDirectory::new("persist-active-folder");
+    let command = vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()];
+    let app = router(AppState::with_test_command_and_data_dir(
+        command.clone(),
+        data_dir.path.clone(),
+    ));
+    let session = create_terminal(&app, &folder.path).await;
+    let id = session["id"].as_str().expect("session id").to_owned();
+    assert_eq!(session["status"], "active");
+    drop(app);
+
+    let restarted = router(AppState::with_test_command_and_data_dir(
+        command,
+        data_dir.path.clone(),
+    ));
+    let (status, bootstrap) = call(&restarted, "GET", "/api/bootstrap", None).await;
+    assert_eq!(status, StatusCode::OK);
+    let restored = bootstrap["sessions"]
+        .as_array()
+        .expect("sessions")
+        .iter()
+        .find(|session| session["id"] == id)
+        .cloned()
+        .expect("restored session");
+
+    assert_eq!(restored["status"], "closed");
+    assert!(restored["workState"].is_null());
+    assert!(restored["waitingFor"].is_null());
+    assert_eq!(
+        restored["preview"],
+        "The app restarted. Reopen to continue."
+    );
+
+    let (status, body) = call(
+        &restarted,
+        "POST",
+        &format!("/api/sessions/{id}/input"),
+        Some(json!({ "data": "x" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+}
+
+#[tokio::test]
+async fn reopen_after_restart_continues_the_output_sequence() {
+    let data_dir = TempDirectory::new("persist-sequence-data");
+    let folder = TempDirectory::new("persist-sequence-folder");
+    let command = vec![
+        "/bin/sh".to_owned(),
+        "-c".to_owned(),
+        "printf first; exit 0".to_owned(),
+    ];
+    let app = router(AppState::with_test_command_and_data_dir(
+        command.clone(),
+        data_dir.path.clone(),
+    ));
+    let session = create_terminal(&app, &folder.path).await;
+    let id = session["id"].as_str().expect("session id").to_owned();
+
+    let request = request_builder("GET", &format!("/api/sessions/{id}/output?after=0"))
+        .body(Body::empty())
+        .expect("build output request");
+    let response = app.clone().oneshot(request).await.expect("open output");
+    assert_eq!(response.status(), StatusCode::OK);
+    read_sse_until(response.into_body(), |text| text.contains("first")).await;
+    wait_for_done(&app, &id).await;
+    let (status, closed) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+    drop(app);
+
+    let restarted = router(AppState::with_test_command_and_data_dir(
+        command,
+        data_dir.path.clone(),
+    ));
+    let (status, reopened) = call(
+        &restarted,
+        "POST",
+        &format!("/api/sessions/{id}/reopen"),
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{reopened}");
+
+    let request = request_builder("GET", &format!("/api/sessions/{id}/output?after=1"))
+        .body(Body::empty())
+        .expect("build output request");
+    let response = restarted
+        .clone()
+        .oneshot(request)
+        .await
+        .expect("open output");
+    assert_eq!(response.status(), StatusCode::OK);
+    let text = read_sse_until(response.into_body(), |text| text.contains("\"seq\":2")).await;
+    assert!(
+        sse_values(&text)
+            .iter()
+            .any(|event| event["seq"] == 2 && event["data"] == "first")
+    );
+
+    let (status, closed) = close_session(&restarted, &id).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+}
+
+#[tokio::test]
+async fn rename_and_delete_persist_across_restarts() {
+    let data_dir = TempDirectory::new("persist-menu-data");
+    let folder_a = TempDirectory::new("persist-menu-a");
+    let folder_b = TempDirectory::new("persist-menu-b");
+    let command = vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()];
+    let app = router(AppState::with_test_command_and_data_dir(
+        command.clone(),
+        data_dir.path.clone(),
+    ));
+    let session_a = create_terminal(&app, &folder_a.path).await;
+    let session_b = create_terminal(&app, &folder_b.path).await;
+    let id_a = session_a["id"].as_str().expect("session id").to_owned();
+    let id_b = session_b["id"].as_str().expect("session id").to_owned();
+
+    let (status, renamed) = call(
+        &app,
+        "PATCH",
+        &format!("/api/sessions/{id_a}"),
+        Some(json!({ "name": "Renamed A" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{renamed}");
+    let (status, closed) = close_session(&app, &id_a).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+    let (status, closed) = close_session(&app, &id_b).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+    let (status, body) = call(&app, "DELETE", &format!("/api/sessions/{id_b}"), None).await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+    drop(app);
+
+    let restarted = router(AppState::with_test_command_and_data_dir(
+        command,
+        data_dir.path.clone(),
+    ));
+    let (status, bootstrap) = call(&restarted, "GET", "/api/bootstrap", None).await;
+    assert_eq!(status, StatusCode::OK);
+    let sessions = bootstrap["sessions"].as_array().expect("sessions");
+    assert_eq!(sessions.len(), 1);
+    assert_eq!(sessions[0]["id"], id_a);
+    assert_eq!(sessions[0]["name"], "Renamed A");
+    assert!(!sessions.iter().any(|session| session["id"] == id_b));
+}
+
+#[tokio::test]
+async fn graceful_shutdown_saves_the_restart_note_and_logs() {
+    let data_dir = TempDirectory::new("persist-shutdown-data");
+    let folder_a = TempDirectory::new("persist-shutdown-a");
+    let folder_b = TempDirectory::new("persist-shutdown-b");
+    let command = vec![
+        "/bin/sh".to_owned(),
+        "-c".to_owned(),
+        "printf alpha; sleep 30".to_owned(),
+    ];
+    let state = AppState::with_test_command_and_data_dir(command.clone(), data_dir.path.clone());
+    let app = router(state.clone());
+
+    let session_a = create_terminal(&app, &folder_a.path).await;
+    let id_a = session_a["id"].as_str().expect("session id").to_owned();
+    let request = request_builder("GET", &format!("/api/sessions/{id_a}/output?after=0"))
+        .body(Body::empty())
+        .expect("build output request");
+    let response = app.clone().oneshot(request).await.expect("open output");
+    read_sse_until(response.into_body(), |text| text.contains("alpha")).await;
+    let (status, closed) = close_session(&app, &id_a).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+
+    let session_b = create_terminal(&app, &folder_b.path).await;
+    let id_b = session_b["id"].as_str().expect("session id").to_owned();
+    let request = request_builder("GET", &format!("/api/sessions/{id_b}/output?after=0"))
+        .body(Body::empty())
+        .expect("build output request");
+    let response = app.clone().oneshot(request).await.expect("open output");
+    read_sse_until(response.into_body(), |text| text.contains("alpha")).await;
+
+    assert!(state.shutdown_all());
+    drop(app);
+
+    let restarted = router(AppState::with_test_command_and_data_dir(
+        command,
+        data_dir.path.clone(),
+    ));
+    let (status, bootstrap) = call(&restarted, "GET", "/api/bootstrap", None).await;
+    assert_eq!(status, StatusCode::OK);
+    let sessions = bootstrap["sessions"].as_array().expect("sessions");
+    let restored_a = sessions
+        .iter()
+        .find(|session| session["id"] == id_a)
+        .expect("session a");
+    let restored_b = sessions
+        .iter()
+        .find(|session| session["id"] == id_b)
+        .expect("session b");
+
+    assert_eq!(restored_a["status"], "closed");
+    assert_eq!(restored_a["preview"], "alpha");
+    assert_eq!(restored_b["status"], "closed");
+    assert_eq!(
+        restored_b["preview"],
+        "The app restarted. Reopen to continue."
+    );
+
+    for id in [&id_a, &id_b] {
+        let request = request_builder("GET", &format!("/api/sessions/{id}/output?after=0"))
+            .body(Body::empty())
+            .expect("build output request");
+        let response = restarted
+            .clone()
+            .oneshot(request)
+            .await
+            .expect("open output");
+        assert_eq!(response.status(), StatusCode::OK);
+        let text = read_sse_until(response.into_body(), |text| text.contains("alpha")).await;
+        assert!(!sse_values(&text).is_empty());
+    }
+}
+
+#[tokio::test]
+async fn corrupt_state_falls_back_to_seeds() {
+    let data_dir = TempDirectory::new("persist-corrupt-data");
+    let state_path = data_dir.path.join("state.json");
+    fs::write(&state_path, b"{ this is not json").expect("write corrupt state");
+
+    let app = router(AppState::with_data_dir(data_dir.path.clone()));
+    let (status, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    assert_eq!(status, StatusCode::OK);
+    let project_ids = bootstrap["projects"]
+        .as_array()
+        .expect("projects")
+        .iter()
+        .map(|project| project["id"].as_str().unwrap_or_default())
+        .collect::<Vec<_>>();
+    assert_eq!(project_ids, ["web", "core"]);
+    assert_eq!(bootstrap["sessions"].as_array().expect("sessions").len(), 0);
+    assert!(data_dir.path.join("state.bad.json").exists());
+    assert!(!state_path.exists());
+}
+
+#[tokio::test]
+async fn dirty_agent_close_commits_and_removes_the_worktree() {
+    let data_dir = TempDirectory::new("worktree-dirty-data");
+    let repo = TempDirectory::new("worktree-dirty-repo");
+    init_git_repo(&repo.path);
+    let app = router(AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    ));
+
+    let (status, session) = call(
+        &app,
+        "POST",
+        "/api/sessions",
+        Some(json!({
+            "projectId": "web",
+            "kind": "agent",
+            "accountId": "max",
+            "name": "Dirty Work",
+            "folder": repo.path.to_string_lossy()
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let id = session["id"].as_str().expect("session id").to_owned();
+    let branch = session["branch"].as_str().expect("branch").to_owned();
+    let worktree = PathBuf::from(session["folder"].as_str().expect("folder"));
+    fs::write(worktree.join("new.txt"), "hello\n").expect("write worktree file");
+
+    let (status, closed) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+    assert_eq!(closed["preview"], "Closed. The worktree was removed.");
+    assert!(!worktree.exists());
+    assert!(git_ref_exists(&repo.path, &format!("refs/heads/{branch}")));
+    assert_eq!(
+        git_stdout(&repo.path, &["log", "-1", "--format=%s", &branch]),
+        "elesdee: close Dirty Work"
+    );
+    assert_eq!(
+        git_stdout(&repo.path, &["show", &format!("{branch}:new.txt")]),
+        "hello"
+    );
+}
+
+#[tokio::test]
+async fn push_failure_keeps_the_worktree() {
+    let data_dir = TempDirectory::new("worktree-push-fail-data");
+    let repo = TempDirectory::new("worktree-push-fail-repo");
+    init_git_repo(&repo.path);
+    let missing_remote = repo.path.join("missing-remote.git");
+    add_origin(&repo.path, &missing_remote);
+
+    let app = router(AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    ));
+    let (status, session) = call(
+        &app,
+        "POST",
+        "/api/sessions",
+        Some(json!({
+            "projectId": "web",
+            "kind": "agent",
+            "accountId": "max",
+            "name": "Push Failure",
+            "folder": repo.path.to_string_lossy()
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let id = session["id"].as_str().expect("session id").to_owned();
+    let worktree = PathBuf::from(session["folder"].as_str().expect("folder"));
+    fs::write(worktree.join("new.txt"), "hello\n").expect("write worktree file");
+
+    let (status, closed) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+    assert!(worktree.exists());
+    assert!(
+        closed["preview"]
+            .as_str()
+            .is_some_and(|preview| preview.contains("push failed"))
+    );
+
+    let (status, body) = call(&app, "DELETE", &format!("/api/sessions/{id}"), None).await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+    assert!(!worktree.exists());
+    assert!(git_ref_exists(
+        &repo.path,
+        "refs/heads/elesdee/web/push-failure"
+    ));
+}
+
+#[tokio::test]
+async fn push_success_removes_the_worktree_and_keeps_the_remote_branch() {
+    let data_dir = TempDirectory::new("worktree-push-data");
+    let repo = TempDirectory::new("worktree-push-repo");
+    let remote_dir = TempDirectory::new("worktree-push-remote");
+    init_git_repo(&repo.path);
+    let remote = remote_dir.path.join("remote.git");
+    init_bare_repo(&remote);
+    add_origin(&repo.path, &remote);
+
+    let app = router(AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    ));
+    let (status, session) = call(
+        &app,
+        "POST",
+        "/api/sessions",
+        Some(json!({
+            "projectId": "web",
+            "kind": "agent",
+            "accountId": "max",
+            "name": "Push Success",
+            "folder": repo.path.to_string_lossy()
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let id = session["id"].as_str().expect("session id").to_owned();
+    let branch = session["branch"].as_str().expect("branch").to_owned();
+    let worktree = PathBuf::from(session["folder"].as_str().expect("folder"));
+    fs::write(worktree.join("new.txt"), "hello\n").expect("write worktree file");
+
+    let (status, closed) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+    assert!(!worktree.exists());
+    assert!(remote_ref_exists(&remote, &format!("refs/heads/{branch}")));
+}
+
+#[tokio::test]
+async fn reopen_recreates_the_worktree_and_repo_root_survives_reload() {
+    let data_dir = TempDirectory::new("worktree-reopen-data");
+    let repo = TempDirectory::new("worktree-reopen-repo");
+    init_git_repo(&repo.path);
+    let command = vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()];
+    let app = router(AppState::with_test_command_and_data_dir(
+        command.clone(),
+        data_dir.path.clone(),
+    ));
+    let (status, session) = call(
+        &app,
+        "POST",
+        "/api/sessions",
+        Some(json!({
+            "projectId": "web",
+            "kind": "agent",
+            "accountId": "max",
+            "name": "Reopen Work",
+            "folder": repo.path.to_string_lossy()
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let id = session["id"].as_str().expect("session id").to_owned();
+    let branch = session["branch"].as_str().expect("branch").to_owned();
+    let worktree = PathBuf::from(session["folder"].as_str().expect("folder"));
+
+    let (status, closed) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+    assert!(!worktree.exists());
+    drop(app);
+
+    let state_text = fs::read_to_string(data_dir.path.join("state.json")).expect("state file");
+    let state: Value = serde_json::from_str(&state_text).expect("state json");
+    assert_eq!(
+        state["sessions"][0]["repoRoot"],
+        repo.path
+            .canonicalize()
+            .expect("canonical repo")
+            .to_string_lossy()
+            .as_ref()
+    );
+
+    let restarted = router(AppState::with_test_command_and_data_dir(
+        command,
+        data_dir.path.clone(),
+    ));
+    let (status, reopened) = call(
+        &restarted,
+        "POST",
+        &format!("/api/sessions/{id}/reopen"),
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{reopened}");
+    assert_eq!(reopened["status"], "active");
+    assert_eq!(reopened["branch"], branch);
+    assert!(worktree.is_dir());
+
+    let (status, closed) = close_session(&restarted, &id).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+}
+
+#[tokio::test]
+async fn non_git_folder_is_rejected_for_agent_sessions() {
+    let data_dir = TempDirectory::new("worktree-nongit-data");
+    let folder = TempDirectory::new("worktree-nongit-folder");
+    let app = router(AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    ));
+
+    let (status, body) = call(
+        &app,
+        "POST",
+        "/api/sessions",
+        Some(json!({
+            "projectId": "web",
+            "kind": "agent",
+            "accountId": "max",
+            "folder": folder.path.to_string_lossy()
+        })),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert_eq!(body["error"], "Agent sessions need a Git repository.");
+}
+
+#[tokio::test]
+async fn close_and_reopen_are_serialized_during_slow_git() {
+    let data_dir = TempDirectory::new("race-data");
+    let repo = TempDirectory::new("race-repo");
+    init_git_repo(&repo.path);
+    set_hook(&repo.path, "pre-commit", "#!/bin/sh\nsleep 2\n");
+    let app = router(AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    ));
+
+    let (status, session) = call(
+        &app,
+        "POST",
+        "/api/sessions",
+        Some(json!({
+            "projectId": "web",
+            "kind": "agent",
+            "accountId": "max",
+            "name": "Race",
+            "folder": repo.path.to_string_lossy()
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let id = session["id"].as_str().expect("session id").to_owned();
+    let worktree = PathBuf::from(session["folder"].as_str().expect("folder"));
+    fs::write(worktree.join("new.txt"), "hello\n").expect("write file");
+
+    let close_request = request_builder("POST", &format!("/api/sessions/{id}/close"))
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from("{}"))
+        .expect("build close request");
+    let close_app = app.clone();
+    let close_task = tokio::spawn(async move {
+        close_app
+            .oneshot(close_request)
+            .await
+            .expect("close request")
+            .status()
+    });
+
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let (status, body) = call(
+        &app,
+        "POST",
+        &format!("/api/sessions/{id}/reopen"),
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    assert!(
+        body["error"]
+            .as_str()
+            .is_some_and(|error| error.contains("closing"))
+    );
+
+    let (status, body) = call(&app, "DELETE", &format!("/api/sessions/{id}"), None).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    assert!(
+        body["error"]
+            .as_str()
+            .is_some_and(|error| error.contains("closing"))
+    );
+
+    let close_status = tokio::time::timeout(TIMEOUT, close_task)
+        .await
+        .expect("close did not finish")
+        .expect("close task failed");
+    assert_eq!(close_status, StatusCode::OK);
+    assert!(!worktree.exists());
+}
+
+#[tokio::test]
+async fn slow_git_times_out_and_keeps_the_worktree() {
+    let data_dir = TempDirectory::new("git-timeout-data");
+    let repo = TempDirectory::new("git-timeout-repo");
+    init_git_repo(&repo.path);
+    set_hook(&repo.path, "pre-commit", "#!/bin/sh\nsleep 5\n");
+    let state = AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    )
+    .with_test_git_timeout(Duration::from_millis(500), Duration::from_millis(500));
+    let app = router(state);
+
+    let (status, session) = call(
+        &app,
+        "POST",
+        "/api/sessions",
+        Some(json!({
+            "projectId": "web",
+            "kind": "agent",
+            "accountId": "max",
+            "name": "Timeout",
+            "folder": repo.path.to_string_lossy()
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let id = session["id"].as_str().expect("session id").to_owned();
+    let worktree = PathBuf::from(session["folder"].as_str().expect("folder"));
+    fs::write(worktree.join("new.txt"), "hello\n").expect("write file");
+
+    let (status, closed) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+    assert!(worktree.exists());
+    assert!(
+        closed["preview"]
+            .as_str()
+            .is_some_and(|preview| preview.contains("timed out"))
+    );
+}
+
+#[tokio::test]
+async fn branch_name_reuse_after_delete_gets_a_new_suffix() {
+    let data_dir = TempDirectory::new("branch-reuse-data");
+    let repo = TempDirectory::new("branch-reuse-repo");
+    init_git_repo(&repo.path);
+    let app = router(AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    ));
+    let body = json!({
+        "projectId": "web",
+        "kind": "agent",
+        "accountId": "max",
+        "name": "Reuse",
+        "folder": repo.path.to_string_lossy()
+    });
+
+    let (status, first) = call(&app, "POST", "/api/sessions", Some(body.clone())).await;
+    assert_eq!(status, StatusCode::OK, "{first}");
+    let first_id = first["id"].as_str().expect("session id");
+    assert_eq!(first["branch"], "elesdee/web/reuse");
+    let (status, closed) = close_session(&app, first_id).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+    let (status, delete_body) =
+        call(&app, "DELETE", &format!("/api/sessions/{first_id}"), None).await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{delete_body}");
+    assert!(git_ref_exists(&repo.path, "refs/heads/elesdee/web/reuse"));
+
+    let (status, second) = call(&app, "POST", "/api/sessions", Some(body)).await;
+    assert_eq!(status, StatusCode::OK, "{second}");
+    assert_eq!(second["short"], "reuse-2");
+    assert_eq!(second["branch"], "elesdee/web/reuse-2");
+    let second_id = second["id"].as_str().expect("session id");
+    let (status, closed) = close_session(&app, second_id).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+}
+
+#[tokio::test]
+async fn close_pushes_to_a_single_non_origin_remote() {
+    let data_dir = TempDirectory::new("upstream-data");
+    let repo = TempDirectory::new("upstream-repo");
+    let remote_dir = TempDirectory::new("upstream-remote");
+    init_git_repo(&repo.path);
+    let remote = remote_dir.path.join("remote.git");
+    init_bare_repo(&remote);
+    add_remote_named(&repo.path, "upstream", &remote);
+    let app = router(AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    ));
+
+    let (status, session) = call(
+        &app,
+        "POST",
+        "/api/sessions",
+        Some(json!({
+            "projectId": "web",
+            "kind": "agent",
+            "accountId": "max",
+            "name": "Upstream",
+            "folder": repo.path.to_string_lossy()
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let id = session["id"].as_str().expect("session id");
+    let branch = session["branch"].as_str().expect("branch");
+    let worktree = PathBuf::from(session["folder"].as_str().expect("folder"));
+    fs::write(worktree.join("new.txt"), "hello\n").expect("write file");
+
+    let (status, closed) = close_session(&app, id).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+    assert!(!worktree.exists());
+    assert!(remote_ref_exists(&remote, &format!("refs/heads/{branch}")));
+}
+
+#[tokio::test]
+async fn spawn_failure_rolls_back_the_worktree_and_branch() {
+    let data_dir = TempDirectory::new("spawn-fail-data");
+    let repo = TempDirectory::new("spawn-fail-repo");
+    init_git_repo(&repo.path);
+    let app = router(AppState::with_test_command_and_data_dir(
+        vec!["/definitely/not/a/real/command".to_owned()],
+        data_dir.path.clone(),
+    ));
+
+    let (status, body) = call(
+        &app,
+        "POST",
+        "/api/sessions",
+        Some(json!({
+            "projectId": "web",
+            "kind": "agent",
+            "accountId": "max",
+            "name": "Spawn Fail",
+            "folder": repo.path.to_string_lossy()
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert!(!git_ref_exists(
+        &repo.path,
+        "refs/heads/elesdee/web/spawn-fail"
+    ));
+    let worktrees = data_dir.path.join("worktrees");
+    assert!(
+        !worktrees.exists()
+            || fs::read_dir(worktrees)
+                .expect("worktrees directory")
+                .next()
+                .is_none()
+    );
+}
+
+#[tokio::test]
+async fn reopen_replaces_a_stale_worktree_directory() {
+    let data_dir = TempDirectory::new("stale-data");
+    let repo = TempDirectory::new("stale-repo");
+    init_git_repo(&repo.path);
+    let app = router(AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    ));
+
+    let (status, session) = call(
+        &app,
+        "POST",
+        "/api/sessions",
+        Some(json!({
+            "projectId": "web",
+            "kind": "agent",
+            "accountId": "max",
+            "name": "Stale",
+            "folder": repo.path.to_string_lossy()
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let id = session["id"].as_str().expect("session id").to_owned();
+    let worktree = PathBuf::from(session["folder"].as_str().expect("folder"));
+    let (status, closed) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+    fs::create_dir_all(&worktree).expect("create stale directory");
+
+    let (status, reopened) = call(
+        &app,
+        "POST",
+        &format!("/api/sessions/{id}/reopen"),
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{reopened}");
+    assert!(worktree.join(".git").is_file());
+
+    let (status, closed) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+}
+
+#[tokio::test]
+async fn refused_worktree_removal_keeps_it_with_a_preview() {
+    let data_dir = TempDirectory::new("refused-data");
+    let repo = TempDirectory::new("refused-repo");
+    init_git_repo(&repo.path);
+    set_hook(
+        &repo.path,
+        "pre-commit",
+        "#!/bin/sh\nprintf late > late.txt\n",
+    );
+    let app = router(AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    ));
+
+    let (status, session) = call(
+        &app,
+        "POST",
+        "/api/sessions",
+        Some(json!({
+            "projectId": "web",
+            "kind": "agent",
+            "accountId": "max",
+            "name": "Refused",
+            "folder": repo.path.to_string_lossy()
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let id = session["id"].as_str().expect("session id");
+    let worktree = PathBuf::from(session["folder"].as_str().expect("folder"));
+    fs::write(worktree.join("new.txt"), "hello\n").expect("write file");
+
+    let (status, closed) = close_session(&app, id).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+    assert!(worktree.exists());
+    assert!(worktree.join("late.txt").exists());
+    assert!(
+        closed["preview"]
+            .as_str()
+            .is_some_and(|preview| preview.contains("could not be removed"))
+    );
+}
+
+#[tokio::test]
+async fn close_with_a_missing_worktree_sets_a_truthful_preview() {
+    let data_dir = TempDirectory::new("missing-worktree-data");
+    let repo = TempDirectory::new("missing-worktree-repo");
+    init_git_repo(&repo.path);
+    let app = router(AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    ));
+
+    let (status, session) = call(
+        &app,
+        "POST",
+        "/api/sessions",
+        Some(json!({
+            "projectId": "web",
+            "kind": "agent",
+            "accountId": "max",
+            "name": "Missing Worktree",
+            "folder": repo.path.to_string_lossy()
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let id = session["id"].as_str().expect("session id");
+    let worktree = PathBuf::from(session["folder"].as_str().expect("folder"));
+    fs::remove_dir_all(&worktree).expect("remove worktree");
+
+    let (status, closed) = close_session(&app, id).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+    assert_eq!(
+        closed["preview"],
+        "Closed. The worktree folder was already missing."
+    );
+}
+
+#[tokio::test]
+async fn output_updates_the_preview_with_ansi_stripped() {
+    let app = router(AppState::with_test_command(vec![
+        "/bin/sh".to_owned(),
+        "-c".to_owned(),
+        "printf '\\033[31mHello\\033[0m  world\\n'; sleep 30".to_owned(),
+    ]));
+    let folder = TempDirectory::new("preview-ansi");
+    let session = create_terminal(&app, &folder.path).await;
+    let id = session["id"].as_str().expect("session id").to_owned();
+
+    wait_for_preview(&app, &id, "Hello world").await;
+
+    let (status, closed) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+}
+
+#[tokio::test]
+async fn rapid_output_updates_the_preview_once_per_throttle_window() {
+    let state = AppState::with_test_command(vec![
+        "/bin/sh".to_owned(),
+        "-c".to_owned(),
+        concat!(
+            "sleep 0.3; printf 'first\\n'; sleep 0.05; printf 'second\\n'; ",
+            "sleep 0.05; printf 'third\\n'; sleep 0.05; printf 'fourth\\n'; sleep 30"
+        )
+        .to_owned(),
+    ])
+    .with_test_preview_throttle(Duration::from_millis(500));
+    let app = router(state);
+    let folder = TempDirectory::new("preview-throttle");
+
+    let request = request_builder("GET", "/api/events")
+        .body(Body::empty())
+        .expect("build events request");
+    let events = app.clone().oneshot(request).await.expect("open events");
+    assert_eq!(events.status(), StatusCode::OK);
+
+    let session = create_terminal(&app, &folder.path).await;
+    let id = session["id"].as_str().expect("session id").to_owned();
+    let text = read_events_for(events.into_body(), Duration::from_millis(900)).await;
+    let values = sse_values(&text);
+    let previews = values
+        .iter()
+        .filter(|event| {
+            event["type"] == "session.updated"
+                && event["session"]["id"].as_str() == Some(id.as_str())
+        })
+        .filter_map(|event| event["session"]["preview"].as_str())
+        .filter(|preview| ["first", "second", "third", "fourth"].contains(preview))
+        .collect::<Vec<_>>();
+
+    assert_eq!(previews.len(), 1, "previews: {previews:?}");
+    assert_eq!(previews[0], "first");
+
+    let (status, closed) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+}
+
+#[tokio::test]
+async fn preview_is_saved_and_restored() {
+    let data_dir = TempDirectory::new("preview-persist-data");
+    let folder = TempDirectory::new("preview-persist-folder");
+    let command = vec![
+        "/bin/sh".to_owned(),
+        "-c".to_owned(),
+        "printf 'Saved preview\\n'; sleep 30".to_owned(),
+    ];
+    let app = router(AppState::with_test_command_and_data_dir(
+        command.clone(),
+        data_dir.path.clone(),
+    ));
+    let session = create_terminal(&app, &folder.path).await;
+    let id = session["id"].as_str().expect("session id").to_owned();
+    wait_for_preview(&app, &id, "Saved preview").await;
+
+    let (status, closed) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+    drop(app);
+
+    let restarted = router(AppState::with_test_command_and_data_dir(
+        command,
+        data_dir.path.clone(),
+    ));
+    let (status, bootstrap) = call(&restarted, "GET", "/api/bootstrap", None).await;
+    assert_eq!(status, StatusCode::OK);
+    let restored = bootstrap["sessions"]
+        .as_array()
+        .expect("sessions")
+        .iter()
+        .find(|session| session["id"] == id)
+        .expect("restored session");
+    assert_eq!(restored["preview"], "Saved preview");
+}
+
+#[tokio::test]
+async fn claude_agent_writes_private_hook_settings_and_rejects_bad_tokens() {
+    let data_dir = TempDirectory::new("claude-settings-data");
+    let repo = TempDirectory::new("claude-settings-repo");
+    init_git_repo(&repo.path);
+    let state = AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    );
+    let app = router(state.clone());
+    let session = create_claude_agent(&app, &repo.path, "Hook Settings").await;
+    let id = session["id"].as_str().expect("session id").to_owned();
+
+    let (settings_path, settings) = claude_settings(&data_dir.path, &id);
+    assert!(settings_path.is_file());
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = fs::metadata(&settings_path)
+            .expect("settings metadata")
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(mode, 0o600, "settings file mode");
+        let directory_mode = fs::metadata(settings_path.parent().expect("settings directory"))
+            .expect("settings directory metadata")
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(directory_mode, 0o700, "settings directory mode");
+    }
+
+    let token = settings_token(&settings);
+    for event in [
+        "PreToolUse",
+        "PostToolUse",
+        "Notification",
+        "Stop",
+        "UserPromptSubmit",
+        "MessageDisplay",
+    ] {
+        let hook = &settings["hooks"][event][0]["hooks"][0];
+        assert_eq!(hook["type"], "http", "{event}");
+        assert!(
+            hook["url"]
+                .as_str()
+                .expect("hook url")
+                .contains(&format!("/internal/hooks/claude/{id}?token={token}")),
+            "{event} url"
+        );
+    }
+
+    let body = json!({"hook_event_name": "UnknownEvent"});
+    let (status, response) = send_hook(&app, &id, Some(&token), body.clone()).await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{response}");
+    let (status, response) = send_hook(&app, &id, None, body.clone()).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{response}");
+    let (status, response) = send_hook(&app, &id, Some("wrong-token"), body).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{response}");
+
+    let codex = create_agent(&app, &repo.path, "codex", "Codex hooks").await;
+    let codex_id = codex["id"].as_str().expect("codex session id");
+    let (status, response) = send_hook(
+        &app,
+        codex_id,
+        Some(&token),
+        json!({"hook_event_name": "UserPromptSubmit"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{response}");
+
+    let entry = state.session(&id).expect("session entry");
+    let arguments = entry
+        .stored_command()
+        .expect("stored command")
+        .get_argv()
+        .iter()
+        .map(|argument| argument.to_string_lossy().into_owned())
+        .collect::<Vec<_>>();
+    assert!(
+        !arguments.iter().any(|argument| argument == "--settings"),
+        "test command must not gain --settings: {arguments:?}"
+    );
+
+    let (status, closed) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+    assert!(!settings_path.exists(), "settings file survived close");
+}
+
+#[tokio::test]
+async fn pre_tool_use_allow_answer_returns_and_clears_on_post_tool_use() {
+    let data_dir = TempDirectory::new("claude-allow-data");
+    let repo = TempDirectory::new("claude-allow-repo");
+    init_git_repo(&repo.path);
+    let app = router(AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    ));
+    let session = create_claude_agent(&app, &repo.path, "Allow Tool").await;
+    let id = session["id"].as_str().expect("session id").to_owned();
+    let (_, settings) = claude_settings(&data_dir.path, &id);
+    let token = settings_token(&settings);
+
+    let hook = send_hook(
+        &app,
+        &id,
+        Some(&token),
+        json!({
+            "hook_event_name": "PreToolUse",
+            "session_id": "claude-session",
+            "cwd": repo.path.to_string_lossy(),
+            "tool_name": "Bash",
+            "tool_input": {"command": "echo token=abc\nnext"},
+            "tool_use_id": "toolu-allow"
+        }),
+    );
+    let answer = async {
+        let pending = wait_for_pending(&app, &id).await;
+        assert_eq!(pending["requestId"], "toolu-allow");
+        assert_eq!(pending["tool"], "Bash");
+        assert_eq!(pending["summary"], "echo token=abc next");
+
+        let (status, body) = call(
+            &app,
+            "POST",
+            &format!("/api/sessions/{id}/permission"),
+            Some(json!({"requestId": "toolu-allow", "decision": "allow"})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+
+        let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+        let current = bootstrap_session(&bootstrap, &id);
+        assert_eq!(current["waitingFor"], "permission");
+        assert_eq!(current["pendingPermission"]["requestId"], "toolu-allow");
+    };
+
+    let ((hook_status, hook_body), ()) = tokio::join!(hook, answer);
+    assert_eq!(hook_status, StatusCode::OK, "{hook_body}");
+    let output = &hook_body["hookSpecificOutput"];
+    assert_eq!(output["hookEventName"], "PreToolUse");
+    assert_eq!(output["permissionDecision"], "allow");
+    assert_eq!(
+        output["permissionDecisionReason"],
+        "The user allowed this action."
+    );
+
+    let (status, body) = send_hook(
+        &app,
+        &id,
+        Some(&token),
+        json!({"hook_event_name": "PostToolUse", "tool_use_id": "toolu-allow"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+
+    let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    let current = bootstrap_session(&bootstrap, &id);
+    assert_eq!(current["pendingPermission"], Value::Null);
+    assert_eq!(current["waitingFor"], Value::Null);
+    assert_eq!(current["workState"], "working");
+    assert_eq!(current["status"], "active");
+}
+
+#[tokio::test]
+async fn pre_tool_use_deny_allows_only_one_answer() {
+    let data_dir = TempDirectory::new("claude-deny-data");
+    let repo = TempDirectory::new("claude-deny-repo");
+    init_git_repo(&repo.path);
+    let app = router(AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    ));
+    let session = create_claude_agent(&app, &repo.path, "Deny Tool").await;
+    let id = session["id"].as_str().expect("session id").to_owned();
+    let (_, settings) = claude_settings(&data_dir.path, &id);
+    let token = settings_token(&settings);
+
+    let hook = send_hook(
+        &app,
+        &id,
+        Some(&token),
+        json!({
+            "hook_event_name": "PreToolUse",
+            "tool_name": "Edit",
+            "tool_input": {"file_path": "/tmp/example.txt", "old_string": "do-not-store-this"},
+            "tool_use_id": "toolu-deny"
+        }),
+    );
+    let answer = async {
+        let pending = wait_for_pending(&app, &id).await;
+        assert_eq!(pending["tool"], "Edit");
+        assert_eq!(pending["summary"], "/tmp/example.txt");
+
+        let (status, body) = call(
+            &app,
+            "POST",
+            &format!("/api/sessions/{id}/permission"),
+            Some(json!({"requestId": "other-id", "decision": "deny"})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CONFLICT, "{body}");
+
+        let (status, body) = call(
+            &app,
+            "POST",
+            &format!("/api/sessions/{id}/permission"),
+            Some(json!({"requestId": "toolu-deny", "decision": "deny"})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+
+        let (status, body) = call(
+            &app,
+            "POST",
+            &format!("/api/sessions/{id}/permission"),
+            Some(json!({"requestId": "toolu-deny", "decision": "allow"})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CONFLICT, "{body}");
+        assert!(
+            body["error"]
+                .as_str()
+                .is_some_and(|error| error.contains("already answered")),
+            "{body}"
+        );
+    };
+
+    let ((hook_status, hook_body), ()) = tokio::join!(hook, answer);
+    assert_eq!(hook_status, StatusCode::OK, "{hook_body}");
+    assert_eq!(
+        hook_body["hookSpecificOutput"]["permissionDecision"],
+        "deny"
+    );
+    assert_eq!(
+        hook_body["hookSpecificOutput"]["permissionDecisionReason"],
+        "The user denied this action."
+    );
+
+    let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    assert!(
+        !bootstrap.to_string().contains("do-not-store-this"),
+        "raw tool input leaked into session state"
+    );
+
+    let (status, body) = call(
+        &app,
+        "POST",
+        "/api/sessions/does-not-exist/permission",
+        Some(json!({"requestId": "toolu-deny", "decision": "deny"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+}
+
+#[tokio::test]
+async fn unanswered_permission_expires_and_is_denied() {
+    let data_dir = TempDirectory::new("claude-timeout-data");
+    let repo = TempDirectory::new("claude-timeout-repo");
+    init_git_repo(&repo.path);
+    let app = router(
+        AppState::with_test_command_and_data_dir(
+            vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+            data_dir.path.clone(),
+        )
+        .with_test_permission_timeout(Duration::from_millis(150)),
+    );
+    let session = create_claude_agent(&app, &repo.path, "Timeout Tool").await;
+    let id = session["id"].as_str().expect("session id").to_owned();
+    let (_, settings) = claude_settings(&data_dir.path, &id);
+    let token = settings_token(&settings);
+
+    let (status, body) = send_hook(
+        &app,
+        &id,
+        Some(&token),
+        json!({
+            "hook_event_name": "PreToolUse",
+            "tool_name": "Bash",
+            "tool_input": {"command": "echo hello"},
+            "tool_use_id": "toolu-timeout"
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["hookSpecificOutput"]["permissionDecision"], "deny");
+    assert_eq!(
+        body["hookSpecificOutput"]["permissionDecisionReason"],
+        "No answer from the user. The request expired."
+    );
+
+    let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    let current = bootstrap_session(&bootstrap, &id);
+    assert_eq!(current["pendingPermission"], Value::Null);
+    assert_eq!(current["waitingFor"], Value::Null);
+
+    let (status, body) = call(
+        &app,
+        "POST",
+        &format!("/api/sessions/{id}/permission"),
+        Some(json!({"requestId": "toolu-timeout", "decision": "allow"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+}
+
+#[tokio::test]
+async fn closing_a_session_denies_a_pending_permission_and_removes_settings() {
+    let data_dir = TempDirectory::new("claude-close-data");
+    let repo = TempDirectory::new("claude-close-repo");
+    init_git_repo(&repo.path);
+    let app = router(AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    ));
+    let session = create_claude_agent(&app, &repo.path, "Close Tool").await;
+    let id = session["id"].as_str().expect("session id").to_owned();
+    let (settings_path, settings) = claude_settings(&data_dir.path, &id);
+    let token = settings_token(&settings);
+
+    let hook = send_hook(
+        &app,
+        &id,
+        Some(&token),
+        json!({
+            "hook_event_name": "PreToolUse",
+            "tool_name": "Bash",
+            "tool_input": {"command": "echo close"},
+            "tool_use_id": "toolu-close"
+        }),
+    );
+    let close = async {
+        wait_for_pending(&app, &id).await;
+        let (status, closed) = close_session(&app, &id).await;
+        assert_eq!(status, StatusCode::OK, "{closed}");
+    };
+
+    let ((hook_status, hook_body), ()) = tokio::join!(hook, close);
+    assert_eq!(hook_status, StatusCode::OK, "{hook_body}");
+    assert_eq!(
+        hook_body["hookSpecificOutput"]["permissionDecision"],
+        "deny"
+    );
+    assert_eq!(
+        hook_body["hookSpecificOutput"]["permissionDecisionReason"],
+        "The session was closed."
+    );
+
+    let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    let current = bootstrap_session(&bootstrap, &id);
+    assert_eq!(current["status"], "closed");
+    assert_eq!(current["pendingPermission"], Value::Null);
+    assert!(!settings_path.exists(), "settings file survived close");
+
+    let (status, body) = send_hook(
+        &app,
+        &id,
+        Some(&token),
+        json!({"hook_event_name": "MessageDisplay", "message": "late"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+}
+
+#[tokio::test]
+async fn agent_exit_denies_a_pending_permission() {
+    let data_dir = TempDirectory::new("claude-exit-data");
+    let repo = TempDirectory::new("claude-exit-repo");
+    init_git_repo(&repo.path);
+    let app = router(AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 1".to_owned()],
+        data_dir.path.clone(),
+    ));
+    let session = create_claude_agent(&app, &repo.path, "Exit Tool").await;
+    let id = session["id"].as_str().expect("session id").to_owned();
+    let (_, settings) = claude_settings(&data_dir.path, &id);
+    let token = settings_token(&settings);
+
+    let (status, body) = send_hook(
+        &app,
+        &id,
+        Some(&token),
+        json!({
+            "hook_event_name": "PreToolUse",
+            "tool_name": "Bash",
+            "tool_input": {"command": "echo exit"},
+            "tool_use_id": "toolu-exit"
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        body["hookSpecificOutput"]["permissionDecisionReason"],
+        "The agent exited."
+    );
+
+    let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    let current = bootstrap_session(&bootstrap, &id);
+    assert_eq!(current["status"], "active");
+    assert_eq!(current["workState"], "done");
+    assert_eq!(current["pendingPermission"], Value::Null);
+    assert_eq!(current["waitingFor"], Value::Null);
+}
+
+#[tokio::test]
+async fn claude_notifications_messages_and_stop_update_session_state() {
+    let data_dir = TempDirectory::new("claude-state-data");
+    let repo = TempDirectory::new("claude-state-repo");
+    init_git_repo(&repo.path);
+    let app = router(AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    ));
+    let session = create_claude_agent(&app, &repo.path, "Hook State").await;
+    let id = session["id"].as_str().expect("session id").to_owned();
+    let (_, settings) = claude_settings(&data_dir.path, &id);
+    let token = settings_token(&settings);
+
+    let (status, body) = send_hook(
+        &app,
+        &id,
+        Some(&token),
+        json!({
+            "hook_event_name": "Notification",
+            "message": "Claude needs your permission to use Bash"
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+    let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    let current = bootstrap_session(&bootstrap, &id);
+    assert_eq!(current["waitingFor"], "permission");
+    assert_eq!(current["pendingPermission"], Value::Null);
+
+    let (status, body) = send_hook(
+        &app,
+        &id,
+        Some(&token),
+        json!({"hook_event_name": "MessageDisplay", "message": "Building the app..."}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+    let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    assert_eq!(
+        bootstrap_session(&bootstrap, &id)["preview"],
+        "Building the app..."
+    );
+
+    let (status, body) = send_hook(
+        &app,
+        &id,
+        Some(&token),
+        json!({
+            "hook_event_name": "Stop",
+            "last_assistant_message": "Build finished.\nAll tests pass."
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+    let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    let current = bootstrap_session(&bootstrap, &id);
+    assert_eq!(current["workState"], "done");
+    assert_eq!(current["waitingFor"], Value::Null);
+    assert_eq!(current["preview"], "All tests pass.");
+
+    let (status, body) = send_hook(
+        &app,
+        &id,
+        Some(&token),
+        json!({"hook_event_name": "UserPromptSubmit"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+    let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    assert_eq!(bootstrap_session(&bootstrap, &id)["workState"], "working");
+
+    let (status, closed) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+}
+
+#[tokio::test]
+async fn dropped_hook_connection_clears_the_pending_permission() {
+    let data_dir = TempDirectory::new("claude-cancel-data");
+    let repo = TempDirectory::new("claude-cancel-repo");
+    init_git_repo(&repo.path);
+    let app = router(AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    ));
+    let session = create_claude_agent(&app, &repo.path, "Cancel Tool").await;
+    let id = session["id"].as_str().expect("session id").to_owned();
+    let (_, settings) = claude_settings(&data_dir.path, &id);
+    let token = settings_token(&settings);
+
+    let request = request_builder(
+        "POST",
+        &format!("/internal/hooks/claude/{id}?token={token}"),
+    )
+    .header(header::CONTENT_TYPE, "application/json")
+    .body(Body::from(
+        json!({
+            "hook_event_name": "PreToolUse",
+            "tool_name": "Bash",
+            "tool_input": {"command": "echo cancel"},
+            "tool_use_id": "toolu-cancel"
+        })
+        .to_string(),
+    ))
+    .expect("build hook request");
+    let hook_app = app.clone();
+    let hook = tokio::spawn(async move { send(&hook_app, request).await });
+
+    wait_for_pending(&app, &id).await;
+    hook.abort();
+    assert!(hook.await.is_err(), "hook task should be cancelled");
+
+    let deadline = tokio::time::Instant::now() + TIMEOUT;
+    loop {
+        let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+        if bootstrap_session(&bootstrap, &id)["pendingPermission"] == Value::Null {
+            break;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "pending permission survived a dropped hook"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+
+    let (status, body) = call(
+        &app,
+        "POST",
+        &format!("/api/sessions/{id}/permission"),
+        Some(json!({"requestId": "toolu-cancel", "decision": "allow"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+}
+
+#[tokio::test]
+async fn reopen_recreates_claude_hook_settings_with_a_new_token() {
+    let data_dir = TempDirectory::new("claude-reopen-data");
+    let repo = TempDirectory::new("claude-reopen-repo");
+    init_git_repo(&repo.path);
+    let app = router(AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    ));
+    let session = create_claude_agent(&app, &repo.path, "Reopen Hooks").await;
+    let id = session["id"].as_str().expect("session id").to_owned();
+    let (settings_path, settings) = claude_settings(&data_dir.path, &id);
+    let first_token = settings_token(&settings);
+
+    let (status, closed) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+    assert!(!settings_path.exists());
+
+    let (status, reopened) = call(
+        &app,
+        "POST",
+        &format!("/api/sessions/{id}/reopen"),
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{reopened}");
+    assert!(settings_path.is_file(), "settings file was not recreated");
+
+    let (_, settings) = claude_settings(&data_dir.path, &id);
+    let second_token = settings_token(&settings);
+    assert_ne!(first_token, second_token);
+
+    let body = json!({"hook_event_name": "UserPromptSubmit"});
+    let (status, response) = send_hook(&app, &id, Some(&first_token), body.clone()).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{response}");
+    let (status, response) = send_hook(&app, &id, Some(&second_token), body).await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{response}");
+
+    let (status, closed) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+}
+
+async fn create_agent(app: &Router, repo: &Path, account: &str, name: &str) -> Value {
+    let (status, session) = call(
+        app,
+        "POST",
+        "/api/sessions",
+        Some(json!({
+            "projectId": "web",
+            "kind": "agent",
+            "accountId": account,
+            "name": name,
+            "folder": repo.to_string_lossy()
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "create agent session: {session}");
+    session
+}
+
+async fn create_claude_agent(app: &Router, repo: &Path, name: &str) -> Value {
+    create_agent(app, repo, "max", name).await
+}
+
+fn claude_settings(data_dir: &Path, id: &str) -> (PathBuf, Value) {
+    let path = data_dir.join("claude-settings").join(format!("{id}.json"));
+    let text = fs::read_to_string(&path).expect("read settings file");
+    let settings = serde_json::from_str(&text).expect("parse settings file");
+    (path, settings)
+}
+
+fn settings_token(settings: &Value) -> String {
+    let url = settings["hooks"]["PreToolUse"][0]["hooks"][0]["url"]
+        .as_str()
+        .expect("hook url");
+    url.split_once("token=")
+        .expect("token in hook url")
+        .1
+        .to_owned()
+}
+
+async fn send_hook(
+    app: &Router,
+    id: &str,
+    token: Option<&str>,
+    body: Value,
+) -> (StatusCode, Value) {
+    let uri = match token {
+        Some(token) => format!("/internal/hooks/claude/{id}?token={token}"),
+        None => format!("/internal/hooks/claude/{id}"),
+    };
+    call(app, "POST", &uri, Some(body)).await
+}
+
+async fn wait_for_pending(app: &Router, id: &str) -> Value {
+    let deadline = tokio::time::Instant::now() + TIMEOUT;
+    loop {
+        let (status, bootstrap) = call(app, "GET", "/api/bootstrap", None).await;
+        assert_eq!(status, StatusCode::OK);
+        let current = bootstrap_session(&bootstrap, id);
+        if current["pendingPermission"].is_object() {
+            return current["pendingPermission"].clone();
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "no pending permission for {id}"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+fn bootstrap_session<'a>(bootstrap: &'a Value, id: &str) -> &'a Value {
+    bootstrap["sessions"]
+        .as_array()
+        .expect("sessions")
+        .iter()
+        .find(|session| session["id"] == id)
+        .expect("session in bootstrap")
+}
+
+fn run_git(dir: &Path, arguments: &[&str]) -> std::process::Output {
+    Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(arguments)
+        .output()
+        .expect("run git")
+}
+
+fn git_stdout(dir: &Path, arguments: &[&str]) -> String {
+    let output = run_git(dir, arguments);
+    assert!(output.status.success(), "git {arguments:?} failed");
+    String::from_utf8_lossy(&output.stdout).trim().to_owned()
+}
+
+fn git_ref_exists(repo: &Path, reference: &str) -> bool {
+    run_git(repo, &["rev-parse", "--verify", reference])
+        .status
+        .success()
+}
+
+fn init_git_repo(repo: &Path) {
+    let output = run_git(repo, &["init"]);
+    assert!(output.status.success(), "git init failed");
+    fs::write(repo.join("README.md"), "initial\n").expect("write README");
+    assert!(run_git(repo, &["add", "."]).status.success());
+    let commit = run_git(
+        repo,
+        &[
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.com",
+            "commit",
+            "-m",
+            "initial",
+        ],
+    );
+    assert!(commit.status.success(), "git initial commit failed");
+    assert!(
+        run_git(repo, &["config", "user.name", "Test"])
+            .status
+            .success()
+    );
+    assert!(
+        run_git(repo, &["config", "user.email", "test@example.com"])
+            .status
+            .success()
+    );
+}
+
+fn init_bare_repo(path: &Path) {
+    let output = Command::new("git")
+        .args(["init", "--bare"])
+        .arg(path)
+        .output()
+        .expect("run git init --bare");
+    assert!(output.status.success(), "git init --bare failed");
+}
+
+fn add_origin(repo: &Path, remote: &Path) {
+    add_remote_named(repo, "origin", remote);
+}
+
+fn add_remote_named(repo: &Path, name: &str, remote: &Path) {
+    let remote = remote.to_string_lossy();
+    let output = run_git(repo, &["remote", "add", name, remote.as_ref()]);
+    assert!(output.status.success(), "git remote add failed");
+}
+
+fn set_hook(repo: &Path, name: &str, script: &str) {
+    let hooks = repo.join(".git").join("hooks");
+    fs::create_dir_all(&hooks).expect("create hooks directory");
+    let path = hooks.join(name);
+    fs::write(&path, script).expect("write hook");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o755))
+            .expect("make hook executable");
+    }
+}
+
+fn remote_ref_exists(remote: &Path, reference: &str) -> bool {
+    Command::new("git")
+        .arg("--git-dir")
+        .arg(remote)
+        .args(["rev-parse", "--verify", reference])
+        .output()
+        .is_ok_and(|output| output.status.success())
+}
+
+fn child_pid(text: &str) -> Option<u32> {
+    let mut remaining = text;
+    while let Some(position) = remaining.find("CHILD:") {
+        let after = &remaining[position + "CHILD:".len()..];
+        let digits = after
+            .chars()
+            .take_while(char::is_ascii_digit)
+            .collect::<String>();
+        if let Ok(pid) = digits.parse::<u32>() {
+            return Some(pid);
+        }
+        remaining = after;
+    }
+    None
+}
+
+#[cfg(unix)]
+fn process_alive(pid: u32) -> bool {
+    let Ok(pid) = i32::try_from(pid) else {
+        return false;
+    };
+    unsafe { libc::kill(pid, 0) == 0 }
+}

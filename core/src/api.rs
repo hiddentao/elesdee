@@ -1,0 +1,1502 @@
+use std::convert::Infallible;
+use std::ffi::OsString;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::time::Duration;
+
+use axum::extract::rejection::{JsonRejection, QueryRejection};
+use axum::extract::{Path as UrlPath, Query, Request, State};
+use axum::http::header::{
+    ACCESS_CONTROL_ALLOW_HEADERS, ACCESS_CONTROL_ALLOW_METHODS, ACCESS_CONTROL_ALLOW_ORIGIN,
+    ACCESS_CONTROL_MAX_AGE, CACHE_CONTROL, CONTENT_TYPE, HOST, ORIGIN, VARY,
+};
+use axum::http::{HeaderName, HeaderValue, Method, StatusCode};
+use axum::middleware::{self, Next};
+use axum::response::sse::{Event, Sse};
+use axum::response::{IntoResponse, Response};
+use axum::routing::{get, patch, post};
+use axum::{Json, Router};
+use chrono::{SecondsFormat, Utc};
+use futures::Stream;
+use portable_pty::CommandBuilder;
+use serde::{Deserialize, Serialize};
+use tokio::sync::broadcast;
+use tokio::time::{MissedTickBehavior, interval_at};
+
+use crate::claude;
+use crate::clients;
+use crate::git;
+use crate::seed;
+use crate::sessions::{
+    self, CloseFailure, InputFailure, PermissionAnswerFailure, ResizeFailure, SessionEntry,
+    TerminalSize,
+};
+use crate::shortcuts;
+use crate::slug::slugify;
+use crate::state::{
+    AppState, Bootstrap, Client, DeleteSessionFailure, HealthResponse, PendingPermission,
+    PermissionDecision, Project, Session, SessionEvent, SessionKind, SessionState, WorkState,
+};
+
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+const SSE_HEARTBEAT: Duration = Duration::from_secs(15);
+const ALLOWED_ORIGINS: [&str; 5] = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "tauri://localhost",
+    "http://tauri.localhost",
+    "https://tauri.localhost",
+];
+const NOSNIFF: HeaderName = HeaderName::from_static("x-content-type-options");
+
+#[derive(Debug)]
+pub struct ApiError {
+    status: StatusCode,
+    message: String,
+}
+
+impl ApiError {
+    fn bad_request(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::BAD_REQUEST,
+            message: message.into(),
+        }
+    }
+
+    fn forbidden(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::FORBIDDEN,
+            message: message.into(),
+        }
+    }
+
+    fn not_found(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::NOT_FOUND,
+            message: message.into(),
+        }
+    }
+
+    fn conflict(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::CONFLICT,
+            message: message.into(),
+        }
+    }
+
+    fn unsupported_media_type(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            message: message.into(),
+        }
+    }
+
+    fn unprocessable(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::UNPROCESSABLE_ENTITY,
+            message: message.into(),
+        }
+    }
+
+    fn too_many_requests(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::TOO_MANY_REQUESTS,
+            message: message.into(),
+        }
+    }
+
+    fn request_timeout(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::REQUEST_TIMEOUT,
+            message: message.into(),
+        }
+    }
+
+    fn method_not_allowed(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::METHOD_NOT_ALLOWED,
+            message: message.into(),
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct ErrorBody {
+    error: String,
+}
+
+impl IntoResponse for ApiError {
+    fn into_response(self) -> Response {
+        (
+            self.status,
+            Json(ErrorBody {
+                error: self.message,
+            }),
+        )
+            .into_response()
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CreateSessionRequest {
+    project_id: String,
+    kind: SessionKind,
+    account_id: Option<String>,
+    name: Option<String>,
+    folder: Option<String>,
+    cols: Option<u16>,
+    rows: Option<u16>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ResizeRequest {
+    cols: u16,
+    rows: u16,
+}
+
+#[derive(Debug, Deserialize)]
+struct CreateProjectRequest {
+    name: String,
+    folder: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct InputRequest {
+    data: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct CloseRequest {}
+
+#[derive(Debug, Deserialize)]
+struct RenameRequest {
+    name: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct ReopenRequest {}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PermissionRequest {
+    request_id: String,
+    decision: PermissionDecision,
+}
+
+#[derive(Debug, Deserialize)]
+struct HookQuery {
+    token: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct HookInput {
+    hook_event_name: String,
+    #[serde(default)]
+    tool_name: Option<String>,
+    #[serde(default)]
+    tool_input: Option<serde_json::Value>,
+    #[serde(default)]
+    tool_use_id: Option<String>,
+    #[serde(default)]
+    notification_type: Option<String>,
+    #[serde(default)]
+    message: Option<serde_json::Value>,
+    #[serde(default)]
+    content: Option<serde_json::Value>,
+    #[serde(default)]
+    text: Option<serde_json::Value>,
+    #[serde(default)]
+    last_assistant_message: Option<String>,
+}
+
+struct PreparedSession {
+    session: Session,
+    folder: PathBuf,
+    command: CommandBuilder,
+    repo_root: Option<PathBuf>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OutputQuery {
+    after: Option<String>,
+}
+
+pub fn router(state: AppState) -> Router {
+    let streaming = Router::new()
+        .route("/api/sessions/{id}/output", get(session_output))
+        .route("/api/events", get(events))
+        .route("/internal/hooks/claude/{id}", post(claude_hook));
+
+    let regular = Router::new()
+        .route("/api/health", get(health))
+        .route("/api/bootstrap", get(bootstrap))
+        .route("/api/projects", post(create_project))
+        .route("/api/sessions", post(create_session))
+        .route(
+            "/api/sessions/{id}",
+            patch(rename_session).delete(delete_session),
+        )
+        .route("/api/sessions/{id}/close", post(close_session))
+        .route("/api/sessions/{id}/input", post(session_input))
+        .route("/api/sessions/{id}/resize", post(resize_session))
+        .route("/api/sessions/{id}/reopen", post(reopen_session))
+        .route("/api/sessions/{id}/permission", post(answer_permission))
+        .layer(middleware::from_fn(request_timeout));
+
+    regular
+        .merge(streaming)
+        .method_not_allowed_fallback(method_not_allowed)
+        .fallback(not_found)
+        .layer(middleware::from_fn(request_guard))
+        .with_state(state)
+}
+
+async fn request_guard(request: Request, next: Next) -> Response {
+    let origin = match validate_host_and_origin(&request) {
+        Ok(origin) => origin,
+        Err(error) => return security_headers(error.into_response()),
+    };
+
+    if request.method() == Method::POST || request.method() == Method::PATCH {
+        if let Err(error) = validate_content_type(&request) {
+            let mut response = error.into_response();
+            apply_cors(&mut response, origin.as_deref(), false);
+            return security_headers(response);
+        }
+    }
+
+    if request.method() == Method::OPTIONS {
+        let mut response = StatusCode::NO_CONTENT.into_response();
+        apply_cors(&mut response, origin.as_deref(), true);
+        return security_headers(response);
+    }
+
+    let mut response = next.run(request).await;
+    apply_cors(&mut response, origin.as_deref(), false);
+    security_headers(response)
+}
+
+async fn request_timeout(request: Request, next: Next) -> Response {
+    match tokio::time::timeout(REQUEST_TIMEOUT, next.run(request)).await {
+        Ok(response) => response,
+        Err(_) => ApiError::request_timeout("Request timed out.").into_response(),
+    }
+}
+
+fn validate_host_and_origin(request: &Request) -> Result<Option<String>, ApiError> {
+    let host = request
+        .headers()
+        .get(HOST)
+        .and_then(|value| value.to_str().ok())
+        .ok_or_else(|| ApiError::forbidden("Missing or invalid Host header."))?;
+    if !allowed_host(host) {
+        return Err(ApiError::forbidden("Host is not allowed."));
+    }
+
+    match request.headers().get(ORIGIN) {
+        Some(origin) => {
+            let origin = origin
+                .to_str()
+                .map_err(|_| ApiError::forbidden("Origin is not allowed."))?;
+            if !ALLOWED_ORIGINS.contains(&origin) {
+                return Err(ApiError::forbidden("Origin is not allowed."));
+            }
+            Ok(Some(origin.to_owned()))
+        }
+        None => Ok(None),
+    }
+}
+
+fn validate_content_type(request: &Request) -> Result<(), ApiError> {
+    let content_type = request
+        .headers()
+        .get(CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .ok_or_else(|| {
+            ApiError::unsupported_media_type("Content-Type must be application/json.")
+        })?;
+    let media_type = content_type.split(';').next().unwrap_or_default().trim();
+    if !media_type.eq_ignore_ascii_case("application/json") {
+        return Err(ApiError::unsupported_media_type(
+            "Content-Type must be application/json.",
+        ));
+    }
+    Ok(())
+}
+
+fn apply_cors(response: &mut Response, origin: Option<&str>, preflight: bool) {
+    if let Some(origin) = origin {
+        if let Ok(value) = HeaderValue::from_str(origin) {
+            response
+                .headers_mut()
+                .insert(ACCESS_CONTROL_ALLOW_ORIGIN, value);
+        }
+        response
+            .headers_mut()
+            .insert(VARY, HeaderValue::from_static("Origin"));
+    }
+
+    if preflight {
+        response.headers_mut().insert(
+            ACCESS_CONTROL_ALLOW_METHODS,
+            HeaderValue::from_static("GET, POST, PATCH, DELETE, OPTIONS"),
+        );
+        response.headers_mut().insert(
+            ACCESS_CONTROL_ALLOW_HEADERS,
+            HeaderValue::from_static("content-type"),
+        );
+        response
+            .headers_mut()
+            .insert(ACCESS_CONTROL_MAX_AGE, HeaderValue::from_static("600"));
+    }
+}
+
+fn allowed_host(value: &str) -> bool {
+    let value = value.trim();
+
+    if let Some(rest) = value.strip_prefix('[') {
+        let Some((inside, tail)) = rest.split_once(']') else {
+            return false;
+        };
+        if inside != "::1" {
+            return false;
+        }
+        return match tail {
+            "" => true,
+            _ => tail.strip_prefix(':').is_some_and(valid_port),
+        };
+    }
+
+    let (host, port) = match value.rsplit_once(':') {
+        Some((host, port)) => {
+            if host.contains(':') {
+                return false;
+            }
+            (host, Some(port))
+        }
+        None => (value, None),
+    };
+
+    let host_allowed = host.eq_ignore_ascii_case("localhost") || host == "127.0.0.1";
+    let port_allowed = port.is_none_or(valid_port);
+    host_allowed && port_allowed
+}
+
+fn valid_port(port: &str) -> bool {
+    !port.is_empty()
+        && port.bytes().all(|byte| byte.is_ascii_digit())
+        && port.parse::<u16>().is_ok()
+}
+
+fn security_headers(mut response: Response) -> Response {
+    response
+        .headers_mut()
+        .insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
+        .headers_mut()
+        .insert(NOSNIFF, HeaderValue::from_static("nosniff"));
+    response
+}
+
+async fn health(State(state): State<AppState>) -> Json<HealthResponse> {
+    let agents = state.health_checks().await;
+    Json(HealthResponse {
+        ok: true,
+        version: env!("CARGO_PKG_VERSION").to_owned(),
+        agents,
+    })
+}
+
+async fn bootstrap(State(state): State<AppState>) -> Json<Bootstrap> {
+    Json(state.bootstrap())
+}
+
+async fn create_project(
+    State(state): State<AppState>,
+    body: Result<Json<CreateProjectRequest>, JsonRejection>,
+) -> Result<Json<Project>, ApiError> {
+    let Json(request) = body.map_err(invalid_json)?;
+    let name = request.name.trim();
+    if name.is_empty() {
+        return Err(ApiError::bad_request("Project name is required."));
+    }
+
+    let folder = canonical_directory(seed::expand_tilde(request.folder.trim()))?;
+    let project = state
+        .add_project(name.to_owned(), path_string(&folder))
+        .map_err(|_| ApiError::conflict("A project with this folder already exists."))?;
+    state.save();
+
+    Ok(Json(project))
+}
+
+async fn create_session(
+    State(state): State<AppState>,
+    body: Result<Json<CreateSessionRequest>, JsonRejection>,
+) -> Result<Json<Session>, ApiError> {
+    let Json(request) = body.map_err(invalid_json)?;
+    let size = requested_size(request.cols, request.rows)?;
+    let project = state
+        .project(&request.project_id)
+        .ok_or_else(|| ApiError::not_found("Unknown project."))?;
+
+    let mut prepared = match request.kind {
+        SessionKind::Terminal => prepare_terminal(&state, &request, &project)?,
+        SessionKind::Agent => prepare_agent(&state, &request, &project).await?,
+    };
+    let is_claude_agent = prepared.session.kind == SessionKind::Agent
+        && prepared.session.client == Some(Client::ClaudeCode);
+    let identity_guard = if prepared.repo_root.is_some() {
+        Some(state.lock_agent_identity().await)
+    } else {
+        None
+    };
+
+    let output_budget = state.output_budget();
+    let session_id = prepared.session.id.clone();
+    let entry = Arc::new(SessionEntry::new(
+        prepared.session,
+        Arc::clone(&output_budget),
+        sessions::SessionRuntimeConfig::new(state.event_sender(), state.preview_throttle()),
+    ));
+    state.insert_session(Arc::clone(&entry)).map_err(|_| {
+        ApiError::too_many_requests("Session limit reached. Close a session first.")
+    })?;
+    output_budget.register(&entry);
+
+    let mut worktree_cleanup = None;
+    let folder = if let Some(repo_root) = prepared.repo_root {
+        let current = entry.session();
+        let Some(data_dir) = state.data_dir().map(Path::to_path_buf) else {
+            state.remove_session(&session_id);
+            return Err(ApiError::unprocessable(
+                "Agent sessions need a data directory.",
+            ));
+        };
+        let base = slugify(&current.name, "session");
+        let project_part = slugify(&current.project_id, "project");
+        let mut counter = 1_u32;
+        let branch = loop {
+            let candidate = if counter == 1 {
+                base.clone()
+            } else {
+                format!("{base}-{counter}")
+            };
+            let branch = format!("elesdee/{project_part}/{candidate}");
+            if !git::branch_exists(repo_root.clone(), branch.clone(), state.git_timeout()).await
+                && state.try_reserve_short(&entry, &current.project_id, &candidate)
+            {
+                break branch;
+            }
+            counter = counter.saturating_add(1);
+        };
+
+        let worktrees_root = data_dir.join("worktrees");
+        let worktree = worktrees_root.join(&current.id);
+        if git::create_worktree(
+            repo_root.clone(),
+            worktrees_root,
+            worktree.clone(),
+            branch.clone(),
+            state.git_timeout(),
+        )
+        .await
+        .is_err()
+        {
+            state.remove_session(&session_id);
+            return Err(ApiError::unprocessable(
+                "Could not create the Git worktree.",
+            ));
+        }
+        worktree_cleanup = Some((repo_root.clone(), worktree.clone(), branch.clone()));
+        entry.set_agent_worktree(path_string(&worktree), branch, path_string(&repo_root));
+        worktree
+    } else {
+        prepared.folder
+    };
+    drop(identity_guard);
+
+    if is_claude_agent {
+        match install_claude_settings(&state, &entry, &session_id) {
+            Ok(settings_path) => {
+                if state.command_override().is_none() {
+                    claude::add_settings_argument(&mut prepared.command, &settings_path);
+                }
+            }
+            Err(error) => {
+                if let Some((repo_root, worktree, branch)) = worktree_cleanup {
+                    git::rollback_worktree(repo_root, worktree, branch, state.git_timeout()).await;
+                }
+                state.remove_session(&session_id);
+                return Err(error);
+            }
+        }
+    }
+
+    if let Err(error) = sessions::spawn(
+        &entry,
+        prepared.command,
+        &folder,
+        size,
+        state.stall_writer_for_tests(),
+        state.event_sender(),
+    ) {
+        if let Some((repo_root, worktree, branch)) = worktree_cleanup {
+            git::rollback_worktree(repo_root, worktree, branch, state.git_timeout()).await;
+        }
+        entry.remove_claude_settings();
+        state.remove_session(&session_id);
+        return Err(ApiError::unprocessable(error));
+    }
+
+    let session = entry.session();
+    state.emit(SessionEvent::updated(session.clone()));
+    state.save();
+    Ok(Json(session))
+}
+
+async fn close_session(
+    State(state): State<AppState>,
+    UrlPath(id): UrlPath<String>,
+    body: Result<Json<CloseRequest>, JsonRejection>,
+) -> Result<Json<Session>, ApiError> {
+    let _ = body.map_err(invalid_json)?;
+    let entry = state
+        .session(&id)
+        .ok_or_else(|| ApiError::not_found("Unknown session."))?;
+    let _guard = entry
+        .try_lifecycle()
+        .ok_or_else(|| ApiError::conflict("Session is closing."))?;
+    if entry.is_closing() {
+        return Err(ApiError::conflict("Session is closing."));
+    }
+
+    let closing = entry.session();
+    let should_wait = entry.begin_close().map_err(|failure| match failure {
+        CloseFailure::AlreadyClosed => ApiError::conflict("Session is already closed."),
+        CloseFailure::Closing => ApiError::conflict("Session is closing."),
+    })?;
+
+    let agent_stopped = closing.kind != SessionKind::Agent
+        || !should_wait
+        || wait_for_process_exit(&entry, Duration::from_secs(2)).await;
+
+    let preview = if closing.kind == SessionKind::Agent {
+        if !agent_stopped {
+            Some("Closed. The worktree was kept because the agent did not stop.".to_owned())
+        } else {
+            match (entry.repo_root(), closing.branch.as_deref()) {
+                (Some(repo_root), Some(branch)) => {
+                    let outcome = git::close_worktree(
+                        PathBuf::from(repo_root),
+                        PathBuf::from(&closing.folder),
+                        branch.to_owned(),
+                        closing.name.clone(),
+                        git::GitTimeouts {
+                            local: state.git_timeout(),
+                            push: state.git_push_timeout(),
+                        },
+                    )
+                    .await;
+                    Some(outcome.preview().to_owned())
+                }
+                _ => Some("Closed. The worktree information is unavailable.".to_owned()),
+            }
+        }
+    } else {
+        None
+    };
+
+    let session = entry.finish_close(preview.as_deref());
+    state.release_activation();
+    state.emit(SessionEvent::updated(session.clone()));
+    state.save();
+    Ok(Json(session))
+}
+
+async fn wait_for_process_exit(entry: &SessionEntry, timeout: Duration) -> bool {
+    let deadline = tokio::time::Instant::now() + timeout;
+    loop {
+        if entry.process_exited() {
+            return true;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return false;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+async fn rename_session(
+    State(state): State<AppState>,
+    UrlPath(id): UrlPath<String>,
+    body: Result<Json<RenameRequest>, JsonRejection>,
+) -> Result<Json<Session>, ApiError> {
+    let Json(request) = body.map_err(invalid_json)?;
+    let name = request.name.trim();
+    if name.is_empty() || name.chars().count() > 64 {
+        return Err(ApiError::bad_request(
+            "Session name must be between 1 and 64 characters.",
+        ));
+    }
+
+    let entry = state
+        .session(&id)
+        .ok_or_else(|| ApiError::not_found("Unknown session."))?;
+    let _guard = entry
+        .try_lifecycle()
+        .ok_or_else(|| ApiError::conflict("Session is closing."))?;
+    if entry.is_closing() {
+        return Err(ApiError::conflict("Session is closing."));
+    }
+    let session = entry.rename(name.to_owned());
+    state.emit(SessionEvent::updated(session.clone()));
+    state.save();
+    Ok(Json(session))
+}
+
+async fn reopen_session(
+    State(state): State<AppState>,
+    UrlPath(id): UrlPath<String>,
+    body: Result<Json<ReopenRequest>, JsonRejection>,
+) -> Result<Json<Session>, ApiError> {
+    let _ = body.map_err(invalid_json)?;
+    let entry = state
+        .session(&id)
+        .ok_or_else(|| ApiError::not_found("Unknown session."))?;
+    let _guard = entry
+        .try_lifecycle()
+        .ok_or_else(|| ApiError::conflict("Session is closing."))?;
+    if entry.is_closing() {
+        return Err(ApiError::conflict("Session is closing."));
+    }
+    let suspended = entry.session();
+    if suspended.status != SessionState::Closed {
+        return Err(ApiError::conflict("Session is already active."));
+    }
+
+    let folder_path = PathBuf::from(&suspended.folder);
+    let folder = if suspended.kind == SessionKind::Agent {
+        let account_id = suspended
+            .account_id
+            .as_deref()
+            .ok_or_else(|| ApiError::unprocessable("Account is no longer available."))?;
+        let account = state
+            .account(account_id)
+            .ok_or_else(|| ApiError::unprocessable("Account is no longer available."))?;
+        if state.command_override().is_none()
+            && clients::find_on_path(account.client.binary()).is_none()
+        {
+            return Err(ApiError::unprocessable(format!(
+                "{} is not installed.",
+                account.client
+            )));
+        }
+
+        let repo_root = entry.repo_root().ok_or_else(|| {
+            ApiError::unprocessable("The session repository is no longer available.")
+        })?;
+        let branch = suspended
+            .branch
+            .as_deref()
+            .ok_or_else(|| ApiError::unprocessable("The session branch is no longer available."))?;
+        let data_dir = state
+            .data_dir()
+            .ok_or_else(|| ApiError::unprocessable("Agent sessions need a data directory."))?;
+        let worktrees_root = data_dir.join("worktrees");
+        match git::ensure_worktree(
+            PathBuf::from(repo_root),
+            worktrees_root,
+            folder_path.clone(),
+            branch.to_owned(),
+            state.git_timeout(),
+        )
+        .await
+        {
+            Ok(()) => {}
+            Err(git::EnsureFailure::BranchMissing) => {
+                return Err(ApiError::unprocessable(
+                    "The session branch no longer exists.",
+                ));
+            }
+            Err(git::EnsureFailure::Failed) => {
+                return Err(ApiError::unprocessable(
+                    "Could not restore the Git worktree.",
+                ));
+            }
+        }
+        canonical_directory(folder_path)?
+    } else {
+        canonical_directory(folder_path)?
+    };
+
+    let mut command = match entry.stored_command() {
+        Some(command) => command,
+        None => session_command(&state, suspended.kind, suspended.client)?,
+    };
+    let is_claude_agent =
+        suspended.kind == SessionKind::Agent && suspended.client == Some(Client::ClaudeCode);
+    if is_claude_agent {
+        let settings_path = install_claude_settings(&state, &entry, &id)?;
+        if state.command_override().is_none() {
+            claude::add_settings_argument(&mut command, &settings_path);
+        }
+    }
+    let size = entry.stored_size();
+
+    state.reserve_activation().map_err(|_| {
+        if is_claude_agent {
+            entry.remove_claude_settings();
+        }
+        ApiError::too_many_requests("Session limit reached. Close a session first.")
+    })?;
+    match entry.begin_reopen() {
+        Ok(()) => {}
+        Err(crate::sessions::ReopenFailure::Closing) => {
+            if is_claude_agent {
+                entry.remove_claude_settings();
+            }
+            state.release_activation();
+            return Err(ApiError::conflict("Session is closing."));
+        }
+        Err(crate::sessions::ReopenFailure::Active) => {
+            if is_claude_agent {
+                entry.remove_claude_settings();
+            }
+            state.release_activation();
+            return Err(ApiError::conflict("Session is already active."));
+        }
+    }
+    if let Err(error) = sessions::spawn(
+        &entry,
+        command,
+        &folder,
+        size,
+        state.stall_writer_for_tests(),
+        state.event_sender(),
+    ) {
+        entry.rollback_reopen();
+        state.release_activation();
+        return Err(ApiError::unprocessable(error));
+    }
+
+    let session = entry.session();
+    state.emit(SessionEvent::updated(session.clone()));
+    state.save();
+    Ok(Json(session))
+}
+
+async fn answer_permission(
+    State(state): State<AppState>,
+    UrlPath(id): UrlPath<String>,
+    body: Result<Json<PermissionRequest>, JsonRejection>,
+) -> Result<StatusCode, ApiError> {
+    let Json(request) = body.map_err(invalid_json)?;
+    let entry = state
+        .session(&id)
+        .ok_or_else(|| ApiError::not_found("Unknown session."))?;
+
+    entry
+        .answer_permission(&request.request_id, request.decision)
+        .map_err(|failure| match failure {
+            PermissionAnswerFailure::Closed => ApiError::conflict("Session is closed."),
+            PermissionAnswerFailure::NoPending => {
+                ApiError::conflict("There is no pending permission request.")
+            }
+            PermissionAnswerFailure::Mismatch => {
+                ApiError::conflict("The permission request id does not match.")
+            }
+            PermissionAnswerFailure::AlreadyAnswered => {
+                ApiError::conflict("This permission request was already answered.")
+            }
+        })?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn delete_session(
+    State(state): State<AppState>,
+    UrlPath(id): UrlPath<String>,
+) -> Result<StatusCode, ApiError> {
+    let entry = state
+        .session(&id)
+        .ok_or_else(|| ApiError::not_found("Unknown session."))?;
+    let _guard = entry
+        .try_lifecycle()
+        .ok_or_else(|| ApiError::conflict("Session is closing."))?;
+    if entry.is_closing() {
+        return Err(ApiError::conflict("Session is closing."));
+    }
+    let session = entry.session();
+    if session.status == SessionState::Active {
+        return Err(ApiError::conflict("Close the session before deleting it."));
+    }
+
+    if session.kind == SessionKind::Agent
+        && let Some(repo_root) = entry.repo_root()
+    {
+        let _ = git::remove_worktree(
+            PathBuf::from(repo_root),
+            PathBuf::from(&session.folder),
+            state.git_timeout(),
+        )
+        .await;
+    }
+    entry.remove_claude_settings();
+
+    state.delete_session(&id).map_err(|failure| match failure {
+        DeleteSessionFailure::NotFound => ApiError::not_found("Unknown session."),
+        DeleteSessionFailure::Active => ApiError::conflict("Close the session before deleting it."),
+    })?;
+    state.save();
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn session_input(
+    State(state): State<AppState>,
+    UrlPath(id): UrlPath<String>,
+    body: Result<Json<InputRequest>, JsonRejection>,
+) -> Result<StatusCode, ApiError> {
+    let Json(request) = body.map_err(invalid_json)?;
+    let entry = state
+        .session(&id)
+        .ok_or_else(|| ApiError::not_found("Unknown session."))?;
+
+    entry
+        .write_input(request.data.into_bytes())
+        .await
+        .map_err(|failure| match failure {
+            InputFailure::Closed => ApiError::conflict("Session is closed."),
+            InputFailure::Closing => ApiError::conflict("Session is closing."),
+            InputFailure::NotRunning => ApiError::conflict("Session is not running."),
+        })?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn resize_session(
+    State(state): State<AppState>,
+    UrlPath(id): UrlPath<String>,
+    body: Result<Json<ResizeRequest>, JsonRejection>,
+) -> Result<StatusCode, ApiError> {
+    let Json(request) = body.map_err(invalid_json)?;
+    let size = TerminalSize::new(request.cols, request.rows)
+        .ok_or_else(|| ApiError::bad_request(TerminalSize::range_error()))?;
+    let entry = state
+        .session(&id)
+        .ok_or_else(|| ApiError::not_found("Unknown session."))?;
+
+    entry.resize(size).map_err(|failure| match failure {
+        ResizeFailure::Closed => ApiError::conflict("Session is closed."),
+        ResizeFailure::Closing => ApiError::conflict("Session is closing."),
+        ResizeFailure::NotRunning => ApiError::conflict("Session is not running."),
+    })?;
+    state.save();
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn session_output(
+    State(state): State<AppState>,
+    UrlPath(id): UrlPath<String>,
+    query: Result<Query<OutputQuery>, QueryRejection>,
+) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, ApiError> {
+    let Query(query) =
+        query.map_err(|error| ApiError::bad_request(format!("Invalid output query: {error}")))?;
+
+    let after = match query
+        .after
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        Some(value) => value.parse::<u64>().map_err(|_| {
+            ApiError::bad_request("Query parameter after must be a non-negative integer.")
+        })?,
+        None => 0,
+    };
+
+    let entry = state
+        .session(&id)
+        .ok_or_else(|| ApiError::not_found("Unknown session."))?;
+    let permit = state
+        .try_acquire_output_sse()
+        .ok_or_else(|| ApiError::too_many_requests("Too many open output streams."))?;
+
+    let mut receiver = entry.subscribe_output();
+    let mut close_receiver = entry.subscribe_close();
+    let snapshot = entry
+        .output_snapshot(after)
+        .map_err(|failure| match failure {
+            sessions::SnapshotFailure::AfterAhead { newest } => ApiError::bad_request(format!(
+                "Query parameter after is beyond the newest sequence ({newest})."
+            )),
+            sessions::SnapshotFailure::LogUnavailable => {
+                ApiError::bad_request("Output at that position is no longer retained.")
+            }
+        })?;
+    let last_seq = snapshot.newest_seq;
+    let replay = snapshot.chunks;
+
+    let stream = async_stream::stream! {
+        let _permit = permit;
+        yield Ok(Event::default().comment("connected"));
+
+        for chunk in replay {
+            if let Some(event) = json_event(&chunk) {
+                yield Ok(event);
+            }
+        }
+
+        if !*close_receiver.borrow_and_update() {
+            let mut heartbeat = interval_at(
+                tokio::time::Instant::now() + SSE_HEARTBEAT,
+                SSE_HEARTBEAT,
+            );
+            heartbeat.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
+            loop {
+                tokio::select! {
+                    changed = close_receiver.changed() => {
+                        let _ = changed;
+                        break;
+                    }
+                    _ = heartbeat.tick() => {
+                        yield Ok(Event::default().comment("heartbeat"));
+                    }
+                    received = receiver.recv() => {
+                        match received {
+                            Ok(chunk) if chunk.seq > last_seq => {
+                                if let Some(event) = json_event(&chunk) {
+                                    yield Ok(event);
+                                }
+                            }
+                            Ok(_) => {}
+                            Err(broadcast::error::RecvError::Lagged(_)) => break,
+                            Err(broadcast::error::RecvError::Closed) => break,
+                        }
+                    }
+                }
+            }
+        }
+    };
+
+    Ok(Sse::new(stream))
+}
+
+async fn events(
+    State(state): State<AppState>,
+) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, ApiError> {
+    let permit = state
+        .try_acquire_events_sse()
+        .ok_or_else(|| ApiError::too_many_requests("Too many open event streams."))?;
+    let mut receiver = state.subscribe_events();
+
+    let stream = async_stream::stream! {
+        let _permit = permit;
+        yield Ok(Event::default().comment("connected"));
+
+        let mut heartbeat = interval_at(
+            tokio::time::Instant::now() + SSE_HEARTBEAT,
+            SSE_HEARTBEAT,
+        );
+        heartbeat.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
+        loop {
+            tokio::select! {
+                _ = heartbeat.tick() => {
+                    yield Ok(Event::default().comment("heartbeat"));
+                }
+                received = receiver.recv() => {
+                    match received {
+                        Ok(event) => {
+                            if let Some(event) = json_event(&event) {
+                                yield Ok(event);
+                            }
+                        }
+                        Err(broadcast::error::RecvError::Lagged(_)) => break,
+                        Err(broadcast::error::RecvError::Closed) => break,
+                    }
+                }
+            }
+        }
+    };
+
+    Ok(Sse::new(stream))
+}
+
+async fn claude_hook(
+    State(state): State<AppState>,
+    UrlPath(id): UrlPath<String>,
+    query: Result<Query<HookQuery>, QueryRejection>,
+    body: Result<Json<HookInput>, JsonRejection>,
+) -> Result<Response, ApiError> {
+    let Query(query) = query.map_err(|_| ApiError::forbidden("Invalid hook credentials."))?;
+    let provided = query.token.as_deref().unwrap_or_default();
+    let entry = state
+        .session(&id)
+        .ok_or_else(|| ApiError::forbidden("Invalid hook credentials."))?;
+    let session = entry.session();
+    if session.kind != SessionKind::Agent || session.client != Some(Client::ClaudeCode) {
+        return Err(ApiError::forbidden("Invalid hook credentials."));
+    }
+    let expected = entry
+        .claude_token()
+        .ok_or_else(|| ApiError::forbidden("Invalid hook credentials."))?;
+    if !claude::token_matches(&expected, provided) {
+        return Err(ApiError::forbidden("Invalid hook credentials."));
+    }
+
+    let Json(input) = body.map_err(|_| ApiError::bad_request("Invalid hook input."))?;
+
+    match input.hook_event_name.as_str() {
+        "UserPromptSubmit" => {
+            publish_hook_event(&state, entry.mark_working());
+            Ok(StatusCode::NO_CONTENT.into_response())
+        }
+        "PostToolUse" => {
+            publish_hook_event(&state, entry.finish_tool());
+            Ok(StatusCode::NO_CONTENT.into_response())
+        }
+        "Notification" => {
+            if is_permission_notification(&input) {
+                publish_hook_event(&state, entry.mark_permission_note());
+            }
+            Ok(StatusCode::NO_CONTENT.into_response())
+        }
+        "Stop" => {
+            let preview = hook_preview_text(&input);
+            publish_hook_event(&state, entry.mark_done(preview));
+            Ok(StatusCode::NO_CONTENT.into_response())
+        }
+        "MessageDisplay" => {
+            if let Some(preview) = hook_preview_text(&input) {
+                publish_hook_event(&state, entry.hook_preview(&preview));
+            }
+            Ok(StatusCode::NO_CONTENT.into_response())
+        }
+        "PreToolUse" => pre_tool_use(&state, &entry, input).await,
+        _ => Ok(StatusCode::NO_CONTENT.into_response()),
+    }
+}
+
+struct PermissionGuard<'a> {
+    state: &'a AppState,
+    entry: &'a SessionEntry,
+    request_id: String,
+}
+
+impl Drop for PermissionGuard<'_> {
+    fn drop(&mut self) {
+        if let Some(session) = self.entry.clear_unanswered_permission(&self.request_id) {
+            self.state.emit(SessionEvent::updated(session));
+        }
+    }
+}
+
+async fn pre_tool_use(
+    state: &AppState,
+    entry: &SessionEntry,
+    input: HookInput,
+) -> Result<Response, ApiError> {
+    let request_id = input
+        .tool_use_id
+        .as_deref()
+        .and_then(|id| non_empty_hook_text(id, 128))
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    let tool = input
+        .tool_name
+        .as_deref()
+        .and_then(|name| non_empty_hook_text(name, 40))
+        .unwrap_or_else(|| "Tool".to_owned());
+    let summary = tool_summary(&tool, input.tool_input.as_ref());
+
+    let Some(receiver) = entry.begin_permission(PendingPermission {
+        request_id: request_id.clone(),
+        tool,
+        summary,
+    }) else {
+        return Ok(hook_decision(
+            PermissionDecision::Deny,
+            "The session is not available.",
+        ));
+    };
+    let _guard = PermissionGuard {
+        state,
+        entry,
+        request_id: request_id.clone(),
+    };
+
+    match tokio::time::timeout(state.permission_timeout(), receiver).await {
+        Ok(Ok(reply)) => Ok(hook_decision(reply.decision, &reply.reason)),
+        Ok(Err(_)) => Ok(hook_decision(
+            PermissionDecision::Deny,
+            "The permission request was cancelled.",
+        )),
+        Err(_) => {
+            if let Some(session) = entry.clear_unanswered_permission(&request_id) {
+                state.emit(SessionEvent::updated(session));
+            }
+            Ok(hook_decision(
+                PermissionDecision::Deny,
+                "No answer from the user. The request expired.",
+            ))
+        }
+    }
+}
+
+fn hook_decision(decision: PermissionDecision, reason: &str) -> Response {
+    Json(serde_json::json!({
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": decision.as_str(),
+            "permissionDecisionReason": reason,
+        }
+    }))
+    .into_response()
+}
+
+fn publish_hook_event(state: &AppState, session: Option<Session>) {
+    if let Some(session) = session {
+        state.emit(SessionEvent::updated(session));
+    }
+}
+
+fn is_permission_notification(input: &HookInput) -> bool {
+    if input.notification_type.as_deref() == Some("permission_prompt") {
+        return true;
+    }
+    input
+        .message
+        .as_ref()
+        .and_then(first_hook_string)
+        .is_some_and(|message| message.to_lowercase().contains("permission"))
+}
+
+fn hook_preview_text(input: &HookInput) -> Option<String> {
+    input
+        .last_assistant_message
+        .clone()
+        .or_else(|| {
+            input
+                .message
+                .as_ref()
+                .and_then(first_hook_string)
+                .map(str::to_owned)
+        })
+        .or_else(|| {
+            input
+                .content
+                .as_ref()
+                .and_then(first_hook_string)
+                .map(str::to_owned)
+        })
+        .or_else(|| {
+            input
+                .text
+                .as_ref()
+                .and_then(first_hook_string)
+                .map(str::to_owned)
+        })
+}
+
+fn first_hook_string(value: &serde_json::Value) -> Option<&str> {
+    first_hook_string_at(value, 0)
+}
+
+fn first_hook_string_at(value: &serde_json::Value, depth: usize) -> Option<&str> {
+    if depth >= 4 {
+        return None;
+    }
+    match value {
+        serde_json::Value::String(text) => Some(text),
+        serde_json::Value::Array(items) => items
+            .iter()
+            .find_map(|item| first_hook_string_at(item, depth + 1)),
+        serde_json::Value::Object(map) => [
+            "text",
+            "content",
+            "message",
+            "last_assistant_message",
+            "delta",
+        ]
+        .iter()
+        .find_map(|key| {
+            map.get(*key)
+                .and_then(|item| first_hook_string_at(item, depth + 1))
+        }),
+        _ => None,
+    }
+}
+
+fn tool_summary(tool: &str, input: Option<&serde_json::Value>) -> String {
+    let Some(input) = input.and_then(serde_json::Value::as_object) else {
+        return String::new();
+    };
+
+    let preferred = match tool {
+        "Bash" | "BashOutput" => ["command"].as_slice(),
+        "Edit" | "MultiEdit" | "Write" | "NotebookEdit" | "Read" => {
+            ["file_path", "notebook_path", "path"].as_slice()
+        }
+        "Glob" | "Grep" => ["pattern", "path"].as_slice(),
+        "WebFetch" => ["url"].as_slice(),
+        "WebSearch" => ["query"].as_slice(),
+        _ => [].as_slice(),
+    };
+    let fallback = [
+        "command",
+        "file_path",
+        "path",
+        "query",
+        "url",
+        "description",
+        "pattern",
+        "name",
+    ];
+
+    preferred
+        .iter()
+        .chain(fallback.iter())
+        .find_map(|key| input.get(*key).and_then(serde_json::Value::as_str))
+        .and_then(|text| non_empty_hook_text(text, 80))
+        .unwrap_or_default()
+}
+
+fn non_empty_hook_text(value: &str, limit: usize) -> Option<String> {
+    let collapsed = value
+        .chars()
+        .map(|character| {
+            if character.is_control() {
+                ' '
+            } else {
+                character
+            }
+        })
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    if collapsed.is_empty() {
+        return None;
+    }
+    Some(collapsed.chars().take(limit).collect())
+}
+
+async fn not_found() -> ApiError {
+    ApiError::not_found("Not found.")
+}
+
+async fn method_not_allowed() -> ApiError {
+    ApiError::method_not_allowed("Method not allowed.")
+}
+
+fn prepare_terminal(
+    state: &AppState,
+    request: &CreateSessionRequest,
+    project: &Project,
+) -> Result<PreparedSession, ApiError> {
+    let folder = canonical_directory(requested_folder(request, project))?;
+
+    let command = session_command(state, SessionKind::Terminal, None)?;
+    let name = requested_name(request.name.as_deref()).unwrap_or_else(|| folder_name(&folder));
+    let short = slugify(&name, "session");
+    let session = Session {
+        id: uuid::Uuid::new_v4().to_string(),
+        name,
+        short,
+        project_id: project.id.clone(),
+        kind: SessionKind::Terminal,
+        status: SessionState::Active,
+        work_state: Some(WorkState::Working),
+        client: None,
+        account_id: None,
+        branch: None,
+        folder: path_string(&folder),
+        preview: "Terminal ready.".to_owned(),
+        waiting_for: None,
+        pending_permission: None,
+        started_at: timestamp(),
+        shortcuts: Vec::new(),
+    };
+
+    Ok(PreparedSession {
+        session,
+        folder,
+        command,
+        repo_root: None,
+    })
+}
+
+async fn prepare_agent(
+    state: &AppState,
+    request: &CreateSessionRequest,
+    project: &Project,
+) -> Result<PreparedSession, ApiError> {
+    let account_id = request
+        .account_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|account| !account.is_empty())
+        .ok_or_else(|| ApiError::bad_request("An agent session needs an account."))?;
+    let account = state
+        .account(account_id)
+        .ok_or_else(|| ApiError::not_found("Unknown account."))?;
+
+    let command = session_command(state, SessionKind::Agent, Some(account.client))?;
+    let folder = canonical_directory(requested_folder(request, project))?;
+    let repo_root = git::repo_root(folder, state.git_timeout())
+        .await
+        .ok_or_else(|| ApiError::unprocessable("Agent sessions need a Git repository."))?;
+    if state.data_dir().is_none() {
+        return Err(ApiError::unprocessable(
+            "Agent sessions need a data directory.",
+        ));
+    }
+
+    let name = requested_name(request.name.as_deref())
+        .unwrap_or_else(|| format!("{} session", account.client));
+    let short = slugify(&name, "session");
+    let session = Session {
+        id: uuid::Uuid::new_v4().to_string(),
+        name,
+        short,
+        project_id: project.id.clone(),
+        kind: SessionKind::Agent,
+        status: SessionState::Active,
+        work_state: Some(WorkState::Working),
+        client: Some(account.client),
+        account_id: Some(account.id.clone()),
+        branch: None,
+        folder: path_string(&repo_root),
+        preview: format!("{} is starting.", account.client),
+        waiting_for: None,
+        pending_permission: None,
+        started_at: timestamp(),
+        shortcuts: shortcuts::for_client(account.client),
+    };
+
+    Ok(PreparedSession {
+        session,
+        folder: repo_root.clone(),
+        command,
+        repo_root: Some(repo_root),
+    })
+}
+
+fn requested_folder(request: &CreateSessionRequest, project: &Project) -> PathBuf {
+    request
+        .folder
+        .as_deref()
+        .map(str::trim)
+        .filter(|folder| !folder.is_empty())
+        .map(seed::expand_tilde)
+        .unwrap_or_else(|| PathBuf::from(&project.folder))
+}
+
+fn session_command(
+    state: &AppState,
+    kind: SessionKind,
+    client: Option<Client>,
+) -> Result<CommandBuilder, ApiError> {
+    if let Some(argv) = state.command_override() {
+        if argv.is_empty() {
+            return Ok(CommandBuilder::new_default_prog());
+        }
+        return Ok(CommandBuilder::from_argv(
+            argv.iter().map(OsString::from).collect(),
+        ));
+    }
+
+    match kind {
+        SessionKind::Terminal => Ok(CommandBuilder::new_default_prog()),
+        SessionKind::Agent => {
+            let client = client.ok_or_else(|| {
+                ApiError::unprocessable("An agent session needs a supported client.")
+            })?;
+            let executable = clients::find_on_path(client.binary())
+                .ok_or_else(|| ApiError::unprocessable(format!("{} is not installed.", client)))?;
+            Ok(CommandBuilder::new(executable))
+        }
+    }
+}
+
+fn install_claude_settings(
+    state: &AppState,
+    entry: &SessionEntry,
+    session_id: &str,
+) -> Result<PathBuf, ApiError> {
+    let data_dir = state
+        .data_dir()
+        .ok_or_else(|| ApiError::unprocessable("Agent sessions need a data directory."))?;
+    let settings = claude::write_settings(data_dir, session_id, state.port()).map_err(|error| {
+        tracing::error!(session = %session_id, %error, "could not write Claude hook settings");
+        ApiError::unprocessable("Could not prepare Claude Code hooks.")
+    })?;
+    entry.set_claude_settings(settings.token, settings.path.clone());
+    Ok(settings.path)
+}
+
+fn canonical_directory(folder: PathBuf) -> Result<PathBuf, ApiError> {
+    let folder = folder
+        .canonicalize()
+        .map_err(|_| ApiError::unprocessable("Folder does not exist or is not a directory."))?;
+    if folder.is_dir() {
+        Ok(folder)
+    } else {
+        Err(ApiError::unprocessable(
+            "Folder does not exist or is not a directory.",
+        ))
+    }
+}
+
+fn requested_size(cols: Option<u16>, rows: Option<u16>) -> Result<TerminalSize, ApiError> {
+    TerminalSize::new(
+        cols.unwrap_or(TerminalSize::DEFAULT.cols),
+        rows.unwrap_or(TerminalSize::DEFAULT.rows),
+    )
+    .ok_or_else(|| ApiError::bad_request(TerminalSize::range_error()))
+}
+
+fn requested_name(name: Option<&str>) -> Option<String> {
+    name.map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(|name| clip(name, 80))
+}
+
+fn folder_name(folder: &Path) -> String {
+    folder
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(str::to_owned)
+        .unwrap_or_else(|| "Terminal".to_owned())
+}
+
+fn path_string(path: &Path) -> String {
+    path.to_string_lossy().into_owned()
+}
+
+fn timestamp() -> String {
+    Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true)
+}
+
+fn clip(input: &str, limit: usize) -> String {
+    let mut output = input.chars().take(limit).collect::<String>();
+    if input.chars().count() > limit {
+        output.push('…');
+    }
+    output
+}
+
+fn invalid_json(rejection: JsonRejection) -> ApiError {
+    ApiError::bad_request(format!("Invalid request body: {rejection}"))
+}
+
+fn json_event<T: Serialize>(value: &T) -> Option<Event> {
+    serde_json::to_string(value)
+        .ok()
+        .map(|data| Event::default().data(data))
+}

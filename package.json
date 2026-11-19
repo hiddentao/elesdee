@@ -1,0 +1,19 @@
+{
+  "name": "elesdee",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "app"
+  ],
+  "scripts": {
+    "dev": "npm --workspace app run dev",
+    "build": "npm --workspace app run build",
+    "test": "npm --workspace app run test",
+    "typecheck": "npm --workspace app run typecheck",
+    "check:ui": "npm --workspace app run typecheck && npm --workspace app run test",
+    "check:core": "cargo test --manifest-path core/Cargo.toml && cargo clippy --manifest-path core/Cargo.toml --all-targets -- -D warnings",
+    "check": "npm run check:ui && npm run check:core",
+    "core": "cargo run --manifest-path core/Cargo.toml",
+    "desktop": "cargo run --manifest-path src-tauri/Cargo.toml"
+  }
+}

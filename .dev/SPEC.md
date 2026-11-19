@@ -151,8 +151,8 @@ The agents write their conversation to files on disk, and each keeps its own int
 - Close keeps the session's branch but deletes its worktree folder, to save disk space. The steps:
   1. The agent commits its work, writes the handoff note and pushes the session branch to the remote.
   2. If anything is still uncommitted or unpushed, the app commits and pushes it, so no work is lost.
-  3. If the push fails, or the branch has no remote, the app tells me before it deletes the worktree folder. The branch stays on my Mac.
-  4. The app deletes the worktree folder.
+  3. If the commit, push or worktree removal fails, the app keeps the worktree and says why in the session's preview. The branch stays on my Mac. If there is no remote, removal can proceed without a push.
+  4. On success, the app deletes the worktree folder.
 - A session on a plain folder (no Git) has no branch or worktree. Close only stops it; the folder stays as it is.
 - The app does not open a pull request. I do that myself.
 - Reopen re-creates the worktree from the session branch.

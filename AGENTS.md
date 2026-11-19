@@ -1,6 +1,6 @@
 # AGENTS.md
 
-This repository holds the elesdee product spec, research notes and clickable UI mockups. There is no app code yet.
+This repository holds the elesdee product spec, research notes, clickable UI mockups and the application.
 
 This file carries the rules that bind every prompt. Detail and decisions live in `.dev/`.
 
@@ -9,9 +9,27 @@ This file carries the rules that bind every prompt. Detail and decisions live in
 | Path | Contents |
 | --- | --- |
 | `.dev/SPEC.md` | The product spec. The source of truth for behavior. |
-| `.dev/mockups/round-1.html` | The clickable Mac and phone mockups. A is dark, B is light. |
+| `.dev/api.md` | The core service API contract: types and endpoints. |
+| `.dev/hooks.md` | Agent hook integration and the permission answer flow. |
+| `.dev/mockups/round-1.html` | The clickable Mac and phone mockups. A is dark, B is light. The visual reference for the app. |
 | `.dev/research/` | Research notes behind the spec. |
+| `core/` | The Rust core service: local HTTP API, sessions, event stream. |
+| `app/` | The React and TypeScript desktop UI, built with Vite. |
+| `src-tauri/` | The Tauri shell that starts the core service and shows the UI. |
+| `.github/workflows/ci.yml` | CI: UI checks and build, core format/clippy/tests, and a macOS shell check. |
 | `AGENTS.md` | These rules. |
+
+## Current phase
+
+The application has its first working slice. The core service runs real PTYs, projects, accounts, Git branches and worktrees, persistence and a secured local API. The desktop UI runs real terminals and agent CLIs, creates, renames, closes, reopens and deletes sessions, adds projects, shows live previews and usage, and answers Claude Code permission prompts from a card. The Tauri shell starts the core and embeds the UI.
+
+Not built yet: hook adapters for Codex and OpenCode 2 (only Claude Code sends permission prompts to the app), usage-based auto-switch, the phone shell, the full settings page and provider add flow, and packaging. The spec describes the target; the mockup is the visual reference.
+
+## Running the app
+
+- Core service: `npm run core` (or `cargo run --manifest-path core/Cargo.toml`). It listens on `127.0.0.1:4319`.
+- UI in a browser: `npm run dev`. Vite proxies `/api` to the core.
+- Desktop shell: `npm run desktop`. It starts the core if none runs and loads the UI.
 
 ## Keep this file and `.dev/` current
 
@@ -19,7 +37,7 @@ This file carries the rules that bind every prompt. Detail and decisions live in
 - **Rules stay here. Detail goes in `.dev/`.** Link the detail; do not repeat it.
 - **A fact in more than one place changes in every place in the same commit.** The mockup, the spec and these rules must agree.
 - **A new topic starts as a `.dev/` document.** Add it to the map above.
-- **No app code until the spec says so.** The mockups exist to choose a direction first.
+- **The spec comes before the code.** A change in behavior updates the spec in the same commit.
 
 ## Hard rules
 
@@ -41,3 +59,7 @@ This file carries the rules that bind every prompt. Detail and decisions live in
 - Open `.dev/mockups/round-1.html` in Chrome at 1440 and 390 widths. Check both directions and both devices.
 - There must be no console errors and no horizontal page scroll.
 - Check the changed interaction in both directions before you commit.
+- For the app: run `cargo test` and `cargo clippy --all-targets -- -D warnings` in `core/`, and `npm test`, `npm run typecheck` and `npm run build` at the root.
+- Open the app at 1440 and 1024 widths in both themes. No console errors, no horizontal scroll.
+- A session change is checked against the real core: start it, create a terminal session, send input, read the output, close it.
+- `.github/workflows/ci.yml` runs the UI checks and build, core format, clippy and tests, and a macOS desktop-shell check on every pull request.
