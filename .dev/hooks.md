@@ -21,7 +21,7 @@ The core starts Claude Code with a per-session settings file:
 }
 ```
 
-- The token is random per session, stored in state and sent only to the agent. A request with a wrong or missing token gets 403, as does a foreign Host.
+- The token is random per session, kept in the running core and sent only to the agent. It is not written to `state.json`. A request with a wrong or missing token gets 403, as does a foreign Host.
 - The hook input is the JSON Claude Code posts. The core reads `hook_event_name`, `session_id`, `cwd`, `tool_name`, `tool_input` and `tool_use_id` where present, and ignores unknown fields.
 - `UserPromptSubmit` sets the work state to working and clears the waiting state.
 - `PostToolUse` sets waitingFor to null and keeps the session active.
@@ -32,7 +32,7 @@ The core starts Claude Code with a per-session settings file:
   - `tool`: `tool_name`.
   - `summary`: a short, safe text for the card, such as the command for Bash or the path for Edit.
   - it sets `waitingFor: "permission"`, stores the pending request, emits `session.updated`, and holds the HTTP response.
-  - Claude Code waits for the hook. When the user answers, the core returns `{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow"|"deny","permissionDecisionReason":"..."}}`.
+  - Claude Code waits for the hook. When the user answers, the core returns `{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow"|"deny","permissionDecisionReason":"..."}}`. A second request while one is held gets `"ask"` instead.
   - If no answer arrives within 10 minutes, the core denies with "No answer from the user. The request expired."
 
 ## Session fields
@@ -65,6 +65,17 @@ pendingPermission: PendingPermission | null;
 ## Rules
 
 - The hook endpoint is local only and is not part of the UI contract. It is named `/internal/hooks/...` so it is clearly separate.
-- Tool input may contain secrets. The core stores only the short summary in the session and never logs the raw input.
+- Tool input may contain secrets. The core stores only the short summary in the session and never logs the raw input. The summary removes control, bidi and zero-width format characters.
 - An answer applies to exactly one request id. A second answer for the same id returns 409.
 - If the agent exits or the session closes while a request is pending, the core denies it and clears the field.
+- If a second `PreToolUse` arrives while one request is held, the core returns `permissionDecision: "ask"` for the second request and leaves the first request held. Claude Code then shows its own terminal prompt for the second tool.
+- The settings file is removed when the session closes, the agent exits, the session is deleted, or the core shuts down. A startup sweep removes stale settings files.
+- `pendingPermission` and a `waitingFor` value of `permission` are not written to `state.json`. The live session keeps them.
+
+## Local trust
+
+The core service listens on loopback only. The Host and Origin checks stop web pages and foreign hosts. They do not stop other programs on the same machine.
+
+Any program running as the same user can call the local API without an Origin. This includes the permission answer endpoint: a local program can read a pending request from `/api/bootstrap` and post the answer. Code that the agent runs inside its session has the same ability.
+
+The permission card is a convenience and a phone approval path. It is not a security boundary against local code or a prompt-injected agent. The hook token protects the internal hook route. It is not a credential for the public API.

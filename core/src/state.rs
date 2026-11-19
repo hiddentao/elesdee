@@ -124,15 +124,6 @@ pub enum PermissionDecision {
     Deny,
 }
 
-impl PermissionDecision {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            PermissionDecision::Allow => "allow",
-            PermissionDecision::Deny => "deny",
-        }
-    }
-}
-
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Session {
@@ -440,6 +431,9 @@ impl AppState {
         for session in sessions {
             state.restore_session(session);
         }
+        if let Some(directory) = state.data_dir() {
+            crate::claude::sweep(directory);
+        }
         state.inner.output_budget.enforce();
         state
     }
@@ -677,8 +671,13 @@ impl AppState {
             .map(|entry| {
                 let (output, next_seq) = entry.persistence_output();
                 let size = entry.stored_size();
+                let mut session = entry.session();
+                session.pending_permission = None;
+                if session.waiting_for == Some(WaitingFor::Permission) {
+                    session.waiting_for = None;
+                }
                 PersistedSession {
-                    session: entry.session(),
+                    session,
                     cols: size.cols,
                     rows: size.rows,
                     output: output

@@ -40,7 +40,7 @@ pub fn write_settings(data_dir: &Path, session_id: &str, port: u16) -> io::Resul
     }
     let bytes = serde_json::to_vec_pretty(&json!({ "hooks": hooks })).map_err(io::Error::other)?;
 
-    let path = directory.join(format!("{session_id}.json"));
+    let path = session_settings_path(data_dir, session_id);
     let written = (|| {
         let mut options = OpenOptions::new();
         options.write(true).create(true).truncate(true);
@@ -58,8 +58,35 @@ pub fn write_settings(data_dir: &Path, session_id: &str, port: u16) -> io::Resul
     Ok(ClaudeSettings { token, path })
 }
 
+pub fn session_settings_path(data_dir: &Path, session_id: &str) -> PathBuf {
+    data_dir
+        .join(SETTINGS_DIR)
+        .join(format!("{session_id}.json"))
+}
+
 pub fn remove(path: &Path) {
     let _ = fs::remove_file(path);
+}
+
+pub fn remove_session_settings(data_dir: &Path, session_id: &str) {
+    remove(&session_settings_path(data_dir, session_id));
+}
+
+pub fn sweep(data_dir: &Path) {
+    let directory = data_dir.join(SETTINGS_DIR);
+    let Ok(entries) = fs::read_dir(&directory) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path
+            .extension()
+            .is_some_and(|extension| extension == "json")
+            && entry.file_type().is_ok_and(|kind| kind.is_file())
+        {
+            remove(&path);
+        }
+    }
 }
 
 pub fn add_settings_argument(command: &mut CommandBuilder, path: &Path) {
@@ -133,5 +160,13 @@ mod tests {
             .map(|argument| argument.to_string_lossy().into_owned())
             .collect::<Vec<_>>();
         assert_eq!(arguments, ["claude", "--settings", "/tmp/settings.json"]);
+    }
+
+    #[test]
+    fn tokens_match_only_when_equal() {
+        assert!(token_matches("abc123", "abc123"));
+        assert!(!token_matches("abc123", "abc124"));
+        assert!(!token_matches("abc123", "abc1234"));
+        assert!(!token_matches("abc123", ""));
     }
 }

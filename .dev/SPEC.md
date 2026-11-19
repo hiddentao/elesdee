@@ -76,6 +76,13 @@ The desktop app is a Tauri app. Version 1 is for macOS; Windows and Linux follow
 - Every pull request runs lint and format checks, unit tests, the Mac and Android builds, a check that every interface text exists in all 12 languages, and end-to-end tests that start the app and drive real sessions with a test agent.
 - Why Tauri and not Electron: iroh is written in Rust, so the service uses it directly. Tauri also uses less memory, which matters for an app that runs all day. On macOS, Tauri's built-in web view works well.
 
+## Security
+
+- The core service binds `127.0.0.1` only. The Host and Origin checks stop web pages and foreign hosts.
+- The service trusts the local user. Any program running as the same user account can call the API, including the session and permission routes.
+- The permission card is a convenience and a phone approval path. It is not a security boundary against local code, and it does not stop a prompt-injected agent from answering its own request.
+- The Claude hook token protects the internal hook route from other users and remote callers. It is not a general credential for the public API.
+
 ## Window layout and sessions
 
 Sessions are the main view. A file viewer and code editor is an extra panel that I open only when I need it. The layout will be settled through several rounds of UI mockups, before any code is written.
@@ -214,7 +221,7 @@ Every agent session gets the same app tools and skills, whatever the agent or pr
 **How sessions get them**
 
 - The core service runs one MCP server, "elesdee". All three clients support MCP servers ([Codex docs](https://developers.openai.com/codex/mcp), [OpenCode docs](https://opencode.ai/docs/mcp-servers/)).
-- The server listens on localhost and has no access check: any program on the Mac can call it. Starting a session still needs my approval, so a local program cannot start agents on its own.
+- The server listens on localhost and has no access check: any program on the same user account can call it. The same is true of the core API. The app's approval steps are a convenience, not a security boundary against local code.
 - Each session gets its own address on the server, so the server knows which session made each call.
 - At launch, the app adds this MCP server and the skills to the agent through the launch overrides. It does not change global config or write into the repo.
 - Skills use the SKILL.md format, which all three clients read ([Codex docs](https://developers.openai.com/codex/skills.md), [OpenCode docs](https://opencode.ai/docs/skills/)).

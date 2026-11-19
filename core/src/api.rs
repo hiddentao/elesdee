@@ -28,8 +28,8 @@ use crate::clients;
 use crate::git;
 use crate::seed;
 use crate::sessions::{
-    self, CloseFailure, InputFailure, PermissionAnswerFailure, ResizeFailure, SessionEntry,
-    TerminalSize,
+    self, BeginPermission, CloseFailure, InputFailure, PermissionAnswerFailure, ResizeFailure,
+    SessionEntry, TerminalSize,
 };
 use crate::shortcuts;
 use crate::slug::slugify;
@@ -844,6 +844,12 @@ async fn delete_session(
         .await;
     }
     entry.remove_claude_settings();
+    if session.kind == SessionKind::Agent
+        && session.client == Some(Client::ClaudeCode)
+        && let Some(data_dir) = state.data_dir()
+    {
+        claude::remove_session_settings(data_dir, &id);
+    }
 
     state.delete_session(&id).map_err(|failure| match failure {
         DeleteSessionFailure::NotFound => ApiError::not_found("Unknown session."),
@@ -1112,15 +1118,24 @@ async fn pre_tool_use(
         .unwrap_or_else(|| "Tool".to_owned());
     let summary = tool_summary(&tool, input.tool_input.as_ref());
 
-    let Some(receiver) = entry.begin_permission(PendingPermission {
+    let receiver = match entry.begin_permission(PendingPermission {
         request_id: request_id.clone(),
         tool,
         summary,
-    }) else {
-        return Ok(hook_decision(
-            PermissionDecision::Deny,
-            "The session is not available.",
-        ));
+    }) {
+        BeginPermission::Held(receiver) => receiver,
+        BeginPermission::Busy => {
+            return Ok(hook_decision(
+                HookDecision::Ask,
+                "Another permission request is waiting for the user.",
+            ));
+        }
+        BeginPermission::Unavailable => {
+            return Ok(hook_decision(
+                HookDecision::Deny,
+                "The session is not available.",
+            ));
+        }
     };
     let _guard = PermissionGuard {
         state,
@@ -1129,9 +1144,9 @@ async fn pre_tool_use(
     };
 
     match tokio::time::timeout(state.permission_timeout(), receiver).await {
-        Ok(Ok(reply)) => Ok(hook_decision(reply.decision, &reply.reason)),
+        Ok(Ok(reply)) => Ok(hook_decision(reply.decision.into(), &reply.reason)),
         Ok(Err(_)) => Ok(hook_decision(
-            PermissionDecision::Deny,
+            HookDecision::Deny,
             "The permission request was cancelled.",
         )),
         Err(_) => {
@@ -1139,14 +1154,40 @@ async fn pre_tool_use(
                 state.emit(SessionEvent::updated(session));
             }
             Ok(hook_decision(
-                PermissionDecision::Deny,
+                HookDecision::Deny,
                 "No answer from the user. The request expired.",
             ))
         }
     }
 }
 
-fn hook_decision(decision: PermissionDecision, reason: &str) -> Response {
+#[derive(Clone, Copy, Debug)]
+enum HookDecision {
+    Allow,
+    Deny,
+    Ask,
+}
+
+impl HookDecision {
+    fn as_str(self) -> &'static str {
+        match self {
+            HookDecision::Allow => "allow",
+            HookDecision::Deny => "deny",
+            HookDecision::Ask => "ask",
+        }
+    }
+}
+
+impl From<PermissionDecision> for HookDecision {
+    fn from(decision: PermissionDecision) -> Self {
+        match decision {
+            PermissionDecision::Allow => HookDecision::Allow,
+            PermissionDecision::Deny => HookDecision::Deny,
+        }
+    }
+}
+
+fn hook_decision(decision: HookDecision, reason: &str) -> Response {
     Json(serde_json::json!({
         "hookSpecificOutput": {
             "hookEventName": "PreToolUse",
@@ -1268,7 +1309,7 @@ fn non_empty_hook_text(value: &str, limit: usize) -> Option<String> {
     let collapsed = value
         .chars()
         .map(|character| {
-            if character.is_control() {
+            if character.is_control() || is_invisible_format(character) {
                 ' '
             } else {
                 character
@@ -1282,6 +1323,27 @@ fn non_empty_hook_text(value: &str, limit: usize) -> Option<String> {
         return None;
     }
     Some(collapsed.chars().take(limit).collect())
+}
+
+fn is_invisible_format(character: char) -> bool {
+    let code = character as u32;
+    matches!(
+        code,
+        0x00AD | 0x061C | 0x06DD | 0x070F | 0x08E2 | 0x180E | 0xFEFF | 0x110BD | 0x110CD | 0xE0001
+    ) || (0x0600..=0x0605).contains(&code)
+        || (0x0890..=0x0891).contains(&code)
+        || (0x200B..=0x200F).contains(&code)
+        || (0x202A..=0x202E).contains(&code)
+        || (0x2060..=0x2064).contains(&code)
+        || (0x2066..=0x206F).contains(&code)
+        || (0xFFF9..=0xFFFB).contains(&code)
+        || (0x13430..=0x1343F).contains(&code)
+        || (0x1BCA0..=0x1BCA3).contains(&code)
+        || (0x1D173..=0x1D17A).contains(&code)
+        || (0xE0020..=0xE007F).contains(&code)
+        || (0xE000..=0xF8FF).contains(&code)
+        || (0xF0000..=0xFFFFD).contains(&code)
+        || (0x100000..=0x10FFFD).contains(&code)
 }
 
 async fn not_found() -> ApiError {

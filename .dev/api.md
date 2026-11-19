@@ -8,6 +8,7 @@ The service binds `127.0.0.1` only. It accepts requests only for loopback hostna
 
 - The `Host` header must name `127.0.0.1`, `localhost` or `[::1]`, with any port or no port. Any other host returns 403.
 - If `Origin` is present, it must be one of `http://localhost:5173`, `http://127.0.0.1:5173`, `tauri://localhost`, `http://tauri.localhost` or `https://tauri.localhost`. Any other origin returns 403. Requests with no `Origin`, such as local scripts, are accepted.
+- The service trusts the local user. Any program running as the same user can call the API, including the permission answer route. The Origin check stops web pages, not local programs. The permission card is a convenience, not a security boundary against local code.
 - An allowed `Origin` is echoed in `Access-Control-Allow-Origin`, with `Vary: Origin`.
 - An `OPTIONS` preflight returns 204 with `Access-Control-Allow-Methods: GET, POST, PATCH, DELETE, OPTIONS`, `Access-Control-Allow-Headers: content-type` and `Access-Control-Max-Age: 600`. A disallowed origin still returns 403.
 - Every POST and PATCH request must send `Content-Type: application/json`. The media type may carry parameters such as `charset`. A missing or different content type returns 415.
@@ -33,10 +34,12 @@ The service binds `127.0.0.1` only. It accepts requests only for loopback hostna
 
 - A Claude Code agent starts with a private settings file under the data directory, mode 0600. The file carries a random per-session token and loopback hook URLs. The token is never sent to the UI.
 - The internal hook route needs the exact token. A wrong or missing token, a foreign Host, or a non-Claude session returns 403.
-- A `PreToolUse` hook sets `pendingPermission` and `waitingFor: "permission"`, sends `session.updated`, and holds the hook response. The answer endpoint releases it.
-- `summary` is a short single-line text taken from the command, path, query or URL, capped at 80 characters. Raw tool input is never stored in the session or written to logs.
-- An answer resolves exactly one request. The fields stay set until the agent sends its next event, so a second answer gets 409.
+- A `PreToolUse` hook sets `pendingPermission` and `waitingFor: "permission"`, sends `session.updated`, and holds the hook response. The answer endpoint releases it. If another request is already held, the new hook gets `permissionDecision: "ask"` and the first request stays held.
+- `summary` is a short single-line text taken from the command, path, query or URL, capped at 80 characters. Control, bidi and zero-width format characters are removed. Raw tool input is never stored in the session or written to logs.
+- An answer resolves exactly one request. The fields stay set until the agent sends its next event, so a second answer gets 409. Two concurrent answers give one 204 and one 409.
 - Closing the session or the agent exiting denies a pending request. A request with no answer expires after 10 minutes and is denied.
+- The Claude settings file is removed on close, agent exit, delete and shutdown. A startup sweep removes stale files.
+- `pendingPermission` and a `waitingFor` of `permission` are not written to `state.json`; the live session keeps them.
 - `UserPromptSubmit` sets `working`. `PostToolUse` clears `waitingFor` and keeps the session active. `Notification` with a permission message sets `waitingFor: "permission"`. `MessageDisplay` and `Stop` update `preview`; `Stop` sets `done`.
 
 ## Persistence
@@ -44,7 +47,7 @@ The service binds `127.0.0.1` only. It accepts requests only for loopback hostna
 - State lives in `ELESDEE_DATA_DIR`, default `~/.elesdee`, in `state.json`. The directory is created with mode 0700 and files with mode 0600. Writes use a temporary file, fsync and rename.
 - Projects, sessions, each session's desired columns and rows, its output log, and an agent's repository root are saved. Accounts are seeds and are not saved. No runtime handles are saved.
 - State is saved on project create, session create, rename, close, reopen, delete, resize, and graceful shutdown. It is not written for each output chunk.
-- A session that was active on save is restored as closed, with preview `"The app restarted. Reopen to continue."` and no process. Its log and sequence numbers are kept, and reopen continues from the next sequence. A pending permission request is not restored.
+- A session that was active on save is restored as closed, with preview `"The app restarted. Reopen to continue."` and no process. Its log and sequence numbers are kept, and reopen continues from the next sequence. A pending permission request is not written to the file and is not restored.
 - Seed projects are used only when no state file exists, or when the state file is corrupt. A corrupt file is moved to `state.bad.json` and the problem is logged.
 
 ## Types

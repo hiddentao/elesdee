@@ -2709,6 +2709,16 @@ async fn claude_agent_writes_private_hook_settings_and_rejects_bad_tokens() {
     }
 
     let token = settings_token(&settings);
+    let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    assert!(
+        !bootstrap.to_string().contains(&token),
+        "hook token leaked into bootstrap"
+    );
+    let state_text = fs::read_to_string(data_dir.path.join("state.json")).expect("state file");
+    assert!(
+        !state_text.contains(&token),
+        "hook token leaked into state.json"
+    );
     for event in [
         "PreToolUse",
         "PostToolUse",
@@ -3051,7 +3061,7 @@ async fn agent_exit_denies_a_pending_permission() {
     ));
     let session = create_claude_agent(&app, &repo.path, "Exit Tool").await;
     let id = session["id"].as_str().expect("session id").to_owned();
-    let (_, settings) = claude_settings(&data_dir.path, &id);
+    let (settings_path, settings) = claude_settings(&data_dir.path, &id);
     let token = settings_token(&settings);
 
     let (status, body) = send_hook(
@@ -3078,6 +3088,19 @@ async fn agent_exit_denies_a_pending_permission() {
     assert_eq!(current["workState"], "done");
     assert_eq!(current["pendingPermission"], Value::Null);
     assert_eq!(current["waitingFor"], Value::Null);
+    assert!(
+        !settings_path.exists(),
+        "settings file survived the agent exit"
+    );
+
+    let (status, body) = send_hook(
+        &app,
+        &id,
+        Some(&token),
+        json!({"hook_event_name": "UserPromptSubmit"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
 }
 
 #[tokio::test]
@@ -3255,6 +3278,417 @@ async fn reopen_recreates_claude_hook_settings_with_a_new_token() {
 
     let (status, closed) = close_session(&app, &id).await;
     assert_eq!(status, StatusCode::OK, "{closed}");
+}
+
+#[tokio::test]
+async fn startup_sweeps_stale_claude_settings_files() {
+    let data_dir = TempDirectory::new("claude-sweep-data");
+    let settings_dir = data_dir.path.join("claude-settings");
+    fs::create_dir_all(&settings_dir).expect("create settings directory");
+    let stale = settings_dir.join("orphan.json");
+    let other = settings_dir.join("note.txt");
+    fs::write(&stale, "{}").expect("write stale settings");
+    fs::write(&other, "keep").expect("write other file");
+
+    let _state = AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 0".to_owned()],
+        data_dir.path.clone(),
+    );
+
+    assert!(!stale.exists(), "stale settings file survived startup");
+    assert!(other.exists(), "unrelated file was removed");
+}
+
+#[tokio::test]
+async fn hook_route_rejects_bad_hosts_origins_and_input() {
+    let data_dir = TempDirectory::new("claude-guard-data");
+    let repo = TempDirectory::new("claude-guard-repo");
+    init_git_repo(&repo.path);
+    let app = router(AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    ));
+    let session = create_claude_agent(&app, &repo.path, "Guard").await;
+    let id = session["id"].as_str().expect("session id").to_owned();
+    let (_, settings) = claude_settings(&data_dir.path, &id);
+    let token = settings_token(&settings);
+    let uri = format!("/internal/hooks/claude/{id}?token={token}");
+    let payload = json!({"hook_event_name": "UnknownEvent"}).to_string();
+
+    let request = Request::builder()
+        .method("POST")
+        .uri(&uri)
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(payload.clone()))
+        .expect("build request");
+    let (status, body) = send(&app, request).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+
+    let request = Request::builder()
+        .method("POST")
+        .uri(&uri)
+        .header(header::HOST, "evil.example")
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(payload.clone()))
+        .expect("build request");
+    let (status, body) = send(&app, request).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+
+    let request = request_builder("POST", &uri)
+        .header(header::ORIGIN, "http://evil.example")
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(payload.clone()))
+        .expect("build request");
+    let (status, body) = send(&app, request).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+
+    let request = request_builder("POST", &uri)
+        .header(header::ORIGIN, "http://localhost:5173")
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(payload.clone()))
+        .expect("build request");
+    let (status, body) = send(&app, request).await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+
+    let request = request_builder("POST", &uri)
+        .body(Body::from("{}"))
+        .expect("build request");
+    let (status, body) = send(&app, request).await;
+    assert_eq!(status, StatusCode::UNSUPPORTED_MEDIA_TYPE, "{body}");
+
+    let request = request_builder("POST", &uri)
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from("{not json"))
+        .expect("build request");
+    let (status, body) = send(&app, request).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(body["error"], "Invalid hook input.");
+
+    let terminal = create_terminal(&app, &repo.path).await;
+    let terminal_id = terminal["id"].as_str().expect("terminal id");
+    let (status, body) = send_hook(
+        &app,
+        terminal_id,
+        Some(&token),
+        json!({"hook_event_name": "Stop"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+
+    close_session(&app, terminal_id).await;
+    close_session(&app, &id).await;
+}
+
+#[tokio::test]
+async fn delete_removes_a_stale_claude_settings_file() {
+    let data_dir = TempDirectory::new("claude-delete-data");
+    let repo = TempDirectory::new("claude-delete-repo");
+    init_git_repo(&repo.path);
+    let app = router(AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    ));
+    let session = create_claude_agent(&app, &repo.path, "Delete Hooks").await;
+    let id = session["id"].as_str().expect("session id").to_owned();
+    let (settings_path, _) = claude_settings(&data_dir.path, &id);
+
+    let (status, closed) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+    assert!(!settings_path.exists());
+
+    fs::write(&settings_path, "{}").expect("restore stale settings file");
+    let (status, body) = call(&app, "DELETE", &format!("/api/sessions/{id}"), None).await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+    assert!(
+        !settings_path.exists(),
+        "stale settings file survived delete"
+    );
+}
+
+#[tokio::test]
+async fn shutdown_removes_claude_hook_settings() {
+    let data_dir = TempDirectory::new("claude-shutdown-data");
+    let repo = TempDirectory::new("claude-shutdown-repo");
+    init_git_repo(&repo.path);
+    let state = AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    );
+    let app = router(state.clone());
+    let session = create_claude_agent(&app, &repo.path, "Shutdown Hooks").await;
+    let id = session["id"].as_str().expect("session id").to_owned();
+    let (settings_path, _) = claude_settings(&data_dir.path, &id);
+
+    let finished = tokio::task::spawn_blocking(move || state.shutdown_all())
+        .await
+        .expect("shutdown task");
+    assert!(finished, "shutdown timed out");
+    assert!(!settings_path.exists(), "settings file survived shutdown");
+}
+
+#[tokio::test]
+async fn second_pre_tool_use_asks_while_the_first_is_held() {
+    let data_dir = TempDirectory::new("claude-parallel-data");
+    let repo = TempDirectory::new("claude-parallel-repo");
+    init_git_repo(&repo.path);
+    let app = router(AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    ));
+    let session = create_claude_agent(&app, &repo.path, "Parallel Hooks").await;
+    let id = session["id"].as_str().expect("session id").to_owned();
+    let (_, settings) = claude_settings(&data_dir.path, &id);
+    let token = settings_token(&settings);
+
+    let first = send_hook(
+        &app,
+        &id,
+        Some(&token),
+        json!({
+            "hook_event_name": "PreToolUse",
+            "tool_name": "Bash",
+            "tool_input": {"command": "echo first"},
+            "tool_use_id": "toolu-first"
+        }),
+    );
+    let second = async {
+        wait_for_pending(&app, &id).await;
+        let (status, body) = send_hook(
+            &app,
+            &id,
+            Some(&token),
+            json!({
+                "hook_event_name": "PreToolUse",
+                "tool_name": "Bash",
+                "tool_input": {"command": "echo second"},
+                "tool_use_id": "toolu-second"
+            }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["hookSpecificOutput"]["permissionDecision"], "ask");
+
+        let pending = wait_for_pending(&app, &id).await;
+        assert_eq!(pending["requestId"], "toolu-first");
+
+        let (status, body) = call(
+            &app,
+            "POST",
+            &format!("/api/sessions/{id}/permission"),
+            Some(json!({"requestId": "toolu-first", "decision": "allow"})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+    };
+
+    let ((first_status, first_body), ()) = tokio::join!(first, second);
+    assert_eq!(first_status, StatusCode::OK, "{first_body}");
+    assert_eq!(
+        first_body["hookSpecificOutput"]["permissionDecision"],
+        "allow"
+    );
+
+    let (status, body) = send_hook(
+        &app,
+        &id,
+        Some(&token),
+        json!({"hook_event_name": "PostToolUse", "tool_use_id": "toolu-first"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+    close_session(&app, &id).await;
+}
+
+#[tokio::test]
+async fn hook_summary_strips_invisible_format_characters() {
+    let data_dir = TempDirectory::new("claude-format-data");
+    let repo = TempDirectory::new("claude-format-repo");
+    init_git_repo(&repo.path);
+    let app = router(AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    ));
+    let session = create_claude_agent(&app, &repo.path, "Format Hooks").await;
+    let id = session["id"].as_str().expect("session id").to_owned();
+    let (_, settings) = claude_settings(&data_dir.path, &id);
+    let token = settings_token(&settings);
+    let command = "echo safe\u{202E}gpj.exe\u{200B}\u{FEFF}\u{E000} --flag";
+
+    let hook = send_hook(
+        &app,
+        &id,
+        Some(&token),
+        json!({
+            "hook_event_name": "PreToolUse",
+            "tool_name": "Bash",
+            "tool_input": {"command": command},
+            "tool_use_id": "toolu-format"
+        }),
+    );
+    let answer = async {
+        let pending = wait_for_pending(&app, &id).await;
+        let summary = pending["summary"].as_str().expect("summary");
+        assert_eq!(summary, "echo safe gpj.exe --flag");
+        for character in ['\u{202E}', '\u{200B}', '\u{FEFF}', '\u{E000}'] {
+            assert!(!summary.contains(character), "summary kept {character:?}");
+        }
+        let (status, body) = call(
+            &app,
+            "POST",
+            &format!("/api/sessions/{id}/permission"),
+            Some(json!({"requestId": "toolu-format", "decision": "allow"})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+    };
+
+    let ((status, body), ()) = tokio::join!(hook, answer);
+    assert_eq!(status, StatusCode::OK, "{body}");
+    close_session(&app, &id).await;
+}
+
+#[tokio::test]
+async fn pending_permission_is_not_written_to_state() {
+    let data_dir = TempDirectory::new("claude-persist-data");
+    let repo = TempDirectory::new("claude-persist-repo");
+    init_git_repo(&repo.path);
+    let state = AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    );
+    let app = router(state.clone());
+    let session = create_claude_agent(&app, &repo.path, "Persist Hooks").await;
+    let id = session["id"].as_str().expect("session id").to_owned();
+    let (_, settings) = claude_settings(&data_dir.path, &id);
+    let token = settings_token(&settings);
+
+    let hook = send_hook(
+        &app,
+        &id,
+        Some(&token),
+        json!({
+            "hook_event_name": "PreToolUse",
+            "tool_name": "Bash",
+            "tool_input": {"command": "echo persist"},
+            "tool_use_id": "toolu-persist"
+        }),
+    );
+    let inspect = async {
+        wait_for_pending(&app, &id).await;
+        state.save();
+
+        let text = fs::read_to_string(data_dir.path.join("state.json")).expect("read state");
+        let persisted: Value = serde_json::from_str(&text).expect("parse state");
+        let persisted_session = persisted["sessions"]
+            .as_array()
+            .expect("sessions")
+            .iter()
+            .find(|entry| entry["session"]["id"] == id)
+            .expect("persisted session");
+        assert_eq!(
+            persisted_session["session"]["pendingPermission"],
+            Value::Null
+        );
+        assert_eq!(persisted_session["session"]["waitingFor"], Value::Null);
+        assert!(!text.contains("toolu-persist"));
+
+        let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+        let current = bootstrap_session(&bootstrap, &id);
+        assert_eq!(current["pendingPermission"]["requestId"], "toolu-persist");
+        assert_eq!(current["waitingFor"], "permission");
+
+        let (status, body) = call(
+            &app,
+            "POST",
+            &format!("/api/sessions/{id}/permission"),
+            Some(json!({"requestId": "toolu-persist", "decision": "allow"})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+    };
+
+    let ((status, body), ()) = tokio::join!(hook, inspect);
+    assert_eq!(status, StatusCode::OK, "{body}");
+    close_session(&app, &id).await;
+}
+
+#[tokio::test]
+async fn concurrent_answers_accept_exactly_one() {
+    let data_dir = TempDirectory::new("claude-concurrent-data");
+    let repo = TempDirectory::new("claude-concurrent-repo");
+    init_git_repo(&repo.path);
+    let app = router(AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    ));
+    let session = create_claude_agent(&app, &repo.path, "Concurrent Hooks").await;
+    let id = session["id"].as_str().expect("session id").to_owned();
+    let (_, settings) = claude_settings(&data_dir.path, &id);
+    let token = settings_token(&settings);
+
+    let hook_app = app.clone();
+    let hook_id = id.clone();
+    let hook_token = token.clone();
+    let hook = tokio::spawn(async move {
+        send_hook(
+            &hook_app,
+            &hook_id,
+            Some(&hook_token),
+            json!({
+                "hook_event_name": "PreToolUse",
+                "tool_name": "Bash",
+                "tool_input": {"command": "echo concurrent"},
+                "tool_use_id": "toolu-concurrent"
+            }),
+        )
+        .await
+    });
+    wait_for_pending(&app, &id).await;
+
+    let permission_uri = format!("/api/sessions/{id}/permission");
+    let allow = call(
+        &app,
+        "POST",
+        &permission_uri,
+        Some(json!({"requestId": "toolu-concurrent", "decision": "allow"})),
+    );
+    let deny = call(
+        &app,
+        "POST",
+        &permission_uri,
+        Some(json!({"requestId": "toolu-concurrent", "decision": "deny"})),
+    );
+    let ((allow_status, allow_body), (deny_status, deny_body)) = tokio::join!(allow, deny);
+
+    let accepted = usize::from(allow_status == StatusCode::NO_CONTENT)
+        + usize::from(deny_status == StatusCode::NO_CONTENT);
+    assert_eq!(accepted, 1, "allow: {allow_body}, deny: {deny_body}");
+    let rejected = if allow_status == StatusCode::NO_CONTENT {
+        assert_eq!(deny_status, StatusCode::CONFLICT, "{deny_body}");
+        deny_body
+    } else {
+        assert_eq!(allow_status, StatusCode::CONFLICT, "{allow_body}");
+        allow_body
+    };
+    assert!(
+        rejected["error"]
+            .as_str()
+            .is_some_and(|error| error.contains("already answered")),
+        "{rejected}"
+    );
+
+    let (hook_status, hook_body) = hook.await.expect("hook task");
+    assert_eq!(hook_status, StatusCode::OK, "{hook_body}");
+    let expected = if allow_status == StatusCode::NO_CONTENT {
+        "allow"
+    } else {
+        "deny"
+    };
+    assert_eq!(
+        hook_body["hookSpecificOutput"]["permissionDecision"],
+        expected
+    );
+    close_session(&app, &id).await;
 }
 
 async fn create_agent(app: &Router, repo: &Path, account: &str, name: &str) -> Value {

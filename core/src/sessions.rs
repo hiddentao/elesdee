@@ -552,17 +552,21 @@ impl SessionEntry {
         }
     }
 
-    pub fn begin_permission(
-        &self,
-        permission: PendingPermission,
-    ) -> Option<oneshot::Receiver<PermissionReply>> {
+    pub fn begin_permission(&self, permission: PendingPermission) -> BeginPermission {
         let (receiver, event) = {
             let mut state = lock(&self.data);
             if state.session.status != SessionState::Active || state.closing || state.process_exited
             {
-                return None;
+                return BeginPermission::Unavailable;
             }
-            resolve_pending(&mut state, "A newer permission request replaced this one.");
+            if state
+                .pending_hook
+                .as_ref()
+                .is_some_and(|pending| pending.sender.is_some())
+            {
+                return BeginPermission::Busy;
+            }
+            state.pending_hook = None;
             let (sender, receiver) = oneshot::channel();
             state.pending_hook = Some(PendingHook {
                 permission: permission.clone(),
@@ -573,7 +577,7 @@ impl SessionEntry {
             (receiver, state.session.clone())
         };
         self.publish(event);
-        Some(receiver)
+        BeginPermission::Held(receiver)
     }
 
     pub fn answer_permission(
@@ -1127,6 +1131,7 @@ pub fn spawn(
         .name(format!("pty-wait-{session_id}"))
         .spawn(move || {
             let _ = child.wait();
+            exit_entry.remove_claude_settings();
             if let Some(session) = exit_entry.mark_process_exited() {
                 let _ = events.send(SessionEvent::updated(session));
             }
