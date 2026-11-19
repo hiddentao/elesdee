@@ -8,8 +8,10 @@ import { BranchActionsMenu, type BranchMenuAction } from './BranchActionsMenu';
 
 function Harness({
   onAction,
+  canOpen = false,
 }: {
   onAction: (action: BranchMenuAction) => void;
+  canOpen?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -27,6 +29,7 @@ function Harness({
         <BranchActionsMenu
           session={session}
           trigger={triggerRef.current as HTMLButtonElement}
+          canOpen={canOpen}
           onAction={(action) => {
             onAction(action);
             setOpen(false);
@@ -66,6 +69,38 @@ describe('BranchActionsMenu', () => {
     );
 
     expect(onAction).toHaveBeenCalledWith('copy-folder');
+  });
+
+  it('shows the open actions only when the shell can open them', async () => {
+    const user = userEvent.setup();
+    const onAction = vi.fn();
+    render(<Harness onAction={onAction} canOpen />);
+
+    await user.click(screen.getByRole('button', { name: 'Branch' }));
+
+    expect(
+      screen.getByRole('menuitem', { name: 'Open folder' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('menuitem', { name: 'Open in Terminal' }),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole('menuitem', { name: 'Open folder' }));
+    expect(onAction).toHaveBeenCalledWith('open-folder');
+  });
+
+  it('hides the open actions outside the desktop shell', async () => {
+    const user = userEvent.setup();
+    render(<Harness onAction={vi.fn()} />);
+
+    await user.click(screen.getByRole('button', { name: 'Branch' }));
+
+    expect(
+      screen.queryByRole('menuitem', { name: 'Open folder' }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('menuitem', { name: 'Open in Terminal' }),
+    ).not.toBeInTheDocument();
   });
 
   it('closes on Escape and returns focus to the branch pill', async () => {

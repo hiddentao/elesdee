@@ -72,8 +72,70 @@ fn start_core() -> Option<Child> {
     }
 }
 
+fn checked_dir(path: &str) -> Result<PathBuf, String> {
+    let folder = PathBuf::from(path);
+    if !folder.is_absolute() {
+        return Err("The folder path must be absolute.".to_owned());
+    }
+    if !folder.is_dir() {
+        return Err("The folder does not exist.".to_owned());
+    }
+    Ok(folder)
+}
+
+#[tauri::command]
+fn open_folder(path: String) -> Result<(), String> {
+    let folder = checked_dir(&path)?;
+    open_with(&folder, false)
+}
+
+#[tauri::command]
+fn open_terminal(path: String) -> Result<(), String> {
+    let folder = checked_dir(&path)?;
+    open_with(&folder, true)
+}
+
+fn open_with(folder: &std::path::Path, terminal: bool) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    let mut command = {
+        let mut command = Command::new("open");
+        if terminal {
+            command.args(["-a", "Terminal"]);
+        }
+        command
+    };
+    #[cfg(target_os = "windows")]
+    let mut command = {
+        let mut command = Command::new("explorer");
+        if terminal {
+            command = Command::new("cmd");
+            command.args(["/C", "start", "cmd", "/K", "cd", "/d"]).arg(folder);
+            return command
+                .spawn()
+                .map(|_| ())
+                .map_err(|error| format!("Could not open a terminal: {error}"));
+        }
+        command
+    };
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let mut command = {
+        let mut command = Command::new(if terminal { "x-terminal-emulator" } else { "xdg-open" });
+        if terminal {
+            command.arg("--working-directory");
+        }
+        command
+    };
+
+    command
+        .arg(folder)
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| format!("Could not open the folder: {error}"))
+}
+
 fn main() {
     let app = tauri::Builder::default()
+        .invoke_handler(tauri::generate_handler![open_folder, open_terminal])
         .setup(|app| {
             app.manage(CoreProcess(Mutex::new(start_core())));
             Ok(())

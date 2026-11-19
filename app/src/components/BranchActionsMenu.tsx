@@ -1,33 +1,55 @@
-import { useEffect, useRef, type KeyboardEvent } from 'react';
+import { Fragment, useEffect, useRef, type KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import type { Session } from '../api/types';
 
-export type BranchMenuAction = 'copy-branch' | 'copy-folder';
+export type BranchMenuAction =
+  | 'copy-branch'
+  | 'copy-folder'
+  | 'open-folder'
+  | 'open-terminal';
 
 interface BranchActionsMenuProps {
   session: Session;
   trigger: HTMLElement;
+  canOpen: boolean;
   onAction: (action: BranchMenuAction) => void;
   onClose: () => void;
 }
 
+interface MenuItem {
+  action: BranchMenuAction;
+  label: string;
+  separated?: boolean;
+}
+
 const MENU_WIDTH = 230;
-const MENU_HEIGHT = 120;
+const MENU_HEIGHT = 220;
 
 export function BranchActionsMenu({
   session,
   trigger,
+  canOpen,
   onAction,
   onClose,
 }: BranchActionsMenuProps) {
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const rect = trigger.getBoundingClientRect();
+  const hasFolder = session.folder.trim() !== '';
+
+  const items: MenuItem[] = [];
+  if (session.branch) {
+    items.push({ action: 'copy-branch', label: 'Copy branch name' });
+  }
+  if (hasFolder) {
+    items.push({ action: 'copy-folder', label: 'Copy folder path' });
+  }
+  if (canOpen && hasFolder) {
+    items.push({ action: 'open-folder', label: 'Open folder', separated: true });
+    items.push({ action: 'open-terminal', label: 'Open in Terminal' });
+  }
 
   const left = Math.round(
-    Math.min(
-      Math.max(8, rect.left),
-      window.innerWidth - MENU_WIDTH - 8,
-    ),
+    Math.min(Math.max(8, rect.left), window.innerWidth - MENU_WIDTH - 8),
   );
   const top = Math.round(
     Math.min(
@@ -52,13 +74,16 @@ export function BranchActionsMenu({
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
-    const items = itemRefs.current.filter(
-      (item): item is HTMLButtonElement => item !== null,
-    );
-    if (items.length === 0) {
+    const focusable = itemRefs.current
+      .slice(0, items.length)
+      .filter((item): item is HTMLButtonElement => item !== null);
+    if (focusable.length === 0) {
       return;
     }
-    const current = items.indexOf(document.activeElement as HTMLButtonElement);
+
+    const current = focusable.indexOf(
+      document.activeElement as HTMLButtonElement,
+    );
 
     switch (event.key) {
       case 'Escape':
@@ -71,19 +96,19 @@ export function BranchActionsMenu({
         return;
       case 'ArrowDown':
         event.preventDefault();
-        items[(current + 1) % items.length]?.focus();
+        focusable[(current + 1) % focusable.length]?.focus();
         return;
       case 'ArrowUp':
         event.preventDefault();
-        items[(current - 1 + items.length) % items.length]?.focus();
+        focusable[(current - 1 + focusable.length) % focusable.length]?.focus();
         return;
       case 'Home':
         event.preventDefault();
-        items[0]?.focus();
+        focusable[0]?.focus();
         return;
       case 'End':
         event.preventDefault();
-        items[items.length - 1]?.focus();
+        focusable[focusable.length - 1]?.focus();
         return;
       default:
         return;
@@ -100,34 +125,25 @@ export function BranchActionsMenu({
         style={{ left, top }}
         onKeyDown={handleKeyDown}
       >
-        {session.branch ? (
-          <button
-            ref={(element) => {
-              itemRefs.current[0] = element;
-            }}
-            type="button"
-            role="menuitem"
-            className="menu-item"
-            tabIndex={-1}
-            onClick={() => select('copy-branch')}
-          >
-            Copy branch name
-          </button>
-        ) : null}
-        {session.folder.trim() !== '' ? (
-          <button
-            ref={(element) => {
-              itemRefs.current[1] = element;
-            }}
-            type="button"
-            role="menuitem"
-            className="menu-item"
-            tabIndex={-1}
-            onClick={() => select('copy-folder')}
-          >
-            Copy folder path
-          </button>
-        ) : null}
+        {items.map((item, index) => (
+          <Fragment key={item.action}>
+            {item.separated ? (
+              <div className="menu-sep" role="separator" />
+            ) : null}
+            <button
+              ref={(element) => {
+                itemRefs.current[index] = element;
+              }}
+              type="button"
+              role="menuitem"
+              className="menu-item"
+              tabIndex={-1}
+              onClick={() => select(item.action)}
+            >
+              {item.label}
+            </button>
+          </Fragment>
+        ))}
       </div>
     </div>,
     document.body,

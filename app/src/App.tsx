@@ -19,6 +19,7 @@ import {
   respondPermission,
 } from './api/client';
 import { subscribeEvents } from './api/events';
+import { isTauri, openFolder, openTerminal } from './api/shell';
 import type {
   Account,
   AgentCheck,
@@ -103,6 +104,7 @@ export default function App() {
   const [eventAttempt, setEventAttempt] = useState(0);
   const [announcement, setAnnouncement] = useState('');
   const [focusSessionChangeTick, setFocusSessionChangeTick] = useState(0);
+  const tauri = isTauri();
 
   const mainRef = useRef<HTMLElement>(null);
   const focusMainRef = useRef(false);
@@ -365,6 +367,20 @@ export default function App() {
     setBranchMenu({ sessionId: session.id, trigger });
   }
 
+  async function runShell(action: () => Promise<void>) {
+    try {
+      await action();
+    } catch (error) {
+      const message =
+        typeof error === 'string' && error.trim()
+          ? error
+          : error instanceof Error && error.message
+            ? error.message
+            : 'The action failed.';
+      setToast({ message, error: true });
+    }
+  }
+
   function handleBranchAction(action: BranchMenuAction, session: Session) {
     switch (action) {
       case 'copy-branch':
@@ -376,6 +392,12 @@ export default function App() {
         if (session.folder) {
           void copyText(session.folder, 'Folder path copied.');
         }
+        break;
+      case 'open-folder':
+        void runShell(() => openFolder(session.folder));
+        break;
+      case 'open-terminal':
+        void runShell(() => openTerminal(session.folder));
         break;
     }
   }
@@ -537,10 +559,19 @@ export default function App() {
           Skip to session
         </a>
 
-        <header className="titlebar">
+        <header
+          className={tauri ? 'titlebar is-tauri' : 'titlebar'}
+          data-tauri-drag-region={tauri ? 'true' : undefined}
+        >
           <div className="brand">
             <span className="brand-mark" aria-hidden="true" />
             elesdee
+            {activeProject ? (
+              <span className="titlebar-project">
+                {' · '}
+                {activeProject.name}
+              </span>
+            ) : null}
           </div>
           <div className="titlebar-spacer" />
           {projects.length > 0 ? (
@@ -719,6 +750,7 @@ export default function App() {
         <BranchActionsMenu
           session={branchSession}
           trigger={branchMenu.trigger}
+          canOpen={tauri}
           onAction={(action) => handleBranchAction(action, branchSession)}
           onClose={() => setBranchMenu(null)}
         />

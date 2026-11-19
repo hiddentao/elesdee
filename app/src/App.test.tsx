@@ -16,6 +16,7 @@ import {
   respondPermission,
 } from './api/client';
 import { subscribeEvents } from './api/events';
+import { isTauri, openFolder, openTerminal } from './api/shell';
 import type { Account } from './api/types';
 
 vi.mock('./api/client', async (importOriginal) => {
@@ -38,6 +39,12 @@ vi.mock('./api/client', async (importOriginal) => {
 
 vi.mock('./api/events', () => ({
   subscribeEvents: vi.fn(),
+}));
+
+vi.mock('./api/shell', () => ({
+  isTauri: vi.fn(() => false),
+  openFolder: vi.fn(),
+  openTerminal: vi.fn(),
 }));
 
 vi.mock('./components/TerminalPane', () => ({
@@ -99,6 +106,9 @@ beforeEach(() => {
   });
   vi.mocked(deleteSession).mockResolvedValue(undefined);
   vi.mocked(subscribeEvents).mockReturnValue(() => {});
+  vi.mocked(isTauri).mockReturnValue(false);
+  vi.mocked(openFolder).mockResolvedValue(undefined);
+  vi.mocked(openTerminal).mockResolvedValue(undefined);
 });
 
 describe('first launch', () => {
@@ -975,5 +985,98 @@ describe('shell controls and closed state', () => {
 
     expect(writeText).toHaveBeenCalledWith('elesdee/web/branch-task');
     expect(await screen.findByText('Branch name copied.')).toBeInTheDocument();
+  });
+});
+
+
+describe('desktop shell', () => {
+  it('shows the active project in the browser titlebar without drag chrome', async () => {
+    render(<App />);
+
+    const titlebar = await screen.findByRole('banner');
+    expect(titlebar).not.toHaveClass('is-tauri');
+    expect(titlebar).not.toHaveAttribute('data-tauri-drag-region');
+    expect(titlebar).toHaveTextContent('elesdee');
+    expect(titlebar).toHaveTextContent('web');
+  });
+
+  it('uses the Tauri drag region and titlebar padding in the desktop shell', async () => {
+    vi.mocked(isTauri).mockReturnValue(true);
+    render(<App />);
+
+    const titlebar = await screen.findByRole('banner');
+    expect(titlebar).toHaveClass('is-tauri');
+    expect(titlebar).toHaveAttribute('data-tauri-drag-region', 'true');
+    expect(titlebar).toHaveTextContent('elesdee');
+    expect(titlebar).toHaveTextContent('web');
+  });
+
+  function branchBootstrap() {
+    const branchSession = makeSession({
+      id: 's1',
+      name: 'Branch task',
+      short: 'branch-task',
+      branch: 'elesdee/web/branch-task',
+      folder: '/data/worktrees/s1',
+    });
+    vi.mocked(bootstrap).mockResolvedValue({
+      projects: [{ id: 'p1', name: 'web', folder: '/dev/web' }],
+      accounts: [],
+      sessions: [branchSession],
+    });
+    return branchSession;
+  }
+
+  async function openBranchMenu(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(await screen.findByRole('button', { name: /Branch task/ }));
+    await user.click(
+      screen.getByRole('button', { name: 'elesdee/web/branch-task' }),
+    );
+  }
+
+  it('hides the open actions in a normal browser', async () => {
+    branchBootstrap();
+    const user = userEvent.setup();
+    render(<App />);
+    await openBranchMenu(user);
+
+    expect(
+      screen.queryByRole('menuitem', { name: 'Open folder' }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('menuitem', { name: 'Open in Terminal' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('opens the folder and terminal through the Tauri commands', async () => {
+    vi.mocked(isTauri).mockReturnValue(true);
+    branchBootstrap();
+    const user = userEvent.setup();
+    render(<App />);
+
+    await openBranchMenu(user);
+    await user.click(screen.getByRole('menuitem', { name: 'Open folder' }));
+    expect(openFolder).toHaveBeenCalledWith('/data/worktrees/s1');
+
+    await openBranchMenu(user);
+    await user.click(
+      screen.getByRole('menuitem', { name: 'Open in Terminal' }),
+    );
+    expect(openTerminal).toHaveBeenCalledWith('/data/worktrees/s1');
+  });
+
+  it('shows the returned shell error as a toast', async () => {
+    vi.mocked(isTauri).mockReturnValue(true);
+    vi.mocked(openFolder).mockRejectedValue('No such folder.');
+    branchBootstrap();
+    const user = userEvent.setup();
+    render(<App />);
+
+    await openBranchMenu(user);
+    await user.click(screen.getByRole('menuitem', { name: 'Open folder' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'No such folder.',
+    );
   });
 });
