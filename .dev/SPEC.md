@@ -1,6 +1,6 @@
 # elesdee — Spec
 
-Last updated: 18 November 2026
+Last updated: 19 November 2026
 
 ## Purpose
 
@@ -112,12 +112,19 @@ Both agents write their conversation to files on disk, but both say the file for
 - A terminal session is named after its folder. I can rename it.
 - There is no limit on how many sessions run at the same time, and no warning. I manage it myself.
 
+**Session states**
+
+- A session is Active or Closed. Those are the only two states shown.
+- Active covers an agent that is working, waiting for me, paused, or has reported done. A reported done task stays active until I close the session.
+- Closed means I closed it. The worktree is removed and the branch stays.
+
 **Sessions sidebar**
 
 - Shows all sessions in a vertical list, in one of two views:
-  - Grouped: sessions sit under their project. I can collapse a project. A collapsed project shows a pulsing dot when a session under it is running.
+  - Grouped: sessions sit under their project. I can collapse a project. A collapsed project shows one small blot for each active session. Hovering a blot shows the session name and whether it needs me.
   - Flat: no project groups. Each session shows its project name in small text under the session name.
-- A filter shows only running sessions. In the grouped view, the filter expands every project that has a running session.
+- Expanding a project does not collapse the others. The project whose sessions are in the tabs is highlighted.
+- A filter shows only active sessions. In the grouped view, the filter expands every project that has an active session.
 
 **Session menu**
 
@@ -144,17 +151,21 @@ Both agents write their conversation to files on disk, but both say the file for
 
 **Tabs**
 
-- Click a session in the sidebar to open it as a tab.
-- A tab cannot be closed, only minimized. Minimize takes the tab out of the tab bar. The session keeps running and stays in the sidebar.
+- Each project has its own tab strip. Switching projects replaces the strip with that project's tabs.
+- Click a session in the sidebar to open it as a tab. Clicking a session in another project switches to that project and makes the session active there.
+- A tab cannot be closed. There is no minimize. The session keeps running and stays in the sidebar.
+- The last active tab of each project is restored when I return to it.
 
-**File viewer and code editor (side panel)**
+**Session side panel**
 
-- Closed by default. I open it when I want to look at or edit files.
-- Shows the file tree of the current session's worktree or folder.
-- Code editor with full syntax highlighting. I can edit and save files.
-- Not a main feature: it supports quick edits, not full IDE work.
+- Each session has its own side panel, closed by default. Switching sessions switches its content and open state.
+- It has three tabs: Files, Changes and Browser.
+- Files shows the file tree of the session's worktree or folder. It opens a CodeMirror editor with full syntax highlighting, which works on touch screens. I can edit and save files.
+- Changes shows every change since the branch point, committed or not.
+- Browser shows a live view of the session's browser. Each session has its own browser context: separate tabs, cookies, storage and logins.
+- Usage is not in this panel. Usage belongs to the Mac and opens from the sidebar summary.
+- Not a main feature: the editor supports quick edits, not full IDE work.
 - Mac only for now. The phone does not have the file viewer and editor yet.
-- The editor is CodeMirror: light, with full syntax highlighting, and it works on touch screens, so it can come to the phone later.
 
 ## Agent support and presets
 
@@ -216,7 +227,7 @@ Every agent session gets the same app tools and skills, whatever the agent or pr
 | Start session | Starts a new session with a preset, project, source branch and first prompt. I must approve each new session first, on the desktop or the phone. The approval has an option, "Allow further sessions from this session", so a coordinating agent can start helpers without more questions. The sidebar marks which session started it. |
 | Send message | Sends input to another session |
 | Read session | Reads another session's recent output and status: running, waiting for input, or finished |
-| Report done | Tells the app that this session's task is done. Only then does the session count as finished; an idle agent counts as waiting for input. |
+| Report done | Tells the app that this session's task is done. The session stays Active until I close it; an idle agent counts as waiting for input. |
 | Wait for session | Waits until another session finishes or needs input |
 | Register demo server | Tells the app that a demo server runs on a port. Returns an address I can open remotely (see Demo servers). |
 | Notify me | Sends me a notification on the desktop, and on the phone while the phone app is open |
@@ -236,6 +247,7 @@ Every agent session gets the same app tools and skills, whatever the agent or pr
 | Browser checks | Check UI changes in the built-in browser, take screenshots and share them with me |
 | Ask and notify | Ask me through the app when blocked, instead of waiting. Tell me when work is done. |
 | Coordinate sessions | Split a large task across helper sessions, write clear briefs, and track progress. The coordinating agent merges each helper's branch into its own session branch and resolves conflicts. |
+| Frontend design | Make deliberate visual choices for the subject. Avoid generic layouts and template defaults. Check for redundant controls before adding one. |
 
 **Handoff note**
 
@@ -267,15 +279,17 @@ I can switch provider inside a running session with one button, and the IDE can 
 - One button switches the current session to another provider or account.
 - The work and context of the session carry over to the new provider. Inside Claude Code (for example Anthropic to DeepSeek), the same conversation continues. Between Claude Code and Codex, the new agent gets a handoff summary of the work so far.
 
-**Usage panel (sidebar or tab)**
+**Usage panel**
 
-Shows every account at the same time:
+Usage belongs to the Mac, not to a session. The sidebar shows a compact summary. I click it to open the full panel, which shows every account at the same time:
 
 | Account type | What the panel shows |
 | --- | --- |
-| Claude Code (each subscription) | Usage remaining for each limit of the plan (5-hour and weekly); context remaining in the current session |
-| Codex | Usage remaining for each limit of the plan (5-hour and weekly, where the plan has them); context remaining in the current session |
-| DeepSeek (through Claude Code) | Account balance from the DeepSeek API, so I know when to top up; context remaining in the current session |
+| Claude Code (each subscription) | Usage remaining for each limit of the plan (5-hour and weekly) |
+| Codex | Usage remaining for each limit of the plan (5-hour and weekly, where the plan has them) |
+| DeepSeek (through Claude Code) | Account balance from the DeepSeek API, so I know when to top up |
+
+Context remaining belongs to the session and appears beside the session title, not in the usage panel.
 
 **Allowed providers per session**
 
@@ -287,7 +301,7 @@ Shows every account at the same time:
 1. The IDE watches the usage of the current provider.
 2. When usage nears its limit, the IDE switches the session to an allowed provider that has usage left (see the rules below).
 3. If no allowed provider has usage left, the IDE tells the agent to commit all its work to the session branch, write a handoff note, and push the branch to the remote.
-4. The IDE then pauses the session. A paused session keeps its worktree and stays in the sidebar, marked as paused. This is not a Close.
+4. The IDE then pauses the session. A paused session keeps its worktree and stays in the sidebar as Active, with a paused note in the session. This is not a Close.
 5. The session resumes by itself when an allowed provider has usage again. I can also click Resume at any time.
 
 **Where usage numbers come from**
@@ -317,6 +331,16 @@ Rules from the providers:
 - Subscriptions (Claude, Codex): "near the limit" means 90% of any limit of the plan, the 5-hour limit or the weekly limit, whichever comes first. The margin leaves room for the agent to commit and hand off.
 - DeepSeek: each account has a minimum balance that I set, for example 5 USD. Below it, auto-switch moves the session away and the app tells me to top up.
 - Order: auto-switch picks subscription accounts first, then pay-per-use accounts such as DeepSeek. Among subscription accounts, it picks the one with the most usage left.
+
+## Settings
+
+- Settings opens as a full page over the Mac window. A left submenu holds the sections.
+- General: start elesdee at login, and keep the Mac awake while agents work.
+- Providers: auto-switch.
+- Language & formats: the interface language, dates and numbers.
+- Devices: paired phones, with a Remove action.
+- Diagnostics: export logs and system details.
+- A version label sits at the bottom of the submenu.
 
 ## Projects
 
