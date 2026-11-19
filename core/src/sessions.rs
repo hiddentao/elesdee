@@ -126,6 +126,7 @@ pub struct SessionEntry {
     output_budget: Arc<OutputBudget>,
     preview_throttle: Duration,
     claude: Mutex<Option<ClaudeRuntime>>,
+    home: Mutex<Option<PathBuf>>,
 }
 
 struct ClaudeRuntime {
@@ -311,6 +312,7 @@ impl SessionEntry {
             output_budget,
             preview_throttle: config.preview_throttle,
             claude: Mutex::new(None),
+            home: Mutex::new(None),
         }
     }
 
@@ -380,6 +382,25 @@ impl SessionEntry {
         }
     }
 
+    pub fn set_home(&self, home: PathBuf) {
+        *lock(&self.home) = Some(home);
+    }
+
+    pub fn home(&self) -> Option<PathBuf> {
+        lock(&self.home).clone()
+    }
+
+    pub fn remove_home(&self) {
+        if let Some(home) = lock(&self.home).take() {
+            let _ = std::fs::remove_dir_all(home);
+        }
+    }
+
+    pub fn remove_session_files(&self) {
+        self.remove_claude_settings();
+        self.remove_home();
+    }
+
     pub fn try_lifecycle(&self) -> Option<tokio::sync::MutexGuard<'_, ()>> {
         self.lifecycle.try_lock().ok()
     }
@@ -443,7 +464,7 @@ impl SessionEntry {
             state.session.clone()
         };
 
-        self.remove_claude_settings();
+        self.remove_session_files();
         self.stop_reader();
         let _ = self.close_tx.send(true);
         session
@@ -505,7 +526,7 @@ impl SessionEntry {
             state.closing = false;
             state.runtime.take()
         };
-        self.remove_claude_settings();
+        self.remove_session_files();
         let writer = {
             let mut writer = lock(&self.writer);
             writer.take()
@@ -1071,6 +1092,7 @@ pub fn spawn(
     size: TerminalSize,
     stall_writer: bool,
     events: broadcast::Sender<SessionEvent>,
+    environment: &[(String, String)],
 ) -> Result<(), String> {
     {
         let mut stored = lock(&entry.command);
@@ -1081,6 +1103,9 @@ pub fn spawn(
 
     command.cwd(folder);
     configure_environment(&mut command);
+    for (name, value) in environment {
+        command.env(name, value);
+    }
 
     let pty_system = native_pty_system();
     let pair = pty_system
@@ -1131,7 +1156,7 @@ pub fn spawn(
         .name(format!("pty-wait-{session_id}"))
         .spawn(move || {
             let _ = child.wait();
-            exit_entry.remove_claude_settings();
+            exit_entry.remove_session_files();
             if let Some(session) = exit_entry.mark_process_exited() {
                 let _ = events.send(SessionEvent::updated(session));
             }
@@ -1205,7 +1230,7 @@ pub fn close_entry(
         (state.session.clone(), state.runtime.take())
     };
 
-    entry.remove_claude_settings();
+    entry.remove_session_files();
     entry.stop_reader();
     let _ = entry.close_tx.send(true);
     let writer = {

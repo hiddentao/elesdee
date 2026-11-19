@@ -9,6 +9,7 @@ use tokio::sync::{Mutex as AsyncMutex, broadcast};
 
 use crate::clients;
 use crate::persist::{LoadResult, PersistedOutput, PersistedSession, PersistedState, StateStore};
+use crate::secrets::{KeyringStore, MemorySecretStore, SecretStore};
 use crate::seed;
 use crate::sessions::{self, CloseFailure, OutputBudget, SessionEntry, TerminalSize};
 use crate::slug::{slugify, with_suffix};
@@ -65,16 +66,24 @@ pub enum Client {
     Codex,
     #[serde(rename = "OpenCode 2")]
     OpenCode2,
+    #[serde(rename = "Antigravity")]
+    Antigravity,
 }
 
 impl Client {
-    pub const ALL: [Client; 3] = [Client::ClaudeCode, Client::Codex, Client::OpenCode2];
+    pub const ALL: [Client; 4] = [
+        Client::ClaudeCode,
+        Client::Codex,
+        Client::OpenCode2,
+        Client::Antigravity,
+    ];
 
     pub fn binary(self) -> &'static str {
         match self {
             Client::ClaudeCode => "claude",
             Client::Codex => "codex",
             Client::OpenCode2 => "opencode",
+            Client::Antigravity => "agy",
         }
     }
 
@@ -83,6 +92,7 @@ impl Client {
             Client::ClaudeCode => "Claude Code",
             Client::Codex => "Codex",
             Client::OpenCode2 => "OpenCode 2",
+            Client::Antigravity => "Antigravity",
         }
     }
 }
@@ -289,7 +299,8 @@ impl SessionStore {
 
 struct Inner {
     projects: Mutex<Vec<Project>>,
-    accounts: Vec<Account>,
+    accounts: Mutex<Vec<Account>>,
+    secrets: Arc<dyn SecretStore>,
     sessions: Mutex<SessionStore>,
     events: broadcast::Sender<SessionEvent>,
     command_override: Option<Vec<String>>,
@@ -322,6 +333,7 @@ impl AppState {
     pub fn new_with_port(port: u16) -> Self {
         let mut state = Self::from_store(
             StateStore::from_environment().map(Arc::new),
+            Arc::new(KeyringStore::new()),
             None,
             MAX_ACTIVE_SESSIONS,
             false,
@@ -337,6 +349,7 @@ impl AppState {
         Self::from_parts(
             seed::projects(),
             seed::accounts(),
+            Arc::new(MemorySecretStore::default()),
             None,
             MAX_ACTIVE_SESSIONS,
             false,
@@ -353,7 +366,13 @@ impl AppState {
                 None
             }
         };
-        Self::from_store(store, None, MAX_ACTIVE_SESSIONS, false)
+        Self::from_store(
+            store,
+            Arc::new(MemorySecretStore::default()),
+            None,
+            MAX_ACTIVE_SESSIONS,
+            false,
+        )
     }
 
     #[doc(hidden)]
@@ -361,6 +380,7 @@ impl AppState {
         Self::from_parts(
             seed::projects(),
             seed::accounts(),
+            Arc::new(MemorySecretStore::default()),
             Some(argv),
             MAX_ACTIVE_SESSIONS,
             false,
@@ -380,7 +400,13 @@ impl AppState {
                 None
             }
         };
-        Self::from_store(store, Some(argv), MAX_ACTIVE_SESSIONS, false)
+        Self::from_store(
+            store,
+            Arc::new(MemorySecretStore::default()),
+            Some(argv),
+            MAX_ACTIVE_SESSIONS,
+            false,
+        )
     }
 
     #[doc(hidden)]
@@ -388,6 +414,7 @@ impl AppState {
         Self::from_parts(
             seed::projects(),
             seed::accounts(),
+            Arc::new(MemorySecretStore::default()),
             Some(argv),
             session_cap,
             false,
@@ -400,6 +427,7 @@ impl AppState {
         Self::from_parts(
             seed::projects(),
             seed::accounts(),
+            Arc::new(MemorySecretStore::default()),
             Some(argv),
             MAX_ACTIVE_SESSIONS,
             true,
@@ -409,20 +437,26 @@ impl AppState {
 
     fn from_store(
         store: Option<Arc<StateStore>>,
+        secrets: Arc<dyn SecretStore>,
         command_override: Option<Vec<String>>,
         session_cap: usize,
         stall_writer: bool,
     ) -> Self {
-        let (projects, sessions) = match store.as_ref().map(|store| store.load()) {
-            Some(LoadResult::Loaded(state)) => (state.projects, state.sessions),
+        let (projects, accounts, sessions) = match store.as_ref().map(|store| store.load()) {
+            Some(LoadResult::Loaded(state)) => (
+                state.projects,
+                state.accounts.unwrap_or_else(seed::accounts),
+                state.sessions,
+            ),
             Some(LoadResult::Missing | LoadResult::Corrupt) | None => {
-                (seed::projects(), Vec::new())
+                (seed::projects(), seed::accounts(), Vec::new())
             }
         };
 
         let state = Self::from_parts(
             projects,
-            seed::accounts(),
+            accounts,
+            secrets,
             command_override,
             session_cap,
             stall_writer,
@@ -441,6 +475,7 @@ impl AppState {
     fn from_parts(
         projects: Vec<Project>,
         accounts: Vec<Account>,
+        secrets: Arc<dyn SecretStore>,
         command_override: Option<Vec<String>>,
         session_cap: usize,
         stall_writer: bool,
@@ -450,7 +485,8 @@ impl AppState {
         Self {
             inner: Arc::new(Inner {
                 projects: Mutex::new(projects),
-                accounts,
+                accounts: Mutex::new(accounts),
+                secrets,
                 sessions: Mutex::new(SessionStore::new()),
                 events,
                 command_override,
@@ -517,6 +553,18 @@ impl AppState {
         self.inner.port
     }
 
+    #[doc(hidden)]
+    pub fn with_test_secret_store(mut self, store: Arc<dyn SecretStore>) -> Self {
+        if let Some(inner) = Arc::get_mut(&mut self.inner) {
+            inner.secrets = store;
+        }
+        self
+    }
+
+    pub(crate) fn secret_store(&self) -> Arc<dyn SecretStore> {
+        Arc::clone(&self.inner.secrets)
+    }
+
     pub async fn lock_agent_identity(&self) -> tokio::sync::MutexGuard<'_, ()> {
         self.inner.agent_identity.lock().await
     }
@@ -538,8 +586,23 @@ impl AppState {
         lock(&self.inner.projects).clone()
     }
 
-    pub fn accounts(&self) -> &[Account] {
-        &self.inner.accounts
+    pub fn accounts(&self) -> Vec<Account> {
+        lock(&self.inner.accounts).clone()
+    }
+
+    pub fn add_account(&self, mut account: Account) -> Account {
+        let mut accounts = lock(&self.inner.accounts);
+        let base = slugify(&account.name, "account");
+        let id = with_suffix(&base, |candidate| {
+            accounts.iter().any(|existing| existing.id == candidate)
+        });
+        account.id = id;
+        accounts.push(account.clone());
+        account
+    }
+
+    pub fn remove_account(&self, id: &str) {
+        lock(&self.inner.accounts).retain(|account| account.id != id);
     }
 
     pub fn project(&self, id: &str) -> Option<Project> {
@@ -569,8 +632,7 @@ impl AppState {
     }
 
     pub fn account(&self, id: &str) -> Option<Account> {
-        self.inner
-            .accounts
+        lock(&self.inner.accounts)
             .iter()
             .find(|account| account.id == id)
             .cloned()
@@ -593,7 +655,7 @@ impl AppState {
             .collect::<Vec<_>>();
         Bootstrap {
             projects: lock(&self.inner.projects).clone(),
-            accounts: self.inner.accounts.clone(),
+            accounts: self.accounts(),
             sessions,
         }
     }
@@ -689,7 +751,7 @@ impl AppState {
                 }
             })
             .collect();
-        let state = PersistedState::new(projects, sessions);
+        let state = PersistedState::new(projects, Some(self.accounts()), sessions);
         if let Err(error) = store.save(&state) {
             tracing::error!(%error, "could not save state");
         }

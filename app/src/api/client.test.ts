@@ -3,6 +3,7 @@ import {
   ApiError,
   bootstrap,
   closeSession,
+  createAccount,
   createProject,
   deleteSession,
   renameSession,
@@ -80,6 +81,39 @@ describe('API client', () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ requestId: 'req-1', decision: 'allow' }),
+    });
+  });
+
+  it('creates a Google account with the key and model', async () => {
+    const account = {
+      id: 'google-1',
+      name: 'Google work',
+      plan: 'Google AI',
+      client: 'Antigravity',
+      provider: 'google',
+      auth: 'key',
+      rows: [],
+      foot: 'No official usage source.',
+      server: null,
+      model: 'gemini-3.8-flash-medium',
+    };
+    const fetchMock = vi.fn().mockResolvedValue(response(200, account));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const input = {
+      name: 'Google work',
+      providerId: 'google' as const,
+      client: 'Antigravity' as const,
+      auth: 'key' as const,
+      key: 'secret-key',
+      model: 'gemini-3.8-flash-medium',
+    };
+
+    await expect(createAccount(input)).resolves.toEqual(account);
+    expect(fetchMock).toHaveBeenCalledWith('/api/accounts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
     });
   });
 

@@ -12,6 +12,8 @@ interface DialogProps {
   busyLabel?: string;
   onClose: () => void;
   busy?: boolean;
+  inert?: boolean;
+  className?: string;
   children: ReactNode;
 }
 
@@ -31,6 +33,8 @@ export function Dialog({
   busyLabel = 'Working…',
   onClose,
   busy = false,
+  inert = false,
+  className,
   children,
 }: DialogProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -88,7 +92,7 @@ export function Dialog({
   }
 
   return (
-    <div className="dialog-layer">
+    <div className="dialog-layer" inert={inert}>
       <div
         className="dialog-scrim"
         onClick={() => {
@@ -100,7 +104,7 @@ export function Dialog({
       />
       <div
         ref={dialogRef}
-        className="dialog"
+        className={className ? `dialog ${className}` : 'dialog'}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}

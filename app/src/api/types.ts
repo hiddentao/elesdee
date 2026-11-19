@@ -3,7 +3,7 @@ export type WorkState = 'working' | 'waiting' | 'input' | 'paused' | 'done';
 export type WaitingFor = 'permission' | 'input' | 'start' | 'question';
 export type SessionKind = 'agent' | 'terminal';
 export type PermissionDecision = 'allow' | 'deny';
-export type Client = 'Claude Code' | 'Codex' | 'OpenCode 2';
+export type Client = 'Claude Code' | 'Codex' | 'OpenCode 2' | 'Antigravity';
 
 export interface PendingPermission {
   requestId: string;
@@ -11,7 +11,12 @@ export interface PendingPermission {
   summary: string;
 }
 
-export const CLIENTS: readonly Client[] = ['Claude Code', 'Codex', 'OpenCode 2'];
+export const CLIENTS: readonly Client[] = [
+  'Claude Code',
+  'Codex',
+  'OpenCode 2',
+  'Antigravity',
+];
 
 export interface Shortcut {
   key: string;
@@ -95,6 +100,15 @@ export interface CreateSessionInput {
 export interface CreateProjectInput {
   name: string;
   folder: string;
+}
+
+export interface CreateAccountInput {
+  name: string;
+  providerId: 'google';
+  client: 'Antigravity';
+  auth: 'key';
+  key: string;
+  model?: string;
 }
 
 export interface ApiErrorPayload {

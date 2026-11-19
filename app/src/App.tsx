@@ -9,6 +9,7 @@ import {
   ApiError,
   bootstrap,
   closeSession,
+  createAccount,
   createProject,
   createSession,
   deleteSession,
@@ -37,6 +38,7 @@ import {
 } from './components/SessionActionsMenu';
 import { SessionHeader } from './components/SessionHeader';
 import { SessionView } from './components/SessionView';
+import { SettingsDialog } from './components/SettingsDialog';
 import { Sidebar } from './components/Sidebar';
 import { TabStrip } from './components/TabStrip';
 import { UsageDialog } from './components/UsageDialog';
@@ -76,6 +78,7 @@ export default function App() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [agents, setAgents] = useState<AgentCheck[]>([]);
   const [agentsChecked, setAgentsChecked] = useState(false);
+  const [version, setVersion] = useState<string | null>(null);
   const [tabsByProject, setTabsByProject] = useState<TabsByProject>({});
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -85,6 +88,7 @@ export default function App() {
   const [deleteSessionId, setDeleteSessionId] = useState<string | null>(null);
   const [sessionMenu, setSessionMenu] = useState<SessionMenuState | null>(null);
   const [usageOpen, setUsageOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [toast, setToast] = useState<ToastState | null>(null);
   const [eventsPaused, setEventsPaused] = useState(false);
   const [eventAttempt, setEventAttempt] = useState(0);
@@ -111,12 +115,14 @@ export default function App() {
       setSessions(data.sessions);
       setAgents(report?.agents ?? []);
       setAgentsChecked(report !== null);
+      setVersion(report?.version ?? null);
       setTabsByProject({});
       setCloseSessionId(null);
       setRenameSessionId(null);
       setDeleteSessionId(null);
       setSessionMenu(null);
       setUsageOpen(false);
+      setSettingsOpen(false);
       setProjectDialogOpen(false);
       setActiveProjectId(
         data.sessions[0]?.projectId ?? data.projects[0]?.id ?? null,
@@ -157,7 +163,8 @@ export default function App() {
     closeTarget !== null ||
     renameTarget !== null ||
     deleteTarget !== null ||
-    usageOpen;
+    usageOpen ||
+    settingsOpen;
 
   activeSessionIdRef.current = activeSessionId;
 
@@ -268,6 +275,14 @@ export default function App() {
     );
     setDialogOpen(false);
     openSession(session);
+  }
+
+  function handleAccountCreated(account: Account) {
+    setAccounts((current) =>
+      current.some((item) => item.id === account.id)
+        ? current
+        : [...current, account],
+    );
   }
 
   function handleProjectCreated(project: Project) {
@@ -527,6 +542,7 @@ export default function App() {
             onSessionMenu={openSessionMenu}
             onAddProject={() => setProjectDialogOpen(true)}
             onOpenUsage={() => setUsageOpen(true)}
+            onOpenSettings={() => setSettingsOpen(true)}
           />
 
           <main
@@ -640,6 +656,16 @@ export default function App() {
 
       {usageOpen ? (
         <UsageDialog accounts={accounts} onClose={() => setUsageOpen(false)} />
+      ) : null}
+
+      {settingsOpen ? (
+        <SettingsDialog
+          accounts={accounts}
+          version={version}
+          onCreateAccount={createAccount}
+          onAccountCreated={handleAccountCreated}
+          onClose={() => setSettingsOpen(false)}
+        />
       ) : null}
 
       {sessionMenu && menuSession ? (

@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::Arc;
 use std::time::Duration;
 
 use axum::Router;
@@ -10,8 +11,8 @@ use http_body_util::BodyExt;
 use serde_json::{Value, json};
 use tower::ServiceExt;
 
-use elesdee_core::AppState;
 use elesdee_core::api::router;
+use elesdee_core::{AppState, MemorySecretStore, SecretStore};
 
 const TEST_HOST: &str = "127.0.0.1:4319";
 const TIMEOUT: Duration = Duration::from_secs(5);
@@ -229,23 +230,18 @@ async fn bootstrap_has_the_seed_shape() {
         .expect("Anthropic Max account");
     assert_eq!(max["client"], "Claude Code");
     assert_eq!(max["auth"], "subscription");
-    assert_eq!(max["rows"].as_array().expect("usage rows").len(), 2);
-    assert_eq!(max["rows"][0]["used"], 92);
-    assert_eq!(max["rows"][0]["warn"], true);
 
     let codex = accounts
         .iter()
         .find(|account| account["name"] == "ChatGPT Pro")
         .expect("ChatGPT Pro account");
     assert_eq!(codex["client"], "Codex");
-    assert_eq!(codex["rows"].as_array().expect("usage rows").len(), 1);
 
     let deepseek = accounts
         .iter()
         .find(|account| account["name"] == "DeepSeek API")
         .expect("DeepSeek account");
-    assert_eq!(deepseek["rows"][0]["value"], "$12.40");
-    assert_eq!(deepseek["rows"][0]["min"], "minimum $5.00");
+    assert_eq!(deepseek["client"], "Claude Code");
 
     let litellm = accounts
         .iter()
@@ -253,8 +249,15 @@ async fn bootstrap_has_the_seed_shape() {
         .expect("LiteLLM account");
     assert_eq!(litellm["server"], "http://localhost:4000/v1");
     assert_eq!(litellm["model"], "gpt-5.2");
-    assert_eq!(litellm["rows"].as_array().expect("usage rows").len(), 0);
-    assert_eq!(litellm["foot"], "No official usage source.");
+
+    for account in accounts {
+        assert_eq!(
+            account["rows"].as_array().expect("usage rows").len(),
+            0,
+            "seed usage rows are invented"
+        );
+        assert_eq!(account["foot"], "No official usage source.");
+    }
 
     assert_eq!(
         body["sessions"].as_array().expect("sessions array").len(),
@@ -1692,7 +1695,7 @@ async fn persistence_keeps_projects_sessions_and_logs() {
     let state_text = fs::read_to_string(&state_path).expect("state file");
     let state: Value = serde_json::from_str(&state_text).expect("state json");
     assert_eq!(state["version"], 1);
-    assert!(state.get("accounts").is_none());
+    assert_eq!(state["accounts"].as_array().expect("accounts").len(), 4);
     assert!(
         state["projects"]
             .as_array()
@@ -3689,6 +3692,404 @@ async fn concurrent_answers_accept_exactly_one() {
         expected
     );
     close_session(&app, &id).await;
+}
+
+#[tokio::test]
+async fn health_lists_antigravity() {
+    let app = router(AppState::ephemeral());
+    let (status, body) = call(&app, "GET", "/api/health", None).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let names = body["agents"]
+        .as_array()
+        .expect("agents")
+        .iter()
+        .map(|agent| agent["name"].as_str().unwrap_or_default())
+        .collect::<Vec<_>>();
+    assert_eq!(names.len(), 4);
+    assert!(names.contains(&"Antigravity"));
+}
+
+#[tokio::test]
+async fn google_account_is_stored_without_its_key_and_validated() {
+    let data_dir = TempDirectory::new("google-account-data");
+    let secrets = Arc::new(MemorySecretStore::default());
+    let state = AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    )
+    .with_test_secret_store(secrets.clone());
+    let app = router(state);
+
+    let (status, account) = call(
+        &app,
+        "POST",
+        "/api/accounts",
+        Some(json!({
+            "name": "Google Gemini",
+            "providerId": "google",
+            "client": "Antigravity",
+            "auth": "key",
+            "key": "AIza-test-key-123"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{account}");
+    let id = account["id"].as_str().expect("account id").to_owned();
+    assert_eq!(account["client"], "Antigravity");
+    assert_eq!(account["provider"], "google");
+    assert_eq!(account["auth"], "key");
+    assert_eq!(account["model"], "gemini-3.8-flash-medium");
+    assert_eq!(account["rows"].as_array().expect("rows").len(), 0);
+    assert_eq!(account["foot"], "No official usage source.");
+    assert!(account.get("key").is_none());
+    assert_eq!(
+        secrets.get_key(&id).expect("read stored key"),
+        Some("AIza-test-key-123".to_owned())
+    );
+
+    let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    assert_eq!(bootstrap["accounts"].as_array().expect("accounts").len(), 5);
+    assert!(!bootstrap.to_string().contains("AIza-test-key-123"));
+    let state_text = fs::read_to_string(data_dir.path.join("state.json")).expect("state file");
+    assert!(!state_text.contains("AIza-test-key-123"));
+    assert!(state_text.contains("Antigravity"));
+
+    let (status, duplicate) = call(
+        &app,
+        "POST",
+        "/api/accounts",
+        Some(json!({
+            "name": "Google Gemini",
+            "providerId": "google",
+            "client": "Antigravity",
+            "auth": "key",
+            "key": "AIza-second-key"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{duplicate}");
+    assert_eq!(
+        duplicate["id"].as_str().expect("duplicate id"),
+        format!("{id}-2")
+    );
+
+    let (status, custom_model) = call(
+        &app,
+        "POST",
+        "/api/accounts",
+        Some(json!({
+            "name": "Google Pro",
+            "providerId": "google",
+            "client": "Antigravity",
+            "auth": "key",
+            "key": "AIza-third-key",
+            "model": "gemini-3.8-pro"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{custom_model}");
+    assert_eq!(custom_model["model"], "gemini-3.8-pro");
+
+    let invalid = [
+        (
+            json!({"name": "", "providerId": "google", "client": "Antigravity", "auth": "key", "key": "k"}),
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            json!({"name": "Wrong provider", "providerId": "anthropic", "client": "Antigravity", "auth": "key", "key": "k"}),
+            StatusCode::UNPROCESSABLE_ENTITY,
+        ),
+        (
+            json!({"name": "Wrong client", "providerId": "google", "client": "Claude Code", "auth": "key", "key": "k"}),
+            StatusCode::UNPROCESSABLE_ENTITY,
+        ),
+        (
+            json!({"name": "Wrong auth", "providerId": "google", "client": "Antigravity", "auth": "subscription", "key": "k"}),
+            StatusCode::UNPROCESSABLE_ENTITY,
+        ),
+        (
+            json!({"name": "No key", "providerId": "google", "client": "Antigravity", "auth": "key", "key": "  "}),
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            json!({"name": "Long model", "providerId": "google", "client": "Antigravity", "auth": "key", "key": "k", "model": "x".repeat(121)}),
+            StatusCode::BAD_REQUEST,
+        ),
+    ];
+    for (request, expected) in invalid {
+        let (status, body) = call(&app, "POST", "/api/accounts", Some(request)).await;
+        assert_eq!(status, expected, "{body}");
+    }
+    let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    assert_eq!(bootstrap["accounts"].as_array().expect("accounts").len(), 7);
+}
+
+#[tokio::test]
+async fn account_metadata_restores_and_a_missing_key_blocks_the_launch() {
+    let data_dir = TempDirectory::new("google-persist-data");
+    let secrets = Arc::new(MemorySecretStore::default());
+    let state = AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    )
+    .with_test_secret_store(secrets.clone());
+    let app = router(state);
+    let (status, account) = call(
+        &app,
+        "POST",
+        "/api/accounts",
+        Some(json!({
+            "name": "Persistent Google",
+            "providerId": "google",
+            "client": "Antigravity",
+            "auth": "key",
+            "key": "AIza-persist-key"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{account}");
+    let id = account["id"].as_str().expect("account id").to_owned();
+    drop(app);
+
+    let state_text = fs::read_to_string(data_dir.path.join("state.json")).expect("state file");
+    assert!(!state_text.contains("AIza-persist-key"));
+
+    let restored_secrets = Arc::new(MemorySecretStore::default());
+    let restored = AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    )
+    .with_test_secret_store(restored_secrets.clone());
+    let restored_app = router(restored);
+    let (_, bootstrap) = call(&restored_app, "GET", "/api/bootstrap", None).await;
+    let restored_account = bootstrap["accounts"]
+        .as_array()
+        .expect("accounts")
+        .iter()
+        .find(|account| account["id"].as_str() == Some(id.as_str()))
+        .expect("restored account");
+    assert_eq!(restored_account["client"], "Antigravity");
+    assert_eq!(restored_account["model"], "gemini-3.8-flash-medium");
+    assert_eq!(
+        restored_secrets.get_key(&id).expect("read restored key"),
+        None
+    );
+
+    let repo = TempDirectory::new("google-missing-key-repo");
+    init_git_repo(&repo.path);
+    let (status, body) = call(
+        &restored_app,
+        "POST",
+        "/api/sessions",
+        Some(json!({
+            "projectId": "web",
+            "kind": "agent",
+            "accountId": id,
+            "name": "Missing Key",
+            "folder": repo.path.to_string_lossy()
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert_eq!(body["error"], "The account key is not available.");
+    let (_, bootstrap) = call(&restored_app, "GET", "/api/bootstrap", None).await;
+    assert_eq!(bootstrap["sessions"].as_array().expect("sessions").len(), 0);
+    let homes = data_dir.path.join("homes");
+    assert!(!homes.exists() || fs::read_dir(&homes).expect("read homes").next().is_none());
+}
+
+#[tokio::test]
+async fn antigravity_session_uses_a_private_home_and_key_environment() {
+    let data_dir = TempDirectory::new("google-launch-data");
+    let repo = TempDirectory::new("google-launch-repo");
+    init_git_repo(&repo.path);
+    let key = "AIza-launch-key";
+    let script = format!(
+        "printf 'HOME=%s\\n' \"$HOME\"; if [ \"$GEMINI_API_KEY\" = \"{key}\" ]; then echo KEY_MATCH; else echo KEY_MISSING; fi; sleep 30"
+    );
+    let secrets = Arc::new(MemorySecretStore::default());
+    let state = AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), script],
+        data_dir.path.clone(),
+    )
+    .with_test_secret_store(secrets.clone());
+    let app = router(state);
+    let account = create_google_account(&app, "Launch Google", key).await;
+    let account_id = account["id"].as_str().expect("account id");
+
+    let (status, session) = call(
+        &app,
+        "POST",
+        "/api/sessions",
+        Some(json!({
+            "projectId": "web",
+            "kind": "agent",
+            "accountId": account_id,
+            "name": "Antigravity Work",
+            "folder": repo.path.to_string_lossy()
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let id = session["id"].as_str().expect("session id").to_owned();
+    assert_eq!(session["client"], "Antigravity");
+    assert_eq!(session["accountId"], account_id);
+    assert_eq!(session["shortcuts"].as_array().expect("shortcuts").len(), 0);
+    assert_eq!(session["pendingPermission"], Value::Null);
+    let (status, body) = send_hook(
+        &app,
+        &id,
+        Some("not-a-hook-token"),
+        json!({"hook_event_name": "PreToolUse"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert_eq!(
+        secrets.get_key(account_id).expect("read key"),
+        Some(key.to_owned())
+    );
+
+    let home = data_dir.path.join("homes").join(&id);
+    let settings = home.join(".gemini/antigravity-cli/settings.json");
+    assert!(home.is_dir(), "session home was not created");
+    assert_eq!(
+        fs::read(&settings).expect("read settings"),
+        br#"{"modelProvider":"gemini"}"#
+    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let file_mode = fs::metadata(&settings)
+            .expect("settings metadata")
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(file_mode, 0o600);
+        let home_mode = fs::metadata(&home)
+            .expect("home metadata")
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(home_mode, 0o700);
+    }
+    assert!(
+        !data_dir
+            .path
+            .join("claude-settings")
+            .join(format!("{id}.json"))
+            .exists(),
+        "Antigravity must not get Claude hook settings"
+    );
+
+    let request = request_builder("GET", &format!("/api/sessions/{id}/output?after=0"))
+        .body(Body::empty())
+        .expect("build output request");
+    let response = app.clone().oneshot(request).await.expect("open output");
+    assert_eq!(response.status(), StatusCode::OK);
+    let output = read_output_until(response.into_body(), |text| {
+        text.contains("KEY_MATCH") && text.contains("HOME=")
+    })
+    .await;
+    assert!(
+        output.contains(&format!("HOME={}", home.to_string_lossy())),
+        "{output}"
+    );
+    assert!(!output.contains("KEY_MISSING"), "{output}");
+    assert!(!output.contains(key), "the key leaked into the output log");
+
+    let state_text = fs::read_to_string(data_dir.path.join("state.json")).expect("state file");
+    assert!(!state_text.contains(key), "the key leaked into state.json");
+
+    let (status, closed) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+    assert!(!home.exists(), "session home survived close");
+    let state_text = fs::read_to_string(data_dir.path.join("state.json")).expect("state file");
+    assert!(!state_text.contains(key), "the key leaked into state.json");
+}
+
+#[tokio::test]
+async fn reopen_recreates_the_antigravity_home() {
+    let data_dir = TempDirectory::new("google-reopen-data");
+    let repo = TempDirectory::new("google-reopen-repo");
+    init_git_repo(&repo.path);
+    let key = "AIza-reopen-key";
+    let secrets = Arc::new(MemorySecretStore::default());
+    let state = AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    )
+    .with_test_secret_store(secrets.clone());
+    let app = router(state);
+    let account = create_google_account(&app, "Reopen Google", key).await;
+    let account_id = account["id"].as_str().expect("account id");
+    let (status, session) = call(
+        &app,
+        "POST",
+        "/api/sessions",
+        Some(json!({
+            "projectId": "web",
+            "kind": "agent",
+            "accountId": account_id,
+            "name": "Reopen Antigravity",
+            "folder": repo.path.to_string_lossy()
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let id = session["id"].as_str().expect("session id").to_owned();
+    let home = data_dir.path.join("homes").join(&id);
+    let settings = home.join(".gemini/antigravity-cli/settings.json");
+    assert!(settings.is_file());
+
+    let (status, closed) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+    assert!(!home.exists());
+
+    let (status, reopened) = call(
+        &app,
+        "POST",
+        &format!("/api/sessions/{id}/reopen"),
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{reopened}");
+    assert!(settings.is_file(), "settings were not recreated on reopen");
+    assert_eq!(
+        fs::read(&settings).expect("read settings"),
+        br#"{"modelProvider":"gemini"}"#
+    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = fs::metadata(&settings)
+            .expect("settings metadata")
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(mode, 0o600);
+    }
+
+    let (status, closed) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+    assert!(!home.exists(), "reopened home survived close");
+}
+
+async fn create_google_account(app: &Router, name: &str, key: &str) -> Value {
+    let (status, account) = call(
+        app,
+        "POST",
+        "/api/accounts",
+        Some(json!({
+            "name": name,
+            "providerId": "google",
+            "client": "Antigravity",
+            "auth": "key",
+            "key": key
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "create Google account: {account}");
+    account
 }
 
 async fn create_agent(app: &Router, repo: &Path, account: &str, name: &str) -> Value {

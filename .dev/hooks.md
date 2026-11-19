@@ -4,6 +4,8 @@ The app answers agent permission prompts from the desktop and the phone. The age
 
 Version 1 covers Claude Code. Codex uses its app-server and OpenCode 2 its server API; those adapters follow the same session fields and the same public endpoint.
 
+Antigravity is first-class, but it keeps its permission prompts in its own terminal. It gets no hook settings file, it never sets `pendingPermission`, and the app shows no permission card for it. Its session has an empty `shortcuts` list, so the UI shows the base keys.
+
 ## Claude Code
 
 The core starts Claude Code with a per-session settings file:
@@ -50,7 +52,7 @@ interface PendingPermission {
 pendingPermission: PendingPermission | null;
 ```
 
-`waitingFor` is `"permission"` while the field is set.
+`waitingFor` is `"permission"` while the field is set. An Antigravity session always has `pendingPermission: null`.
 
 ## Public answer endpoint
 

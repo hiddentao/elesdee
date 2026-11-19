@@ -23,6 +23,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 use tokio::time::{MissedTickBehavior, interval_at};
 
+use crate::antigravity;
 use crate::claude;
 use crate::clients;
 use crate::git;
@@ -34,8 +35,9 @@ use crate::sessions::{
 use crate::shortcuts;
 use crate::slug::slugify;
 use crate::state::{
-    AppState, Bootstrap, Client, DeleteSessionFailure, HealthResponse, PendingPermission,
-    PermissionDecision, Project, Session, SessionEvent, SessionKind, SessionState, WorkState,
+    Account, AppState, Auth, Bootstrap, Client, DeleteSessionFailure, HealthResponse,
+    PendingPermission, PermissionDecision, Project, Session, SessionEvent, SessionKind,
+    SessionState, WorkState,
 };
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
@@ -118,6 +120,13 @@ impl ApiError {
             message: message.into(),
         }
     }
+
+    fn internal(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            message: message.into(),
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -159,6 +168,17 @@ struct ResizeRequest {
 struct CreateProjectRequest {
     name: String,
     folder: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CreateAccountRequest {
+    name: String,
+    provider_id: String,
+    client: Client,
+    auth: Auth,
+    key: String,
+    model: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -215,6 +235,7 @@ struct PreparedSession {
     folder: PathBuf,
     command: CommandBuilder,
     repo_root: Option<PathBuf>,
+    antigravity_account: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -232,6 +253,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/health", get(health))
         .route("/api/bootstrap", get(bootstrap))
         .route("/api/projects", post(create_project))
+        .route("/api/accounts", post(create_account))
         .route("/api/sessions", post(create_session))
         .route(
             "/api/sessions/{id}",
@@ -431,6 +453,107 @@ async fn create_project(
     Ok(Json(project))
 }
 
+async fn create_account(
+    State(state): State<AppState>,
+    body: Result<Json<CreateAccountRequest>, JsonRejection>,
+) -> Result<Json<Account>, ApiError> {
+    let Json(request) = body.map_err(invalid_json)?;
+    let name = request.name.trim();
+    if name.is_empty() || name.chars().count() > 80 {
+        return Err(ApiError::bad_request(
+            "Account name must be between 1 and 80 characters.",
+        ));
+    }
+
+    let provider = request.provider_id.trim().to_ascii_lowercase();
+    if provider != antigravity::PROVIDER_ID || request.client != Client::Antigravity {
+        return Err(ApiError::unprocessable(
+            "This provider and client pair is not supported.",
+        ));
+    }
+    if !matches!(request.auth, Auth::Key) {
+        return Err(ApiError::unprocessable(
+            "This account needs API-key authentication.",
+        ));
+    }
+
+    let key = request.key.trim();
+    if key.is_empty() {
+        return Err(ApiError::bad_request("API key is required."));
+    }
+    let model = request
+        .model
+        .as_deref()
+        .map(str::trim)
+        .filter(|model| !model.is_empty())
+        .unwrap_or(antigravity::DEFAULT_MODEL);
+    if model.chars().count() > 120 {
+        return Err(ApiError::bad_request("Model name is too long."));
+    }
+
+    let account = state.add_account(Account {
+        id: String::new(),
+        name: name.to_owned(),
+        plan: "pay as you go".to_owned(),
+        client: Client::Antigravity,
+        provider,
+        auth: Auth::Key,
+        rows: Vec::new(),
+        foot: "No official usage source.".to_owned(),
+        server: None,
+        model: Some(model.to_owned()),
+    });
+    if let Err(error) = store_account_key(&state, &account.id, key).await {
+        state.remove_account(&account.id);
+        tracing::error!(account = %account.id, %error, "could not store account key");
+        return Err(ApiError::internal("Could not store the account key."));
+    }
+    state.save();
+    Ok(Json(account))
+}
+
+async fn store_account_key(state: &AppState, account_id: &str, key: &str) -> Result<(), String> {
+    let store = state.secret_store();
+    let account_id = account_id.to_owned();
+    let key = key.to_owned();
+    match tokio::task::spawn_blocking(move || store.set_key(&account_id, &key)).await {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(error)) => Err(error.to_string()),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+async fn account_key(state: &AppState, account_id: &str) -> Result<String, ApiError> {
+    let store = state.secret_store();
+    let id = account_id.to_owned();
+    let result = tokio::task::spawn_blocking(move || store.get_key(&id)).await;
+    match result {
+        Ok(Ok(Some(key))) if !key.is_empty() => Ok(key),
+        Ok(Ok(_)) => Err(ApiError::unprocessable("The account key is not available.")),
+        Ok(Err(error)) => {
+            tracing::error!(account = %account_id, %error, "could not read account key");
+            Err(ApiError::internal("Could not read the account key."))
+        }
+        Err(error) => {
+            tracing::error!(account = %account_id, %error, "could not read account key");
+            Err(ApiError::internal("Could not read the account key."))
+        }
+    }
+}
+
+async fn rollback_created_session(
+    state: &AppState,
+    entry: &SessionEntry,
+    session_id: &str,
+    worktree: Option<(PathBuf, PathBuf, String)>,
+) {
+    if let Some((repo_root, worktree, branch)) = worktree {
+        git::rollback_worktree(repo_root, worktree, branch, state.git_timeout()).await;
+    }
+    entry.remove_session_files();
+    state.remove_session(session_id);
+}
+
 async fn create_session(
     State(state): State<AppState>,
     body: Result<Json<CreateSessionRequest>, JsonRejection>,
@@ -469,7 +592,7 @@ async fn create_session(
     let folder = if let Some(repo_root) = prepared.repo_root {
         let current = entry.session();
         let Some(data_dir) = state.data_dir().map(Path::to_path_buf) else {
-            state.remove_session(&session_id);
+            rollback_created_session(&state, &entry, &session_id, None).await;
             return Err(ApiError::unprocessable(
                 "Agent sessions need a data directory.",
             ));
@@ -504,7 +627,7 @@ async fn create_session(
         .await
         .is_err()
         {
-            state.remove_session(&session_id);
+            rollback_created_session(&state, &entry, &session_id, None).await;
             return Err(ApiError::unprocessable(
                 "Could not create the Git worktree.",
             ));
@@ -525,11 +648,38 @@ async fn create_session(
                 }
             }
             Err(error) => {
-                if let Some((repo_root, worktree, branch)) = worktree_cleanup {
-                    git::rollback_worktree(repo_root, worktree, branch, state.git_timeout()).await;
-                }
-                state.remove_session(&session_id);
+                rollback_created_session(&state, &entry, &session_id, worktree_cleanup).await;
                 return Err(error);
+            }
+        }
+    }
+
+    let mut environment = Vec::new();
+    if let Some(account_id) = prepared.antigravity_account.as_deref() {
+        let Some(data_dir) = state.data_dir().map(Path::to_path_buf) else {
+            rollback_created_session(&state, &entry, &session_id, worktree_cleanup).await;
+            return Err(ApiError::unprocessable(
+                "Agent sessions need a data directory.",
+            ));
+        };
+        let key = match account_key(&state, account_id).await {
+            Ok(key) => key,
+            Err(error) => {
+                rollback_created_session(&state, &entry, &session_id, worktree_cleanup).await;
+                return Err(error);
+            }
+        };
+        match antigravity::prepare_home(&data_dir, &session_id) {
+            Ok(home) => {
+                entry.set_home(home.clone());
+                environment = antigravity::environment(&home, &key);
+            }
+            Err(error) => {
+                tracing::error!(session = %session_id, %error, "could not prepare the Antigravity home");
+                rollback_created_session(&state, &entry, &session_id, worktree_cleanup).await;
+                return Err(ApiError::unprocessable(
+                    "Could not prepare the Antigravity session home.",
+                ));
             }
         }
     }
@@ -541,12 +691,9 @@ async fn create_session(
         size,
         state.stall_writer_for_tests(),
         state.event_sender(),
+        &environment,
     ) {
-        if let Some((repo_root, worktree, branch)) = worktree_cleanup {
-            git::rollback_worktree(repo_root, worktree, branch, state.git_timeout()).await;
-        }
-        entry.remove_claude_settings();
-        state.remove_session(&session_id);
+        rollback_created_session(&state, &entry, &session_id, worktree_cleanup).await;
         return Err(ApiError::unprocessable(error));
     }
 
@@ -685,9 +832,7 @@ async fn reopen_session(
         let account = state
             .account(account_id)
             .ok_or_else(|| ApiError::unprocessable("Account is no longer available."))?;
-        if state.command_override().is_none()
-            && clients::find_on_path(account.client.binary()).is_none()
-        {
+        if state.command_override().is_none() && clients::find_client(account.client).is_none() {
             return Err(ApiError::unprocessable(format!(
                 "{} is not installed.",
                 account.client
@@ -743,27 +888,38 @@ async fn reopen_session(
             claude::add_settings_argument(&mut command, &settings_path);
         }
     }
+    let mut environment = Vec::new();
+    if suspended.kind == SessionKind::Agent && suspended.client == Some(Client::Antigravity) {
+        let account_id = suspended
+            .account_id
+            .as_deref()
+            .ok_or_else(|| ApiError::unprocessable("Account is no longer available."))?;
+        let data_dir = state
+            .data_dir()
+            .ok_or_else(|| ApiError::unprocessable("Agent sessions need a data directory."))?;
+        let key = account_key(&state, account_id).await?;
+        let home = antigravity::prepare_home(data_dir, &id).map_err(|error| {
+            tracing::error!(session = %id, %error, "could not prepare the Antigravity home");
+            ApiError::unprocessable("Could not prepare the Antigravity session home.")
+        })?;
+        entry.set_home(home.clone());
+        environment = antigravity::environment(&home, &key);
+    }
     let size = entry.stored_size();
 
     state.reserve_activation().map_err(|_| {
-        if is_claude_agent {
-            entry.remove_claude_settings();
-        }
+        entry.remove_session_files();
         ApiError::too_many_requests("Session limit reached. Close a session first.")
     })?;
     match entry.begin_reopen() {
         Ok(()) => {}
         Err(crate::sessions::ReopenFailure::Closing) => {
-            if is_claude_agent {
-                entry.remove_claude_settings();
-            }
+            entry.remove_session_files();
             state.release_activation();
             return Err(ApiError::conflict("Session is closing."));
         }
         Err(crate::sessions::ReopenFailure::Active) => {
-            if is_claude_agent {
-                entry.remove_claude_settings();
-            }
+            entry.remove_session_files();
             state.release_activation();
             return Err(ApiError::conflict("Session is already active."));
         }
@@ -775,6 +931,7 @@ async fn reopen_session(
         size,
         state.stall_writer_for_tests(),
         state.event_sender(),
+        &environment,
     ) {
         entry.rollback_reopen();
         state.release_activation();
@@ -843,12 +1000,16 @@ async fn delete_session(
         )
         .await;
     }
-    entry.remove_claude_settings();
+    entry.remove_session_files();
     if session.kind == SessionKind::Agent
-        && session.client == Some(Client::ClaudeCode)
         && let Some(data_dir) = state.data_dir()
     {
-        claude::remove_session_settings(data_dir, &id);
+        if session.client == Some(Client::ClaudeCode) {
+            claude::remove_session_settings(data_dir, &id);
+        }
+        if session.client == Some(Client::Antigravity) {
+            antigravity::remove_home(data_dir, &id);
+        }
     }
 
     state.delete_session(&id).map_err(|failure| match failure {
@@ -1388,6 +1549,7 @@ fn prepare_terminal(
         folder,
         command,
         repo_root: None,
+        antigravity_account: None,
     })
 }
 
@@ -1444,6 +1606,7 @@ async fn prepare_agent(
         folder: repo_root.clone(),
         command,
         repo_root: Some(repo_root),
+        antigravity_account: (account.client == Client::Antigravity).then(|| account.id.clone()),
     })
 }
 
@@ -1477,7 +1640,7 @@ fn session_command(
             let client = client.ok_or_else(|| {
                 ApiError::unprocessable("An agent session needs a supported client.")
             })?;
-            let executable = clients::find_on_path(client.binary())
+            let executable = clients::find_client(client)
                 .ok_or_else(|| ApiError::unprocessable(format!("{} is not installed.", client)))?;
             Ok(CommandBuilder::new(executable))
         }

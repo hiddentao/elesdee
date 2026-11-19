@@ -14,6 +14,7 @@ import {
   LayersIcon,
   ListIcon,
   PlusIcon,
+  SettingsIcon,
 } from './icons';
 
 type SessionView = 'grouped' | 'flat';
@@ -34,6 +35,7 @@ interface SidebarProps {
   ) => void;
   onAddProject: () => void;
   onOpenUsage: () => void;
+  onOpenSettings: () => void;
 }
 
 interface SessionRowProps {
@@ -135,6 +137,7 @@ export function Sidebar({
   onSessionMenu,
   onAddProject,
   onOpenUsage,
+  onOpenSettings,
 }: SidebarProps) {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [manualCollapsed, setManualCollapsed] = useState<Set<string>>(new Set());
@@ -480,6 +483,15 @@ export function Sidebar({
           ) : (
             <span className="usage-summary-value">No usage data</span>
           )}
+        </button>
+
+        <button
+          type="button"
+          className="sidebar-settings"
+          onClick={onOpenSettings}
+        >
+          <SettingsIcon />
+          Settings
         </button>
       </div>
     </aside>

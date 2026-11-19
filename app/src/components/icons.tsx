@@ -124,6 +124,23 @@ export function ListIcon({ className }: IconProps) {
   );
 }
 
+export function SettingsIcon({ className }: IconProps) {
+  return (
+    <svg {...base} className={className}>
+      <circle cx="8" cy="8" r="2" />
+      <path d="M6.7 2.5h2.6l.4 1.6 1.4.8 1.6-.4 1.3 2.2-1.2 1.1v1.6l1.2 1.1-1.3 2.2-1.6-.4-1.4.8-.4 1.6H6.7l-.4-1.6-1.4-.8-1.6.4-1.3-2.2 1.2-1.1V6.9L2 5.8l1.3-2.2 1.6.4 1.4-.8.4-1.6Z" />
+    </svg>
+  );
+}
+
+export function CloseIcon({ className }: IconProps) {
+  return (
+    <svg {...base} className={className}>
+      <path d="m4 4 8 8M12 4l-8 8" />
+    </svg>
+  );
+}
+
 export function SparkIcon({ className }: IconProps) {
   return (
     <svg {...base} className={className}>

@@ -4,7 +4,7 @@ Last updated: 19 November 2026
 
 ## Purpose
 
-Build an IDE that runs Claude Code, Codex and OpenCode 2 sessions the way I want, with less manual work. It replaces onoRCA.dev, which does not give enough control and does not save enough time.
+Build an IDE that runs Claude Code, Codex, OpenCode 2 and Antigravity sessions the way I want, with less manual work. It replaces onoRCA.dev, which does not give enough control and does not save enough time.
 
 The app is public. Anyone can install it from this repository's GitHub releases.
 
@@ -112,7 +112,7 @@ The agents write their conversation to files on disk, and each keeps its own int
 
 **Session types**
 
-- Agent session: runs Claude Code, Codex or OpenCode 2, with a preset, provider, branch and worktree.
+- Agent session: runs Claude Code, Codex, OpenCode 2 or Antigravity, with a preset, provider, branch and worktree.
 - Terminal session: a plain terminal, with no agent. It sits under a project in the sidebar and opens in a folder I choose, often an agent session's worktree. It has no branch or worktree of its own.
 
 **Session names and limits**
@@ -129,7 +129,7 @@ The agents write their conversation to files on disk, and each keeps its own int
 
 **First launch**
 
-- The first screen checks for Claude Code, Codex and OpenCode 2 and shows their versions.
+- The first screen checks for Claude Code, Codex, OpenCode 2 and Antigravity and shows their versions.
 - It offers one action: Add a project. The project form asks for a name and a folder.
 - The language button sits in the title bar.
 - Until the Mac starts a session, the phone shows an empty session list.
@@ -186,18 +186,20 @@ The agents write their conversation to files on disk, and each keeps its own int
 
 ## Agent support and presets
 
-Version 1 supports three coding agents: Claude Code, Codex and OpenCode 2. Other agents can come later.
+Version 1 supports four coding agents: Claude Code, Codex, OpenCode 2 and Antigravity. Other agents can come later.
 
 - Claude Code runs Anthropic and the Anthropic-compatible providers.
 - Codex runs OpenAI and the OpenAI-compatible providers.
 - OpenCode 2 runs OpenRouter, and any custom provider that I do not give to another client.
-- elesdee uses the copies of the three agents that I installed, and shows their versions.
+- Antigravity runs Google Gemini through `agy`.
+- elesdee uses the copies of the four agents that I installed, and shows their versions.
 - If one is missing, elesdee installs its own copy.
 - Each provider account names the client that runs it. For a custom provider, I pick the client when I add it.
 
 **Permission prompts**
 
 - When Claude Code, Codex or OpenCode 2 asks for permission before an action (for example running a command or editing a file), the prompt appears in the session view on the Mac and on the phone.
+- Antigravity keeps its permission prompts in its own terminal. They do not appear in the session view.
 - I can approve or deny from either device. The session shows a "waiting for you" badge in the sidebar until I answer.
 
 **Config overrides**
@@ -220,11 +222,11 @@ Every agent session gets the same app tools and skills, whatever the agent or pr
 
 **How sessions get them**
 
-- The core service runs one MCP server, "elesdee". All three clients support MCP servers ([Codex docs](https://developers.openai.com/codex/mcp), [OpenCode docs](https://opencode.ai/docs/mcp-servers/)).
+- The core service runs one MCP server, "elesdee". Claude Code, Codex and OpenCode 2 support MCP servers ([Codex docs](https://developers.openai.com/codex/mcp), [OpenCode docs](https://opencode.ai/docs/mcp-servers/)).
 - The server listens on localhost and has no access check: any program on the same user account can call it. The same is true of the core API. The app's approval steps are a convenience, not a security boundary against local code.
 - Each session gets its own address on the server, so the server knows which session made each call.
 - At launch, the app adds this MCP server and the skills to the agent through the launch overrides. It does not change global config or write into the repo.
-- Skills use the SKILL.md format, which all three clients read ([Codex docs](https://developers.openai.com/codex/skills.md), [OpenCode docs](https://opencode.ai/docs/skills/)).
+- Skills use the SKILL.md format, which Claude Code, Codex and OpenCode 2 read ([Codex docs](https://developers.openai.com/codex/skills.md), [OpenCode docs](https://opencode.ai/docs/skills/)).
 - Agents read only a skill's name and description at start, and load the rest when they decide they need it. So a short note in each agent's starting instructions also tells it that it runs inside elesdee and points it to the elesdee skill.
 
 **Browser tools**
@@ -280,7 +282,7 @@ Every agent session gets the same app tools and skills, whatever the agent or pr
 
 **Handoff note**
 
-- Agents write a handoff note when the session switches to a different client (between Claude Code, Codex and OpenCode 2), runs out of usage, or closes. A switch inside the same client (for example Anthropic to DeepSeek on Claude Code) needs no note, because the same conversation continues.
+- Agents write a handoff note when the session switches to a different client (between Claude Code, Codex, OpenCode 2 and Antigravity), runs out of usage, or closes. A switch inside the same client (for example Anthropic to DeepSeek on Claude Code) needs no note, because the same conversation continues.
 - The app keeps the note and gives it to the next agent that works on the session.
 - A copy goes in the message of the last commit on the session branch. So the note travels with the branch, and no file is added to the repo.
 
@@ -309,6 +311,7 @@ Supported providers:
 | --- | --- | --- | --- |
 | Anthropic | Claude | Claude Code | Subscription or API key |
 | OpenAI | ChatGPT / GPT | Codex | Subscription or API key |
+| Google | Gemini | Antigravity | API key |
 | Kimi (Moonshot) | Kimi | Claude Code | API key |
 | DeepSeek | DeepSeek | Claude Code | API key |
 | Z.ai | GLM | Claude Code | API key |
@@ -316,7 +319,9 @@ Supported providers:
 | Ollama | Local models | Claude Code | Server URL |
 | LM Studio | Local models | Claude Code | Server URL |
 
-- A provider appears in this list only if one of the three clients runs it. Google (Antigravity), xAI (Grok Build) and Kimi Code need clients that elesdee does not support yet, so they are out of the list. When one of those services offers an OpenAI- or Anthropic-compatible API, I can add it as a custom provider.
+- A provider appears in this list only if one of the four clients runs it. xAI (Grok Build) and Kimi Code need clients that elesdee does not support yet, so they are out of the list. When one of those services offers an OpenAI- or Anthropic-compatible API, I can add it as a custom provider.
+- A Google account uses an API key and the Antigravity client. The default model is `gemini-3.8-flash-medium`; model names use Antigravity's own slugs.
+- For a Google account, the core starts Antigravity with a per-session home under the app's data folder, a private settings file that selects the Gemini provider, and the API key in the child environment. It removes the home when the session closes.
 
 **Custom providers**
 
@@ -350,6 +355,7 @@ Usage belongs to the computer, not to a session. The sidebar shows a compact sum
 | Claude Code (each subscription) | Usage remaining for each limit of the plan (5-hour and weekly) |
 | Codex | Usage remaining for each limit of the plan (5-hour and weekly, where the plan has them) |
 | DeepSeek (through Claude Code) | Account balance from the DeepSeek API, so I know when to top up |
+| Google (through Antigravity) | No official usage source. The account says so. |
 
 - The provider pill in the session header includes a usage bar for the current account. The bar shows available usage, not context.
 - Hover the bar for the account's limits and the session's context left. Click the pill to switch accounts.
@@ -511,7 +517,7 @@ The approach follows Orca Mobile's terminal shortcut rail ([Orca docs](https://o
 - The phone sends text two ways. The message view composer sends a whole prompt. The terminal view has a one-line input that sends text straight to the terminal.
 - A key rail sits above the input in both views. It sends desktop keys to the active session: Esc, Tab, Shift+Tab, Backspace, Delete, the four arrows, Ctrl+C and Ctrl+D.
 - The desktop returns the keys of each session's agent in the session API. The phone keeps no list of agent keys, so a new agent, a new agent version or a changed binding reaches the phone without a phone update.
-- The rail shows those agent keys on its own, with their purpose. For Claude Code: Shift+Tab cycles permission modes, Ctrl+O shows the verbose transcript, Ctrl+T shows the to-do list, Ctrl+R opens history search and Ctrl+G opens the external editor. For Codex: Shift+Tab cycles approval modes, Ctrl+T shows the transcript, Ctrl+R opens history search and Ctrl+G opens the external editor. For OpenCode 2: Ctrl+P opens the command palette and Ctrl+L clears the screen. Keys the rail already has keep one chip, with the agent's meaning on it. A terminal session gets the base keys only.
+- The rail shows those agent keys on its own, with their purpose. For Claude Code: Shift+Tab cycles permission modes, Ctrl+O shows the verbose transcript, Ctrl+T shows the to-do list, Ctrl+R opens history search and Ctrl+G opens the external editor. For Codex: Shift+Tab cycles approval modes, Ctrl+T shows the transcript, Ctrl+R opens history search and Ctrl+G opens the external editor. For OpenCode 2: Ctrl+P opens the command palette and Ctrl+L clears the screen. Antigravity gets the base keys only. Keys the rail already has keep one chip, with the agent's meaning on it. A terminal session gets the base keys only.
 - Shift, Ctrl and Alt are latches. Tap one, then tap a key, and the two go together. A latch clears after one key.
 - Hold an arrow, Backspace or Delete to repeat it, as a held desktop key does.
 - The rail scrolls sideways. A keyboard button in the input row shows or hides it, and the session keeps its place when the rail opens again.

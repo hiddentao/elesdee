@@ -45,6 +45,7 @@ interface SidebarOptions {
   ) => void;
   onAddProject?: () => void;
   onOpenUsage?: () => void;
+  onOpenSettings?: () => void;
 }
 
 function renderSidebar(
@@ -57,6 +58,7 @@ function renderSidebar(
     onSessionMenu = vi.fn(),
     onAddProject = vi.fn(),
     onOpenUsage = vi.fn(),
+    onOpenSettings = vi.fn(),
   }: SidebarOptions = {},
 ) {
   return render(
@@ -71,6 +73,7 @@ function renderSidebar(
       onSessionMenu={onSessionMenu}
       onAddProject={onAddProject}
       onOpenUsage={onOpenUsage}
+      onOpenSettings={onOpenSettings}
     />,
   );
 }
@@ -340,6 +343,7 @@ describe('Sidebar', () => {
         onSessionMenu={vi.fn()}
         onAddProject={vi.fn()}
         onOpenUsage={vi.fn()}
+        onOpenSettings={vi.fn()}
       />,
     );
 
@@ -418,6 +422,16 @@ describe('Sidebar', () => {
     await user.click(screen.getByRole('button', { name: /^Usage/ }));
 
     expect(onOpenUsage).toHaveBeenCalledTimes(1);
+  });
+
+  it('opens settings from the footer', async () => {
+    const user = userEvent.setup();
+    const onOpenSettings = vi.fn();
+    renderSidebar([makeSession()], { onOpenSettings });
+
+    await user.click(screen.getByRole('button', { name: 'Settings' }));
+
+    expect(onOpenSettings).toHaveBeenCalledTimes(1);
   });
 
   it('offers an Add project control when projects exist', async () => {

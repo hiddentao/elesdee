@@ -1,9 +1,11 @@
-use std::fs::{self, OpenOptions};
-use std::io::{self, Write};
+use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
 
 use portable_pty::CommandBuilder;
 use serde_json::json;
+
+use crate::private_fs;
 
 const SETTINGS_DIR: &str = "claude-settings";
 const HOOK_EVENTS: [&str; 6] = [
@@ -22,8 +24,7 @@ pub struct ClaudeSettings {
 
 pub fn write_settings(data_dir: &Path, session_id: &str, port: u16) -> io::Result<ClaudeSettings> {
     let directory = data_dir.join(SETTINGS_DIR);
-    fs::create_dir_all(&directory)?;
-    set_directory_permissions(&directory)?;
+    private_fs::create_private_dir_all(&directory)?;
 
     let token = format!(
         "{}{}",
@@ -41,16 +42,7 @@ pub fn write_settings(data_dir: &Path, session_id: &str, port: u16) -> io::Resul
     let bytes = serde_json::to_vec_pretty(&json!({ "hooks": hooks })).map_err(io::Error::other)?;
 
     let path = session_settings_path(data_dir, session_id);
-    let written = (|| {
-        let mut options = OpenOptions::new();
-        options.write(true).create(true).truncate(true);
-        set_file_mode(&mut options);
-        let mut file = options.open(&path)?;
-        set_file_permissions(&file)?;
-        file.write_all(&bytes)?;
-        file.sync_all()
-    })();
-    if let Err(error) = written {
+    if let Err(error) = private_fs::write_private_file(&path, &bytes) {
         remove(&path);
         return Err(error);
     }
@@ -111,37 +103,6 @@ pub fn token_matches(expected: &str, provided: &str) -> bool {
         difference |= left ^ right;
     }
     difference == 0
-}
-
-#[cfg(unix)]
-fn set_directory_permissions(path: &Path) -> io::Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-    fs::set_permissions(path, fs::Permissions::from_mode(0o700))
-}
-
-#[cfg(not(unix))]
-fn set_directory_permissions(_path: &Path) -> io::Result<()> {
-    Ok(())
-}
-
-#[cfg(unix)]
-fn set_file_mode(options: &mut OpenOptions) {
-    use std::os::unix::fs::OpenOptionsExt;
-    options.mode(0o600);
-}
-
-#[cfg(not(unix))]
-fn set_file_mode(_options: &mut OpenOptions) {}
-
-#[cfg(unix)]
-fn set_file_permissions(file: &fs::File) -> io::Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-    file.set_permissions(fs::Permissions::from_mode(0o600))
-}
-
-#[cfg(not(unix))]
-fn set_file_permissions(_file: &fs::File) -> io::Result<()> {
-    Ok(())
 }
 
 #[cfg(test)]

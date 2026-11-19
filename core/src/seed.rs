@@ -1,7 +1,7 @@
 use std::env;
 use std::path::PathBuf;
 
-use crate::state::{Account, Auth, Client, Project, UsageRow};
+use crate::state::{Account, Auth, Client, Project};
 
 pub fn projects() -> Vec<Project> {
     vec![
@@ -31,23 +31,8 @@ pub fn accounts() -> Vec<Account> {
             client: Client::ClaudeCode,
             provider: "anthropic".to_owned(),
             auth: Auth::Subscription,
-            rows: vec![
-                UsageRow {
-                    label: "5-hour".to_owned(),
-                    used: Some(92),
-                    value: None,
-                    min: None,
-                    warn: Some(true),
-                },
-                UsageRow {
-                    label: "Weekly".to_owned(),
-                    used: Some(61),
-                    value: None,
-                    min: None,
-                    warn: None,
-                },
-            ],
-            foot: "Resets in 2h 10m. Read 1 min ago.".to_owned(),
+            rows: Vec::new(),
+            foot: "No official usage source.".to_owned(),
             server: None,
             model: None,
         },
@@ -58,14 +43,8 @@ pub fn accounts() -> Vec<Account> {
             client: Client::Codex,
             provider: "openai".to_owned(),
             auth: Auth::Subscription,
-            rows: vec![UsageRow {
-                label: "Weekly".to_owned(),
-                used: Some(78),
-                value: None,
-                min: None,
-                warn: None,
-            }],
-            foot: "No five-hour limit on this plan. Read 2 min ago.".to_owned(),
+            rows: Vec::new(),
+            foot: "No official usage source.".to_owned(),
             server: None,
             model: None,
         },
@@ -76,14 +55,8 @@ pub fn accounts() -> Vec<Account> {
             client: Client::ClaudeCode,
             provider: "deepseek".to_owned(),
             auth: Auth::Key,
-            rows: vec![UsageRow {
-                label: "Balance".to_owned(),
-                used: None,
-                value: Some("$12.40".to_owned()),
-                min: Some("minimum $5.00".to_owned()),
-                warn: None,
-            }],
-            foot: "Below the minimum, auto-switch moves the session away.".to_owned(),
+            rows: Vec::new(),
+            foot: "No official usage source.".to_owned(),
             server: None,
             model: None,
         },

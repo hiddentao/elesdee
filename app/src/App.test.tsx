@@ -7,6 +7,7 @@ import {
   ApiError,
   bootstrap,
   closeSession,
+  createAccount,
   createProject,
   deleteSession,
   health,
@@ -15,12 +16,14 @@ import {
   respondPermission,
 } from './api/client';
 import { subscribeEvents } from './api/events';
+import type { Account } from './api/types';
 
 vi.mock('./api/client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./api/client')>();
   return {
     ...actual,
     bootstrap: vi.fn(),
+    createAccount: vi.fn(),
     createSession: vi.fn(),
     closeSession: vi.fn(),
     createProject: vi.fn(),
@@ -705,5 +708,121 @@ describe('permission requests', () => {
       ).not.toBeInTheDocument(),
     );
     expect(screen.queryByText('Waiting for you')).not.toBeInTheDocument();
+  });
+});
+
+
+describe('settings', () => {
+  it('opens from the footer and restores focus on close', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    const settingsButton = await screen.findByRole('button', {
+      name: 'Settings',
+    });
+    await user.click(settingsButton);
+
+    const dialog = screen.getByRole('dialog', { name: 'Settings' });
+    expect(
+      within(dialog).getByRole('heading', { name: 'Settings' }),
+    ).toBeInTheDocument();
+
+    await user.keyboard('{Escape}');
+
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('dialog', { name: 'Settings' }),
+      ).not.toBeInTheDocument(),
+    );
+    expect(settingsButton).toHaveFocus();
+  });
+
+  it('adds a Google account and offers it for Antigravity', async () => {
+    const google: Account = {
+      id: 'google-1',
+      name: 'Google work',
+      plan: 'Google AI',
+      client: 'Antigravity',
+      provider: 'google',
+      auth: 'key',
+      rows: [],
+      foot: 'No official usage source.',
+      server: null,
+      model: 'gemini-3.8-flash-medium',
+    };
+    vi.mocked(createAccount).mockResolvedValue(google);
+
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(await screen.findByRole('button', { name: 'Settings' }));
+    const settings = screen.getByRole('dialog', { name: 'Settings' });
+    await user.click(
+      within(settings).getByRole('button', { name: 'Add account' }),
+    );
+
+    const add = screen.getByRole('dialog', { name: 'Add account' });
+    const key = 'secret-key';
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await user.type(within(add).getByLabelText('Account name'), 'Google work');
+    await user.type(within(add).getByLabelText('API key'), key);
+    await user.click(within(add).getByRole('button', { name: 'Add account' }));
+
+    await waitFor(() =>
+      expect(createAccount).toHaveBeenCalledWith({
+        name: 'Google work',
+        providerId: 'google',
+        client: 'Antigravity',
+        auth: 'key',
+        key,
+        model: 'gemini-3.8-flash-medium',
+      }),
+    );
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('dialog', { name: 'Add account' }),
+      ).not.toBeInTheDocument(),
+    );
+
+    expect(within(settings).getByText('Google work')).toBeInTheDocument();
+    expect(
+      within(settings).getByText('Antigravity · Google AI'),
+    ).toBeInTheDocument();
+    expect(within(settings).getByText('No usage data')).toBeInTheDocument();
+
+    const logged = [...log.mock.calls, ...error.mock.calls, ...warn.mock.calls]
+      .flat()
+      .map(String)
+      .join(' ');
+    expect(logged).not.toContain(key);
+
+    await user.click(
+      screen.getByRole('button', { name: 'Close settings' }),
+    );
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('dialog', { name: 'Settings' }),
+      ).not.toBeInTheDocument(),
+    );
+
+    await user.click(screen.getByRole('button', { name: /^Usage/ }));
+    const usage = screen.getByRole('dialog', { name: 'Usage' });
+    expect(
+      within(usage).getByRole('region', { name: 'Google work' }),
+    ).toHaveTextContent('No usage data');
+    await user.click(within(usage).getByRole('button', { name: 'Close' }));
+
+    await user.click(screen.getByRole('button', { name: /New session/ }));
+    const sessionDialog = screen.getByRole('dialog', { name: 'New session' });
+    await user.click(
+      within(sessionDialog).getByRole('radio', { name: 'Antigravity' }),
+    );
+    await user.click(within(sessionDialog).getByLabelText('Account'));
+    await user.click(screen.getByRole('option', { name: /Google work/ }));
+
+    expect(within(sessionDialog).getByText('No usage data')).toBeInTheDocument();
   });
 });

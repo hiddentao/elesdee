@@ -36,6 +36,18 @@ const accounts: Account[] = [
     server: null,
     model: null,
   },
+  {
+    id: 'google-1',
+    name: 'Google work',
+    plan: 'Google AI',
+    client: 'Antigravity',
+    provider: 'google',
+    auth: 'key',
+    rows: [],
+    foot: 'No official usage source.',
+    server: null,
+    model: 'gemini-3.8-flash-medium',
+  },
 ];
 
 const createdSession = makeSession({
@@ -147,6 +159,22 @@ describe('NewSessionDialog', () => {
     expect(screen.getByLabelText('Project')).toHaveFocus();
     expect(onCreate).not.toHaveBeenCalled();
     expect(onCreated).not.toHaveBeenCalled();
+  });
+
+  it('offers Antigravity and its account with no usage data', async () => {
+    const user = userEvent.setup();
+    renderDialog();
+
+    await user.click(screen.getByRole('radio', { name: 'Antigravity' }));
+
+    const accountInput = screen.getByLabelText('Account');
+    await user.click(accountInput);
+
+    const option = screen.getByRole('option', { name: /Google work/ });
+    expect(option).toHaveTextContent('No usage data');
+    await user.click(option);
+
+    expect(screen.getByText('No usage data')).toBeInTheDocument();
   });
 
   it('labels the folder for the chosen session kind', async () => {

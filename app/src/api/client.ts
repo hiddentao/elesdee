@@ -1,7 +1,9 @@
 import { API_BASE } from './base';
 import type {
+  Account,
   ApiErrorPayload,
   BootstrapResponse,
+  CreateAccountInput,
   CreateProjectInput,
   CreateSessionInput,
   HealthResponse,
@@ -65,6 +67,10 @@ export function createProject(input: CreateProjectInput): Promise<Project> {
 
 export function createSession(input: CreateSessionInput): Promise<Session> {
   return request<Session>('/api/sessions', post(input));
+}
+
+export function createAccount(input: CreateAccountInput): Promise<Account> {
+  return request<Account>('/api/accounts', post(input));
 }
 
 export function closeSession(id: string): Promise<Session> {

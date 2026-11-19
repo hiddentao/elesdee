@@ -2,7 +2,7 @@
 
 The core service is a Rust process on the local machine. The desktop UI and the phone shell talk to it. This document is the contract between them. Behavior comes from `.dev/SPEC.md`; this document names the messages.
 
-The service binds `127.0.0.1` only. It accepts requests only for loopback hostnames and known desktop origins. Every action that starts a process still needs the user's click in the UI.
+The service binds `127.0.0.1` only. It accepts requests only for loopback hostnames and known desktop origins. In normal use, every action that starts a process comes from the UI. The API has no separate authentication; see the local-trust rule below.
 
 ## Request rules
 
@@ -30,8 +30,20 @@ The service binds `127.0.0.1` only. It accepts requests only for loopback hostna
 - Deleting requires a closed session and removes the session and its log. An agent branch is kept. If a failed close left a worktree, delete attempts to remove it.
 - The client version check is cached for 10 seconds.
 
+## Accounts and Antigravity
+
+- `POST /api/accounts` adds an API-key account. The body is `{ name, providerId, client, auth: "key", key, model? }`.
+- This version accepts `providerId: "google"` with `client: "Antigravity"`. Any other provider and client pair, or another auth mode, returns 422. An empty name, an empty key or a model over 120 characters returns 400.
+- The account id is a unique slug of the name. A repeated name gets a numeric suffix. The model defaults to `gemini-3.8-flash-medium`; model names use Antigravity's own slugs.
+- The key is stored in the system keychain through the secret store. It is not written to `state.json`, returned by the API or written to logs. Account metadata is saved and returned in bootstrap.
+- Antigravity runs `agy`. The core finds it on `PATH` and in common install paths.
+- A launch reads the key, creates `<data dir>/homes/<session id>/.gemini/antigravity-cli/settings.json` with mode 0600 and `{"modelProvider":"gemini"}`, sets `HOME` to the session home and `GEMINI_API_KEY` to the key in the child environment, and runs the client in the worktree.
+- The home is removed on close, agent exit, delete and shutdown. Reopen creates it again and reads the key again.
+- Antigravity sessions get no Claude hook settings and no permission card. Their `shortcuts` list is empty; the UI shows the base keys.
+
 ## Agent permissions
 
+- Antigravity has no hooks and no permission card. Its own terminal handles prompts.
 - A Claude Code agent starts with a private settings file under the data directory, mode 0600. The file carries a random per-session token and loopback hook URLs. The token is never sent to the UI.
 - The internal hook route needs the exact token. A wrong or missing token, a foreign Host, or a non-Claude session returns 403.
 - A `PreToolUse` hook sets `pendingPermission` and `waitingFor: "permission"`, sends `session.updated`, and holds the hook response. The answer endpoint releases it. If another request is already held, the new hook gets `permissionDecision: "ask"` and the first request stays held.
@@ -45,10 +57,10 @@ The service binds `127.0.0.1` only. It accepts requests only for loopback hostna
 ## Persistence
 
 - State lives in `ELESDEE_DATA_DIR`, default `~/.elesdee`, in `state.json`. The directory is created with mode 0700 and files with mode 0600. Writes use a temporary file, fsync and rename.
-- Projects, sessions, each session's desired columns and rows, its output log, and an agent's repository root are saved. Accounts are seeds and are not saved. No runtime handles are saved.
-- State is saved on project create, session create, rename, close, reopen, delete, resize, and graceful shutdown. It is not written for each output chunk.
+- Projects, accounts, sessions, each session's desired columns and rows, its output log, and an agent's repository root are saved. Account keys are not saved. No runtime handles are saved.
+- State is saved on project create, account create, session create, rename, close, reopen, delete, resize, and graceful shutdown. It is not written for each output chunk.
 - A session that was active on save is restored as closed, with preview `"The app restarted. Reopen to continue."` and no process. Its log and sequence numbers are kept, and reopen continues from the next sequence. A pending permission request is not written to the file and is not restored.
-- Seed projects are used only when no state file exists, or when the state file is corrupt. A corrupt file is moved to `state.bad.json` and the problem is logged.
+- Seed projects and seed accounts are used only when no state file exists, when the state file is corrupt, or when an older state file has no account list. A corrupt file is moved to `state.bad.json` and the problem is logged.
 
 ## Types
 
@@ -58,7 +70,7 @@ type WorkState = "working" | "waiting" | "input" | "paused" | "done";
 type WaitingFor = "permission" | "input" | "start" | "question";
 
 type SessionKind = "agent" | "terminal";
-type Client = "Claude Code" | "Codex" | "OpenCode 2";
+type Client = "Claude Code" | "Codex" | "OpenCode 2" | "Antigravity";
 
 interface PendingPermission {
   requestId: string;
@@ -145,6 +157,7 @@ interface OutputEvent {
 | GET | `/api/health` | | `{ ok, version, agents: AgentCheck[] }` |
 | GET | `/api/bootstrap` | | `{ projects, accounts, sessions }` |
 | POST | `/api/projects` | `{ name, folder }` | `Project` |
+| POST | `/api/accounts` | `{ name, providerId, client, auth: "key", key, model? }` | `Account` |
 | POST | `/api/sessions` | `{ projectId, kind, accountId?, name?, folder?, cols?, rows? }` | `Session` |
 | POST | `/api/sessions/{id}/close` | `{}` | `Session` |
 | PATCH | `/api/sessions/{id}` | `{ name }` | `Session` |
@@ -156,13 +169,13 @@ interface OutputEvent {
 | GET | `/api/sessions/{id}/output?after={seq}` | | SSE: `data: {"seq":n,"data":"..."}` and an optional `gap` |
 | GET | `/api/events` | | SSE: `data: {"type":"session.updated","session":Session}` |
 
-Errors use `{ "error": "message" }`. Unknown sessions return 404. A session that is closed, or whose process has exited, returns 409 for input. An invalid session name or terminal size returns 400. An agent session in a non-Git folder returns 422. Reopening an active session, deleting an active session, or reopening or deleting while a close is running returns 409; reopening with a missing folder, repository, branch or client returns 422. A permission answer returns 404 for an unknown session and 409 when the session is closed, there is no pending request, the request id does not match, or the request was already answered. An empty project name returns 400, a bad project folder returns 422, and a duplicate project folder returns 409. A blocked Host or Origin returns 403, a bad POST or PATCH content type returns 415, a full session list or stream list returns 429, a request that exceeds the 30-second timeout returns 408, and a wrong non-OPTIONS method returns 405.
+Errors use `{ "error": "message" }`. Unknown sessions return 404. A session that is closed, or whose process has exited, returns 409 for input. An invalid session name or terminal size returns 400. An agent session in a non-Git folder returns 422. Reopening an active session, deleting an active session, or reopening or deleting while a close is running returns 409; reopening with a missing folder, repository, branch or client returns 422. A permission answer returns 404 for an unknown session and 409 when the session is closed, there is no pending request, the request id does not match, or the request was already answered. An empty project name returns 400, a bad project folder returns 422, and a duplicate project folder returns 409. An empty account name, empty key or overlong model returns 400; an unsupported provider and client pair or an unsupported auth mode returns 422; a keychain failure returns 500. A blocked Host or Origin returns 403, a bad POST or PATCH content type returns 415, a full session list or stream list returns 429, a request that exceeds the 30-second timeout returns 408, and a wrong non-OPTIONS method returns 405.
 
 ## Rules
 
 - A terminal session runs a real shell in its folder through a PTY. Closing the session stops the process group and keeps the folder.
 - An agent session runs the chosen client when one is installed. The client command is chosen by the server, never sent by the UI.
-- The server tells the UI the client's key shortcuts. The UI keeps no list of client keys.
+- The server tells the UI the client's key shortcuts. The UI keeps no list of client keys. An Antigravity session gets an empty list, so the UI shows the base keys.
 - Every change to a session sends `session.updated` on `/api/events`.
 - Output events carry a sequence number. `after=n` replays the output with a higher sequence number.
 - `after` must be at most the newest sequence. A greater value returns 400.

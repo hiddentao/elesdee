@@ -19,6 +19,7 @@ pub fn for_client(client: Client) -> Vec<Shortcut> {
             shortcut("Ctrl+P", "^P", "Control P", "Command palette"),
             shortcut("Ctrl+L", "^L", "Control L", "Clear screen"),
         ],
+        Client::Antigravity => Vec::new(),
     }
 }
 
