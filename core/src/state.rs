@@ -299,6 +299,11 @@ pub enum AuxEvent {
     SharedFile { file: SharedFile },
     #[serde(rename = "provider.updated")]
     Provider { provider: ProviderView },
+    #[serde(rename = "history.appended")]
+    History {
+        session_id: String,
+        item: crate::history::HistoryItem,
+    },
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -2128,11 +2133,16 @@ impl AppState {
             persisted.session,
             Arc::clone(&budget),
             size,
-            output,
-            persisted.next_seq,
+            sessions::RestoredLogs {
+                output,
+                next_seq: persisted.next_seq,
+                history: persisted.history,
+                next_history_seq: persisted.next_history_seq,
+            },
             persisted.repo_root,
             sessions::SessionRuntimeConfig::new(
                 self.inner.events.clone(),
+                self.inner.aux_events.clone(),
                 self.inner.preview_throttle,
             ),
         ));
@@ -2165,6 +2175,7 @@ impl AppState {
             .iter()
             .map(|entry| {
                 let (output, next_seq) = entry.persistence_output();
+                let (history, next_history_seq) = entry.persistence_history();
                 let size = entry.stored_size();
                 let mut session = entry.session();
                 session.pending_permission = None;
@@ -2180,6 +2191,8 @@ impl AppState {
                         .map(|(seq, data)| PersistedOutput { seq, data })
                         .collect(),
                     next_seq,
+                    history,
+                    next_history_seq,
                     repo_root: entry.repo_root(),
                 }
             })
@@ -2270,6 +2283,10 @@ impl AppState {
 
     pub fn event_sender(&self) -> broadcast::Sender<SessionEvent> {
         self.inner.events.clone()
+    }
+
+    pub fn aux_sender(&self) -> broadcast::Sender<AuxEvent> {
+        self.inner.aux_events.clone()
     }
 
     pub fn subscribe_events(&self) -> broadcast::Receiver<SessionEvent> {

@@ -569,6 +569,9 @@ export default function App() {
         });
         return;
       }
+      if (event.type === 'history.appended') {
+        return;
+      }
       if (event.notification.kind === 'done') {
         void showDesktopNotification({
           sessionId: event.notification.sessionId,

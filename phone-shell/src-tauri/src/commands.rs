@@ -11,9 +11,9 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use elesdee_link::{
-    AppConnection, BRIDGE_VERSION, ClientError, ComputerRecord, EventStream, LinkClient, Method,
-    OutputStream, PROTOCOL_VERSION, PairingCancel, PairingStart, ReconnectPolicy, Response,
-    is_terminal, port_allowed,
+    AppConnection, BRIDGE_VERSION, ClientError, ComputerRecord, EventStream, HistoryStream,
+    LinkClient, Method, OutputStream, PROTOCOL_VERSION, PairingCancel, PairingStart,
+    ReconnectPolicy, Response, is_terminal, port_allowed,
 };
 use serde::Serialize;
 use serde_json::Value;
@@ -519,14 +519,14 @@ pub async fn phone_subscribe(
     let channel = Channel::parse(&channel)?;
     let session_id = match channel {
         Channel::Events => None,
-        Channel::Output => Some(
+        Channel::Output | Channel::History => Some(
             params
                 .as_ref()
                 .and_then(|params| params.get("sessionId"))
                 .and_then(Value::as_str)
                 .filter(|value| !value.is_empty())
                 .ok_or_else(|| {
-                    CommandError::new("bad_request", "The output stream needs a session id.")
+                    CommandError::new("bad_request", "The session stream needs a session id.")
                 })?
                 .to_owned(),
         ),
@@ -679,6 +679,7 @@ pub fn shutdown(state: &ShellState) {
 enum Channel {
     Events,
     Output,
+    History,
 }
 
 impl Channel {
@@ -686,6 +687,7 @@ impl Channel {
         match value {
             "events" => Ok(Self::Events),
             "output" => Ok(Self::Output),
+            "history" => Ok(Self::History),
             _ => Err(CommandError::new(
                 "bad_request",
                 "The subscription channel is not valid.",
@@ -765,9 +767,9 @@ async fn run_subscription(
                     }
                 }
                 if clean_end {
-                    // A closed output stream stays closed. An event stream
+                    // A closed session stream stays closed. An event stream
                     // that fell behind is reopened on the same connection.
-                    if channel == Channel::Output {
+                    if matches!(channel, Channel::Output | Channel::History) {
                         return;
                     }
                     tokio::time::sleep(Duration::from_millis(500)).await;
@@ -805,6 +807,7 @@ async fn run_subscription(
 enum LiveStream {
     Events(EventStream),
     Output(OutputStream),
+    History(HistoryStream),
 }
 
 impl LiveStream {
@@ -812,6 +815,7 @@ impl LiveStream {
         match self {
             Self::Events(stream) => stream.next().await,
             Self::Output(stream) => stream.next().await,
+            Self::History(stream) => stream.next().await,
         }
     }
 }
@@ -830,6 +834,15 @@ async fn open_stream(
             Ok(LiveStream::Output(
                 connection
                     .output(session_id, last_seq.load(Ordering::SeqCst))
+                    .await?,
+            ))
+        }
+        Channel::History => {
+            let session_id =
+                session_id.ok_or(ClientError::Protocol("the session id is missing"))?;
+            Ok(LiveStream::History(
+                connection
+                    .history(session_id, last_seq.load(Ordering::SeqCst))
                     .await?,
             ))
         }
@@ -1023,9 +1036,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn only_event_and_output_channels_parse() {
+    fn only_known_channels_parse() {
         assert_eq!(Channel::parse("events").expect("events"), Channel::Events);
         assert_eq!(Channel::parse("output").expect("output"), Channel::Output);
+        assert_eq!(
+            Channel::parse("history").expect("history"),
+            Channel::History
+        );
         assert!(Channel::parse("terminal").is_err());
     }
 

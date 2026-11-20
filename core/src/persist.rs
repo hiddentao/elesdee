@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::history::HistoryItem;
 use crate::private_fs;
 use crate::seed;
 use crate::state::{
@@ -75,6 +76,10 @@ pub(crate) struct PersistedSession {
     pub rows: u16,
     pub output: Vec<PersistedOutput>,
     pub next_seq: u64,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub history: Vec<HistoryItem>,
+    #[serde(default)]
+    pub next_history_seq: u64,
     #[serde(default)]
     pub repo_root: Option<String>,
 }

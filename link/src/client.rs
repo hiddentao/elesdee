@@ -521,6 +521,30 @@ impl AppConnection {
         })
     }
 
+    /// Opens a session history stream that replays from `after`.
+    ///
+    /// The first event describes the structured source; later events are the
+    /// conversation items, and an update arrives as a new version with a
+    /// higher sequence and the same id.
+    ///
+    /// # Errors
+    ///
+    /// Returns the computer's refusal, a transport failure or a timeout.
+    pub async fn history(
+        &self,
+        session_id: &str,
+        after: u64,
+    ) -> Result<HistoryStream, ClientError> {
+        let params = serde_json::json!({"sessionId": session_id, "after": after});
+        let recv = self
+            .open_stream(Method::HistorySubscribe, Some(params))
+            .await?;
+        Ok(HistoryStream {
+            recv,
+            connection: self.connection.clone(),
+        })
+    }
+
     async fn open_stream(
         &self,
         method: Method,
@@ -613,6 +637,33 @@ impl std::fmt::Debug for OutputStream {
 
 impl OutputStream {
     /// Returns the next output event, or `None` when the session closed and
+    /// the stream ended.
+    ///
+    /// # Errors
+    ///
+    /// Returns a revoked device, an unknown device or a transport failure.
+    pub async fn next(&mut self) -> Result<Option<Value>, ClientError> {
+        read_stream_event(&mut self.recv, &self.connection).await
+    }
+}
+
+/// A live session history stream from one computer.
+///
+/// The first event is a `history.state` notice. The retained items follow, and
+/// then live versions.
+pub struct HistoryStream {
+    recv: RecvStream,
+    connection: Connection,
+}
+
+impl std::fmt::Debug for HistoryStream {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HistoryStream").finish_non_exhaustive()
+    }
+}
+
+impl HistoryStream {
+    /// Returns the next history event, or `None` when the session closed and
     /// the stream ended.
     ///
     /// # Errors

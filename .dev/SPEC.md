@@ -110,6 +110,7 @@ The agents write their conversation to files on disk, and each keeps its own int
   - The API has session, event, permission, command and PTY routes ([OpenCode docs](https://opencode.ai/docs/server/)).
   - The core service starts the OpenCode 2 server and connects to it as a client, next to the real terminal.
   - The test build must check which events carry streamed assistant text, tool rows and permission prompts.
+- Antigravity: no structured event interface. Its sessions stay on the terminal, and the phone opens them there.
 
 **Session types**
 

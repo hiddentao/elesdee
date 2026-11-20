@@ -1,6 +1,8 @@
 import { API_BASE } from './base';
 import type {
   AuxEvent,
+  HistoryItem,
+  HistoryStatus,
   OutputChunk,
   OutputGap,
   Session,
@@ -71,6 +73,16 @@ export function subscribeAux(
         });
       } else if (payload.type === 'provider.updated' && payload.provider) {
         onEvent({ type: 'provider.updated', provider: payload.provider });
+      } else if (
+        payload.type === 'history.appended' &&
+        payload.sessionId &&
+        payload.item
+      ) {
+        onEvent({
+          type: 'history.appended',
+          sessionId: payload.sessionId,
+          item: payload.item,
+        });
       }
     } catch {
       // Ignore malformed events and keep the stream open.
@@ -86,20 +98,24 @@ export function subscribeAux(
   };
 }
 
+type Frame = Record<string, unknown>;
+
 /**
- * Streams terminal output for one session. The stream reconnects on its own and
- * asks for every chunk after the last sequence it has seen, so no text is lost.
+ * Streams one sequenced session log. The stream reconnects on its own and asks
+ * for every frame after the last sequence it has seen, so no frame is lost.
+ * A frame without a sequence, such as a status notice, leaves the position
+ * unchanged.
  */
-export function subscribeOutput(
-  sessionId: string,
-  afterSeq: number,
-  onChunk: (seq: number, data: string, gap?: OutputGap) => void,
+function subscribeFrames(
+  url: (after: number) => string,
+  startAfter: number,
+  onFrame: (frame: Frame) => void,
   onError?: () => void,
   onOpen?: () => void,
   isClosed?: () => boolean,
 ): Unsubscribe {
   let stopped = false;
-  let lastSeq = afterSeq;
+  let lastSeq = startAfter;
   let attempts = 0;
   let source: EventSource | null = null;
   let timer: number | undefined;
@@ -109,10 +125,7 @@ export function subscribeOutput(
       return;
     }
 
-    source = new EventSource(
-      API_BASE +
-        `/api/sessions/${encodeURIComponent(sessionId)}/output?after=${lastSeq}`,
-    );
+    source = new EventSource(url(lastSeq));
 
     source.onopen = () => {
       attempts = 0;
@@ -121,19 +134,15 @@ export function subscribeOutput(
 
     source.onmessage = (event) => {
       try {
-        const chunk = JSON.parse(event.data) as Partial<OutputChunk>;
-        if (typeof chunk.seq !== 'number' || typeof chunk.data !== 'string') {
+        const frame = JSON.parse(event.data) as Frame;
+        const seq = typeof frame.seq === 'number' ? frame.seq : null;
+        if (seq !== null && seq <= lastSeq) {
           return;
         }
-        if (chunk.seq <= lastSeq) {
-          return;
+        if (seq !== null) {
+          lastSeq = seq;
         }
-        lastSeq = chunk.seq;
-        if (chunk.gap) {
-          onChunk(chunk.seq, chunk.data, chunk.gap);
-        } else {
-          onChunk(chunk.seq, chunk.data);
-        }
+        onFrame(frame);
       } catch {
         // Ignore malformed events and keep the stream open.
       }
@@ -146,7 +155,7 @@ export function subscribeOutput(
       source?.close();
       source = null;
 
-      // A closed session has no live output. The first connection loads the
+      // A closed session has no live stream. The first connection loads the
       // log; the end of that stream is not a failure and needs no retry.
       if (isClosed?.()) {
         return;
@@ -168,4 +177,75 @@ export function subscribeOutput(
     }
     source?.close();
   };
+}
+
+/**
+ * Streams terminal output for one session.
+ */
+export function subscribeOutput(
+  sessionId: string,
+  afterSeq: number,
+  onChunk: (seq: number, data: string, gap?: OutputGap) => void,
+  onError?: () => void,
+  onOpen?: () => void,
+  isClosed?: () => boolean,
+): Unsubscribe {
+  return subscribeFrames(
+    (after) =>
+      API_BASE +
+      `/api/sessions/${encodeURIComponent(sessionId)}/output?after=${after}`,
+    afterSeq,
+    (frame) => {
+      const chunk = frame as Partial<OutputChunk>;
+      if (typeof chunk.seq !== 'number' || typeof chunk.data !== 'string') {
+        return;
+      }
+      if (chunk.gap) {
+        onChunk(chunk.seq, chunk.data, chunk.gap);
+      } else {
+        onChunk(chunk.seq, chunk.data);
+      }
+    },
+    onError,
+    onOpen,
+    isClosed,
+  );
+}
+
+/**
+ * Streams the structured conversation for one session.
+ */
+export function subscribeHistory(
+  sessionId: string,
+  afterSeq: number,
+  onStatus: (status: HistoryStatus) => void,
+  onItem: (item: HistoryItem) => void,
+  onError?: () => void,
+  onOpen?: () => void,
+  isClosed?: () => boolean,
+): Unsubscribe {
+  return subscribeFrames(
+    (after) =>
+      API_BASE +
+      `/api/sessions/${encodeURIComponent(sessionId)}/history?after=${after}`,
+    afterSeq,
+    (frame) => {
+      if (frame.type === 'history.state') {
+        onStatus(frame as unknown as HistoryStatus);
+        return;
+      }
+      const item = frame as unknown as HistoryItem;
+      if (
+        typeof item.seq !== 'number' ||
+        typeof item.id !== 'string' ||
+        typeof item.text !== 'string'
+      ) {
+        return;
+      }
+      onItem(item);
+    },
+    onError,
+    onOpen,
+    isClosed,
+  );
 }

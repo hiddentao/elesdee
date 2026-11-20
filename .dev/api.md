@@ -284,12 +284,14 @@ Every later stream carries one request with the shared four-byte JSON length fra
 | `diff.read` | `GET /api/sessions/{id}/changes` |
 | `events.subscribe` | `GET /api/events`, streamed |
 | `output.subscribe` | `GET /api/sessions/{id}/output?after=`, streamed |
+| `history.subscribe` | `GET /api/sessions/{id}/history?after=`, streamed |
 
 - The result is the local route's JSON, or the local error message with the matching link code. A method outside the allowlist returns `forbidden` before a handler runs.
 - `sessions.config` switches to one exact AI config and needs `{ sessionId, configId }`. It replaces the provider alias for the phone. `sessions.account` stays for an older client and maps a provider id to that provider's config for the session's client.
 - `sessions.upload`, `files.image`, `ui.manifest` and `ui.download` are allowlisted but return `unsupported` until their steps. `demoServers.list` returns the active registered entries.
 - `events.subscribe` has no parameters. It forwards `session.updated` from the event stream and the question, request, notification, shared-file and provider events from the auxiliary stream. A phone that falls behind loses the stream and reconnects; the bootstrap snapshot shows the current state.
 - `output.subscribe` takes `{ sessionId, after }`. It sends a stream start, replays the retained output with a higher sequence than `after`, and keeps the stream open. A replayed event may carry `gap`. The stream ends when the session closes. A slow reader gets a fresh snapshot from its last sequence, which fills the gap.
+- `history.subscribe` takes `{ sessionId, after }`. It sends a stream start, then a `history.state` event, then the retained conversation items with a higher sequence than `after`. It keeps the stream open and ends when the session closes. An update to an item is a new version with a higher sequence and the same `id`.
 - The link holds the same output stream permit as the local API and applies its own stream cap.
 - A revoked device has its live connections closed with code 3.
 
@@ -306,7 +308,7 @@ The phone shell reconnects after a drop. It waits 0.5 s, 1 s, 2 s, 4 s, 8 s, 15 
 - Closing the session or the agent exiting denies a pending request. A request with no answer expires after 10 minutes and is denied.
 - The Claude settings file is removed on close, agent exit, delete and shutdown. A startup sweep removes stale files.
 - `pendingPermission` and a `waitingFor` of `permission` are not written to `state.json`; the live session keeps them.
-- `UserPromptSubmit` sets `working`. `PostToolUse` clears `waitingFor` and keeps the session active. `Notification` with a permission message sets `waitingFor: "permission"`. `MessageDisplay` and `Stop` update `preview`; `Stop` sets `done`.
+- `UserPromptSubmit` sets `working` and adds the prompt to the history. `PostToolUse` clears `waitingFor`, keeps the session active and completes the tool row. `Notification` with a permission message sets `waitingFor: "permission"`. `MessageDisplay` updates `preview` and streams the reply into the history. `Stop` updates `preview`, sets `done` and completes the final reply.
 
 ## Session tools and skills
 
@@ -382,7 +384,7 @@ interface DemoServerListEntry extends DemoServer {
 ## Persistence
 
 - State lives in `ELESDEE_DATA_DIR`, default `~/.elesdee`, in `state.json`. The directory is created with mode 0700 and files with mode 0600. Writes use a temporary file, fsync and rename.
-- Projects and their default AI config and source branch, providers, AI configs, sessions, each session's desired columns and rows, its output log, an agent's repository root, an agent's own conversation ID, the session's handoff note and last context-left figure, the session's allowed config ids, the paired device list and the General settings are saved. Provider keys and pairing secrets are not saved. No runtime handles are saved.
+- Projects and their default AI config and source branch, providers, AI configs, sessions, each session's desired columns and rows, its output log, its bounded conversation history and its history sequence, an agent's repository root, an agent's own conversation ID, the session's handoff note and last context-left figure, the session's allowed config ids, the paired device list and the General settings are saved. Provider keys and pairing secrets are not saved. No runtime handles are saved.
 - The log file is `<data dir>/logs/core.log`, with one backup at `core.log.1`. It is not part of `state.json` and holds redacted JSON lines only.
 - The desktop link identity is a separate 32-byte key in `<data dir>/link.key`, with mode 0600, written once and reused. It is never in `state.json` and never logged. A missing key creates a new identity; every paired phone must pair again.
 - The paired device list is written on pair, removal and graceful shutdown. `lastSeen` updates in memory at most once a minute.
@@ -608,7 +610,47 @@ interface OutputEvent {
   data: string;
   gap?: OutputGap;      // only on the first replayed event when old output was dropped
 }
+
+type HistoryKind = "prompt" | "reply" | "tool";
+type HistoryState = "streaming" | "running" | "done" | "failed";
+
+interface HistoryItem {
+  seq: number;
+  id: string;             // opaque and stable per conversation item
+  kind: HistoryKind;
+  tool?: string;          // the tool name on a tool row
+  text: string;           // prompt or reply text, or the tool's one-line summary
+  state: HistoryState;
+  gap?: OutputGap;        // only on the first replayed item when old items were dropped
+}
+
+interface HistoryStatus {
+  type: "history.state";
+  structured: boolean;    // false for Antigravity and terminal sessions
+  client: Client | null;
+}
+
+interface HistoryEvent {
+  type: "history.appended";
+  sessionId: string;
+  item: HistoryItem;
+}
 ```
+
+## Structured conversation history
+
+- A session keeps a bounded log of prompts, replies and tool rows. The log holds at most 400 item versions and 128 KiB of text and ids per session. Older versions are dropped first.
+- Sequence numbers never repeat. An update to an item, such as a streamed reply that finishes or a tool row that completes, is a new version with a higher `seq` and the same `id`. A reader keeps the newest version of each `id`.
+- The client ids that arrive from an agent are not stored. Each one becomes a fixed opaque hash, so a request identifier never reaches `state.json`.
+- Session secrets are removed from every text before it is kept, with the same rule that redacts terminal output.
+- Sources:
+  - Claude Code: the hook payloads. `UserPromptSubmit` adds a prompt, `MessageDisplay` streams a reply, `PreToolUse` and `PostToolUse` add and complete a tool row, and `Stop` completes the final reply.
+  - Codex: the app-server `item/*` notifications. A completed item is authoritative. `turn/completed` ends streaming replies.
+  - OpenCode 2: the local server's message records, polled with the permission poll. Each message holds its role and its text and tool parts.
+  - Antigravity: no structured source. Its history is empty and `history.state.structured` is `false`.
+- A switch to a different client starts a new conversation, so it clears the history. A switch inside the same client keeps it.
+- The log is restored after a restart with its sequence numbers.
+- Each new version is sent as a `history.appended` event on the auxiliary stream. A phone that falls behind reconnects and replays from its last sequence.
 
 ## Endpoints
 
@@ -678,6 +720,7 @@ interface OutputEvent {
 | POST | `/api/sessions/{id}/browser/tabs/{tab}/close` | `{}` | `BrowserState` |
 | GET | `/api/sessions/{id}/browser/screenshot?tab={tab}` | | `image/png`; 404 when no capture is available |
 | GET | `/api/sessions/{id}/output?after={seq}` | | SSE: `data: {"seq":n,"data":"..."}` and an optional `gap` |
+| GET | `/api/sessions/{id}/history?after={seq}` | | SSE: `history.state`, then `HistoryItem` versions |
 | GET | `/api/events` | | SSE: `data: {"type":"session.updated","session":Session}` |
 
 Errors use `{ "error": "message" }`. Pairing returns 503 when the link endpoint is not running, and 409 when no phone waits for approval or the device limit is reached. Removing an unknown device returns 404. Unknown sessions return 404. A session that is closed, or whose process has exited, returns 409 for input. An invalid session name or terminal size returns 400. An agent session in a non-Git folder returns 422. Reopening an active session, deleting an active session, or reopening or deleting while a close is running returns 409; reopening with a missing folder, repository, branch or client returns 422. A permission answer returns 404 for an unknown session and 409 when the session is closed, there is no pending request, the request id does not match, or the request was already answered. An empty project name returns 400, a bad project folder returns 422, and a duplicate project folder returns 409. An unknown project returns 404. A project change that cannot be written to disk returns 500 and is rolled back in memory. A default AI config that does not exist, a default branch that does not exist, or a project folder that is not a Git repository returns 422. An unsafe branch name returns 400. An empty provider name, empty key or overlong model returns 400; an unsupported vendor, client pair or auth mode returns 422; a keychain failure returns 500. A sign-in for an unsupported vendor returns 422; an invalid provider name or code returns 400; a second active sign-in for the same vendor and provider returns 409; an unknown sign-in returns 404. An unknown provider or a model or effort that does not fit the client returns 422; an invalid config name, environment variable or config key returns 400; a secret-like environment variable or config key returns 422; an unknown config returns 404. Removing a provider that a config uses returns 409; removing a config that an active session runs returns 409. An allowed config list that is empty returns 400; an unknown config, a list without the current config, or a switch to a config outside the list returns 422; changing the list on a closed session returns 409. A blocked Host or Origin returns 403, a bad POST or PATCH content type returns 415, a full session list or stream list returns 429, a request that exceeds the 30-second timeout returns 408, and a wrong non-OPTIONS method returns 405. A file path outside the session folder returns 400, a binary file returns 422, and content above 1 MiB returns 413. A closed session returns 409 for a browser action, an unknown tab returns 409, an invalid or non-http address returns 400, an unavailable browser returns 503, and a browser action that fails returns 502. A demo-server stop for an unknown session or server returns 404; a registration on a closed session is refused by the tool.

@@ -1,3 +1,17 @@
+/// Removes every saved secret from text before it is kept or shown.
+///
+/// Short values are skipped because a short string would match ordinary words
+/// and hide unrelated text. A session registers only values that are at least
+/// eight characters long.
+pub(crate) fn redact_secrets(mut data: String, secrets: &[String]) -> String {
+    for secret in secrets {
+        if secret.chars().count() >= 8 {
+            data = data.replace(secret, "[redacted]");
+        }
+    }
+    data
+}
+
 /// Cleans a short user-supplied label.
 ///
 /// Control characters and invisible format characters become spaces. Runs of
