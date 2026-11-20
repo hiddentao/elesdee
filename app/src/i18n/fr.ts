@@ -132,6 +132,8 @@ export const fr = {
   'settings.providersNote':
     'Comptes sur cet ordinateur et leur utilisation.',
   'settings.addAccount': 'Ajouter un compte',
+  'settings.editAccount': 'Modifier le compte {name}',
+  'settings.removeAccount': 'Supprimer le compte {name}',
   'settings.noAccounts': 'Aucun compte pour l’instant.',
   'settings.aboutVersion': 'Version {version}',
   'settings.languageLabel': 'Langue de l’interface',
@@ -168,6 +170,27 @@ export const fr = {
     'Impossible de charger la liste des fournisseurs.',
   'addAccount.errorAdd':
     'Le compte n’a pas été ajouté. Réessayez.',
+
+  'editAccount.title': 'Modifier le compte',
+  'editAccount.subtitle':
+    'Modifiez ce compte. Laissez le champ de clé vide pour conserver la clé enregistrée.',
+  'editAccount.busyLabel': 'Enregistrement du compte…',
+  'editAccount.submitting': 'Enregistrement…',
+  'editAccount.submit': 'Enregistrer',
+  'editAccount.errorSave':
+    'Le compte n’a pas été enregistré. Réessayez.',
+  'editAccount.apiKeyLabel':
+    'Clé API (laisser vide pour conserver la clé enregistrée)',
+  'editAccount.apiKeyHint':
+    'Laissez ce champ vide pour conserver la clé enregistrée.',
+
+  'removeAccount.title': 'Supprimer le compte',
+  'removeAccount.text':
+    'Supprimer « {name} » ? Sa clé et son utilisation enregistrée sont supprimées. Les préréglages et les valeurs par défaut de projet qui l’utilisent sont effacés.',
+  'removeAccount.confirm': 'Supprimer le compte',
+  'removeAccount.removing': 'Suppression…',
+  'removeAccount.error':
+    'Le compte n’a pas été supprimé. Réessayez.',
 
   'addProject.title': 'Ajouter un projet',
   'addProject.subtitle': 'Donnez un nom et un dossier au projet.',

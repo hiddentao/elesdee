@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, listProviders } from '../api/client';
 import type { Account, ProviderInfo } from '../api/types';
-import { AddAccountDialog } from './AddAccountDialog';
+import { AccountDialog } from './AccountDialog';
 
 vi.mock('../api/client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../api/client')>();
@@ -16,6 +16,14 @@ const providers: ProviderInfo[] = [
     label: 'Anthropic',
     client: 'Claude Code',
     auth: ['subscription', 'key'],
+    defaultModel: null,
+    custom: false,
+  },
+  {
+    id: 'deepseek',
+    label: 'DeepSeek',
+    client: 'Claude Code',
+    auth: ['key'],
     defaultModel: null,
     custom: false,
   },
@@ -52,17 +60,42 @@ const account: Account = {
   apiStyle: null,
 };
 
-function renderDialog(onCreate = vi.fn().mockResolvedValue(account)) {
-  const onCreated = vi.fn();
+const deepseek: Account = {
+  id: 'deepseek-work',
+  name: 'DeepSeek work',
+  plan: 'pay as you go',
+  client: 'Claude Code',
+  provider: 'deepseek',
+  auth: 'key',
+  sample: false,
+  rows: [],
+  foot: 'No official usage source.',
+  server: null,
+  model: 'deepseek-chat',
+  apiStyle: null,
+};
+
+function renderAdd(onSubmit = vi.fn().mockResolvedValue(account)) {
+  const onSaved = vi.fn();
   const onClose = vi.fn();
   render(
-    <AddAccountDialog
-      onCreate={onCreate}
-      onCreated={onCreated}
+    <AccountDialog onSubmit={onSubmit} onSaved={onSaved} onClose={onClose} />,
+  );
+  return { onSubmit, onSaved, onClose };
+}
+
+function renderEdit(onSubmit = vi.fn().mockResolvedValue(deepseek)) {
+  const onSaved = vi.fn();
+  const onClose = vi.fn();
+  render(
+    <AccountDialog
+      account={deepseek}
+      onSubmit={onSubmit}
+      onSaved={onSaved}
       onClose={onClose}
     />,
   );
-  return { onCreate, onCreated, onClose };
+  return { onSubmit, onSaved, onClose };
 }
 
 async function chooseGoogle(user: ReturnType<typeof userEvent.setup>) {
@@ -70,14 +103,14 @@ async function chooseGoogle(user: ReturnType<typeof userEvent.setup>) {
   await user.selectOptions(screen.getByLabelText('Provider'), 'google');
 }
 
-describe('AddAccountDialog', () => {
+describe('AccountDialog', () => {
   beforeEach(() => {
     vi.mocked(listProviders).mockResolvedValue(providers);
   });
 
-  it('validates the account name and API key', async () => {
+  it('validates the account name and API key when adding', async () => {
     const user = userEvent.setup();
-    const { onCreate } = renderDialog();
+    const { onSubmit } = renderAdd();
     await chooseGoogle(user);
 
     await user.click(screen.getByRole('button', { name: 'Add account' }));
@@ -85,7 +118,7 @@ describe('AddAccountDialog', () => {
     expect(screen.getByText('Enter an account name.')).toBeInTheDocument();
     expect(screen.getByText('Enter an API key.')).toBeInTheDocument();
     expect(screen.getByLabelText('Account name')).toHaveFocus();
-    expect(onCreate).not.toHaveBeenCalled();
+    expect(onSubmit).not.toHaveBeenCalled();
   });
 
   it('sends the Google account body without exposing the key', async () => {
@@ -93,22 +126,27 @@ describe('AddAccountDialog', () => {
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
     const error = vi.spyOn(console, 'error').mockImplementation(() => {});
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const { onCreate, onCreated } = renderDialog();
+    const { onSubmit, onSaved } = renderAdd();
     await chooseGoogle(user);
 
-    expect(screen.getByLabelText('API key', { selector: '#add-account-key' })).toHaveAttribute('type', 'password');
+    expect(
+      screen.getByLabelText('API key', { selector: '#account-key' }),
+    ).toHaveAttribute('type', 'password');
     expect(screen.getByLabelText('Model (optional)')).toHaveAttribute(
       'placeholder',
       'gemini-3.8-flash-medium',
     );
 
     await user.type(screen.getByLabelText('Account name'), 'Google work');
-    await user.type(screen.getByLabelText('API key', { selector: '#add-account-key' }), 'secret-key');
+    await user.type(
+      screen.getByLabelText('API key', { selector: '#account-key' }),
+      'secret-key',
+    );
     await user.click(screen.getByRole('button', { name: 'Add account' }));
 
-    await waitFor(() => expect(onCreated).toHaveBeenCalledWith(account));
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(account));
 
-    expect(onCreate).toHaveBeenCalledWith({
+    expect(onSubmit).toHaveBeenCalledWith({
       name: 'Google work',
       providerId: 'google',
       auth: 'key',
@@ -122,33 +160,20 @@ describe('AddAccountDialog', () => {
     expect(logged).not.toContain('secret-key');
   });
 
-  it('omits the model when the field is empty', async () => {
-    const user = userEvent.setup();
-    const { onCreate } = renderDialog();
-    await chooseGoogle(user);
-
-    await user.type(screen.getByLabelText('Account name'), 'Google work');
-    await user.type(screen.getByLabelText('API key', { selector: '#add-account-key' }), 'secret-key');
-    await user.click(screen.getByRole('button', { name: 'Add account' }));
-
-    await waitFor(() => expect(onCreate).toHaveBeenCalledTimes(1));
-    expect(onCreate.mock.calls[0][0]).not.toHaveProperty('model');
-  });
-
   it('sends a custom provider with its API style and server', async () => {
     const user = userEvent.setup();
-    const { onCreate } = renderDialog();
+    const { onSubmit } = renderAdd();
     await screen.findByRole('option', { name: 'Custom provider' });
-    await user.selectOptions(
-      screen.getByLabelText('Provider'),
-      'custom',
-    );
+    await user.selectOptions(screen.getByLabelText('Provider'), 'custom');
 
     await user.click(
       screen.getByRole('radio', { name: 'OpenAI-compatible' }),
     );
     await user.type(screen.getByLabelText('Account name'), 'Gateway');
-    await user.type(screen.getByLabelText('API key', { selector: '#add-account-key' }), 'gateway-key');
+    await user.type(
+      screen.getByLabelText('API key', { selector: '#account-key' }),
+      'gateway-key',
+    );
     await user.type(
       screen.getByLabelText('Server URL'),
       'https://gateway.example/v1',
@@ -156,8 +181,8 @@ describe('AddAccountDialog', () => {
     await user.type(screen.getByLabelText('Model (optional)'), 'gpt-test');
     await user.click(screen.getByRole('button', { name: 'Add account' }));
 
-    await waitFor(() => expect(onCreate).toHaveBeenCalledTimes(1));
-    expect(onCreate).toHaveBeenCalledWith({
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(onSubmit).toHaveBeenCalledWith({
       name: 'Gateway',
       providerId: 'custom',
       auth: 'key',
@@ -169,18 +194,71 @@ describe('AddAccountDialog', () => {
     });
   });
 
+  it('fills the edit form and keeps the saved key when the field is blank', async () => {
+    const user = userEvent.setup();
+    const { onSubmit, onSaved } = renderEdit();
+
+    expect(
+      screen.getByRole('dialog', { name: 'Edit account' }),
+    ).toBeInTheDocument();
+    await screen.findByRole('option', { name: 'DeepSeek' });
+    expect(screen.getByLabelText('Account name')).toHaveValue('DeepSeek work');
+    expect(screen.getByLabelText('Model (optional)')).toHaveValue(
+      'deepseek-chat',
+    );
+    expect(
+      screen.getByLabelText('API key (leave blank to keep the saved key)'),
+    ).toHaveValue('');
+
+    await user.clear(screen.getByLabelText('Account name'));
+    await user.type(screen.getByLabelText('Account name'), 'DeepSeek edited');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(deepseek));
+    expect(onSubmit).toHaveBeenCalledWith({
+      name: 'DeepSeek edited',
+      providerId: 'deepseek',
+      auth: 'key',
+      model: 'deepseek-chat',
+    });
+    expect(onSubmit.mock.calls[0][0]).not.toHaveProperty('key');
+  });
+
+  it('sends a replacement key when the edit field is filled', async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderEdit();
+
+    await user.type(
+      screen.getByLabelText('API key (leave blank to keep the saved key)'),
+      'sk-new-key',
+    );
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(onSubmit).toHaveBeenCalledWith({
+      name: 'DeepSeek work',
+      providerId: 'deepseek',
+      auth: 'key',
+      key: 'sk-new-key',
+      model: 'deepseek-chat',
+    });
+  });
+
   it.each([400, 409, 422, 500])(
     'shows the server error inline for status %i',
     async (status) => {
       const user = userEvent.setup();
-      const onCreate = vi
+      const onSubmit = vi
         .fn()
         .mockRejectedValue(new ApiError(status, `Server says ${status}.`));
-      renderDialog(onCreate);
+      renderAdd(onSubmit);
       await chooseGoogle(user);
 
       await user.type(screen.getByLabelText('Account name'), 'Google work');
-      await user.type(screen.getByLabelText('API key', { selector: '#add-account-key' }), 'secret-key');
+      await user.type(
+        screen.getByLabelText('API key', { selector: '#account-key' }),
+        'secret-key',
+      );
       await user.click(screen.getByRole('button', { name: 'Add account' }));
 
       expect(await screen.findByRole('alert')).toHaveTextContent(

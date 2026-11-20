@@ -132,6 +132,8 @@ export const ja = {
   'settings.providersNote':
     'このコンピューターのアカウントと使用量。',
   'settings.addAccount': 'アカウントを追加',
+  'settings.editAccount': 'アカウント {name} を編集',
+  'settings.removeAccount': 'アカウント {name} を削除',
   'settings.noAccounts': 'アカウントはまだありません。',
   'settings.aboutVersion': 'バージョン {version}',
   'settings.languageLabel': '表示言語',
@@ -167,6 +169,27 @@ export const ja = {
     'プロバイダー一覧を読み込めませんでした。',
   'addAccount.errorAdd':
     'アカウントを追加できませんでした。もう一度お試しください。',
+
+  'editAccount.title': 'アカウントを編集',
+  'editAccount.subtitle':
+    'このアカウントを変更します。キーを保存済みのままにするには、キー欄を空にしてください。',
+  'editAccount.busyLabel': 'アカウントを保存中…',
+  'editAccount.submitting': '保存中…',
+  'editAccount.submit': '保存',
+  'editAccount.errorSave':
+    'アカウントを保存できませんでした。もう一度お試しください。',
+  'editAccount.apiKeyLabel':
+    'API キー（空のままにすると保存済みのキーを使います）',
+  'editAccount.apiKeyHint':
+    '保存済みのキーを使うには、この欄を空にしてください。',
+
+  'removeAccount.title': 'アカウントを削除',
+  'removeAccount.text':
+    '「{name}」を削除しますか？キーと保存済みの使用量が削除されます。このアカウントを使うプリセットとプロジェクトの既定値は消去されます。',
+  'removeAccount.confirm': 'アカウントを削除',
+  'removeAccount.removing': '削除中…',
+  'removeAccount.error':
+    'アカウントを削除できませんでした。もう一度お試しください。',
 
   'addProject.title': 'プロジェクトを追加',
   'addProject.subtitle': 'プロジェクトに名前とフォルダーを付けます。',

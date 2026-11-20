@@ -295,6 +295,20 @@ struct CreateAccountRequest {
     api_style: Option<String>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdateAccountRequest {
+    name: String,
+    provider_id: String,
+    client: Option<Client>,
+    auth: Auth,
+    /// Absent or blank keeps the key that is already stored.
+    key: Option<String>,
+    server: Option<String>,
+    model: Option<String>,
+    api_style: Option<String>,
+}
+
 #[derive(Debug, Deserialize)]
 struct ListQuery {
     q: Option<String>,
@@ -456,6 +470,10 @@ pub fn router(state: AppState) -> Router {
         .route("/api/git-status", get(git_status))
         .route("/api/providers", get(list_providers))
         .route("/api/accounts", get(list_accounts).post(create_account))
+        .route(
+            "/api/accounts/{id}",
+            patch(update_account).delete(remove_account),
+        )
         .route("/api/accounts/{id}/usage", post(update_account_usage))
         .route(
             "/api/accounts/{id}/usage/refresh",
@@ -1226,24 +1244,38 @@ async fn update_project(
     Ok(Json(updated))
 }
 
-async fn create_account(
-    State(state): State<AppState>,
-    body: Result<Json<CreateAccountRequest>, JsonRejection>,
-) -> Result<Json<Account>, ApiError> {
-    let Json(request) = body.map_err(invalid_json)?;
-    let name = request.name.trim();
+/// The account metadata that the add and edit routes check and store.
+struct AccountFields {
+    name: String,
+    provider_id: String,
+    client: Client,
+    auth: Auth,
+    server: Option<String>,
+    model: Option<String>,
+    api_style: Option<String>,
+    plan: &'static str,
+}
+
+fn validated_account_fields(
+    name: &str,
+    provider_id: &str,
+    client: Option<Client>,
+    auth: Auth,
+    server: Option<&str>,
+    model: Option<&str>,
+    api_style: Option<&str>,
+) -> Result<AccountFields, ApiError> {
+    let name = name.trim();
     if name.is_empty() || name.chars().count() > 80 {
         return Err(ApiError::bad_request(
             "Account name must be between 1 and 80 characters.",
         ));
     }
 
-    let provider_id = request.provider_id.trim().to_ascii_lowercase();
+    let provider_id = provider_id.trim().to_ascii_lowercase();
     let provider = crate::providers::find(&provider_id)
         .ok_or_else(|| ApiError::unprocessable("This provider is not supported."))?;
-    let api_style = request
-        .api_style
-        .as_deref()
+    let api_style = api_style
         .map(str::trim)
         .map(str::to_lowercase)
         .filter(|style| !style.is_empty());
@@ -1253,7 +1285,7 @@ async fn create_account(
             .as_deref()
             .ok_or_else(|| ApiError::bad_request("Choose an API style."))?;
         let allowed = crate::providers::clients_for_style(style);
-        let client = request.client.unwrap_or(provider.client);
+        let client = client.unwrap_or(provider.client);
         if !allowed.contains(&client) {
             return Err(ApiError::unprocessable(
                 "This client does not support that API style.",
@@ -1261,7 +1293,7 @@ async fn create_account(
         }
         client
     } else {
-        if let Some(client) = request.client
+        if let Some(client) = client
             && client != provider.client
         {
             return Err(ApiError::unprocessable(
@@ -1271,27 +1303,15 @@ async fn create_account(
         provider.client
     };
 
-    if !provider.auth.contains(&request.auth) {
+    if !provider.auth.contains(&auth) {
         return Err(ApiError::unprocessable(
             "This account does not support that authentication method.",
         ));
     }
 
-    let key = request
-        .key
-        .as_deref()
-        .map(str::trim)
-        .filter(|key| !key.is_empty());
-    if request.auth == Auth::Key && key.is_none() {
-        return Err(ApiError::bad_request("API key is required."));
-    }
-
-    let needs_server = provider.custom
-        || request.auth == Auth::Local
-        || matches!(provider.id, "ollama" | "lmstudio");
-    let server = request
-        .server
-        .as_deref()
+    let needs_server =
+        provider.custom || auth == Auth::Local || matches!(provider.id, "ollama" | "lmstudio");
+    let server = server
         .map(str::trim)
         .filter(|server| !server.is_empty())
         .map(str::to_owned);
@@ -1304,9 +1324,7 @@ async fn create_account(
         }
     }
 
-    let model = request
-        .model
-        .as_deref()
+    let model = model
         .map(str::trim)
         .filter(|model| !model.is_empty())
         .map(str::to_owned)
@@ -1318,18 +1336,59 @@ async fn create_account(
         return Err(ApiError::bad_request("Model name is too long."));
     }
 
-    let plan = match request.auth {
+    let plan = match auth {
         Auth::Subscription => "subscription",
         Auth::Local => "local",
         Auth::Key => "pay as you go",
     };
+
+    Ok(AccountFields {
+        name: name.to_owned(),
+        provider_id,
+        client,
+        auth,
+        server: if provider.custom || auth == Auth::Local {
+            server
+        } else {
+            None
+        },
+        model,
+        api_style: if provider.custom { api_style } else { None },
+        plan,
+    })
+}
+
+async fn create_account(
+    State(state): State<AppState>,
+    body: Result<Json<CreateAccountRequest>, JsonRejection>,
+) -> Result<Json<Account>, ApiError> {
+    let Json(request) = body.map_err(invalid_json)?;
+    let fields = validated_account_fields(
+        &request.name,
+        &request.provider_id,
+        request.client,
+        request.auth,
+        request.server.as_deref(),
+        request.model.as_deref(),
+        request.api_style.as_deref(),
+    )?;
+
+    let key = request
+        .key
+        .as_deref()
+        .map(str::trim)
+        .filter(|key| !key.is_empty());
+    if fields.auth == Auth::Key && key.is_none() {
+        return Err(ApiError::bad_request("API key is required."));
+    }
+
     let account = state.add_account(Account {
         id: String::new(),
-        name: name.to_owned(),
-        plan: plan.to_owned(),
-        client,
-        provider: provider_id,
-        auth: request.auth,
+        name: fields.name,
+        plan: fields.plan.to_owned(),
+        client: fields.client,
+        provider: fields.provider_id,
+        auth: fields.auth,
         sample: false,
         rows: Vec::new(),
         foot: "No official usage source.".to_owned(),
@@ -1337,13 +1396,9 @@ async fn create_account(
         usage_checked_at: None,
         usage_status: None,
         usage_source: None,
-        server: if provider.custom || request.auth == Auth::Local {
-            server
-        } else {
-            None
-        },
-        model,
-        api_style: if provider.custom { api_style } else { None },
+        server: fields.server,
+        model: fields.model,
+        api_style: fields.api_style,
     });
     if let Some(key) = key
         && let Err(error) = store_account_key(&state, &account.id, key).await
@@ -1354,6 +1409,142 @@ async fn create_account(
     }
     state.save();
     Ok(Json(account))
+}
+
+async fn update_account(
+    State(state): State<AppState>,
+    UrlPath(id): UrlPath<String>,
+    body: Result<Json<UpdateAccountRequest>, JsonRejection>,
+) -> Result<Json<Account>, ApiError> {
+    let Json(request) = body.map_err(invalid_json)?;
+    let existing = state
+        .account(&id)
+        .ok_or_else(|| ApiError::not_found("Unknown account."))?;
+
+    let fields = validated_account_fields(
+        &request.name,
+        &request.provider_id,
+        request.client,
+        request.auth,
+        request.server.as_deref(),
+        request.model.as_deref(),
+        request.api_style.as_deref(),
+    )?;
+
+    let replacement_key = request
+        .key
+        .as_deref()
+        .map(str::trim)
+        .filter(|key| !key.is_empty());
+    if fields.auth == Auth::Key
+        && replacement_key.is_none()
+        && !account_key_available(&state, &id).await?
+    {
+        return Err(ApiError::bad_request("API key is required."));
+    }
+
+    if let Some(key) = replacement_key
+        && let Err(error) = store_account_key(&state, &id, key).await
+    {
+        tracing::error!(account = %id, %error, "could not store account key");
+        return Err(ApiError::internal("Could not store the account key."));
+    }
+
+    // Usage belongs to the provider endpoint and its credential. Keep it for
+    // cosmetic edits, and clear it when the account points somewhere else.
+    let identity_changed = existing.provider != fields.provider_id
+        || existing.server != fields.server
+        || existing.api_style != fields.api_style;
+    let (rows, foot, usage_read_at, usage_checked_at, usage_status, usage_source) =
+        if identity_changed {
+            (
+                Vec::new(),
+                "No official usage source.".to_owned(),
+                None,
+                None,
+                None,
+                None,
+            )
+        } else {
+            (
+                existing.rows,
+                existing.foot,
+                existing.usage_read_at,
+                existing.usage_checked_at,
+                existing.usage_status,
+                existing.usage_source,
+            )
+        };
+
+    let updated = state
+        .replace_account(Account {
+            id: id.clone(),
+            name: fields.name,
+            plan: fields.plan.to_owned(),
+            client: fields.client,
+            provider: fields.provider_id,
+            auth: fields.auth,
+            // An edited sample becomes a real account.
+            sample: false,
+            rows,
+            foot,
+            usage_read_at,
+            usage_checked_at,
+            usage_status,
+            usage_source,
+            server: fields.server,
+            model: fields.model,
+            api_style: fields.api_style,
+        })
+        .ok_or_else(|| ApiError::not_found("Unknown account."))?;
+    state.save();
+    state.publish_account(updated.clone());
+    Ok(Json(updated))
+}
+
+async fn remove_account(
+    State(state): State<AppState>,
+    UrlPath(id): UrlPath<String>,
+) -> Result<Json<crate::state::RemovedAccount>, ApiError> {
+    let account = state
+        .account(&id)
+        .ok_or_else(|| ApiError::not_found("Unknown account."))?;
+
+    let blockers = state
+        .sessions()
+        .into_iter()
+        .map(|entry| entry.session())
+        .filter(|session| {
+            session.status == crate::state::SessionState::Active
+                && session.account_id.as_deref() == Some(account.id.as_str())
+        })
+        .map(|session| session.name)
+        .collect::<Vec<_>>();
+    if !blockers.is_empty() {
+        let message = if blockers.len() == 1 {
+            format!(
+                "{} is using this account. Switch or close it first.",
+                blockers[0]
+            )
+        } else {
+            format!(
+                "{} active sessions use this account. Switch or close them first.",
+                blockers.len()
+            )
+        };
+        return Err(ApiError::conflict(message));
+    }
+
+    if let Err(error) = delete_account_key(&state, &id).await {
+        tracing::error!(account = %id, %error, "could not delete account key");
+        return Err(ApiError::internal("Could not delete the account key."));
+    }
+
+    let removed = state
+        .remove_account_with_references(&id)
+        .ok_or_else(|| ApiError::not_found("Unknown account."))?;
+    state.save();
+    Ok(Json(removed))
 }
 
 fn safe_server_url(value: &str) -> bool {
@@ -1390,6 +1581,34 @@ pub(crate) async fn account_key(state: &AppState, account_id: &str) -> Result<St
             tracing::error!(account = %account_id, %error, "could not read account key");
             Err(ApiError::internal("Could not read the account key."))
         }
+    }
+}
+
+async fn account_key_available(state: &AppState, account_id: &str) -> Result<bool, ApiError> {
+    let store = state.secret_store();
+    let id = account_id.to_owned();
+    let result = tokio::task::spawn_blocking(move || store.get_key(&id)).await;
+    match result {
+        Ok(Ok(Some(key))) => Ok(!key.is_empty()),
+        Ok(Ok(None)) => Ok(false),
+        Ok(Err(error)) => {
+            tracing::error!(account = %account_id, %error, "could not read account key");
+            Err(ApiError::internal("Could not read the account key."))
+        }
+        Err(error) => {
+            tracing::error!(account = %account_id, %error, "could not read account key");
+            Err(ApiError::internal("Could not read the account key."))
+        }
+    }
+}
+
+async fn delete_account_key(state: &AppState, account_id: &str) -> Result<(), String> {
+    let store = state.secret_store();
+    let account_id = account_id.to_owned();
+    match tokio::task::spawn_blocking(move || store.delete_key(&account_id)).await {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(error)) => Err(error.to_string()),
+        Err(error) => Err(error.to_string()),
     }
 }
 

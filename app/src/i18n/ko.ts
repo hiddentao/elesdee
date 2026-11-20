@@ -131,6 +131,8 @@ export const ko = {
   'settings.providersNote':
     '이 컴퓨터의 계정과 사용량.',
   'settings.addAccount': '계정 추가',
+  'settings.editAccount': '계정 {name} 편집',
+  'settings.removeAccount': '계정 {name} 제거',
   'settings.noAccounts': '아직 계정이 없습니다.',
   'settings.aboutVersion': '버전 {version}',
   'settings.languageLabel': '인터페이스 언어',
@@ -166,6 +168,27 @@ export const ko = {
     '제공자 목록을 불러오지 못했습니다.',
   'addAccount.errorAdd':
     '계정을 추가하지 못했습니다. 다시 시도하세요.',
+
+  'editAccount.title': '계정 편집',
+  'editAccount.subtitle':
+    '이 계정을 변경합니다. 저장된 키를 유지하려면 키 필드를 비워 두세요.',
+  'editAccount.busyLabel': '계정 저장 중…',
+  'editAccount.submitting': '저장 중…',
+  'editAccount.submit': '저장',
+  'editAccount.errorSave':
+    '계정을 저장하지 못했습니다. 다시 시도하세요.',
+  'editAccount.apiKeyLabel':
+    'API 키(저장된 키를 유지하려면 비워 두세요)',
+  'editAccount.apiKeyHint':
+    '저장된 키를 유지하려면 이 필드를 비워 두세요.',
+
+  'removeAccount.title': '계정 제거',
+  'removeAccount.text':
+    '“{name}” 계정을 제거할까요? 키와 저장된 사용량이 삭제됩니다. 이 계정을 사용하는 프리셋과 프로젝트 기본값이 지워집니다.',
+  'removeAccount.confirm': '계정 제거',
+  'removeAccount.removing': '제거 중…',
+  'removeAccount.error':
+    '계정을 제거하지 못했습니다. 다시 시도하세요.',
 
   'addProject.title': '프로젝트 추가',
   'addProject.subtitle': '프로젝트에 이름과 폴더를 지정하세요.',

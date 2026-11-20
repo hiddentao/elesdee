@@ -133,6 +133,8 @@ export const ptBR = {
   'settings.providersNote':
     'Contas neste computador e o uso delas.',
   'settings.addAccount': 'Adicionar conta',
+  'settings.editAccount': 'Editar conta {name}',
+  'settings.removeAccount': 'Remover conta {name}',
   'settings.noAccounts': 'Nenhuma conta ainda.',
   'settings.aboutVersion': 'Versão {version}',
   'settings.languageLabel': 'Idioma da interface',
@@ -168,6 +170,27 @@ export const ptBR = {
     'Não foi possível carregar a lista de provedores.',
   'addAccount.errorAdd':
     'A conta não foi adicionada. Tente novamente.',
+
+  'editAccount.title': 'Editar conta',
+  'editAccount.subtitle':
+    'Altere esta conta. Deixe o campo da chave em branco para manter a chave salva.',
+  'editAccount.busyLabel': 'Salvando a conta…',
+  'editAccount.submitting': 'Salvando…',
+  'editAccount.submit': 'Salvar',
+  'editAccount.errorSave':
+    'A conta não foi salva. Tente novamente.',
+  'editAccount.apiKeyLabel':
+    'Chave de API (deixe em branco para manter a chave salva)',
+  'editAccount.apiKeyHint':
+    'Deixe este campo em branco para manter a chave salva.',
+
+  'removeAccount.title': 'Remover conta',
+  'removeAccount.text':
+    'Remover “{name}”? A chave e o uso salvo são excluídos. Predefinições e padrões de projeto que usam a conta são limpos.',
+  'removeAccount.confirm': 'Remover conta',
+  'removeAccount.removing': 'Removendo…',
+  'removeAccount.error':
+    'A conta não foi removida. Tente novamente.',
 
   'addProject.title': 'Adicionar projeto',
   'addProject.subtitle': 'Dê ao projeto um nome e uma pasta.',

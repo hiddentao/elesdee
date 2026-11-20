@@ -970,7 +970,7 @@ describe('settings', () => {
     await user.selectOptions(within(add).getByLabelText('Provider'), 'google');
     await user.type(within(add).getByLabelText('Account name'), 'Google work');
     await user.type(
-      within(add).getByLabelText('API key', { selector: '#add-account-key' }),
+      within(add).getByLabelText('API key', { selector: '#account-key' }),
       key,
     );
     await user.click(within(add).getByRole('button', { name: 'Add account' }));

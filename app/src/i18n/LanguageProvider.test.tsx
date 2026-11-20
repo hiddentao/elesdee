@@ -141,6 +141,8 @@ describe('LanguageProvider', () => {
           version="0.1.0"
           onCreateAccount={vi.fn()}
           onAccountCreated={vi.fn()}
+          onUpdateAccount={vi.fn()}
+          onRemoveAccount={vi.fn()}
           onClose={vi.fn()}
         />
       </LanguageProvider>,

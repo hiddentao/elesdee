@@ -18,6 +18,7 @@ import type {
   Project,
   ProviderInfo,
   Question,
+  RemoveAccountResult,
   Session,
   SessionChanges,
   SessionRequest,
@@ -213,6 +214,24 @@ export function createSession(input: CreateSessionInput): Promise<Session> {
 
 export function createAccount(input: CreateAccountInput): Promise<Account> {
   return request<Account>('/api/accounts', post(input));
+}
+
+export function updateAccount(
+  id: string,
+  input: CreateAccountInput,
+): Promise<Account> {
+  return request<Account>(`/api/accounts/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+}
+
+export function removeAccount(id: string): Promise<RemoveAccountResult> {
+  return request<RemoveAccountResult>(
+    `/api/accounts/${encodeURIComponent(id)}`,
+    { method: 'DELETE' },
+  );
 }
 
 export function closeSession(id: string): Promise<Session> {

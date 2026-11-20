@@ -132,6 +132,8 @@ export const es = {
   'settings.providersNote':
     'Cuentas de este ordenador y su uso.',
   'settings.addAccount': 'Añadir cuenta',
+  'settings.editAccount': 'Editar cuenta {name}',
+  'settings.removeAccount': 'Eliminar cuenta {name}',
   'settings.noAccounts': 'Aún no hay cuentas.',
   'settings.aboutVersion': 'Versión {version}',
   'settings.languageLabel': 'Idioma de la interfaz',
@@ -168,6 +170,27 @@ export const es = {
     'No se pudo cargar la lista de proveedores.',
   'addAccount.errorAdd':
     'La cuenta no se ha añadido. Inténtalo de nuevo.',
+
+  'editAccount.title': 'Editar cuenta',
+  'editAccount.subtitle':
+    'Cambia esta cuenta. Deja la clave en blanco para conservar la clave guardada.',
+  'editAccount.busyLabel': 'Guardando la cuenta…',
+  'editAccount.submitting': 'Guardando…',
+  'editAccount.submit': 'Guardar',
+  'editAccount.errorSave':
+    'No se guardó la cuenta. Inténtalo de nuevo.',
+  'editAccount.apiKeyLabel':
+    'Clave de API (déjala en blanco para conservar la clave guardada)',
+  'editAccount.apiKeyHint':
+    'Deja este campo en blanco para conservar la clave guardada.',
+
+  'removeAccount.title': 'Eliminar cuenta',
+  'removeAccount.text':
+    '¿Eliminar «{name}»? Se borran su clave y su uso guardado. Se limpian los preajustes y los valores predeterminados de proyecto que la usan.',
+  'removeAccount.confirm': 'Eliminar cuenta',
+  'removeAccount.removing': 'Eliminando…',
+  'removeAccount.error':
+    'No se eliminó la cuenta. Inténtalo de nuevo.',
 
   'addProject.title': 'Añadir proyecto',
   'addProject.subtitle': 'Dale al proyecto un nombre y una carpeta.',

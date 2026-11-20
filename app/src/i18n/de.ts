@@ -132,6 +132,8 @@ export const de = {
   'settings.providersNote':
     'Konten auf diesem Computer und ihre Nutzung.',
   'settings.addAccount': 'Konto hinzufügen',
+  'settings.editAccount': 'Konto {name} bearbeiten',
+  'settings.removeAccount': 'Konto {name} entfernen',
   'settings.noAccounts': 'Noch keine Konten.',
   'settings.aboutVersion': 'Version {version}',
   'settings.languageLabel': 'Oberflächensprache',
@@ -167,6 +169,27 @@ export const de = {
     'Die Anbieterliste konnte nicht geladen werden.',
   'addAccount.errorAdd':
     'Das Konto wurde nicht hinzugefügt. Versuche es erneut.',
+
+  'editAccount.title': 'Konto bearbeiten',
+  'editAccount.subtitle':
+    'Ändern Sie dieses Konto. Lassen Sie das Schlüsselfeld leer, um den gespeicherten Schlüssel zu behalten.',
+  'editAccount.busyLabel': 'Konto wird gespeichert…',
+  'editAccount.submitting': 'Speichern…',
+  'editAccount.submit': 'Speichern',
+  'editAccount.errorSave':
+    'Das Konto wurde nicht gespeichert. Versuche es erneut.',
+  'editAccount.apiKeyLabel':
+    'API-Schlüssel (leer lassen, um den gespeicherten Schlüssel zu behalten)',
+  'editAccount.apiKeyHint':
+    'Lassen Sie dieses Feld leer, um den gespeicherten Schlüssel zu behalten.',
+
+  'removeAccount.title': 'Konto entfernen',
+  'removeAccount.text':
+    '„{name}“ entfernen? Der Schlüssel und die gespeicherte Nutzung werden gelöscht. Voreinstellungen und Projektstandards, die es verwenden, werden zurückgesetzt.',
+  'removeAccount.confirm': 'Konto entfernen',
+  'removeAccount.removing': 'Wird entfernt…',
+  'removeAccount.error':
+    'Das Konto wurde nicht entfernt. Versuche es erneut.',
 
   'addProject.title': 'Projekt hinzufügen',
   'addProject.subtitle': 'Gib dem Projekt einen Namen und einen Ordner.',

@@ -324,6 +324,11 @@ export interface CreateAccountInput {
   apiStyle?: 'openai' | 'anthropic';
 }
 
+export interface RemoveAccountResult {
+  clearedProjectDefaults: string[];
+  removedPresets: number;
+}
+
 export interface ApiErrorPayload {
   error: string;
 }

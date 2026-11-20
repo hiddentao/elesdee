@@ -74,6 +74,15 @@ The service binds `127.0.0.1` only. It accepts requests only for loopback hostna
 - DeepSeek balances are read in the background at most once a minute per account and only for non-sample accounts with a key. `POST /api/accounts/{id}/usage/refresh` reads at once, but two concurrent reads for the same account share one request, and a forced refresh within two seconds of the last attempt reuses the stored values.
 - The manual route `POST /api/accounts/{id}/usage` remains for a caller that supplies rows itself. It sets `usageSource: "manual"` and a fresh status.
 
+## Edit and remove accounts
+
+- `PATCH /api/accounts/{id}` changes an account. The body uses the same fields and validation as `POST /api/accounts`: `{ name, providerId, client?, auth, key?, server?, model?, apiStyle? }`. The name is required and 1–80 characters. The provider, client, auth method, API style, server URL and model are checked against the same provider table, with the same status codes.
+- `key` is absent or blank to keep the saved key. A supplied key replaces the saved key in the system keychain. The key is never returned, logged or written to `state.json`. A key-mode account needs a stored key or a new one; otherwise the route returns 400. A subscription or local account needs no key.
+- The account id does not change. An edited sample account becomes a normal account with `sample: false`, and the mark stays gone after a restart. Usage rows stay when only the name, model, auth method or key change. They are cleared when the provider, server address or API style changes, because the rows belong to another endpoint.
+- `DELETE /api/accounts/{id}` removes an account. It deletes the keychain entry, the account and its saved usage, deletes stored presets that point at it, and clears project default accounts that point at it. It returns `{ clearedProjectDefaults: string[], removedPresets: number }`.
+- Removal refuses with 409 while an active session uses the account, and the message names the session. Closed sessions do not block removal; they keep the account id and cannot reopen on the removed account. An unknown account returns 404.
+- Both routes save the state file. The edit route sends an `account.updated` event.
+
 ## Pairing and devices
 
 The core starts one iroh endpoint for the phone link. The local routes below control pairing and the paired device list. They are local only. They are not reachable through the link, and they keep the Host and Origin rules.
@@ -171,7 +180,7 @@ interface PairedDevice {
 - The desktop link identity is a separate 32-byte key in `<data dir>/link.key`, with mode 0600, written once and reused. It is never in `state.json` and never logged. A missing key creates a new identity; every paired phone must pair again.
 - The paired device list is written on pair, removal and graceful shutdown. `lastSeen` updates in memory at most once a minute.
 - Shared files live in `<data dir>/shared/<session id>/`, directories 0700 and files 0600. Each copy has a metadata record beside it with the original relative path, name, caption, size and content type. The stored copy stays after the session closes. Account keys are compared with the content and are never copied.
-- State is saved on project create, account create, session create, rename, close, reopen, delete, resize, graceful shutdown, and when an agent reports its conversation ID. It is not written for each output chunk.
+- State is saved on project create, account create, account edit, account removal, session create, rename, close, reopen, delete, resize, graceful shutdown, and when an agent reports its conversation ID. It is not written for each output chunk.
 - A session that was active on save is restarted when the state loads. It resumes the agent's conversation by its saved `agentSessionId`; without an ID it uses the client's continue-last behavior and the preview says so. A terminal session restarts its shell in the same folder. The log and sequence numbers are kept, so new output continues from the next sequence.
 - If the session folder, account or client is missing, that session is restored as active and paused with a clear reason. The other sessions still restart. A pending permission request is not written to the file and is not restored.
 - `agentSessionId` comes from the client. Claude Code gets a generated `--session-id` at launch and also reports it in hook input. Codex reports the app-server thread ID. OpenCode reports the session ID on its local server. Antigravity has no ID and uses its continue-last behavior.

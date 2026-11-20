@@ -20,11 +20,13 @@ import {
   deleteSession,
   denySessionRequest,
   health,
+  removeAccount,
   renameSession,
   reopenSession,
   respondPermission,
   resumeSession,
   switchSessionAccount,
+  updateAccount,
   updateProjectDefaults,
   updateSessionAllowedAccounts,
 } from './api/client';
@@ -33,6 +35,7 @@ import { isTauri, openFolder, openTerminal } from './api/shell';
 import type {
   Account,
   AgentCheck,
+  CreateAccountInput,
   PermissionDecision,
   Project,
   Question,
@@ -501,6 +504,21 @@ export default function App() {
         ? current
         : [...current, account],
     );
+  }
+
+  async function handleAccountUpdated(id: string, input: CreateAccountInput) {
+    const account = await updateAccount(id, input);
+    setAccounts((current) =>
+      current.map((item) => (item.id === account.id ? account : item)),
+    );
+    return account;
+  }
+
+  async function handleAccountRemoved(id: string) {
+    const result = await removeAccount(id);
+    // Removal can clear project defaults and delete presets.
+    await refresh();
+    return result;
   }
 
   function handleProjectCreated(project: Project) {
@@ -1102,6 +1120,8 @@ export default function App() {
           version={version}
           onCreateAccount={createAccount}
           onAccountCreated={handleAccountCreated}
+          onUpdateAccount={handleAccountUpdated}
+          onRemoveAccount={handleAccountRemoved}
           onClose={() => setSettingsOpen(false)}
         />
       ) : null}
