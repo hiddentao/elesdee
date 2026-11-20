@@ -1,4 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from 'react';
 import {
   listFiles,
   listSharedFiles,
@@ -33,6 +38,8 @@ import {
 } from './icons';
 
 export type DockTab = 'files' | 'changes' | 'browser';
+
+const DOCK_TABS: DockTab[] = ['files', 'changes', 'browser'];
 
 interface SessionSidePanelProps {
   session: Session;
@@ -111,7 +118,25 @@ export function SessionSidePanel({
   const [stoppingServer, setStoppingServer] = useState<string | null>(null);
   const [demoError, setDemoError] = useState<string | null>(null);
 
+  const [activeTreePath, setActiveTreePath] = useState<string | null>(null);
+
   const request = useRef(0);
+  const tabRefs = useRef<Partial<Record<DockTab, HTMLButtonElement | null>>>({});
+  const treeRowRefs = useRef<Record<string, HTMLLIElement | null>>({});
+  const openerRef = useRef<HTMLElement | null>(
+    document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null,
+  );
+
+  useEffect(() => {
+    const opener = openerRef.current;
+    return () => {
+      if (opener?.isConnected) {
+        opener.focus();
+      }
+    };
+  }, []);
 
   async function loadDirectory(path: string) {
     setLoadingDirs((current) => new Set(current).add(path));
@@ -182,6 +207,7 @@ export function SessionSidePanel({
     setTruncated({});
     setExpanded(new Set());
     setSelectedPath(null);
+    setActiveTreePath(null);
     setFile(null);
     setOriginals({});
     setDrafts({});
@@ -336,6 +362,120 @@ export function SessionSidePanel({
     (item) => item.path === selectedChange,
   );
 
+  function visibleTreeRows(): { entry: FileEntry; parent: string | null }[] {
+    const rows: { entry: FileEntry; parent: string | null }[] = [];
+    function walk(path: string) {
+      for (const entry of children[path] ?? []) {
+        rows.push({ entry, parent: path === '' ? null : path });
+        if (entry.directory && expanded.has(entry.path)) {
+          walk(entry.path);
+        }
+      }
+    }
+    walk('');
+    return rows;
+  }
+
+  function focusTreeRow(path: string) {
+    setActiveTreePath(path);
+    treeRowRefs.current[path]?.focus();
+  }
+
+  function handleTreeKeyDown(event: ReactKeyboardEvent<HTMLUListElement>) {
+    const rows = visibleTreeRows();
+    if (rows.length === 0) {
+      return;
+    }
+    const target = event.target as HTMLElement;
+    const currentPath =
+      target.closest<HTMLElement>('[data-tree-path]')?.dataset.treePath ??
+      activeTreePath;
+    const index = rows.findIndex((row) => row.entry.path === currentPath);
+    if (index < 0) {
+      return;
+    }
+    const row = rows[index];
+
+    switch (event.key) {
+      case 'ArrowDown':
+        event.preventDefault();
+        focusTreeRow(rows[Math.min(index + 1, rows.length - 1)].entry.path);
+        return;
+      case 'ArrowUp':
+        event.preventDefault();
+        focusTreeRow(rows[Math.max(index - 1, 0)].entry.path);
+        return;
+      case 'Home':
+        event.preventDefault();
+        focusTreeRow(rows[0].entry.path);
+        return;
+      case 'End':
+        event.preventDefault();
+        focusTreeRow(rows[rows.length - 1].entry.path);
+        return;
+      case 'ArrowRight':
+        event.preventDefault();
+        if (!row.entry.directory) {
+          return;
+        }
+        if (!expanded.has(row.entry.path)) {
+          toggleFolder(row.entry.path);
+          focusTreeRow(row.entry.path);
+          return;
+        }
+        if (rows[index + 1]?.parent === row.entry.path) {
+          focusTreeRow(rows[index + 1].entry.path);
+        }
+        return;
+      case 'ArrowLeft':
+        event.preventDefault();
+        if (row.entry.directory && expanded.has(row.entry.path)) {
+          toggleFolder(row.entry.path);
+          focusTreeRow(row.entry.path);
+        } else if (row.parent) {
+          focusTreeRow(row.parent);
+        }
+        return;
+      case 'Enter':
+      case ' ':
+        event.preventDefault();
+        if (row.entry.directory) {
+          toggleFolder(row.entry.path);
+        } else {
+          void openFile(row.entry);
+        }
+        focusTreeRow(row.entry.path);
+        return;
+      default:
+        return;
+    }
+  }
+
+  function handleTabListKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
+      return;
+    }
+    event.preventDefault();
+    const index = DOCK_TABS.indexOf(tab);
+    const next =
+      event.key === 'Home'
+        ? DOCK_TABS[0]
+        : event.key === 'End'
+          ? DOCK_TABS[DOCK_TABS.length - 1]
+          : DOCK_TABS[
+              (index + (event.key === 'ArrowRight' ? 1 : -1) + DOCK_TABS.length) %
+                DOCK_TABS.length
+            ];
+    onSelectTab(next);
+    tabRefs.current[next]?.focus();
+  }
+
+  const treeRows = visibleTreeRows();
+  const rovingPath =
+    activeTreePath && treeRows.some((row) => row.entry.path === activeTreePath)
+      ? activeTreePath
+      : treeRows[0]?.entry.path ?? null;
+
   function renderEntries(path: string, depth: number) {
     const entries = children[path];
     if (!entries) {
@@ -357,17 +497,32 @@ export function SessionSidePanel({
       const isOpen = entry.directory && expanded.has(entry.path);
       const isDirty = !entry.directory && drafts[entry.path] !== undefined;
       return (
-        <li key={entry.path} role="treeitem" aria-expanded={entry.directory ? isOpen : undefined}>
+        <li
+          key={entry.path}
+          ref={(element) => {
+            treeRowRefs.current[entry.path] = element;
+          }}
+          role="treeitem"
+          data-tree-path={entry.path}
+          aria-expanded={entry.directory ? isOpen : undefined}
+          tabIndex={entry.path === rovingPath ? 0 : -1}
+        >
           <button
             type="button"
+            tabIndex={-1}
             className={`tree-row${entry.directory ? ' is-folder' : ' is-file'}${
               selectedPath === entry.path ? ' is-on' : ''
             }`}
             style={{ paddingLeft: 7 + depth * 14 }}
             aria-current={selectedPath === entry.path ? 'true' : undefined}
-            onClick={() =>
-              entry.directory ? toggleFolder(entry.path) : void openFile(entry)
-            }
+            onClick={() => {
+              focusTreeRow(entry.path);
+              if (entry.directory) {
+                toggleFolder(entry.path);
+              } else {
+                void openFile(entry);
+              }
+            }}
           >
             {entry.directory ? (
               isOpen ? (
@@ -403,6 +558,7 @@ export function SessionSidePanel({
 
   return (
     <aside
+      id="session-side-panel"
       className="dock"
       aria-label={t('panel.label', { name: session.name })}
     >
@@ -410,24 +566,33 @@ export function SessionSidePanel({
         className="dock-head"
         role="tablist"
         aria-label={t('panel.tabsLabel')}
+        onKeyDown={handleTabListKeyDown}
       >
         <button
+          ref={(element) => {
+            tabRefs.current.files = element;
+          }}
           type="button"
           role="tab"
           id="dock-tab-files"
           aria-selected={tab === 'files'}
           aria-controls="dock-panel-files"
+          tabIndex={tab === 'files' ? 0 : -1}
           className={`dock-tab${tab === 'files' ? ' is-on' : ''}`}
           onClick={() => onSelectTab('files')}
         >
           {t('panel.files')}
         </button>
         <button
+          ref={(element) => {
+            tabRefs.current.changes = element;
+          }}
           type="button"
           role="tab"
           id="dock-tab-changes"
           aria-selected={tab === 'changes'}
           aria-controls="dock-panel-changes"
+          tabIndex={tab === 'changes' ? 0 : -1}
           className={`dock-tab${tab === 'changes' ? ' is-on' : ''}`}
           onClick={() => onSelectTab('changes')}
         >
@@ -437,11 +602,15 @@ export function SessionSidePanel({
           ) : null}
         </button>
         <button
+          ref={(element) => {
+            tabRefs.current.browser = element;
+          }}
           type="button"
           role="tab"
           id="dock-tab-browser"
           aria-selected={tab === 'browser'}
           aria-controls="dock-panel-browser"
+          tabIndex={tab === 'browser' ? 0 : -1}
           className={`dock-tab${tab === 'browser' ? ' is-on' : ''}`}
           onClick={() => onSelectTab('browser')}
         >
@@ -627,6 +796,7 @@ export function SessionSidePanel({
             className="file-tree"
             role="tree"
             aria-label={t('panel.filesLabel')}
+            onKeyDown={handleTreeKeyDown}
           >
             {renderEntries('', 0)}
           </ul>
@@ -659,6 +829,7 @@ export function SessionSidePanel({
                 <FileEditor
                   key={`${session.id}:${file.path}`}
                   filename={file.path}
+                  label={t('panel.editorLabel', { path: file.path })}
                   value={file.content}
                   onChange={changeFile}
                   onSave={() => void saveFile()}

@@ -29,7 +29,76 @@ function Harness() {
   );
 }
 
+function TrapHarness({ autoFocusField = false }: { autoFocusField?: boolean }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <>
+      <button type="button" onClick={() => setOpen(true)}>
+        Open dialog
+      </button>
+      {open ? (
+        <Dialog titleId="trap-title" onClose={() => setOpen(false)}>
+          <h2 id="trap-title">Trap dialog</h2>
+          <button type="button">First</button>
+          {autoFocusField ? (
+            <input aria-label="Name" autoFocus />
+          ) : (
+            <button type="button">Second</button>
+          )}
+        </Dialog>
+      ) : null}
+    </>
+  );
+}
+
 describe('Dialog', () => {
+  it('moves focus to the first control on open', async () => {
+    const user = userEvent.setup();
+    render(<TrapHarness />);
+
+    await user.click(screen.getByRole('button', { name: 'Open dialog' }));
+
+    expect(screen.getByRole('button', { name: 'First' })).toHaveFocus();
+  });
+
+  it('keeps focus on a field that asks for it on open', async () => {
+    const user = userEvent.setup();
+    render(<TrapHarness autoFocusField />);
+
+    await user.click(screen.getByRole('button', { name: 'Open dialog' }));
+
+    expect(screen.getByLabelText('Name')).toHaveFocus();
+    expect(screen.getByRole('button', { name: 'First' })).not.toHaveFocus();
+  });
+
+  it('focuses the dialog itself when it has no controls', () => {
+    render(
+      <Dialog titleId="empty-title" onClose={() => {}}>
+        <h2 id="empty-title">Empty dialog</h2>
+      </Dialog>,
+    );
+
+    expect(screen.getByRole('dialog')).toHaveFocus();
+  });
+
+  it('traps Tab and Shift+Tab inside the dialog', async () => {
+    const user = userEvent.setup();
+    render(<TrapHarness />);
+
+    await user.click(screen.getByRole('button', { name: 'Open dialog' }));
+    expect(screen.getByRole('button', { name: 'First' })).toHaveFocus();
+
+    await user.tab();
+    expect(screen.getByRole('button', { name: 'Second' })).toHaveFocus();
+
+    await user.tab();
+    expect(screen.getByRole('button', { name: 'First' })).toHaveFocus();
+
+    await user.tab({ shift: true });
+    expect(screen.getByRole('button', { name: 'Second' })).toHaveFocus();
+  });
+
   it('links its description and restores focus to the opener', async () => {
     const user = userEvent.setup();
     render(<Harness />);

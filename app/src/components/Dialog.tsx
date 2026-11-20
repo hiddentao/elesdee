@@ -24,7 +24,7 @@ function focusableElements(container: HTMLElement): HTMLElement[] {
   );
 
   return Array.from(nodes).filter(
-    (element) => element.getClientRects().length > 0,
+    (element) => !element.closest('[hidden], [inert]'),
   );
 }
 
@@ -41,11 +41,27 @@ export function Dialog({
   const { t } = useLanguage();
   const dialogRef = useRef<HTMLDivElement>(null);
   const statusRef = useRef<HTMLParagraphElement>(null);
+  const initialFocusDone = useRef(false);
   const [opener] = useState<HTMLElement | null>(() =>
     document.activeElement instanceof HTMLElement
       ? document.activeElement
       : null,
   );
+
+  useEffect(() => {
+    if (initialFocusDone.current || busy) {
+      return;
+    }
+    initialFocusDone.current = true;
+
+    const dialog = dialogRef.current;
+    if (!dialog || dialog.contains(document.activeElement)) {
+      return;
+    }
+
+    const focusable = focusableElements(dialog);
+    (focusable[0] ?? dialog).focus();
+  }, [busy]);
 
   useEffect(() => {
     return () => {
@@ -112,6 +128,7 @@ export function Dialog({
         aria-labelledby={titleId}
         aria-describedby={descriptionId}
         aria-busy={busy}
+        tabIndex={-1}
         onKeyDown={handleKeyDown}
       >
         {children}
