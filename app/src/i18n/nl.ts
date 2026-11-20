@@ -448,6 +448,8 @@ export const nl = {
   'newSession.sourceBranchPlaceholder': 'Huidige branch',
   'newSession.sourceBranchHint':
     'De nieuwe sessiebranch begint bij deze commit.',
+  'newSession.sourceBranchMissing':
+    'De opgeslagen standaardbranch bestaat niet meer. Kies een andere branch.',
   'newSession.currentTag': 'Huidig',
   'newSession.firstPrompt': 'Eerste prompt (optioneel)',
   'newSession.firstPromptPlaceholder':

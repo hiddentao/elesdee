@@ -450,6 +450,8 @@ export const ptBR = {
   'newSession.sourceBranchPlaceholder': 'Branch atual',
   'newSession.sourceBranchHint':
     'A nova branch da sessão parte deste commit.',
+  'newSession.sourceBranchMissing':
+    'A branch padrão salva não existe mais. Escolha outra branch.',
   'newSession.currentTag': 'Atual',
   'newSession.firstPrompt': 'Primeiro prompt (opcional)',
   'newSession.firstPromptPlaceholder':

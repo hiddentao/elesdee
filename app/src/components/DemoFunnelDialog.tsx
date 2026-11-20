@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { ApiError } from '../api/client';
 import type { DemoServer } from '../api/types';
 import { useLanguage } from '../i18n/LanguageProvider';
@@ -39,7 +40,9 @@ export function DemoFunnelDialog({
     }
   }
 
-  return (
+  // The panel that opens the dialog sits inside the app frame, which becomes
+  // inert while any app dialog is open. The dialog lives beside it instead.
+  return createPortal(
     <Dialog
       titleId="demo-funnel-title"
       descriptionId="demo-funnel-description"
@@ -86,6 +89,7 @@ export function DemoFunnelDialog({
           {submitting ? t('funnel.enabling') : t('funnel.confirm')}
         </button>
       </div>
-    </Dialog>
+    </Dialog>,
+    document.body,
   );
 }

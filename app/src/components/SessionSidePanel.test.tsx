@@ -364,6 +364,39 @@ describe('SessionSidePanel keyboard', () => {
     expect(
       await screen.findByRole('textbox', { name: 'Editor: note.txt' }),
     ).toHaveValue('hello\n');
+    expect(file).toHaveAttribute('aria-selected', 'true');
+    expect(file.querySelector('button')).not.toHaveAttribute('aria-current');
+  });
+
+  it('leaves focus alone when the active session changes', async () => {
+    function PanelHarness() {
+      const [active, setActive] = useState<'first' | 'second'>('first');
+      return (
+        <>
+          <button type="button" onClick={() => setActive('second')}>
+            Other session
+          </button>
+          <SessionSidePanel
+            key={active}
+            session={makeSession({
+              id: active === 'first' ? 's1' : 's2',
+              name: active === 'first' ? 'First' : 'Second',
+            })}
+            tab="files"
+            onSelectTab={vi.fn()}
+            onClose={vi.fn()}
+          />
+        </>
+      );
+    }
+
+    const user = userEvent.setup();
+    render(<PanelHarness />);
+    const other = screen.getByRole('button', { name: 'Other session' });
+
+    await user.click(other);
+
+    expect(other).toHaveFocus();
   });
 
   it('returns focus to the opener when the panel closes', async () => {
@@ -584,6 +617,35 @@ describe('SessionSidePanel demo servers', () => {
     expect(
       screen.getByRole('link', { name: 'Open http://localhost:3000 for Preview' }),
     ).toBeInTheDocument();
+  });
+
+  it('portals the public confirmation and reports it open', async () => {
+    const onDialogOpenChange = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <SessionSidePanel
+        session={makeSession({ demoServers: [preview] })}
+        tab="files"
+        onSelectTab={vi.fn()}
+        onClose={vi.fn()}
+        onDialogOpenChange={onDialogOpenChange}
+      />,
+    );
+
+    await user.click(
+      await screen.findByRole('button', {
+        name: 'Make Preview public on the internet',
+      }),
+    );
+
+    const dialog = screen.getByRole('dialog', {
+      name: 'Make this server public?',
+    });
+    expect(dialog.closest('.dock')).toBeNull();
+    expect(onDialogOpenChange).toHaveBeenLastCalledWith(true);
+
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    expect(onDialogOpenChange).toHaveBeenLastCalledWith(false);
   });
 
   it('leaves the server local when Tailscale refuses', async () => {

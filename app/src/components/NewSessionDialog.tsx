@@ -150,24 +150,34 @@ function mergeRepositoryOptions(
   t: ReturnType<typeof useLanguage>['t'],
 ): ComboboxOption[] {
   const options = [...recent];
-  const seen = new Set(recent.map((option) => option.id));
+  const byId = new Map(options.map((option) => [option.id, option]));
   for (const repo of repos) {
     const local = githubRepoLocalFolder(repo);
     const id = local ?? `${GITHUB_REPO_PREFIX}${repo.fullName}`;
-    if (seen.has(id)) {
+    // The local folder may have a different name. The owner, repository name
+    // and full name stay searchable, and a recent entry keeps the Added tag.
+    const search = `${repo.fullName} ${repo.owner} ${repo.name}`;
+    const existing = byId.get(id);
+    if (existing) {
+      if (local) {
+        existing.tag = t('newSession.githubAdded');
+      }
+      existing.search = [existing.search, search].filter(Boolean).join(' ');
       continue;
     }
-    seen.add(id);
     const visibility = repo.private
       ? t('newSession.githubPrivate')
       : t('newSession.githubPublic');
-    options.push({
+    const option: ComboboxOption = {
       id,
       label: local ? folderLabel(local) : repo.fullName,
       closedLabel: local ?? repo.fullName,
       meta: local ?? `${visibility} · ${repo.cloneUrl}`,
       tag: local ? t('newSession.githubAdded') : t('newSession.githubClone'),
-    });
+      search,
+    };
+    options.push(option);
+    byId.set(id, option);
   }
   return options;
 }
@@ -265,6 +275,7 @@ export function NewSessionDialog({
   const [sourceBranch, setSourceBranch] = useState<string | null>(
     initialProject?.defaultSourceBranch ?? null,
   );
+  const [branchMissing, setBranchMissing] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [copyUncommitted, setCopyUncommitted] = useState(false);
   const [firstPrompt, setFirstPrompt] = useState('');
@@ -310,6 +321,37 @@ export function NewSessionDialog({
     document.getElementById(focusTarget)?.focus();
     setFocusTarget(null);
   }, [focusTarget]);
+
+  useEffect(() => {
+    setBranchMissing(false);
+  }, [folder]);
+
+  // A project can keep a saved default branch after that branch is deleted
+  // or renamed. Clear it when the loaded list does not hold it.
+  useEffect(() => {
+    if (kind !== 'agent' || sourceBranch === null) {
+      return;
+    }
+    const path = folder.trim();
+    if (!path) {
+      return;
+    }
+    let cancelled = false;
+    const controller = new AbortController();
+    listBranches(path, '', controller.signal)
+      .then((list) => {
+        if (cancelled || list.some((branch) => branch.name === sourceBranch)) {
+          return;
+        }
+        setSourceBranch(null);
+        setBranchMissing(true);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [folder, kind, sourceBranch]);
 
   useEffect(() => {
     setCopyUncommitted(false);
@@ -476,6 +518,7 @@ export function NewSessionDialog({
     setConfigId(config?.id ?? null);
     applyAllowedForConfig(config);
     setSourceBranch(nextProject?.defaultSourceBranch ?? null);
+    setBranchMissing(false);
     setErrors((current) => ({
       ...current,
       project: undefined,
@@ -663,6 +706,23 @@ export function NewSessionDialog({
       setErrors(nextErrors);
       setFocusTarget(firstInvalid);
       return;
+    }
+
+    // A saved default branch may have gone since the list loaded. Check it
+    // once more, so a stale name is never sent.
+    if (kind === 'agent' && sourceBranch && !remoteRepo) {
+      const available = await listBranches(folder.trim(), '').catch(
+        () => null,
+      );
+      if (
+        available &&
+        !available.some((branch) => branch.name === sourceBranch)
+      ) {
+        setSourceBranch(null);
+        setBranchMissing(true);
+        setFocusTarget('new-session-branch');
+        return;
+      }
     }
 
     const input: CreateSessionInput = {
@@ -1003,9 +1063,21 @@ export function NewSessionDialog({
                   ? { id: sourceBranch, label: sourceBranch }
                   : null
               }
-              onChange={setSourceBranch}
+              onChange={(branch) => {
+                setSourceBranch(branch);
+                setBranchMissing(false);
+              }}
               placeholder={t('newSession.sourceBranchPlaceholder')}
-              hint={t('newSession.sourceBranchHint')}
+              hint={
+                branchMissing
+                  ? undefined
+                  : t('newSession.sourceBranchHint')
+              }
+              error={
+                branchMissing
+                  ? t('newSession.sourceBranchMissing')
+                  : undefined
+              }
             />
           ) : null}
 

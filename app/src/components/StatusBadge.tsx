@@ -1,6 +1,6 @@
 import type { Session } from '../api/types';
 import { useLanguage } from '../i18n/LanguageProvider';
-import { statusText, statusTone } from '../state/sessionStatus';
+import { statusShape, statusText, statusTone } from '../state/sessionStatus';
 
 interface StatusBadgeProps {
   session: Session;
@@ -8,16 +8,17 @@ interface StatusBadgeProps {
 
 export function StatusBadge({ session }: StatusBadgeProps) {
   const { t } = useLanguage();
-  const closed = session.status === 'closed';
+  const tone = statusTone(session);
 
   return (
-    <span
-      className="status-badge"
-      data-status={statusTone(session)}
-      title={statusText(session, t)}
-    >
-      <span className="status-dot" aria-hidden="true" />
-      <span>{closed ? t('status.closed') : t('status.active')}</span>
+    <span className="status-badge" data-status={tone}>
+      <span
+        className="status-marker status-badge-marker"
+        data-status={tone}
+        data-shape={statusShape(tone)}
+        aria-hidden="true"
+      />
+      <span>{statusText(session, t)}</span>
     </span>
   );
 }

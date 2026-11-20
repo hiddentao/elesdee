@@ -97,6 +97,7 @@ test('auto-switches near the limit and pauses when no account has room', async (
     'data-status',
     'paused',
   );
+  await expect(page.locator('.status-badge')).toContainText('Paused');
   await expect(page.locator('.waiting-note')).toContainText(
     'The work is committed, but the branch has no remote.',
   );
@@ -109,6 +110,7 @@ test('auto-switches near the limit and pauses when no account has room', async (
     'data-status',
     'running',
   );
+  await expect(page.locator('.status-badge')).toContainText('Working');
 
   await closeSession(request, session.id);
 });

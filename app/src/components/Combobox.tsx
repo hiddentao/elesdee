@@ -18,6 +18,8 @@ export interface ComboboxOption {
   closedLabel?: string;
   meta?: string;
   tag?: string;
+  /** Extra text the search matches, such as an owner and repository name. */
+  search?: string;
 }
 
 export type ComboboxLoader = (
@@ -122,6 +124,9 @@ export function Combobox({
             option.id.toLowerCase().includes(normalized) ||
             (option.meta
               ? option.meta.toLowerCase().includes(normalized)
+              : false) ||
+            (option.search
+              ? option.search.toLowerCase().includes(normalized)
               : false),
         );
   const listOptions = async

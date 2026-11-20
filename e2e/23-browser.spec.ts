@@ -196,6 +196,59 @@ test('opens a page and keeps separate tabs for two sessions', async ({
   }
 });
 
+test('keeps arrow keys on the browser close and new-tab buttons', async ({
+  page,
+  request,
+}) => {
+  const label = uniqueName('browser-arrows');
+  const folder = createProjectFolder(label);
+  const project = await createProject(request, label, folder);
+  const session = await createTerminalSession(request, {
+    projectId: project.id,
+    name: uniqueName('Browser arrows'),
+    folder,
+  });
+
+  try {
+    await openApp(page);
+    const address = await openBrowserPanel(page, session.name);
+    await address.fill(`${baseUrl}/one`);
+    await address.press('Enter');
+    await expect(page.getByRole('tab', { name: 'First page' })).toBeVisible();
+
+    const close = page.getByRole('button', { name: 'Close tab First page' });
+    await close.focus();
+    await page.keyboard.press('ArrowRight');
+    await expect(close).toBeFocused();
+    await expect(page.getByRole('tab', { name: 'First page' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+
+    const newTab = page.getByRole('button', { name: 'New tab' });
+    await newTab.focus();
+    await page.keyboard.press('ArrowLeft');
+    await expect(newTab).toBeFocused();
+
+    await newTab.click();
+    const firstTab = page.getByRole('tab', { name: 'First page' });
+    const secondTab = page.getByRole('tab', { name: 'Untitled page' });
+    await expect(secondTab).toBeVisible();
+    await firstTab.click();
+    await expect(firstTab).toHaveAttribute('aria-selected', 'true');
+    await page.keyboard.press('ArrowRight');
+    await expect(secondTab).toBeFocused();
+    expect(
+      await secondTab.evaluate((element) => {
+        const style = getComputedStyle(element);
+        return { offset: style.outlineOffset, shadow: style.boxShadow };
+      }),
+    ).toEqual({ offset: '-2px', shadow: expect.stringContaining('inset') });
+  } finally {
+    await closeSession(request, session.id);
+  }
+});
+
 test('clicks and types in the live view', async ({ page, request }) => {
   const label = uniqueName('browser-live');
   const folder = createProjectFolder(label);

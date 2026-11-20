@@ -74,7 +74,7 @@ Limits and rules:
 
 ## Making a demo server public
 
-The session's Files panel has a **Make public** action for an active server. It asks first and says that anyone on the internet can open the server. Choose **Make public** to confirm. The panel then shows the public HTTPS address, such as `https://machine.tailnet.ts.net/`, with one **Stop public** action.
+The session's Files panel has a **Make public** action for an active server. It asks first and says that anyone on the internet can open the server. The confirmation holds focus and pauses the rest of the window until you answer. Choose **Make public** to confirm. The panel then shows the public HTTPS address, such as `https://machine.tailnet.ts.net/`, with one **Stop public** action.
 
 - This needs Tailscale, installed, running and signed in, and Funnel allowed for the tailnet. Without it the server stays local and the panel shows the reason.
 - Only one demo server is public at a time. Making another server public turns the first one off.

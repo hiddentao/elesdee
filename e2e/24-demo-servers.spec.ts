@@ -181,6 +181,10 @@ test('makes a demo server public after confirmation and stops the public address
       name: 'Make this server public?',
     });
     await expect(dialog).toBeVisible();
+    await expect(page.locator('.app-frame')).toHaveAttribute('inert', '');
+    expect(
+      await dialog.evaluate((element) => Boolean(element.closest('.dock'))),
+    ).toBe(false);
     await expect(dialog).toContainText(
       'Anyone on the internet can open Funnel at its public address until you stop it. The server stays local if Tailscale is not available.',
     );
@@ -195,6 +199,7 @@ test('makes a demo server public after confirmation and stops the public address
       name: `Open public address ${publicAddress} for Funnel`,
     });
     await expect(publicLink).toHaveAttribute('href', publicAddress);
+    await expect(page.locator('.app-frame')).not.toHaveAttribute('inert');
     await expect(filesPanel.getByText('Public', { exact: true })).toBeVisible();
     await expect(
       filesPanel.getByRole('button', {

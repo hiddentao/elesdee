@@ -182,9 +182,13 @@ The agents write their conversation to files on disk, and each keeps its own int
 **Keyboard and screen readers**
 
 - The app name and the open session name are level-one headings, and headings below them do not skip a level.
-- A dialog moves focus into it, keeps Tab and Shift+Tab inside it, closes on Escape unless it is busy, and returns focus to the control that opened it. A busy dialog keeps focus inside and says that it is working.
+- A dialog moves focus into it, keeps Tab and Shift+Tab inside it, closes on Escape unless it is busy, and returns focus to the control that opened it. A busy dialog keeps focus inside and says that it is working. When a busy request fails, focus returns to the first control in the dialog.
 - Starting a session moves focus to that session's tab.
-- Each session state has a marker shape as well as a colour, so the state does not depend on colour alone.
+- After a move to another project, focus goes to the session's row in its new project, or to the session list when that row is not shown.
+- Switching sessions leaves focus on the row or tab I chose. Closing the side panel returns focus to the panel button.
+- The session header badge shows Active or Closed with the work state in words, such as "Active, Paused". Each session state also has a marker shape as well as a colour, so the state does not depend on colour alone.
+- In the browser tab strip, the left and right arrows move between tabs only while a tab has focus.
+- Focus rings draw inside the scrolling tab strips and the capped list of allowed configs, so they stay visible at the edges.
 - Terminal output has an accessible name that holds the session name, and new output is announced politely.
 - Code comments, line numbers and diff metadata keep at least 4.5:1 contrast against the code background in both themes.
 
@@ -423,6 +427,7 @@ Usage belongs to the computer, not to a session. The sidebar shows a compact sum
 - For each session, I choose which AI configs it may use.
 - A new session allows the configs of its starting client. I can add configs of other clients, and remove any config except the one in use.
 - I can change the list while the session runs.
+- The list is capped and scrolls, with a visible scrollbar. It keeps the config in use in view.
 - Auto-switch uses only configs from this list.
 
 **Auto-switch**
@@ -480,7 +485,7 @@ A project groups sessions.
 - Creating a project is fast: one action, a name and a folder. The folder can be a Git repository or a plain folder.
 - Add project offers two sources: a local folder, or a repository from GitHub. The GitHub choice connects with a device code, lists and searches my repositories, and clones the chosen repository into a folder I pick or the default projects folder. It never overwrites an existing folder, and a failed clone leaves no folder. The cloned folder becomes the project.
 - I can drag a session from one project to another, or choose Move to project in its session menu.
-- A project can store a default AI config and a default source branch. New sessions in the project start with these filled in, and I can change them for each session. The branch must exist in the project folder's Git repository.
+- A project can store a default AI config and a default source branch. New sessions in the project start with these filled in, and I can change them for each session. The branch must exist in the project folder's Git repository. If the saved branch no longer exists, the launch form clears it and says so.
 
 ## Launching a session
 
@@ -492,7 +497,7 @@ When I launch a session, I choose where the code comes from, and the IDE gets th
 - A remote branch on any Git host that Git can fetch from and push to (GitHub, GitLab, Bitbucket or self-hosted)
 - A plain folder (no Git)
 
-For a branch source, the launch form shows the repository. I can pick a repository from recent sessions or search GitHub after connecting. The list holds the repository each earlier session started from, even after the session moves to another project. A GitHub repository that is not on this computer is cloned into a clone folder I choose, then the session starts in the cloned folder.
+For a branch source, the launch form shows the repository. I can pick a repository from recent sessions or search GitHub after connecting. The list holds the repository each earlier session started from, even after the session moves to another project. A GitHub repository that a project already holds is marked Added and keeps its owner and repository name in the search even when its local folder has a different name. A GitHub repository that is not on this computer is cloned into a clone folder I choose, then the session starts in the cloned folder.
 
 **Git access**
 
@@ -557,7 +562,7 @@ The IDE changes no Tailscale setting. To share a demo with people outside my Tai
 
 **Public through Tailscale Funnel**
 
-- The session's Files panel offers a Make public action for an active demo server. The action first asks me to confirm and says that anyone on the internet can open the server.
+- The session's Files panel offers a Make public action for an active demo server. The action first asks me to confirm and says that anyone on the internet can open the server. The confirmation is modal: the rest of the window is inert and focus stays in it.
 - On confirmation, the IDE runs `tailscale funnel <port>` for that registered loopback port with the Tailscale client it already found. It never exposes another port and never takes an executable path from the agent.
 - The public address is `https://<machine>.<tailnet>.ts.net/`. The Files panel shows it only while the server is active, with one Stop action that turns Funnel off.
 - One demo server is public at a time. Making another server public turns the first one off.

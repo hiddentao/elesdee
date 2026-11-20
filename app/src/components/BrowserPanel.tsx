@@ -170,6 +170,12 @@ export function BrowserPanel({ session }: BrowserPanelProps) {
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
       return;
     }
+    // Only a tab moves through the strip. Close, new tab and the rest keep
+    // their own arrow-key behavior.
+    const target = event.target as HTMLElement;
+    if (!target.closest('[role="tab"]')) {
+      return;
+    }
     const tabs = state?.tabs ?? [];
     if (tabs.length === 0) {
       return;

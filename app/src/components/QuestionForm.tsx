@@ -45,7 +45,7 @@ export function QuestionForm({
         <div className="question-options">
           {question.options.map((option, index) => (
             <button
-              key={option}
+              key={`${index}:${option}`}
               type="button"
               className={primaryOptions ? 'btn btn-primary' : 'btn btn-ghost'}
               autoFocus={autoFocus && index === 0}

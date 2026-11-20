@@ -191,6 +191,7 @@ export default function App() {
   const [switchSessionId, setSwitchSessionId] = useState<string | null>(null);
   const [sessionMenu, setSessionMenu] = useState<SessionMenuState | null>(null);
   const [moveSessionId, setMoveSessionId] = useState<string | null>(null);
+  const [funnelDialogOpen, setFunnelDialogOpen] = useState(false);
   const [branchMenu, setBranchMenu] = useState<BranchMenuState | null>(null);
   const [dialogProjectId, setDialogProjectId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -462,7 +463,8 @@ export default function App() {
     settingsOpen ||
     questionsOpen ||
     requestsOpen ||
-    quitOpen;
+    quitOpen ||
+    funnelDialogOpen;
 
   activeSessionIdRef.current = activeSessionId;
   requestsOpenRef.current = requestsOpen;
@@ -1438,6 +1440,7 @@ export default function App() {
                       sharedVersion={sharedVersion}
                       onSelectTab={(tab) => setDock(activeSession.id, tab)}
                       onClose={() => setDock(activeSession.id, null)}
+                      onDialogOpenChange={setFunnelDialogOpen}
                     />
                   ) : null}
                 </div>
@@ -1642,7 +1645,25 @@ export default function App() {
         <MoveSessionDialog
           session={moveTarget}
           projects={projects}
-          onMove={performMove}
+          onMove={async (session, projectId) => {
+            const moved = await performMove(session, projectId);
+            if (moved) {
+              // The opener row belongs to the old project and unmounts.
+              // Move focus to the session's new row, or the list.
+              window.setTimeout(() => {
+                const rows =
+                  document.querySelectorAll<HTMLElement>('[data-session-id]');
+                for (const row of rows) {
+                  if (row.dataset.sessionId === session.id) {
+                    row.focus();
+                    return;
+                  }
+                }
+                document.querySelector<HTMLElement>('.session-list')?.focus();
+              }, 0);
+            }
+            return moved;
+          }}
           onClose={() => setMoveSessionId(null)}
         />
       ) : null}

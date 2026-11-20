@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { listConfigs } from '../api/client';
 import type { AiConfig, Provider } from '../api/types';
 import { useLanguage } from '../i18n/LanguageProvider';
@@ -31,6 +31,24 @@ export function ConfigMultiSelect({
   disabled = false,
 }: ConfigMultiSelectProps) {
   const { t } = useLanguage();
+  const listRef = useRef<HTMLUListElement>(null);
+
+  // The capped list scrolls. Keep the current config visible when the list
+  // grows or the current config changes.
+  useEffect(() => {
+    const list = listRef.current;
+    const current = list?.querySelector<HTMLElement>('[data-current="true"]');
+    if (!list || !current) {
+      return;
+    }
+    const listRect = list.getBoundingClientRect();
+    const chipRect = current.getBoundingClientRect();
+    if (chipRect.top < listRect.top) {
+      list.scrollTop -= listRect.top - chipRect.top;
+    } else if (chipRect.bottom > listRect.bottom) {
+      list.scrollTop += chipRect.bottom - listRect.bottom;
+    }
+  }, [value, requiredId]);
 
   const loadOptions = useCallback<ComboboxLoader>(
     async (query, signal) => {
@@ -59,14 +77,18 @@ export function ConfigMultiSelect({
     <fieldset className="field" id={id} disabled={disabled}>
       <legend>{label}</legend>
       {value.length > 0 ? (
-        <ul className="allowed-account-list" aria-label={label}>
+        <ul ref={listRef} className="allowed-account-list" aria-label={label}>
           {value.map((configId) => {
             const config =
               configs.find((candidate) => candidate.id === configId) ?? null;
             const name = config?.name ?? configId;
             const required = configId === requiredId;
             return (
-              <li key={configId} className={required ? 'chip is-on' : 'chip'}>
+              <li
+                key={configId}
+                className={required ? 'chip is-on' : 'chip'}
+                data-current={required ? 'true' : undefined}
+              >
                 <span>{name}</span>
                 {required ? (
                   <span className="chip-count">

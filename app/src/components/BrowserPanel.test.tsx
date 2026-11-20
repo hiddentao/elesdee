@@ -230,6 +230,35 @@ describe('BrowserPanel', () => {
     await waitFor(() => expect(first).toHaveFocus());
   });
 
+  it('leaves arrow keys alone on the close and new-tab buttons', async () => {
+    vi.mocked(getBrowserState).mockResolvedValue(
+      stateWith([
+        tab(),
+        tab({
+          id: 's1-tab-2',
+          title: 'Other',
+          url: 'http://localhost:3000/other',
+        }),
+      ]),
+    );
+    const user = userEvent.setup();
+    render(<BrowserPanel session={makeSession()} />);
+
+    const close = await screen.findByRole('button', {
+      name: 'Close tab Demo',
+    });
+    close.focus();
+    await user.keyboard('{ArrowRight}');
+    expect(activateBrowserTab).not.toHaveBeenCalled();
+    expect(close).toHaveFocus();
+
+    const newTab = screen.getByRole('button', { name: 'New tab' });
+    newTab.focus();
+    await user.keyboard('{ArrowLeft}');
+    expect(activateBrowserTab).not.toHaveBeenCalled();
+    expect(newTab).toHaveFocus();
+  });
+
   it('keeps each session on its own tab state', async () => {
     const other: Session = makeSession({ id: 's2', name: 'Other session' });
     vi.mocked(getBrowserState).mockImplementation(async (id) =>
