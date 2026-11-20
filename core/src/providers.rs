@@ -114,6 +114,18 @@ pub fn find(id: &str) -> Option<&'static ProviderDef> {
     PROVIDERS.iter().find(|provider| provider.id == id)
 }
 
+/// The client that owns the subscription login for a vendor.
+///
+/// Anthropic runs its login through Claude Code and OpenAI through Codex.
+/// The other vendors have no subscription sign-in.
+pub fn sign_in_client(vendor: &str) -> Option<Client> {
+    match vendor {
+        "anthropic" => Some(Client::ClaudeCode),
+        "openai" => Some(Client::Codex),
+        _ => None,
+    }
+}
+
 pub fn clients_for_style(style: &str) -> &'static [Client] {
     match style {
         "openai" => CODEX_AND_OPENCODE,
@@ -507,6 +519,7 @@ mod tests {
             server: None,
             api_style: None,
             sample: false,
+            connected: true,
             plan: "test".to_owned(),
             rows: Vec::new(),
             foot: String::new(),
@@ -558,6 +571,14 @@ mod tests {
             supported_clients(&custom),
             vec![Client::ClaudeCode, Client::OpenCode2]
         );
+    }
+
+    #[test]
+    fn subscription_sign_in_names_its_client() {
+        assert_eq!(sign_in_client("anthropic"), Some(Client::ClaudeCode));
+        assert_eq!(sign_in_client("openai"), Some(Client::Codex));
+        assert_eq!(sign_in_client("google"), None);
+        assert_eq!(sign_in_client("deepseek"), None);
     }
 
     #[test]

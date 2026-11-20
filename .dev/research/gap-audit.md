@@ -154,13 +154,18 @@ sends the handoff note and the end of the log. The allowed-provider list and the
 subscription-first cross-client switch order are now built (gap 6). Remaining: a context
 figure for Codex, OpenCode 2 and Antigravity, whose clients expose no official field yet.
 
-**9. Subscription sign-in.**
-Spec: Subscription sign-in. `AddAccountDialog` offers Subscription for Anthropic and OpenAI, but
-submitting it only adds account metadata. It does not start the installed agent's login, wait for
-the browser return, read and check the credential, or show a one-time code. The dialog shows a
-hint only (`app/src/components/AddAccountDialog.tsx`). Files: a new core auth
-module, `core/src/api.rs`, `clients.rs`, `secrets.rs`, `app/src/components/AddAccountDialog.tsx`,
-`client.ts`. Size: L.
+**9. Subscription sign-in — closed.**
+The core `auth` module starts `claude auth login` or `codex login` under a terminal, parses the
+sign-in address and a device code, forwards a pasted one-time code, and asks the client to confirm
+the credential (`claude auth status` and `codex login status`) before it creates or reconnects the
+provider. The provider records `connected`; no token is read, stored or logged. The provider form
+and Providers page show the waiting, code, failure and connected states. A fake client covers
+success, refusal, timeout, abandonment, the one-time code, a key-only login and the usage feed in
+the core tests; the UI covers the form states and a stubbed bridge covers the flow end to end.
+A real Anthropic or OpenAI account is still needed to check the vendor pages themselves, a real
+browser callback, a real device-code grant and the token refresh over time. Files: `core/src/auth.rs`,
+`api.rs`, `state.rs`, `providers.rs`, `app/src/components/ProviderDialog.tsx`, `SettingsDialog.tsx`,
+`client.ts`, catalogs. Size: L.
 
 ### P1 — Version 1 headline features
 

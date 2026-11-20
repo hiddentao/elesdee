@@ -23,6 +23,7 @@ interface Provider {
   server: string | null;     // base URL when the vendor or custom entry needs one
   apiStyle: "openai" | "anthropic" | null;
   sample: boolean;
+  connected: boolean;         // a subscription sign-in was checked; key and local providers hold their credential
   supportedClients: Client[]; // returned by the API, not stored
 }
 ```
@@ -141,6 +142,11 @@ provider's `server` overrides the default endpoint when set.
 - `GET /api/providers/{id}/models?client={client}`: the provider's model list,
   read in real time. A failed read returns a fallback list and a flag.
 - `POST /api/providers/{id}/usage/refresh`, `GET /api/providers/{id}/usage`.
+- `POST /api/sign-in`, `GET /api/sign-in/{id}`, `POST /api/sign-in/{id}/code`,
+  `DELETE /api/sign-in/{id}`: the subscription sign-in. It starts the installed
+  Claude Code or Codex login, follows the address and one-time code, and adds or
+  reconnects the provider only after the client confirms the credential. The
+  client keeps the token; the provider records `connected`, never a secret.
 - `GET/POST /api/configs`, `PATCH/DELETE /api/configs/{id}`: AI configs. Search
   with `q`.
 - Session creation takes `configId`; `POST /api/sessions/{id}/config` switches.
