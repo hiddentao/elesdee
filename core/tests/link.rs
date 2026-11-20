@@ -758,6 +758,21 @@ async fn a_phone_uploads_a_file_and_reads_an_image() {
         image.extend_from_slice(b"image body");
         fs::write(folder.join("shot.png"), &image).expect("write image");
         fs::write(folder.join("notes.txt"), "plain text\n").expect("write text");
+        let git = |args: &[&str]| {
+            let status = std::process::Command::new("git")
+                .arg("-C")
+                .arg(&folder)
+                .args(args)
+                .status()
+                .expect("run git");
+            assert!(status.success(), "git {args:?} failed");
+        };
+        git(&["init", "-q", "-b", "main"]);
+        git(&["config", "user.email", "e2e@example.com"]);
+        git(&["config", "user.name", "E2E"]);
+        git(&["add", "."]);
+        git(&["commit", "-qm", "base"]);
+        fs::write(folder.join("notes.txt"), "plain text\nchanged\n").expect("change text");
 
         let service = LinkService::start_with_endpoint(state.clone(), loopback_endpoint().await);
         let addr = service.addr();
@@ -853,6 +868,28 @@ async fn a_phone_uploads_a_file_and_reads_an_image() {
         assert_eq!(
             response.error_body().expect("path error").code(),
             ErrorCode::BadRequest
+        );
+
+        let response = request_on(
+            &connection,
+            Request::new(Method::DiffRead, Some(json!({"sessionId": session_id}))),
+        )
+        .await;
+        let changes = response.result().expect("changes result");
+        assert_eq!(changes["git"], true);
+        let files = changes["files"].as_array().expect("changed files");
+        let notes = files
+            .iter()
+            .find(|file| file["path"] == "notes.txt")
+            .expect("the changed note is missing");
+        assert_eq!(notes["additions"], 1);
+        assert_eq!(notes["deletions"], 0);
+        assert!(
+            notes["diff"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("changed"),
+            "the diff is missing its added line: {notes}"
         );
 
         connection.close(0u32.into(), b"done");
