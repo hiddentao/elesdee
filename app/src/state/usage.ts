@@ -1,4 +1,9 @@
 import type { Account, UsageRow } from '../api/types';
+import {
+  formatNumber,
+  translate,
+  type Language,
+} from '../i18n';
 
 function parseNumber(value: string | undefined): number | null {
   if (!value) {
@@ -49,7 +54,10 @@ export interface AccountUsage {
   tightestRow: UsageRow | null;
 }
 
-export function accountUsage(account: Account): AccountUsage {
+export function accountUsage(
+  account: Account,
+  language: Language = 'en',
+): AccountUsage {
   const limits = account.rows.filter((row) => rowRemaining(row) !== null);
 
   if (limits.length > 0) {
@@ -66,7 +74,9 @@ export function accountUsage(account: Account): AccountUsage {
 
     return {
       kind: 'percent',
-      summary: `${Math.round(remaining)}% left`,
+      summary: translate(language, 'usage.percentLeft', {
+        percent: formatNumber(language, Math.round(remaining)),
+      }),
       remaining,
       warn: rowWarn(tightest),
       critical: remaining <= 10,
@@ -82,7 +92,7 @@ export function accountUsage(account: Account): AccountUsage {
     const first = balances[0];
     return {
       kind: 'balance',
-      summary: first.value ?? 'No usage data',
+      summary: first.value ?? translate(language, 'usage.none'),
       remaining: null,
       warn: rowWarn(first),
       critical: false,
@@ -92,7 +102,7 @@ export function accountUsage(account: Account): AccountUsage {
 
   return {
     kind: 'none',
-    summary: 'No usage data',
+    summary: translate(language, 'usage.none'),
     remaining: null,
     warn: false,
     critical: false,

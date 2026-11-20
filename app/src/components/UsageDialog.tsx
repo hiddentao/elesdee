@@ -1,4 +1,5 @@
 import type { Account } from '../api/types';
+import { useLanguage } from '../i18n/LanguageProvider';
 import { Dialog } from './Dialog';
 import { UsageLimitRow } from './UsageLimitRow';
 
@@ -8,6 +9,7 @@ interface UsageDialogProps {
 }
 
 export function UsageDialog({ accounts, onClose }: UsageDialogProps) {
+  const { t } = useLanguage();
   return (
     <Dialog
       titleId="usage-title"
@@ -16,16 +18,16 @@ export function UsageDialog({ accounts, onClose }: UsageDialogProps) {
     >
       <div className="dialog-head">
         <h2 className="dialog-title" id="usage-title">
-          Usage
+          {t('usage.title')}
         </h2>
         <p className="dialog-sub" id="usage-description">
-          Limits for every account on this computer.
+          {t('usage.subtitle')}
         </p>
       </div>
 
       <div className="dialog-body usage-panel">
         {accounts.length === 0 ? (
-          <p className="usage-empty">No usage data</p>
+          <p className="usage-empty">{t('usage.none')}</p>
         ) : (
           accounts.map((account) => (
             <section
@@ -37,7 +39,7 @@ export function UsageDialog({ accounts, onClose }: UsageDialogProps) {
                 <div className="usage-card-main">
                   <span className="usage-name">{account.name}</span>
                   {account.sample ? (
-                    <span className="sample-tag">Sample</span>
+                    <span className="sample-tag">{t('common.sample')}</span>
                   ) : null}
                   <span className="usage-plan">
                     {account.plan} · {account.client}
@@ -46,7 +48,7 @@ export function UsageDialog({ accounts, onClose }: UsageDialogProps) {
               </div>
 
               {account.rows.length === 0 ? (
-                <p className="usage-empty">No usage data</p>
+                <p className="usage-empty">{t('usage.none')}</p>
               ) : (
                 <div className="usage-card-rows">
                   {account.rows.map((row, index) => (
@@ -70,7 +72,7 @@ export function UsageDialog({ accounts, onClose }: UsageDialogProps) {
           onClick={onClose}
           autoFocus
         >
-          Close
+          {t('common.close')}
         </button>
       </div>
     </Dialog>

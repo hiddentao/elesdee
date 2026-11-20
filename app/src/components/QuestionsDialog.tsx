@@ -1,4 +1,5 @@
 import type { Question } from '../api/types';
+import { useLanguage } from '../i18n/LanguageProvider';
 import { Dialog } from './Dialog';
 import { QuestionForm } from './QuestionForm';
 
@@ -13,6 +14,7 @@ export function QuestionsDialog({
   onAnswer,
   onClose,
 }: QuestionsDialogProps) {
+  const { t } = useLanguage();
   return (
     <Dialog
       titleId="questions-title"
@@ -22,19 +24,19 @@ export function QuestionsDialog({
     >
       <div className="dialog-head">
         <h2 className="dialog-title" id="questions-title">
-          Questions
+          {t('question.questions')}
         </h2>
         <p className="dialog-sub" id="questions-description">
           {questions.length === 0
-            ? 'No session is waiting for an answer.'
+            ? t('question.noneWaiting')
             : questions.length === 1
-              ? 'One session is waiting for an answer.'
-              : `${questions.length} sessions are waiting for an answer.`}
+              ? t('question.oneWaiting')
+              : t('question.manyWaiting', { count: questions.length })}
         </p>
       </div>
       <div className="dialog-body questions-body">
         {questions.length === 0 ? (
-          <p className="empty-text">No pending questions.</p>
+          <p className="empty-text">{t('question.nonePending')}</p>
         ) : (
           questions.map((question) => (
             <section className="question-card" key={question.id}>
@@ -49,7 +51,7 @@ export function QuestionsDialog({
       </div>
       <div className="dialog-foot">
         <button type="button" className="btn btn-ghost" onClick={onClose} autoFocus>
-          Close
+          {t('common.close')}
         </button>
       </div>
     </Dialog>

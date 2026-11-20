@@ -1,4 +1,5 @@
 import type { AgentCheck } from '../api/types';
+import { useLanguage } from '../i18n/LanguageProvider';
 import { PlusIcon, SparkIcon } from './icons';
 
 interface FirstLaunchProps {
@@ -16,28 +17,34 @@ export function FirstLaunch({
   agentsChecked,
   onAddProject,
 }: FirstLaunchProps) {
+  const { t } = useLanguage();
   return (
     <div className="empty-main">
       <div className="empty-card first-run">
         <div className="empty-mark">
           <SparkIcon />
         </div>
-        <h1 className="empty-title">Welcome to elesdee</h1>
-        <p className="empty-text">
-          Add a project to start a session on this computer. elesdee uses the
-          agents you installed.
-        </p>
+        <h1 className="empty-title">{t('firstRun.title')}</h1>
+        <p className="empty-text">{t('firstRun.text')}</p>
 
-        <ul className="agent-checks" aria-label="Agent check">
+        <ul className="agent-checks" aria-label={t('firstRun.agentCheck')}>
           {!agentsChecked ? (
             <li className="agent-check">
-              <span className="agent-check-name">Agent check</span>
-              <span className="agent-check-state">Unavailable</span>
+              <span className="agent-check-name">
+                {t('firstRun.agentCheck')}
+              </span>
+              <span className="agent-check-state">
+                {t('firstRun.unavailable')}
+              </span>
             </li>
           ) : agents.length === 0 ? (
             <li className="agent-check">
-              <span className="agent-check-name">Agent check</span>
-              <span className="agent-check-state">No results</span>
+              <span className="agent-check-name">
+                {t('firstRun.agentCheck')}
+              </span>
+              <span className="agent-check-state">
+                {t('firstRun.noResults')}
+              </span>
             </li>
           ) : (
             agents.map((agent) => {
@@ -56,13 +63,13 @@ export function FirstLaunch({
                   >
                     {agent.installed
                       ? version
-                        ? `Installed · ${version}`
-                        : 'Installed'
-                      : 'Not installed'}
+                        ? t('firstRun.installedWithVersion', { version })
+                        : t('firstRun.installed')
+                      : t('firstRun.notInstalled')}
                   </span>
                   {!agent.installed ? (
                     <span className="agent-check-hint">
-                      Install {agent.name} to start sessions with it.
+                      {t('firstRun.installHint', { name: agent.name })}
                     </span>
                   ) : null}
                 </li>
@@ -73,7 +80,7 @@ export function FirstLaunch({
 
         <button type="button" className="btn btn-primary" onClick={onAddProject}>
           <PlusIcon />
-          Add project
+          {t('firstRun.addProject')}
         </button>
       </div>
     </div>

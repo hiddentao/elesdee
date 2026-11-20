@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useRef, type KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import type { Session } from '../api/types';
+import { useLanguage } from '../i18n/LanguageProvider';
 
 export type BranchMenuAction =
   | 'copy-branch'
@@ -32,20 +33,28 @@ export function BranchActionsMenu({
   onAction,
   onClose,
 }: BranchActionsMenuProps) {
+  const { t } = useLanguage();
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const rect = trigger.getBoundingClientRect();
   const hasFolder = session.folder.trim() !== '';
 
   const items: MenuItem[] = [];
   if (session.branch) {
-    items.push({ action: 'copy-branch', label: 'Copy branch name' });
+    items.push({ action: 'copy-branch', label: t('branchMenu.copyBranch') });
   }
   if (hasFolder) {
-    items.push({ action: 'copy-folder', label: 'Copy folder path' });
+    items.push({ action: 'copy-folder', label: t('branchMenu.copyFolder') });
   }
   if (canOpen && hasFolder) {
-    items.push({ action: 'open-folder', label: 'Open folder', separated: true });
-    items.push({ action: 'open-terminal', label: 'Open in Terminal' });
+    items.push({
+      action: 'open-folder',
+      label: t('branchMenu.openFolder'),
+      separated: true,
+    });
+    items.push({
+      action: 'open-terminal',
+      label: t('branchMenu.openTerminal'),
+    });
   }
 
   const left = Math.round(
@@ -121,7 +130,7 @@ export function BranchActionsMenu({
       <div
         className="session-menu branch-menu"
         role="menu"
-        aria-label={`Branch actions for ${session.name}`}
+        aria-label={t('branchMenu.label', { name: session.name })}
         style={{ left, top }}
         onKeyDown={handleKeyDown}
       >

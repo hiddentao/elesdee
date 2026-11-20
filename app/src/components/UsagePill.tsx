@@ -1,10 +1,12 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import type { Account } from '../api/types';
 import { accountUsage } from '../state/usage';
+import { useLanguage } from '../i18n/LanguageProvider';
 import { UsageLimitRow } from './UsageLimitRow';
 
 export function UsagePill({ account }: { account: Account }) {
-  const usage = accountUsage(account);
+  const { t, language } = useLanguage();
+  const usage = accountUsage(account, language);
   const tipId = useId();
   const rootRef = useRef<HTMLSpanElement>(null);
   const [pinned, setPinned] = useState(false);
@@ -95,7 +97,7 @@ export function UsagePill({ account }: { account: Account }) {
             <UsageLimitRow key={`${row.label}-${index}`} row={row} />
           ))}
           {account.rows.length === 0 ? (
-            <span className="usage-tip-note">No usage data</span>
+            <span className="usage-tip-note">{t('usage.none')}</span>
           ) : null}
           {account.foot ? (
             <span className="usage-tip-foot">{account.foot}</span>

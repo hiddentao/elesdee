@@ -16,6 +16,8 @@ import type {
 import { QuestionForm } from '../components/QuestionForm';
 import { SessionRequestForm } from '../components/SessionRequestForm';
 import { TerminalPane } from '../components/TerminalPane';
+import { formatNumber, type Translate } from '../i18n';
+import { useLanguage } from '../i18n/LanguageProvider';
 import { workLabel } from '../state/sessionStatus';
 
 type Filter = 'all' | 'running' | 'waiting';
@@ -30,6 +32,9 @@ function sessionHashId(): string | null {
 }
 
 export default function PhoneApp() {
+  const { t, language } = useLanguage();
+  const tRef = useRef(t);
+  tRef.current = t;
   const [sessions, setSessions] = useState<Session[]>([]);
   const [questions, setQuestions] = useState<Question[]>([]);
   const [requests, setRequests] = useState<SessionRequest[]>([]);
@@ -53,7 +58,7 @@ export default function PhoneApp() {
       setRequests(data.sessionRequests ?? []);
       setError('');
     } catch {
-      setError('Cannot reach this computer.');
+      setError(tRef.current('phone.cannotReach'));
     } finally {
       setLoading(false);
     }
@@ -211,7 +216,7 @@ export default function PhoneApp() {
             <button
               type="button"
               className="phone-back"
-              aria-label="Back to sessions"
+              aria-label={t('phone.back')}
               onClick={showList}
             >
               ‹
@@ -219,27 +224,32 @@ export default function PhoneApp() {
             <div className="phone-head-text">
               <span className="phone-title">{active.name}</span>
               <span className="phone-sub">
-                {workLabel(active) ?? 'Active'} · {active.projectId}
+                {workLabel(active, t) ?? t('status.active')} ·{' '}
+                {active.projectId}
               </span>
             </div>
           </>
         ) : (
           <div className="phone-head-text">
-            <span className="phone-title">Sessions</span>
-            <span className="phone-sub">This computer</span>
+            <span className="phone-title">{t('phone.sessions')}</span>
+            <span className="phone-sub">{t('phone.thisComputer')}</span>
           </div>
         )}
       </header>
 
       {loading ? (
-        <p className="phone-empty">Loading…</p>
+        <p className="phone-empty">{t('phone.loading')}</p>
       ) : error ? (
         <p className="phone-empty" role="alert">
           {error}
         </p>
       ) : screen === 'list' ? (
         <main className="phone-list">
-          <div className="phone-filters" role="group" aria-label="Session filter">
+          <div
+            className="phone-filters"
+            role="group"
+            aria-label={t('phone.filter')}
+          >
             {(['all', 'running', 'waiting'] as const).map((value) => (
               <button
                 key={value}
@@ -248,19 +258,26 @@ export default function PhoneApp() {
                 aria-pressed={filter === value}
                 onClick={() => setFilter(value)}
               >
-                {value === 'all' ? 'All' : value === 'running' ? 'Running' : 'Waiting'}
+                {value === 'all'
+                  ? t('phone.all')
+                  : value === 'running'
+                    ? t('phone.running')
+                    : t('status.waiting')}
               </button>
             ))}
           </div>
 
           {waiting.length > 0 ? (
             <section>
-              <h2 className="phone-section-title">Waiting for you</h2>
+              <h2 className="phone-section-title">
+                {t('status.waitingForYou')}
+              </h2>
               {waiting.map((session) => (
                 <SessionRow
                   key={session.id}
                   session={session}
                   onSelect={selectSession}
+                  t={t}
                 />
               ))}
             </section>
@@ -268,10 +285,12 @@ export default function PhoneApp() {
 
           <section>
             {waiting.length > 0 ? (
-              <h2 className="phone-section-title">Everything else</h2>
+              <h2 className="phone-section-title">
+                {t('phone.everythingElse')}
+              </h2>
             ) : null}
             {rest.length === 0 && waiting.length === 0 ? (
-              <p className="phone-empty">No sessions yet.</p>
+              <p className="phone-empty">{t('phone.noSessions')}</p>
             ) : (
               rest.map((session) => (
                 <SessionRow
@@ -279,6 +298,7 @@ export default function PhoneApp() {
                   session={session}
                   onSelect={selectSession}
                   active={session.id === activeId}
+                  t={t}
                 />
               ))
             )}
@@ -303,7 +323,9 @@ export default function PhoneApp() {
                 >
                   <span className="phone-tab-name">{session.name}</span>
                   <span className="phone-tab-meta">
-                    {isWaiting(session) ? 'Waiting' : workLabel(session) ?? 'Active'}
+                    {isWaiting(session)
+                      ? t('status.waiting')
+                      : workLabel(session, t) ?? t('status.active')}
                   </span>
                 </button>
               ))}
@@ -311,7 +333,9 @@ export default function PhoneApp() {
             <button
               type="button"
               className="phone-tab-count"
-              aria-label={`All tabs, ${countLabel}`}
+              aria-label={t('phone.allTabsLabel', {
+                count: formatNumber(language, countLabel),
+              })}
               aria-expanded={sheetOpen}
               onClick={() => setSheetOpen((open) => !open)}
             >
@@ -324,27 +348,41 @@ export default function PhoneApp() {
               <button
                 type="button"
                 className="phone-sheet-scrim"
-                aria-label="Close tabs"
+                aria-label={t('phone.closeTabs')}
                 onClick={() => setSheetOpen(false)}
               />
-              <div className="phone-sheet" role="dialog" aria-label="All tabs">
+              <div
+                className="phone-sheet"
+                role="dialog"
+                aria-label={t('phone.sheetAllTabs')}
+              >
                 <h2 className="phone-sheet-title">
-                  {countLabel} tabs
+                  {t(
+                    countLabel === 1
+                      ? 'phone.sheetTitleOne'
+                      : 'phone.sheetTitleMany',
+                    { count: formatNumber(language, countLabel) },
+                  )}
                 </h2>
                 {openSessions.some(isWaiting) ? (
                   <>
-                    <h3 className="phone-section-title">Waiting for you</h3>
+                    <h3 className="phone-section-title">
+                      {t('status.waitingForYou')}
+                    </h3>
                     {openSessions.filter(isWaiting).map((session) => (
                       <SheetRow
                         key={session.id}
                         session={session}
                         active={session.id === activeId}
                         onSelect={selectSession}
+                        t={t}
                       />
                     ))}
                   </>
                 ) : null}
-                <h3 className="phone-section-title">Everything else</h3>
+                <h3 className="phone-section-title">
+                  {t('phone.everythingElse')}
+                </h3>
                 {openSessions
                   .filter((session) => !isWaiting(session))
                   .map((session) => (
@@ -353,6 +391,7 @@ export default function PhoneApp() {
                       session={session}
                       active={session.id === activeId}
                       onSelect={selectSession}
+                      t={t}
                     />
                   ))}
               </div>
@@ -361,9 +400,13 @@ export default function PhoneApp() {
 
           {active.pendingPermission ? (
             <section className="phone-card">
-              <span className="phone-card-label">Permission needed</span>
+              <span className="phone-card-label">
+                {t('permission.needed')}
+              </span>
               <p className="permission-tool">
-                <span className="permission-label">Tool</span>{' '}
+                <span className="permission-label">
+                  {t('permission.tool')}
+                </span>{' '}
                 {active.pendingPermission.tool}
               </p>
               <pre className="permission-summary">
@@ -375,14 +418,14 @@ export default function PhoneApp() {
                   className="btn btn-ghost"
                   onClick={() => void answerPermission(active, 'deny')}
                 >
-                  Deny
+                  {t('permission.deny')}
                 </button>
                 <button
                   type="button"
                   className="btn btn-primary"
                   onClick={() => void answerPermission(active, 'allow')}
                 >
-                  Allow
+                  {t('permission.allow')}
                 </button>
               </div>
             </section>
@@ -398,7 +441,9 @@ export default function PhoneApp() {
             </section>
           ) : activeQuestion ? (
             <section className="phone-card">
-              <span className="phone-card-label">Question</span>
+              <span className="phone-card-label">
+                {t('phone.question')}
+              </span>
               <QuestionForm
                 question={activeQuestion}
                 onAnswer={async (answer) => {
@@ -416,7 +461,7 @@ export default function PhoneApp() {
           </div>
         </main>
       ) : (
-        <p className="phone-empty">Choose a session.</p>
+        <p className="phone-empty">{t('phone.chooseSession')}</p>
       )}
     </div>
   );
@@ -426,10 +471,12 @@ function SessionRow({
   session,
   active,
   onSelect,
+  t,
 }: {
   session: Session;
   active?: boolean;
   onSelect: (id: string) => void;
+  t: Translate;
 }) {
   return (
     <button
@@ -440,11 +487,15 @@ function SessionRow({
       <span className="phone-row-main">
         <span className="phone-row-name">{session.name}</span>
         <span className="phone-row-preview">
-          {isWaiting(session) ? 'Waiting for you' : session.preview || session.projectId}
+          {isWaiting(session)
+            ? t('status.waitingForYou')
+            : session.preview || session.projectId}
         </span>
       </span>
       <span className="phone-row-state">
-        {session.status === 'closed' ? 'Closed' : workLabel(session) ?? 'Active'}
+        {session.status === 'closed'
+          ? t('status.closed')
+          : workLabel(session, t) ?? t('status.active')}
       </span>
     </button>
   );
@@ -454,10 +505,12 @@ function SheetRow({
   session,
   active,
   onSelect,
+  t,
 }: {
   session: Session;
   active: boolean;
   onSelect: (id: string) => void;
+  t: Translate;
 }) {
   return (
     <button
@@ -467,7 +520,11 @@ function SheetRow({
     >
       <span className="phone-sheet-row-name">{session.name}</span>
       <span className="phone-sheet-row-meta">
-        {active ? 'Open' : isWaiting(session) ? 'Waiting' : workLabel(session) ?? 'Active'}
+        {active
+          ? t('phone.open')
+          : isWaiting(session)
+            ? t('status.waiting')
+            : workLabel(session, t) ?? t('status.active')}
       </span>
     </button>
   );

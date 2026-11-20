@@ -7,6 +7,7 @@ import {
   type KeyboardEvent,
 } from 'react';
 import { createPortal } from 'react-dom';
+import { useLanguage } from '../i18n/LanguageProvider';
 import { ChevronDownIcon } from './icons';
 
 export interface ComboboxOption {
@@ -54,6 +55,7 @@ export function Combobox({
   autoFocus = false,
   disabled = false,
 }: ComboboxProps) {
+  const { t } = useLanguage();
   const [asyncOptions, setAsyncOptions] = useState<ComboboxOption[]>([]);
   const [asyncLoaded, setAsyncLoaded] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -383,7 +385,7 @@ export function Combobox({
                 className="combo-list"
                 id={listboxId}
                 role="listbox"
-                aria-label={`${label} options`}
+                aria-label={t('combobox.optionsLabel', { label })}
                 aria-busy={async ? showLoading : undefined}
               >
                 {filtered.map((option, index) => (
@@ -414,19 +416,24 @@ export function Combobox({
               </ul>
               {showLoading ? (
                 <p className="combo-empty" role="status">
-                  Loading…
+                  {t('combobox.loading')}
                 </p>
               ) : loadFailed ? (
                 <p className="combo-empty" role="alert">
-                  Could not load options.
+                  {t('combobox.loadFailed')}
                 </p>
               ) : filtered.length === 0 ? (
                 <p className="combo-empty" role="status">
-                  No matches.
+                  {t('combobox.noMatches')}
                 </p>
               ) : (
                 <p className="sr-only" role="status">
-                  {filtered.length} options
+                  {t(
+                    filtered.length === 1
+                      ? 'combobox.optionCountOne'
+                      : 'combobox.optionCountMany',
+                    { count: filtered.length },
+                  )}
                 </p>
               )}
             </div>,

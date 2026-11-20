@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { ApiError } from '../api/client';
 import { isTauri, pickFolder } from '../api/shell';
 import type { CreateProjectInput, Project } from '../api/types';
+import { useLanguage } from '../i18n/LanguageProvider';
 import { Dialog } from './Dialog';
 import { AlertIcon } from './icons';
 
@@ -22,6 +23,7 @@ export function AddProjectDialog({
   onCreated,
   onClose,
 }: AddProjectDialogProps) {
+  const { t } = useLanguage();
   const [name, setName] = useState('');
   const [folder, setFolder] = useState('');
   const [errors, setErrors] = useState<FormErrors>({});
@@ -42,10 +44,10 @@ export function AddProjectDialog({
 
     const nextErrors: FormErrors = {};
     if (name.trim() === '') {
-      nextErrors.name = 'Enter a name.';
+      nextErrors.name = t('addProject.errorName');
     }
     if (folder.trim() === '') {
-      nextErrors.folder = 'Enter a folder.';
+      nextErrors.folder = t('addProject.errorFolder');
     }
 
     if (Object.keys(nextErrors).length > 0) {
@@ -67,7 +69,7 @@ export function AddProjectDialog({
         form:
           error instanceof ApiError
             ? error.message
-            : 'The project was not added. Try again.',
+            : t('addProject.errorAdd'),
       });
       setSubmitting(false);
     }
@@ -83,7 +85,7 @@ export function AddProjectDialog({
     } catch {
       setErrors((current) => ({
         ...current,
-        form: 'The folder picker is unavailable.',
+        form: t('addProject.errorPicker'),
       }));
     }
   }
@@ -92,28 +94,28 @@ export function AddProjectDialog({
     <Dialog
       titleId="add-project-title"
       descriptionId="add-project-description"
-      busyLabel="Adding project…"
+      busyLabel={t('addProject.busyLabel')}
       onClose={onClose}
       busy={submitting}
     >
       <div className="dialog-head">
         <h2 className="dialog-title" id="add-project-title">
-          Add project
+          {t('addProject.title')}
         </h2>
         <p className="dialog-sub" id="add-project-description">
-          Give the project a name and a folder.
+          {t('addProject.subtitle')}
         </p>
       </div>
 
       <form className="dialog-form" onSubmit={handleSubmit} noValidate>
         <div className="dialog-body">
           <div className="field">
-            <label htmlFor="add-project-name">Name</label>
+            <label htmlFor="add-project-name">{t('addProject.name')}</label>
             <input
               id="add-project-name"
               className="text-input"
               value={name}
-              placeholder="For example, web"
+              placeholder={t('addProject.namePlaceholder')}
               autoFocus
               required
               aria-invalid={errors.name ? true : undefined}
@@ -133,13 +135,13 @@ export function AddProjectDialog({
           </div>
 
           <div className="field">
-            <label htmlFor="add-project-folder">Folder</label>
+            <label htmlFor="add-project-folder">{t('addProject.folder')}</label>
             <div className="field-row">
               <input
                 id="add-project-folder"
                 className="text-input"
                 value={folder}
-                placeholder="Type a folder path"
+                placeholder={t('addProject.folderPlaceholder')}
                 spellCheck={false}
                 required
                 aria-invalid={errors.folder ? true : undefined}
@@ -153,7 +155,7 @@ export function AddProjectDialog({
               />
               {isTauri() ? (
                 <button type="button" className="btn btn-ghost" onClick={() => void browse()}>
-                  Browse…
+                  {t('addProject.browse')}
                 </button>
               ) : null}
             </div>
@@ -179,10 +181,10 @@ export function AddProjectDialog({
             onClick={onClose}
             disabled={submitting}
           >
-            Cancel
+            {t('common.cancel')}
           </button>
           <button type="submit" className="btn btn-primary" disabled={submitting}>
-            {submitting ? 'Adding…' : 'Add project'}
+            {submitting ? t('addProject.submitting') : t('addProject.submit')}
           </button>
         </div>
       </form>

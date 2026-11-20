@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { ApiError } from '../api/client';
 import type { Session } from '../api/types';
+import { useLanguage } from '../i18n/LanguageProvider';
 import { Dialog } from './Dialog';
 import { AlertIcon } from './icons';
 
@@ -15,6 +16,7 @@ export function CloseSessionDialog({
   onConfirm,
   onClose,
 }: CloseSessionDialogProps) {
+  const { t } = useLanguage();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -27,7 +29,7 @@ export function CloseSessionDialog({
       setError(
         reason instanceof ApiError
           ? reason.message
-          : 'The session was not closed. Try again.',
+          : t('closeSession.error'),
       );
       setSubmitting(false);
     }
@@ -37,33 +39,28 @@ export function CloseSessionDialog({
     <Dialog
       titleId="close-session-title"
       descriptionId="close-session-description"
-      busyLabel="Closing session…"
+      busyLabel={t('closeSession.busyLabel')}
       onClose={onClose}
       busy={submitting}
     >
       <div className="dialog-head">
         <h2 className="dialog-title" id="close-session-title">
-          Close session?
+          {t('closeSession.title')}
         </h2>
         <p className="dialog-sub" id="close-session-description">
           {session.name} ·{' '}
-          {session.kind === 'terminal' ? 'Terminal session' : 'Agent session'}
+          {session.kind === 'terminal'
+            ? t('closeSession.subtitleTerminal')
+            : t('closeSession.subtitleAgent')}
           {session.branch ? ` · ${session.branch}` : ''}
         </p>
       </div>
 
       <div className="dialog-body close-body">
         {session.kind === 'terminal' ? (
-          <p className="close-copy">
-            The terminal stops. The folder stays as it is.
-          </p>
+          <p className="close-copy">{t('closeSession.terminalCopy')}</p>
         ) : (
-          <p className="close-copy">
-            Closing commits the agent's work and, when the repository has a
-            remote, pushes the branch. The worktree is removed when that
-            succeeds. If it fails, the worktree stays and the reason appears in
-            the session preview. The branch stays.
-          </p>
+          <p className="close-copy">{t('closeSession.agentCopy')}</p>
         )}
 
         {error ? (
@@ -82,7 +79,7 @@ export function CloseSessionDialog({
           disabled={submitting}
           autoFocus
         >
-          Cancel
+          {t('common.cancel')}
         </button>
         <button
           type="button"
@@ -90,7 +87,7 @@ export function CloseSessionDialog({
           onClick={() => void confirm()}
           disabled={submitting}
         >
-          {submitting ? 'Closing…' : 'Close session'}
+          {submitting ? t('closeSession.submitting') : t('closeSession.submit')}
         </button>
       </div>
     </Dialog>

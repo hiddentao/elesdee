@@ -1,4 +1,5 @@
 import type { SessionRequest } from '../api/types';
+import { useLanguage } from '../i18n/LanguageProvider';
 import { Dialog } from './Dialog';
 import { SessionRequestForm } from './SessionRequestForm';
 
@@ -15,6 +16,7 @@ export function RequestsDialog({
   onDeny,
   onClose,
 }: RequestsDialogProps) {
+  const { t } = useLanguage();
   return (
     <Dialog
       titleId="requests-title"
@@ -24,15 +26,15 @@ export function RequestsDialog({
     >
       <div className="dialog-head">
         <h2 className="dialog-title" id="requests-title">
-          Session requests
+          {t('requests.title')}
         </h2>
         <p className="dialog-sub" id="requests-description">
-          Agents need your approval before they start another session.
+          {t('requests.subtitle')}
         </p>
       </div>
       <div className="dialog-body questions-body">
         {requests.length === 0 ? (
-          <p className="empty-text">No pending requests.</p>
+          <p className="empty-text">{t('requests.none')}</p>
         ) : (
           requests.map((request) => (
             <SessionRequestForm
@@ -46,7 +48,7 @@ export function RequestsDialog({
       </div>
       <div className="dialog-foot">
         <button type="button" className="btn btn-ghost" onClick={onClose} autoFocus>
-          Close
+          {t('common.close')}
         </button>
       </div>
     </Dialog>

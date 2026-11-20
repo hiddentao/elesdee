@@ -1,6 +1,10 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import PhoneApp from './PhoneApp';
+import {
+  LanguageProvider,
+  PHONE_LANGUAGE_KEY,
+} from '../i18n/LanguageProvider';
 import '@xterm/xterm/css/xterm.css';
 import '../styles/tokens.css';
 import '../styles/app.css';
@@ -14,6 +18,8 @@ if (!root) {
 
 createRoot(root).render(
   <StrictMode>
-    <PhoneApp />
+    <LanguageProvider storageKey={PHONE_LANGUAGE_KEY}>
+      <PhoneApp />
+    </LanguageProvider>
   </StrictMode>,
 );

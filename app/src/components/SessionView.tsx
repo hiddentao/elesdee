@@ -6,6 +6,7 @@ import type {
   SessionRequest,
 } from '../api/types';
 import { waitingForDetail } from '../state/sessionStatus';
+import { useLanguage } from '../i18n/LanguageProvider';
 import { AlertIcon, ChevronRightIcon } from './icons';
 import { PermissionCard } from './PermissionCard';
 import { QuestionForm } from './QuestionForm';
@@ -40,6 +41,7 @@ export function SessionView({
   onApproveRequest,
   onDenyRequest,
 }: SessionViewProps) {
+  const { t } = useLanguage();
   const closed = session.status === 'closed';
   const paused =
     session.status === 'active' &&
@@ -51,17 +53,20 @@ export function SessionView({
       : null;
 
   return (
-    <section className="session-body" aria-label={`${session.name} session`}>
+    <section
+      className="session-body"
+      aria-label={t('session.bodyLabel', { name: session.name })}
+    >
       {closed ? (
         <div className="closed-banner">
           <span className="closed-banner-mark" aria-hidden="true" />
           <div className="closed-banner-text">
-            <strong>Closed</strong>
+            <strong>{t('status.closed')}</strong>
             <span>
-              The session log is kept.
+              {t('session.logKept')}{' '}
               {session.branch
-                ? ` The branch ${session.branch} stays.`
-                : ' The folder stays as it is.'}
+                ? t('session.branchStays', { branch: session.branch })
+                : t('session.folderStays')}
             </span>
           </div>
           <button
@@ -69,7 +74,7 @@ export function SessionView({
             className="btn btn-ghost closed-reopen"
             onClick={onReopen}
           >
-            Reopen
+            {t('session.reopen')}
             <ChevronRightIcon />
           </button>
         </div>
@@ -85,16 +90,18 @@ export function SessionView({
         <div className="waiting-note" role="status">
           <AlertIcon />
           <div>
-            <strong>Paused</strong>
+            <strong>{t('status.paused')}</strong>
             <span>{session.preview}</span>
           </div>
           <button type="button" className="btn btn-ghost" onClick={onResume}>
-            Resume
+            {t('session.resume')}
           </button>
         </div>
       ) : question ? (
         <section className="question-card session-question">
-          <span className="question-session">Question from the agent</span>
+          <span className="question-session">
+            {t('session.questionFromAgent')}
+          </span>
           <QuestionForm
             question={question}
             onAnswer={onAnswerQuestion ?? (() => Promise.resolve())}
@@ -104,8 +111,10 @@ export function SessionView({
         <div className="waiting-note" role="status">
           <AlertIcon />
           <div>
-            <strong>Waiting for you</strong>
-            <span>{waitingForDetail(session.waitingFor)}</span>
+            <strong>{t('status.waitingForYou')}</strong>
+            <span>
+              {waitingForDetail(session.waitingFor, t)}
+            </span>
           </div>
         </div>
       ) : null}
@@ -113,7 +122,9 @@ export function SessionView({
       <Suspense
         fallback={
           <div className="terminal-shell">
-            <div className="terminal-loading">Loading terminal…</div>
+            <div className="terminal-loading">
+              {t('session.loadingTerminal')}
+            </div>
           </div>
         }
       >

@@ -4,6 +4,7 @@ import { Terminal, type ITheme } from '@xterm/xterm';
 import { resizeSession, sendInput } from '../api/client';
 import { subscribeOutput } from '../api/events';
 import type { Session } from '../api/types';
+import { useLanguage } from '../i18n/LanguageProvider';
 
 const ANSI = {
   black: '#1c1e1f',
@@ -51,6 +52,7 @@ interface TerminalPaneProps {
 }
 
 export function TerminalPane({ session, readOnly = false }: TerminalPaneProps) {
+  const { t } = useLanguage();
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const lastSeqRef = useRef(0);
@@ -193,20 +195,20 @@ export function TerminalPane({ session, readOnly = false }: TerminalPaneProps) {
     <>
       {connectionError ? (
         <div className="connection-note">
-          <span role="status">Output is disconnected.</span>
+          <span role="status">{t('terminal.disconnected')}</span>
           <button
             type="button"
             className="link-button"
             onClick={() => setAttempt((count) => count + 1)}
           >
-            Retry
+            {t('common.retry')}
           </button>
         </div>
       ) : null}
 
       {reconnected ? (
         <p className="sr-only" role="status">
-          Output reconnected.
+          {t('terminal.reconnected')}
         </p>
       ) : null}
 

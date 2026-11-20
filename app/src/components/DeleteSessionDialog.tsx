@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { ApiError } from '../api/client';
 import type { Session } from '../api/types';
+import { useLanguage } from '../i18n/LanguageProvider';
 import { Dialog } from './Dialog';
 import { AlertIcon } from './icons';
 
@@ -15,6 +16,7 @@ export function DeleteSessionDialog({
   onConfirm,
   onClose,
 }: DeleteSessionDialogProps) {
+  const { t } = useLanguage();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -27,7 +29,7 @@ export function DeleteSessionDialog({
       setError(
         reason instanceof ApiError
           ? reason.message
-          : 'The session was not deleted. Try again.',
+          : t('deleteSession.error'),
       );
       setSubmitting(false);
     }
@@ -37,13 +39,13 @@ export function DeleteSessionDialog({
     <Dialog
       titleId="delete-session-title"
       descriptionId="delete-session-description"
-      busyLabel="Deleting session…"
+      busyLabel={t('deleteSession.busyLabel')}
       onClose={onClose}
       busy={submitting}
     >
       <div className="dialog-head">
         <h2 className="dialog-title" id="delete-session-title">
-          Delete session?
+          {t('deleteSession.title')}
         </h2>
         <p className="dialog-sub" id="delete-session-description">
           {session.name}
@@ -51,9 +53,7 @@ export function DeleteSessionDialog({
       </div>
 
       <div className="dialog-body close-body">
-        <p className="close-copy">
-          The session and its log are removed from the app. The branch stays.
-        </p>
+        <p className="close-copy">{t('deleteSession.copy')}</p>
 
         {error ? (
           <div className="form-error" role="alert">
@@ -71,7 +71,7 @@ export function DeleteSessionDialog({
           disabled={submitting}
           autoFocus
         >
-          Cancel
+          {t('common.cancel')}
         </button>
         <button
           type="button"
@@ -79,7 +79,9 @@ export function DeleteSessionDialog({
           onClick={() => void confirm()}
           disabled={submitting}
         >
-          {submitting ? 'Deleting…' : 'Delete'}
+          {submitting
+            ? t('deleteSession.submitting')
+            : t('deleteSession.submit')}
         </button>
       </div>
     </Dialog>

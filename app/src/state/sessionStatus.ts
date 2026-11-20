@@ -1,4 +1,5 @@
 import type { Account, Session, WaitingFor } from '../api/types';
+import { englishT, type Translate } from '../i18n';
 
 export type StatusTone = 'running' | 'waiting' | 'input' | 'paused' | 'done' | 'closed';
 
@@ -26,83 +27,105 @@ export function statusTone(session: Session): StatusTone {
   }
 }
 
-export function workLabel(session: Session): string | null {
+export function workLabel(
+  session: Session,
+  t: Translate = englishT,
+): string | null {
   if (session.status === 'closed') {
     return null;
   }
   if (session.waitingFor) {
-    return 'Waiting for you';
+    return t('status.waitingForYou');
   }
 
   switch (session.workState) {
     case 'working':
-      return 'Working';
+      return t('status.working');
     case 'waiting':
-      return 'Waiting';
+      return t('status.waiting');
     case 'input':
-      return 'Waiting for you';
+      return t('status.waitingForYou');
     case 'paused':
-      return 'Paused';
+      return t('status.paused');
     case 'done':
-      return 'Finished';
+      return t('status.finished');
     default:
       return null;
   }
 }
 
-export function tabStateLabel(session: Session): string {
+export function tabStateLabel(
+  session: Session,
+  t: Translate = englishT,
+): string {
   if (session.status === 'closed') {
-    return 'Closed';
+    return t('status.closed');
   }
   if (session.waitingFor) {
-    return 'Waiting';
+    return t('status.waiting');
   }
 
   switch (session.workState) {
     case 'working':
-      return 'Working';
+      return t('status.working');
     case 'waiting':
-      return 'Waiting';
+      return t('status.waiting');
     case 'input':
-      return 'Input';
+      return t('status.input');
     case 'paused':
-      return 'Paused';
+      return t('status.paused');
     case 'done':
-      return 'Done';
+      return t('status.done');
     default:
-      return 'Active';
+      return t('status.active');
   }
 }
 
-export function statusText(session: Session): string {
+export function statusText(
+  session: Session,
+  t: Translate = englishT,
+): string {
   if (session.status === 'closed') {
-    return 'Closed';
+    return t('status.closed');
   }
-  const detail = workLabel(session);
-  return detail ? `Active, ${detail}` : 'Active';
+  const detail = workLabel(session, t);
+  return detail
+    ? t('status.activeWith', { detail })
+    : t('status.active');
 }
 
-export function waitingForDetail(reason: WaitingFor): string {
+export function waitingForDetail(
+  reason: WaitingFor,
+  t: Translate = englishT,
+): string {
   switch (reason) {
     case 'permission':
-      return 'The agent needs your permission to continue.';
+      return t('status.reasonPermission');
     case 'input':
-      return 'The agent is waiting for your input.';
+      return t('status.reasonInput');
     case 'start':
-      return 'The session is ready to start.';
+      return t('status.reasonStart');
     case 'question':
-      return 'The agent asked you a question.';
+      return t('status.reasonQuestion');
   }
 }
 
-export function sessionKindLabel(session: Session): string {
+export function sessionKindLabel(
+  session: Session,
+  t: Translate = englishT,
+): string {
   if (session.kind === 'terminal') {
-    return 'Terminal';
+    return t('status.terminal');
   }
-  return session.client ? `Agent · ${session.client}` : 'Agent';
+  return session.client
+    ? t('status.agentWithClient', { client: session.client })
+    : t('status.agent');
 }
 
-export function accountFor(accounts: Account[], accountId: string | null): Account | null {
+export function accountFor(
+  accounts: Account[],
+  accountId: string | null,
+): Account | null {
   if (!accountId) {
     return null;
   }

@@ -1,6 +1,8 @@
 import { useState, type FormEvent } from 'react';
 import { ApiError } from '../api/client';
 import type { Account, Session } from '../api/types';
+import { type Language } from '../i18n';
+import { useLanguage } from '../i18n/LanguageProvider';
 import { accountUsage } from '../state/usage';
 import { Combobox, type ComboboxOption } from './Combobox';
 import { Dialog } from './Dialog';
@@ -12,11 +14,14 @@ interface SwitchAccountDialogProps {
   onClose: () => void;
 }
 
-function accountOption(account: Account): ComboboxOption {
+function accountOption(
+  account: Account,
+  language: Language,
+): ComboboxOption {
   return {
     id: account.id,
     label: account.name,
-    meta: `${account.client} · ${accountUsage(account).summary}`,
+    meta: `${account.client} · ${accountUsage(account, language).summary}`,
   };
 }
 
@@ -26,9 +31,10 @@ export function SwitchAccountDialog({
   onSwitch,
   onClose,
 }: SwitchAccountDialogProps) {
+  const { t, language } = useLanguage();
   const options = accounts
     .filter((account) => account.id !== session.accountId)
-    .map(accountOption);
+    .map((account) => accountOption(account, language));
   const [accountId, setAccountId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -36,7 +42,7 @@ export function SwitchAccountDialog({
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!accountId) {
-      setError('Choose an account.');
+      setError(t('switchAccount.errorChoose'));
       return;
     }
 
@@ -50,7 +56,7 @@ export function SwitchAccountDialog({
       setError(
         failure instanceof ApiError
           ? failure.message
-          : 'The account was not changed. Try again.',
+          : t('switchAccount.errorSwitch'),
       );
     }
   }
@@ -59,13 +65,13 @@ export function SwitchAccountDialog({
     <Dialog
       titleId="switch-account-title"
       descriptionId="switch-account-description"
-      busyLabel="Switching account…"
+      busyLabel={t('switchAccount.busyLabel')}
       onClose={onClose}
       busy={submitting}
     >
       <div className="dialog-head">
         <h2 className="dialog-title" id="switch-account-title">
-          Switch account
+          {t('switchAccount.title')}
         </h2>
         <p className="dialog-sub" id="switch-account-description">
           {session.name}
@@ -76,7 +82,7 @@ export function SwitchAccountDialog({
         <div className="dialog-body">
           <Combobox
             id="switch-account"
-            label="Account"
+            label={t('switchAccount.account')}
             value={accountId}
             options={options}
             onChange={(id) => {
@@ -85,10 +91,10 @@ export function SwitchAccountDialog({
             }}
             placeholder={
               options.length === 0
-                ? 'No other account is available'
-                : 'Type to find an account'
+                ? t('switchAccount.noOther')
+                : t('switchAccount.placeholder')
             }
-            hint="A different client starts a new conversation in the same worktree."
+            hint={t('switchAccount.hint')}
             error={error ?? undefined}
             required
             autoFocus
@@ -102,14 +108,16 @@ export function SwitchAccountDialog({
             onClick={onClose}
             disabled={submitting}
           >
-            Cancel
+            {t('common.cancel')}
           </button>
           <button
             type="submit"
             className="btn btn-primary"
             disabled={submitting || options.length === 0}
           >
-            {submitting ? 'Switching…' : 'Switch account'}
+            {submitting
+              ? t('switchAccount.submitting')
+              : t('switchAccount.submit')}
           </button>
         </div>
       </form>
