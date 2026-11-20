@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { StrictMode, useState } from 'react';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
@@ -56,6 +56,19 @@ describe('Dialog', () => {
   it('moves focus to the first control on open', async () => {
     const user = userEvent.setup();
     render(<TrapHarness />);
+
+    await user.click(screen.getByRole('button', { name: 'Open dialog' }));
+
+    expect(screen.getByRole('button', { name: 'First' })).toHaveFocus();
+  });
+
+  it('keeps focus inside while StrictMode repeats the mount effects', async () => {
+    const user = userEvent.setup();
+    render(
+      <StrictMode>
+        <TrapHarness />
+      </StrictMode>,
+    );
 
     await user.click(screen.getByRole('button', { name: 'Open dialog' }));
 
@@ -132,6 +145,52 @@ describe('Dialog', () => {
     expect(screen.getByRole('dialog')).toHaveAttribute('aria-busy', 'true');
     expect(screen.getByRole('status')).toHaveTextContent('Starting session…');
     expect(screen.getByRole('status')).toHaveFocus();
+  });
+
+  it('keeps Tab inside the dialog while busy', async () => {
+    const user = userEvent.setup();
+    render(
+      <Dialog
+        titleId="busy-title"
+        busy
+        busyLabel="Starting session…"
+        onClose={() => {}}
+      >
+        <h2 id="busy-title">Busy dialog</h2>
+        <button type="button">First</button>
+        <button type="button">Second</button>
+      </Dialog>,
+    );
+
+    expect(screen.getByRole('status')).toHaveFocus();
+
+    await user.tab();
+    expect(screen.getByRole('button', { name: 'First' })).toHaveFocus();
+
+    await user.tab();
+    expect(screen.getByRole('button', { name: 'Second' })).toHaveFocus();
+
+    await user.tab();
+    expect(screen.getByRole('button', { name: 'First' })).toHaveFocus();
+
+    await user.tab({ shift: true });
+    expect(screen.getByRole('button', { name: 'Second' })).toHaveFocus();
+  });
+
+  it('restores focus to the opener after a StrictMode mount', async () => {
+    const user = userEvent.setup();
+    render(
+      <StrictMode>
+        <Harness />
+      </StrictMode>,
+    );
+    const opener = screen.getByRole('button', { name: 'Open dialog' });
+
+    await user.click(opener);
+    await user.keyboard('{Escape}');
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(opener).toHaveFocus();
   });
 
   it('restores focus to the opener when Escape closes it', async () => {

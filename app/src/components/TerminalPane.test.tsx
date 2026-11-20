@@ -36,7 +36,19 @@ vi.mock('@xterm/xterm', () => {
     options: Record<string, unknown> = {};
     write = mocks.write;
     writeln = mocks.writeln;
-    open = mocks.open;
+    open = (container: HTMLElement) => {
+      mocks.open(container);
+      const layer = document.createElement('div');
+      layer.className = 'xterm-accessibility';
+      const tree = document.createElement('div');
+      tree.className = 'xterm-accessibility-tree';
+      tree.setAttribute('role', 'list');
+      const live = document.createElement('div');
+      live.className = 'live-region';
+      live.setAttribute('aria-live', 'assertive');
+      layer.append(tree, live);
+      container.appendChild(layer);
+    };
     loadAddon = mocks.loadAddon;
     onData = mocks.onData;
     dispose = mocks.dispose;
@@ -130,6 +142,27 @@ describe('TerminalPane', () => {
     });
     expect(mocks.fit).toHaveBeenCalled();
     expect(resizeSession).toHaveBeenCalledWith('s1', 80, 24);
+  });
+
+  it('names the output list and announces output politely', () => {
+    const { rerender, container } = render(
+      <TerminalPane session={activeSession} />,
+    );
+
+    expect(screen.getByRole('list')).toHaveAttribute(
+      'aria-label',
+      'Terminal output for Terminal check',
+    );
+    expect(
+      container.querySelector('.xterm-accessibility .live-region'),
+    ).toHaveAttribute('aria-live', 'polite');
+
+    rerender(<TerminalPane session={{ ...activeSession, name: 'Renamed' }} />);
+
+    expect(screen.getByRole('list')).toHaveAttribute(
+      'aria-label',
+      'Terminal output for Renamed',
+    );
   });
 
   it('sends raw terminal input', () => {

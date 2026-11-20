@@ -1,4 +1,10 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App';
@@ -25,6 +31,15 @@ const sessions = [
   }),
 ];
 
+const createdSession = makeSession({
+  id: 's3',
+  name: 'Created session',
+  kind: 'terminal',
+  configId: null,
+  providerId: null,
+  client: null,
+});
+
 function payload(data: unknown) {
   return {
     ok: true,
@@ -38,8 +53,17 @@ beforeEach(() => {
   vi.stubGlobal('EventSource', FakeEventSource);
   vi.stubGlobal(
     'fetch',
-    vi.fn(async (input: RequestInfo | URL) => {
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      if (
+        url.endsWith('/api/sessions') &&
+        init?.method === 'POST'
+      ) {
+        return payload(createdSession);
+      }
+      if (url.includes('/api/projects?')) {
+        return payload([coreProject]);
+      }
       if (url.endsWith('/api/bootstrap')) {
         return payload({
           projects: [coreProject],
@@ -125,5 +149,65 @@ describe('App window lifecycle', () => {
     } finally {
       spy.mockRestore();
     }
+  });
+
+  it('starts the heading order at level one and keeps it in order', async () => {
+    const user = userEvent.setup();
+    render(
+      <LanguageProvider>
+        <App />
+      </LanguageProvider>,
+    );
+
+    await user.click(
+      await screen.findByRole('button', { name: /First session/ }),
+    );
+
+    expect(
+      screen.getByRole('heading', { level: 1, name: 'First session' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { level: 1, name: /elesdee/ }),
+    ).toBeInTheDocument();
+
+    const levels = screen
+      .getAllByRole('heading')
+      .map((heading) => Number(heading.tagName.slice(1)));
+    expect(levels[0]).toBe(1);
+    for (let index = 1; index < levels.length; index += 1) {
+      expect(levels[index] - levels[index - 1]).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it('moves focus to the new session tab after creation', async () => {
+    const user = userEvent.setup();
+    render(
+      <LanguageProvider>
+        <App />
+      </LanguageProvider>,
+    );
+
+    await waitFor(() =>
+      expect(document.querySelector('.titlebar')).not.toBeNull(),
+    );
+    const titlebar = document.querySelector('.titlebar') as HTMLElement;
+    await user.click(
+      within(titlebar).getByRole('button', { name: 'New session' }),
+    );
+    const dialog = await screen.findByRole('dialog');
+
+    await user.click(
+      within(dialog).getByRole('radio', { name: 'Terminal' }),
+    );
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Start session' }),
+    );
+
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument(),
+    );
+    expect(
+      await screen.findByRole('tab', { name: /Created session/ }),
+    ).toHaveFocus();
   });
 });

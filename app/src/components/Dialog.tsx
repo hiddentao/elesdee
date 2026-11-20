@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type KeyboardEvent,
@@ -63,11 +64,26 @@ export function Dialog({
     (focusable[0] ?? dialog).focus();
   }, [busy]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     return () => {
-      if (opener?.isConnected) {
-        opener.focus();
-      }
+      queueMicrotask(() => {
+        // A repeated mount keeps the dialog in the document, and another
+        // focus target means the app already moved focus on purpose.
+        if (dialogRef.current?.isConnected) {
+          return;
+        }
+        const active = document.activeElement;
+        if (
+          active instanceof HTMLElement &&
+          active !== document.body &&
+          active.isConnected
+        ) {
+          return;
+        }
+        if (opener?.isConnected) {
+          opener.focus();
+        }
+      });
     };
   }, [opener]);
 
@@ -94,16 +110,22 @@ export function Dialog({
       ? focusableElements(dialogRef.current)
       : [];
     if (focusable.length === 0) {
+      event.preventDefault();
+      dialogRef.current?.focus();
       return;
     }
 
     const first = focusable[0];
     const last = focusable[focusable.length - 1];
+    const active = document.activeElement;
+    const index = active instanceof HTMLElement ? focusable.indexOf(active) : -1;
 
-    if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && document.activeElement === last) {
+    if (event.shiftKey) {
+      if (index <= 0) {
+        event.preventDefault();
+        last.focus();
+      }
+    } else if (index === -1 || index === focusable.length - 1) {
       event.preventDefault();
       first.focus();
     }

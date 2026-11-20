@@ -1,7 +1,7 @@
 import { useRef, type KeyboardEvent } from 'react';
 import type { Project, Session } from '../api/types';
 import { useLanguage } from '../i18n/LanguageProvider';
-import { statusText, statusTone } from '../state/sessionStatus';
+import { statusShape, statusText, statusTone } from '../state/sessionStatus';
 import { FolderIcon, PlusIcon } from './icons';
 
 interface TabStripProps {
@@ -83,6 +83,7 @@ export function TabStrip({
           {sessions.map((session, index) => {
             const isActive = session.id === activeSessionId;
             const isTabStop = isActive || (activeSessionId === null && index === 0);
+            const tone = statusTone(session);
 
             return (
               <button
@@ -115,7 +116,8 @@ export function TabStrip({
               >
                 <span
                   className="status-marker tab-marker"
-                  data-status={statusTone(session)}
+                  data-status={tone}
+                  data-shape={statusShape(tone)}
                   aria-hidden="true"
                 />
                 <span className="tab-name">{session.name}</span>

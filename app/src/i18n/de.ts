@@ -587,6 +587,7 @@ export const de = {
 
   'terminal.disconnected': 'Die Ausgabe ist getrennt.',
   'terminal.reconnected': 'Ausgabe wieder verbunden.',
+  'terminal.outputLabel': 'Terminalausgabe für {name}',
 
   'usage.title': 'Nutzung',
   'usage.subtitle': 'Limits für jeden Anbieter auf diesem Computer.',

@@ -107,6 +107,7 @@ button:disabled {
   display: flex;
   align-items: center;
   gap: 8px;
+  margin: 0;
   font-family: var(--serif-font);
   font-size: 17px;
   font-weight: 600;
@@ -684,12 +685,28 @@ button:disabled {
   background: var(--status-color);
 }
 
-.status-marker[data-status="waiting"] {
-  box-shadow: 0 0 0 3px var(--waiting-soft);
+.status-marker[data-shape="diamond"] {
+  border-radius: 1px;
+  transform: rotate(45deg);
 }
 
-.status-marker[data-status="closed"] {
-  border: 1.5px solid var(--closed);
+.status-marker[data-shape="square"] {
+  border-radius: 1px;
+}
+
+.status-marker[data-shape="square-ring"] {
+  border: 1.5px solid var(--status-color);
+  border-radius: 1px;
+  background: transparent;
+}
+
+.status-marker[data-shape="thick-ring"] {
+  border: 2.5px solid var(--status-color);
+  background: transparent;
+}
+
+.status-marker[data-shape="hollow"] {
+  border: 1.5px solid var(--status-color);
   background: transparent;
 }
 

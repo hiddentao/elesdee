@@ -24,14 +24,14 @@ afterEach(() => {
   document.elementFromPoint = originalElementFromPoint;
 });
 
-function renderSidebar() {
+function renderSidebar(sessions = [session]) {
   const onMoveSession = vi.fn(async () => true);
   const onSelectSession = vi.fn();
   render(
     <LanguageProvider>
       <Sidebar
         projects={projects}
-        sessions={[session]}
+        sessions={sessions}
         providers={[]}
         activeProjectId={null}
         activeSessionId={null}
@@ -65,6 +65,14 @@ describe('Sidebar session row', () => {
       'title',
       'Move me, Active, Working',
     );
+  });
+
+  it('gives a paused session a marker shape that does not rely on colour', () => {
+    renderSidebar([{ ...session, workState: 'paused' }]);
+
+    expect(
+      sessionRow().querySelector('.status-marker'),
+    ).toHaveAttribute('data-shape', 'square-ring');
   });
 });
 

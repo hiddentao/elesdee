@@ -565,6 +565,7 @@ export const en = {
 
   'terminal.disconnected': 'Output is disconnected.',
   'terminal.reconnected': 'Output reconnected.',
+  'terminal.outputLabel': 'Terminal output for {name}',
 
   'usage.title': 'Usage',
   'usage.subtitle': 'Limits for every provider on this computer.',

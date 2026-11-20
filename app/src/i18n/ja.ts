@@ -590,6 +590,7 @@ export const ja = {
 
   'terminal.disconnected': '出力が切断されました。',
   'terminal.reconnected': '出力が再接続されました。',
+  'terminal.outputLabel': '{name} のターミナル出力',
 
   'usage.title': '使用量',
   'usage.subtitle': 'このコンピューターの各プロバイダーの上限。',

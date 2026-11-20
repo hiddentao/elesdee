@@ -840,6 +840,7 @@ export default function App() {
     );
     setDialogOpen(false);
     openSession(session);
+    setFocusSessionChangeTick((tick) => tick + 1);
   }
 
   function handleClientInstalled(agent: AgentCheck) {
@@ -1295,7 +1296,7 @@ export default function App() {
           className={tauri ? 'titlebar is-tauri' : 'titlebar'}
           data-tauri-drag-region={tauri ? 'true' : undefined}
         >
-          <div className="brand">
+          <h1 className="brand">
             <span className="brand-mark" aria-hidden="true" />
             elesdee
             {activeProject ? (
@@ -1304,7 +1305,7 @@ export default function App() {
                 {activeProject.name}
               </span>
             ) : null}
-          </div>
+          </h1>
           <div className="titlebar-spacer" />
           {projects.length > 0 ? (
             <button

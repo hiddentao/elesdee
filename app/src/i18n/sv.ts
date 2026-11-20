@@ -590,6 +590,7 @@ export const sv = {
 
   'terminal.disconnected': 'Utdata är frånkopplad.',
   'terminal.reconnected': 'Utdata återansluten.',
+  'terminal.outputLabel': 'Terminalutdata för {name}',
 
   'usage.title': 'Användning',
   'usage.subtitle':

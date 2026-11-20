@@ -48,8 +48,8 @@
   --code-key: #8c4a3f;
   --code-string: #4e7a5d;
   --code-fn: #3d5a80;
-  --code-comment: #9a9387;
-  --code-line: #b9b1a3;
+  --code-comment: #665e50;
+  --code-line: #756c5d;
   --diff-add-bg: rgba(78, 122, 93, 0.1);
   --diff-del-bg: rgba(163, 74, 63, 0.1);
 
@@ -119,7 +119,7 @@
     --code-string: #c3e88d;
     --code-fn: #82aaff;
     --code-comment: #7c879a;
-    --code-line: #3a4450;
+    --code-line: #788294;
     --diff-add-bg: rgba(127, 199, 154, 0.12);
     --diff-del-bg: rgba(217, 131, 131, 0.12);
   }
