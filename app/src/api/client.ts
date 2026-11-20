@@ -24,6 +24,9 @@ import type {
   HealthResponse,
   ModelList,
   PairedDevice,
+  PairedDeviceRecord,
+  PairingCreated,
+  PairingStatus,
   PermissionDecision,
   Project,
   Provider,
@@ -614,6 +617,34 @@ export function updateSettings(input: SettingsPatch): Promise<AppSettings> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
   });
+}
+
+export function createPairing(): Promise<PairingCreated> {
+  return request<PairingCreated>('/api/pairing', post({}));
+}
+
+export function getPairingStatus(): Promise<PairingStatus> {
+  return request<PairingStatus>('/api/pairing');
+}
+
+export async function approvePairing(): Promise<PairedDevice> {
+  const device = await request<PairedDeviceRecord>(
+    '/api/pairing/approve',
+    post({}),
+  );
+  return { ...device, connected: false };
+}
+
+export function denyPairing(): Promise<void> {
+  return request<void>('/api/pairing/deny', post({}));
+}
+
+export function cancelPairing(): Promise<void> {
+  return request<void>('/api/pairing', { method: 'DELETE' });
+}
+
+export function pairingQrUrl(cacheBust: number): string {
+  return `${API_BASE}/api/pairing/qr?v=${cacheBust}`;
 }
 
 export function listDevices(): Promise<PairedDevice[]> {

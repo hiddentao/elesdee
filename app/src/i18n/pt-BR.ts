@@ -193,7 +193,7 @@ export const ptBR = {
     'Telefones pareados com este computador. Remova um telefone para revogar o acesso imediatamente.',
   'devices.empty': 'Nenhum telefone está pareado.',
   'devices.emptyHint':
-    'Abra o aplicativo do telefone e escaneie o código de pareamento que o aplicativo de desktop mostra. O telefone aparecerá aqui.',
+    'Escolha “Parear um telefone” e escaneie o código com o aplicativo do telefone. O telefone aparecerá aqui.',
   'devices.loading': 'Carregando telefones…',
   'devices.loadError': 'Não foi possível carregar os telefones pareados.',
   'devices.connected': 'Conectado',
@@ -207,6 +207,50 @@ export const ptBR = {
   'devices.removeConfirm': 'Remover telefone',
   'devices.removing': 'Removendo…',
   'devices.removeError': 'Não foi possível remover o telefone.',
+
+  'pairing.start': 'Parear um telefone',
+  'pairing.title': 'Parear um telefone',
+  'pairing.intro': 'Pareie o aplicativo do telefone com este computador.',
+  'pairing.starting': 'Iniciando o pareamento…',
+  'pairing.scan': 'Escaneie este código com o aplicativo do telefone.',
+  'pairing.qrAlt': 'Código QR de pareamento',
+  'pairing.qrError':
+    'Não foi possível mostrar o código de pareamento. Cancele e tente de novo.',
+  'pairing.ticketLabel': 'Ticket de pareamento',
+  'pairing.ticketHint':
+    'Se o telefone não conseguir escanear o código, cole este ticket no aplicativo do telefone.',
+  'pairing.sameNetwork':
+    'O relay não está pronto. Mantenha o telefone e este computador na mesma rede.',
+  'pairing.expiresIn': 'O código expira em {seconds} segundos.',
+  'pairing.phone': 'O telefone {name} quer parear.',
+  'pairing.compare': 'Verifique se o telefone mostra este código.',
+  'pairing.codeLabel': 'Código de confirmação',
+  'pairing.codeSpoken': 'Código de confirmação {code}',
+  'pairing.approve': 'Aprovar',
+  'pairing.deny': 'Negar',
+  'pairing.cancel': 'Cancelar o pareamento',
+  'pairing.approving': 'Aprovando o telefone…',
+  'pairing.denying': 'Negando o telefone…',
+  'pairing.denied': 'Você negou este telefone. Ele não está pareado.',
+  'pairing.deniedFull':
+    'Este computador não tem espaço para outro telefone. Remova um telefone primeiro.',
+  'pairing.expired': 'O código de pareamento expirou. Pareie de novo.',
+  'pairing.cancelled':
+    'O pareamento parou. Talvez o telefone tenha usado um código errado. Pareie de novo.',
+  'pairing.paired': 'O telefone está pareado.',
+  'pairing.retry': 'Parear de novo',
+  'pairing.unavailable':
+    'O pareamento não está disponível. O link do telefone não iniciou. Reinicie o elesdee e tente de novo.',
+  'pairing.startError':
+    'Não foi possível iniciar o pareamento. Tente de novo.',
+  'pairing.statusError': 'Não foi possível ler o estado do pareamento.',
+  'pairing.approveError': 'Não foi possível aprovar o telefone.',
+  'pairing.denyError': 'Não foi possível negar o telefone.',
+  'pairing.cancelError':
+    'Não foi possível cancelar o pareamento. Tente de novo.',
+  'pairing.gone': 'O telefone não está mais esperando. Pareie de novo.',
+  'pairing.full':
+    'Este computador já tem o máximo de telefones pareados. Remova um telefone primeiro.',
 
   'diagnostics.note':
     'O pacote contém a versão do aplicativo, os detalhes do sistema deste computador e as linhas recentes do registro.',

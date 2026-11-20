@@ -192,7 +192,7 @@ export const it = {
     'Telefoni associati a questo computer. Rimuovi un telefono per revocarne subito l’accesso.',
   'devices.empty': 'Nessun telefono è associato.',
   'devices.emptyHint':
-    'Apri l’app del telefono e scansiona il codice di associazione mostrato dall’app desktop. Il telefono apparirà qui.',
+    'Scegli «Associa un telefono» e scansiona il codice con l’app del telefono. Il telefono apparirà qui.',
   'devices.loading': 'Caricamento dei telefoni…',
   'devices.loadError': 'Impossibile caricare i telefoni associati.',
   'devices.connected': 'Connesso',
@@ -206,6 +206,50 @@ export const it = {
   'devices.removeConfirm': 'Rimuovi telefono',
   'devices.removing': 'Rimozione…',
   'devices.removeError': 'Impossibile rimuovere il telefono.',
+
+  'pairing.start': 'Associa un telefono',
+  'pairing.title': 'Associa un telefono',
+  'pairing.intro': 'Associa l’app del telefono a questo computer.',
+  'pairing.starting': 'Avvio dell’associazione…',
+  'pairing.scan': 'Scansiona questo codice con l’app del telefono.',
+  'pairing.qrAlt': 'Codice QR di associazione',
+  'pairing.qrError':
+    'Impossibile mostrare il codice di associazione. Annulla e riprova.',
+  'pairing.ticketLabel': 'Ticket di associazione',
+  'pairing.ticketHint':
+    'Se il telefono non riesce a scansionare il codice, incolla questo ticket nell’app del telefono.',
+  'pairing.sameNetwork':
+    'Il relay non è pronto. Tieni il telefono e questo computer sulla stessa rete.',
+  'pairing.expiresIn': 'Il codice scade tra {seconds} secondi.',
+  'pairing.phone': 'Il telefono {name} vuole associarsi.',
+  'pairing.compare': 'Controlla che il telefono mostri questo codice.',
+  'pairing.codeLabel': 'Codice di conferma',
+  'pairing.codeSpoken': 'Codice di conferma {code}',
+  'pairing.approve': 'Approva',
+  'pairing.deny': 'Rifiuta',
+  'pairing.cancel': 'Annulla l’associazione',
+  'pairing.approving': 'Approvazione del telefono…',
+  'pairing.denying': 'Rifiuto del telefono…',
+  'pairing.denied': 'Hai rifiutato questo telefono. Non è associato.',
+  'pairing.deniedFull':
+    'Questo computer non ha spazio per un altro telefono. Rimuovi prima un telefono.',
+  'pairing.expired': 'Il codice di associazione è scaduto. Associa di nuovo.',
+  'pairing.cancelled':
+    'L’associazione si è fermata. Forse il telefono ha usato un codice errato. Associa di nuovo.',
+  'pairing.paired': 'Il telefono è associato.',
+  'pairing.retry': 'Associa di nuovo',
+  'pairing.unavailable':
+    'L’associazione non è disponibile. Il collegamento del telefono non è partito. Riavvia elesdee e riprova.',
+  'pairing.startError':
+    'Impossibile avviare l’associazione. Riprova.',
+  'pairing.statusError': 'Impossibile leggere lo stato dell’associazione.',
+  'pairing.approveError': 'Impossibile approvare il telefono.',
+  'pairing.denyError': 'Impossibile rifiutare il telefono.',
+  'pairing.cancelError':
+    'Impossibile annullare l’associazione. Riprova.',
+  'pairing.gone': 'Il telefono non è più in attesa. Associa di nuovo.',
+  'pairing.full':
+    'Questo computer ha già il numero massimo di telefoni associati. Rimuovi prima un telefono.',
 
   'diagnostics.note':
     'Il pacchetto contiene la versione dell’app, i dettagli di sistema di questo computer e le ultime righe del registro.',

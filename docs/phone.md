@@ -12,7 +12,7 @@ The app has a phone-sized layout at `/phone.html`. It uses the same core service
 
 **Settings > Devices** lists the phones paired with this computer. Each row shows the phone name, its platform, when it last connected and whether it is connected now. **Remove** ends the phone's access at once and closes its live connection.
 
-The desktop pairing screen that shows the code is not part of this build. The phone shell has its pairing screens, and the core serves the pairing routes.
+Choose **Pair a phone** in **Settings > Devices** on the computer. The computer shows a QR code. The phone app scans it and shows a six-digit code. Check that the same code appears on the computer, then approve the phone. The computer lists the phone when the pairing is complete. The phone shell has its own pairing screens too.
 
 ## Language
 

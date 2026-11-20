@@ -191,7 +191,7 @@ export const nl = {
     'Telefoons die met deze computer zijn gekoppeld. Verwijder een telefoon om de toegang meteen in te trekken.',
   'devices.empty': 'Er is geen telefoon gekoppeld.',
   'devices.emptyHint':
-    'Open de telefoonapp en scan de koppelcode die de desktopapp toont. De telefoon verschijnt dan hier.',
+    'Kies ‘Een telefoon koppelen’ en scan de code met de telefoonapp. De telefoon verschijnt dan hier.',
   'devices.loading': 'Telefoons laden…',
   'devices.loadError': 'De gekoppelde telefoons konden niet worden geladen.',
   'devices.connected': 'Verbonden',
@@ -205,6 +205,50 @@ export const nl = {
   'devices.removeConfirm': 'Telefoon verwijderen',
   'devices.removing': 'Verwijderen…',
   'devices.removeError': 'De telefoon kon niet worden verwijderd.',
+
+  'pairing.start': 'Een telefoon koppelen',
+  'pairing.title': 'Een telefoon koppelen',
+  'pairing.intro': 'Koppel de telefoonapp aan deze computer.',
+  'pairing.starting': 'Koppelen wordt gestart…',
+  'pairing.scan': 'Scan deze code met de telefoonapp.',
+  'pairing.qrAlt': 'QR-code voor koppelen',
+  'pairing.qrError':
+    'De koppelcode kon niet worden getoond. Annuleer en probeer het opnieuw.',
+  'pairing.ticketLabel': 'Koppelticket',
+  'pairing.ticketHint':
+    'Als de telefoon de code niet kan scannen, plak dit ticket in de telefoonapp.',
+  'pairing.sameNetwork':
+    'De relay is niet gereed. Houd de telefoon en deze computer op hetzelfde netwerk.',
+  'pairing.expiresIn': 'De code verloopt over {seconds} seconden.',
+  'pairing.phone': 'De telefoon {name} wil koppelen.',
+  'pairing.compare': 'Controleer of de telefoon deze code toont.',
+  'pairing.codeLabel': 'Bevestigingscode',
+  'pairing.codeSpoken': 'Bevestigingscode {code}',
+  'pairing.approve': 'Goedkeuren',
+  'pairing.deny': 'Weigeren',
+  'pairing.cancel': 'Koppelen annuleren',
+  'pairing.approving': 'Telefoon wordt goedgekeurd…',
+  'pairing.denying': 'Telefoon wordt geweigerd…',
+  'pairing.denied': 'Je hebt deze telefoon geweigerd. Hij is niet gekoppeld.',
+  'pairing.deniedFull':
+    'Deze computer heeft geen ruimte voor nog een telefoon. Verwijder eerst een telefoon.',
+  'pairing.expired': 'De koppelcode is verlopen. Koppel opnieuw.',
+  'pairing.cancelled':
+    'Het koppelen is gestopt. De telefoon heeft misschien een verkeerde code gebruikt. Koppel opnieuw.',
+  'pairing.paired': 'De telefoon is gekoppeld.',
+  'pairing.retry': 'Opnieuw koppelen',
+  'pairing.unavailable':
+    'Koppelen is niet beschikbaar. De telefoonverbinding is niet gestart. Herstart elesdee en probeer het opnieuw.',
+  'pairing.startError':
+    'Het koppelen kon niet worden gestart. Probeer het opnieuw.',
+  'pairing.statusError': 'De koppelstatus kon niet worden gelezen.',
+  'pairing.approveError': 'De telefoon kon niet worden goedgekeurd.',
+  'pairing.denyError': 'De telefoon kon niet worden geweigerd.',
+  'pairing.cancelError':
+    'Het koppelen kon niet worden geannuleerd. Probeer het opnieuw.',
+  'pairing.gone': 'De telefoon wacht niet meer. Koppel opnieuw.',
+  'pairing.full':
+    'Deze computer heeft al het maximale aantal gekoppelde telefoons. Verwijder eerst een telefoon.',
 
   'diagnostics.note':
     'Het pakket bevat de app-versie, systeemgegevens van deze computer en de recente logregels.',

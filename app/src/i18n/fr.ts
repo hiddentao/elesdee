@@ -192,7 +192,7 @@ export const fr = {
     'Téléphones appairés à cet ordinateur. Retirez un téléphone pour révoquer son accès immédiatement.',
   'devices.empty': 'Aucun téléphone n’est appairé.',
   'devices.emptyHint':
-    'Ouvrez l’application du téléphone et scannez le code d’appairage affiché par l’application de bureau. Le téléphone apparaîtra ensuite ici.',
+    'Choisissez « Appairer un téléphone », puis scannez le code avec l’application du téléphone. Le téléphone apparaîtra ensuite ici.',
   'devices.loading': 'Chargement des téléphones…',
   'devices.loadError': 'Impossible de charger les téléphones appairés.',
   'devices.connected': 'Connecté',
@@ -206,6 +206,50 @@ export const fr = {
   'devices.removeConfirm': 'Retirer le téléphone',
   'devices.removing': 'Retrait…',
   'devices.removeError': 'Impossible de retirer le téléphone.',
+
+  'pairing.start': 'Appairer un téléphone',
+  'pairing.title': 'Appairer un téléphone',
+  'pairing.intro': 'Appairez l’application du téléphone avec cet ordinateur.',
+  'pairing.starting': 'Démarrage de l’appairage…',
+  'pairing.scan': 'Scannez ce code avec l’application du téléphone.',
+  'pairing.qrAlt': 'Code QR d’appairage',
+  'pairing.qrError':
+    'Le code d’appairage n’a pas pu être affiché. Annulez et réessayez.',
+  'pairing.ticketLabel': 'Ticket d’appairage',
+  'pairing.ticketHint':
+    'Si le téléphone ne peut pas scanner le code, collez ce ticket dans l’application du téléphone.',
+  'pairing.sameNetwork':
+    'Le relais n’est pas prêt. Gardez le téléphone et cet ordinateur sur le même réseau.',
+  'pairing.expiresIn': 'Le code expire dans {seconds} secondes.',
+  'pairing.phone': 'Le téléphone {name} demande à s’appairer.',
+  'pairing.compare': 'Vérifiez que le téléphone affiche ce code.',
+  'pairing.codeLabel': 'Code de confirmation',
+  'pairing.codeSpoken': 'Code de confirmation {code}',
+  'pairing.approve': 'Approuver',
+  'pairing.deny': 'Refuser',
+  'pairing.cancel': 'Annuler l’appairage',
+  'pairing.approving': 'Approbation du téléphone…',
+  'pairing.denying': 'Refus du téléphone…',
+  'pairing.denied': 'Vous avez refusé ce téléphone. Il n’est pas appairé.',
+  'pairing.deniedFull':
+    'Cet ordinateur n’a plus de place pour un autre téléphone. Retirez d’abord un téléphone.',
+  'pairing.expired': 'Le code d’appairage a expiré. Appairez à nouveau.',
+  'pairing.cancelled':
+    'L’appairage s’est arrêté. Le téléphone a peut-être utilisé un code erroné. Appairez à nouveau.',
+  'pairing.paired': 'Le téléphone est appairé.',
+  'pairing.retry': 'Appairer à nouveau',
+  'pairing.unavailable':
+    'L’appairage n’est pas disponible. La liaison téléphonique n’a pas démarré. Redémarrez elesdee et réessayez.',
+  'pairing.startError':
+    'Impossible de démarrer l’appairage. Réessayez.',
+  'pairing.statusError': 'Impossible de lire l’état de l’appairage.',
+  'pairing.approveError': 'Impossible d’approuver le téléphone.',
+  'pairing.denyError': 'Impossible de refuser le téléphone.',
+  'pairing.cancelError':
+    'Impossible d’annuler l’appairage. Réessayez.',
+  'pairing.gone': 'Le téléphone n’attend plus. Appairez à nouveau.',
+  'pairing.full':
+    'Cet ordinateur a déjà le nombre maximal de téléphones appairés. Retirez d’abord un téléphone.',
 
   'diagnostics.note':
     'Le paquet contient la version de l’application, les détails système de cet ordinateur et les dernières lignes du journal.',

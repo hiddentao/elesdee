@@ -446,7 +446,7 @@ Rules from the providers:
 - Providers: auto-switch, the provider list, and add or configure a provider. Adding a provider follows the supported list above. Subscription sign-in opens the provider page, and API keys or local server URLs are entered in the same form.
 - AI configs: the config list, and add or edit a config. The form picks a provider or creates one in place, shows the provider's clients, then the name, model and effort. Extra arguments, environment, agent config and the server override sit under Additional settings.
 - Languages: the interface language.
-- Devices: paired phones, with a Remove action.
+- Devices: paired phones, with a Pair a phone action and a Remove action. Pair a phone shows the QR code from the core and a six-digit code that both devices show. I approve or deny the phone, and I can cancel the pairing or start again when the code expires.
 - Diagnostics: export logs and system details.
 - A version label sits at the bottom of the submenu.
 
@@ -599,9 +599,10 @@ The phone app has no lock of its own. The phone's screen lock is enough.
 
 **Pairing (one time)**
 
-1. The desktop app shows a QR code.
+1. I open Settings, Devices and choose Pair a phone. The computer shows a QR code.
 2. The phone scans it. The QR code holds the desktop app's identity key, the relay server address and a one-time pairing secret.
-3. The two devices save each other's keys. From then on, each knows the other is genuine.
+3. The phone and the computer show the same six-digit code. I check the name and the code, then approve the phone.
+4. The two devices save each other's keys. From then on, each knows the other is genuine.
 
 **After pairing**
 

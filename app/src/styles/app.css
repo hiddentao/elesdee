@@ -2640,6 +2640,74 @@ button:disabled {
   color: var(--accent);
 }
 
+.pairing-dialog {
+  width: min(460px, 100%);
+}
+
+.pairing-wait {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.pairing-wait:focus {
+  outline: none;
+}
+
+.pairing-qr {
+  align-self: center;
+  width: 240px;
+  height: 240px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  image-rendering: pixelated;
+}
+
+.pairing-ticket-field {
+  margin: 0;
+}
+
+.pairing-ticket {
+  min-height: 72px;
+  font-family: var(--mono-font);
+  font-size: 11.5px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.pairing-phone {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.pairing-instruction {
+  margin: 0;
+  color: var(--text-2);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.pairing-code-label {
+  margin: 0;
+  color: var(--text-3);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.pairing-code {
+  margin: 0;
+  font-family: var(--mono-font);
+  font-size: 40px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.18em;
+  line-height: 1.1;
+}
+
 .settings-about-card {
   display: flex;
   flex-direction: column;

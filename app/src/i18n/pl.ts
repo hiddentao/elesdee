@@ -192,7 +192,7 @@ export const pl = {
     'Telefony sparowane z tym komputerem. Usuń telefon, aby natychmiast odwołać jego dostęp.',
   'devices.empty': 'Żaden telefon nie jest sparowany.',
   'devices.emptyHint':
-    'Otwórz aplikację telefonu i zeskanuj kod parowania wyświetlany w aplikacji komputerowej. Telefon pojawi się tutaj.',
+    'Wybierz „Sparuj telefon” i zeskanuj kod aplikacją telefonu. Telefon pojawi się tutaj.',
   'devices.loading': 'Ładowanie telefonów…',
   'devices.loadError': 'Nie udało się wczytać sparowanych telefonów.',
   'devices.connected': 'Połączony',
@@ -206,6 +206,50 @@ export const pl = {
   'devices.removeConfirm': 'Usuń telefon',
   'devices.removing': 'Usuwanie…',
   'devices.removeError': 'Nie udało się usunąć telefonu.',
+
+  'pairing.start': 'Sparuj telefon',
+  'pairing.title': 'Sparuj telefon',
+  'pairing.intro': 'Sparuj aplikację telefonu z tym komputerem.',
+  'pairing.starting': 'Rozpoczynanie parowania…',
+  'pairing.scan': 'Zeskanuj ten kod aplikacją telefonu.',
+  'pairing.qrAlt': 'Kod QR parowania',
+  'pairing.qrError':
+    'Nie udało się pokazać kodu parowania. Anuluj i spróbuj ponownie.',
+  'pairing.ticketLabel': 'Bilet parowania',
+  'pairing.ticketHint':
+    'Jeśli telefon nie może zeskanować kodu, wklej ten bilet w aplikacji telefonu.',
+  'pairing.sameNetwork':
+    'Przekaźnik nie jest gotowy. Trzymaj telefon i ten komputer w tej samej sieci.',
+  'pairing.expiresIn': 'Kod wygasa za {seconds} s.',
+  'pairing.phone': 'Telefon {name} chce się sparować.',
+  'pairing.compare': 'Sprawdź, czy telefon pokazuje ten kod.',
+  'pairing.codeLabel': 'Kod potwierdzenia',
+  'pairing.codeSpoken': 'Kod potwierdzenia {code}',
+  'pairing.approve': 'Zatwierdź',
+  'pairing.deny': 'Odrzuć',
+  'pairing.cancel': 'Anuluj parowanie',
+  'pairing.approving': 'Zatwierdzanie telefonu…',
+  'pairing.denying': 'Odrzucanie telefonu…',
+  'pairing.denied': 'Odrzucono ten telefon. Nie jest sparowany.',
+  'pairing.deniedFull':
+    'Ten komputer nie ma miejsca na kolejny telefon. Najpierw usuń telefon.',
+  'pairing.expired': 'Kod parowania wygasł. Sparuj ponownie.',
+  'pairing.cancelled':
+    'Parowanie zostało zatrzymane. Telefon mógł użyć błędnego kodu. Sparuj ponownie.',
+  'pairing.paired': 'Telefon jest sparowany.',
+  'pairing.retry': 'Sparuj ponownie',
+  'pairing.unavailable':
+    'Parowanie jest niedostępne. Połączenie telefonu nie zostało uruchomione. Uruchom elesdee ponownie i spróbuj jeszcze raz.',
+  'pairing.startError':
+    'Nie udało się rozpocząć parowania. Spróbuj ponownie.',
+  'pairing.statusError': 'Nie udało się odczytać stanu parowania.',
+  'pairing.approveError': 'Nie udało się zatwierdzić telefonu.',
+  'pairing.denyError': 'Nie udało się odrzucić telefonu.',
+  'pairing.cancelError':
+    'Nie udało się anulować parowania. Spróbuj ponownie.',
+  'pairing.gone': 'Telefon nie czeka już. Sparuj ponownie.',
+  'pairing.full':
+    'Ten komputer ma już maksymalną liczbę sparowanych telefonów. Najpierw usuń telefon.',
 
   'diagnostics.note':
     'Pakiet zawiera wersję aplikacji, szczegóły systemu tego komputera i ostatnie wiersze dziennika.',

@@ -9,6 +9,8 @@ import type {
   CreateConfigInput,
   CreateProviderInput,
   PairedDevice,
+  PairingCreated,
+  PairingStatus,
   Provider,
   ProviderOption,
   ProviderSignIn,
@@ -23,6 +25,7 @@ import { useLanguage } from '../i18n/LanguageProvider';
 import { providerUsage } from '../state/usage';
 import { AiConfigDialog } from './AiConfigDialog';
 import { Dialog } from './Dialog';
+import { PAIRED_DEVICE_LIMIT, PairingDialog } from './PairingDialog';
 import { ProviderDialog } from './ProviderDialog';
 import { UpdatePanel } from './UpdatePanel';
 import {
@@ -90,6 +93,12 @@ interface SettingsDialogProps {
   onChangeSettings: (patch: SettingsPatch) => Promise<void>;
   onLoadDevices: () => Promise<PairedDevice[]>;
   onRemoveDevice: (endpointId: string) => Promise<void>;
+  onStartPairing: () => Promise<PairingCreated>;
+  onPairingStatus: () => Promise<PairingStatus>;
+  onApprovePairing: () => Promise<PairedDevice>;
+  onDenyPairing: () => Promise<void>;
+  onCancelPairing: () => Promise<void>;
+  pairingQrUrl: (cacheBust: number) => string;
   onExportDiagnostics: () => Promise<string | null>;
   onCheckForUpdate: () => void;
   onInstallUpdate: () => void;
@@ -127,6 +136,12 @@ export function SettingsDialog({
   onChangeSettings,
   onLoadDevices,
   onRemoveDevice,
+  onStartPairing,
+  onPairingStatus,
+  onApprovePairing,
+  onDenyPairing,
+  onCancelPairing,
+  pairingQrUrl,
   onExportDiagnostics,
   onCheckForUpdate,
   onInstallUpdate,
@@ -147,6 +162,7 @@ export function SettingsDialog({
   const [removeDeviceError, setRemoveDeviceError] = useState<string | null>(
     null,
   );
+  const [pairingOpen, setPairingOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [exportPath, setExportPath] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
@@ -255,6 +271,22 @@ export function SettingsDialog({
     }
   }
 
+  async function completePairing(device: PairedDevice | null) {
+    setPairingOpen(false);
+    if (device) {
+      setDevices((current) => [
+        ...current.filter((item) => item.endpointId !== device.endpointId),
+        { ...device, connected: device.connected === true },
+      ]);
+    }
+    try {
+      setDevices(await onLoadDevices());
+      setDevicesState('ready');
+    } catch {
+      // Keep the phones on screen when the refresh fails.
+    }
+  }
+
   async function runExport() {
     setExporting(true);
     setExportError(null);
@@ -299,7 +331,8 @@ export function SettingsDialog({
     removeProviderTarget !== null ||
     configEditor !== undefined ||
     deleteConfigTarget !== null ||
-    removeDeviceTarget !== null;
+    removeDeviceTarget !== null ||
+    pairingOpen;
 
   return (
     <>
@@ -811,13 +844,32 @@ export function SettingsDialog({
                 className="settings-section"
                 aria-labelledby="settings-devices-title"
               >
-                <h3
-                  className="settings-section-title"
-                  id="settings-devices-title"
-                >
-                  {t('settings.devices')}
-                </h3>
-                <p className="settings-section-note">{t('devices.note')}</p>
+                <div className="settings-section-head">
+                  <div>
+                    <h3
+                      className="settings-section-title"
+                      id="settings-devices-title"
+                    >
+                      {t('settings.devices')}
+                    </h3>
+                    <p className="settings-section-note">{t('devices.note')}</p>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    disabled={
+                      devicesState === 'loading' ||
+                      devices.length >= PAIRED_DEVICE_LIMIT
+                    }
+                    onClick={() => setPairingOpen(true)}
+                  >
+                    <PlusIcon />
+                    {t('pairing.start')}
+                  </button>
+                </div>
+                {devices.length >= PAIRED_DEVICE_LIMIT ? (
+                  <p className="settings-empty-hint">{t('pairing.full')}</p>
+                ) : null}
 
                 {devicesState === 'loading' ? (
                   <p className="settings-empty">{t('devices.loading')}</p>
@@ -1087,6 +1139,20 @@ export function SettingsDialog({
             </button>
           </div>
         </Dialog>
+      ) : null}
+
+      {pairingOpen ? (
+        <PairingDialog
+          onStart={onStartPairing}
+          onStatus={onPairingStatus}
+          onApprove={onApprovePairing}
+          onDeny={onDenyPairing}
+          onCancel={onCancelPairing}
+          qrUrl={pairingQrUrl}
+          deviceLimitReached={devices.length >= PAIRED_DEVICE_LIMIT}
+          onPaired={(device) => void completePairing(device)}
+          onClose={() => setPairingOpen(false)}
+        />
       ) : null}
 
       {configEditor !== undefined ? (

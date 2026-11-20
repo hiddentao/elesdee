@@ -276,13 +276,38 @@ export interface SettingsPatch {
   keepAwake?: boolean;
 }
 
-export interface PairedDevice {
+export interface PairedDeviceRecord {
   endpointId: string;
   name: string;
   platform: string;
   pairedAt: string;
   lastSeen?: string | null;
+}
+
+export interface PairedDevice extends PairedDeviceRecord {
   connected: boolean;
+}
+
+export type PairingState =
+  | 'idle'
+  | 'waiting'
+  | 'confirm'
+  | 'paired'
+  | 'denied'
+  | 'expired'
+  | 'cancelled';
+
+export interface PairingStatus {
+  state: PairingState;
+  expiresAt?: number;
+  phoneName?: string;
+  code?: string;
+}
+
+export interface PairingCreated {
+  expiresAt: number;
+  relayReady: boolean;
+  ticket?: string;
 }
 
 export interface DiagnosticsExport {
