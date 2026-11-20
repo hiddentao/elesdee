@@ -662,7 +662,9 @@ export const ptBR = {
   'phone.filesTruncated': 'Esta pasta tem mais arquivos do que o telefone mostra.',
   'phone.filesRefresh': 'Atualizar',
   'phone.fileNotText': 'Este arquivo não é texto, então o telefone não pode mostrá-lo.',
-  'phone.fileNotImage': 'Esta imagem não é compatível ou é grande demais.',
+  'phone.fileNotImage': 'Esta imagem não é compatível.',
+  'phone.fileTooLarge':
+    'Esta imagem é grande demais, então o telefone não pode mostrá-la.',
   'phone.imagePreview': 'Imagem {name}',
   'phone.changesLoading': 'Carregando alterações…',
   'phone.changesNotGit': 'Esta pasta não é um repositório Git.',

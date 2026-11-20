@@ -20,6 +20,91 @@ export function uploadNoticeFor(code: string): UploadNoticeKey | null {
   }
 }
 
+type PreviewNoticeKey =
+  | 'files.imageTooLarge'
+  | 'files.notImage'
+  | 'files.notText';
+
+function errorCode(error: unknown): string | null {
+  if (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    typeof (error as { code: unknown }).code === 'string'
+  ) {
+    return (error as { code: string }).code;
+  }
+  return null;
+}
+
+function errorStatus(error: unknown): number | null {
+  if (
+    typeof error === 'object' &&
+    error !== null &&
+    'status' in error &&
+    typeof (error as { status: unknown }).status === 'number'
+  ) {
+    return (error as { status: number }).status;
+  }
+  return null;
+}
+
+/** Returns the message key for a failed image read. */
+export function imageNoticeFor(error: unknown): PreviewNoticeKey {
+  return errorCode(error) === 'too_large' || errorStatus(error) === 413
+    ? 'files.imageTooLarge'
+    : 'files.notImage';
+}
+
+/** Returns true when the text read failed because the file is binary. */
+function isBinaryError(error: unknown): boolean {
+  return errorCode(error) === 'unprocessable' || errorStatus(error) === 422;
+}
+
+export type PreviewResult<TText, TImage> =
+  | { kind: 'image'; value: TImage }
+  | { kind: 'text'; value: TText }
+  | { kind: 'error'; key: PreviewNoticeKey };
+
+/**
+ * Loads a file preview for a chosen entry.
+ *
+ * A name with an image extension goes straight to the image read. Any other
+ * name tries text first, then the image read when the text read reports binary
+ * data, so an image without an extension still previews.
+ */
+export async function loadPreview<TText, TImage>(
+  imageName: boolean,
+  readText: () => Promise<TText>,
+  readImage: () => Promise<TImage>,
+): Promise<PreviewResult<TText, TImage>> {
+  if (imageName) {
+    try {
+      return { kind: 'image', value: await readImage() };
+    } catch (error) {
+      return { kind: 'error', key: imageNoticeFor(error) };
+    }
+  }
+  try {
+    return { kind: 'text', value: await readText() };
+  } catch (error) {
+    if (!isBinaryError(error)) {
+      return { kind: 'error', key: 'files.notText' };
+    }
+    try {
+      return { kind: 'image', value: await readImage() };
+    } catch (imageError) {
+      return {
+        kind: 'error',
+        key:
+          imageNoticeFor(imageError) === 'files.imageTooLarge'
+            ? 'files.imageTooLarge'
+            : 'files.notText',
+      };
+    }
+  }
+}
+
 /** Builds the image source for the preview from the bridge payload. */
 export function imageDataUrl(contentType: string, data: string): string {
   const type = contentType.startsWith('image/')

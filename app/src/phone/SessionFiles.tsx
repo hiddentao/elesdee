@@ -23,6 +23,7 @@ import {
   changesEmpty,
   diffLineKind,
   isImageName,
+  loadFilePreview,
   parentFilePath,
 } from './files';
 
@@ -149,22 +150,18 @@ export function SessionFiles({ session, panel, t, language }: Props) {
       }
       setFilesError('');
       releasePreview();
-      if (isImageName(name)) {
-        try {
-          const blob = await readSessionImage(session.id, path);
-          const url = URL.createObjectURL(blob);
-          previewUrl.current = url;
-          setPreview({ kind: 'image', name: path, url });
-        } catch {
-          setFilesError(tRef.current('phone.fileNotImage'));
-        }
-        return;
-      }
-      try {
-        const file = await readFile(session.id, path);
-        setPreview({ kind: 'text', name: path, content: file.content });
-      } catch {
-        setFilesError(tRef.current('phone.fileNotText'));
+      const loaded = await loadFilePreview(name, path, {
+        readText: (target) => readFile(session.id, target),
+        readImage: (target) => readSessionImage(session.id, target),
+      });
+      if (loaded.kind === 'error') {
+        setFilesError(tRef.current(loaded.key));
+      } else if (loaded.kind === 'image') {
+        const url = URL.createObjectURL(loaded.blob);
+        previewUrl.current = url;
+        setPreview({ kind: 'image', name: path, url });
+      } else {
+        setPreview({ kind: 'text', name: path, content: loaded.content });
       }
     },
     [session.id, loadFiles, releasePreview],

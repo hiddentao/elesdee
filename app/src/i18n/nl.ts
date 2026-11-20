@@ -655,7 +655,9 @@ export const nl = {
   'phone.filesTruncated': 'Deze map heeft meer bestanden dan de telefoon toont.',
   'phone.filesRefresh': 'Vernieuwen',
   'phone.fileNotText': 'Dit bestand is geen tekst, dus de telefoon kan het niet tonen.',
-  'phone.fileNotImage': 'Deze afbeelding wordt niet ondersteund of is te groot.',
+  'phone.fileNotImage': 'Deze afbeelding wordt niet ondersteund.',
+  'phone.fileTooLarge':
+    'Deze afbeelding is te groot, dus de telefoon kan hem niet tonen.',
   'phone.imagePreview': 'Afbeelding {name}',
   'phone.changesLoading': 'Wijzigingen laden…',
   'phone.changesNotGit': 'Deze map is geen Git-repository.',

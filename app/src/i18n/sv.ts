@@ -658,7 +658,9 @@ export const sv = {
   'phone.filesTruncated': 'Den här mappen har fler filer än telefonen visar.',
   'phone.filesRefresh': 'Uppdatera',
   'phone.fileNotText': 'Den här filen är inte text, så telefonen kan inte visa den.',
-  'phone.fileNotImage': 'Den här bilden stöds inte eller är för stor.',
+  'phone.fileNotImage': 'Den här bilden stöds inte.',
+  'phone.fileTooLarge':
+    'Den här bilden är för stor, så telefonen kan inte visa den.',
   'phone.imagePreview': 'Bild {name}',
   'phone.changesLoading': 'Laddar ändringar…',
   'phone.changesNotGit': 'Den här mappen är inte ett Git-förråd.',

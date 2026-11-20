@@ -629,7 +629,9 @@ export const en = {
   'phone.filesTruncated': 'This folder has more files than the phone shows.',
   'phone.filesRefresh': 'Refresh',
   'phone.fileNotText': 'This file is not text, so the phone cannot show it.',
-  'phone.fileNotImage': 'This image is not supported, or it is too large.',
+  'phone.fileNotImage': 'This image is not supported.',
+  'phone.fileTooLarge':
+    'This image is over the size limit, so the phone cannot show it.',
   'phone.imagePreview': 'Image {name}',
   'phone.changesLoading': 'Loading changes…',
   'phone.changesNotGit': 'This folder is not a Git repository.',

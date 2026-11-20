@@ -31,11 +31,21 @@ function session(overrides = {}) {
     projectId: 'web',
     kind: 'agent',
     status: 'active',
-    workState: 'waiting',
+    workState: 'working',
+    client: 'Claude Code',
+    configId: 'cfg-claude',
+    allowedConfigIds: ['cfg-claude'],
+    providerId: 'claude',
+    branch: null,
+    folder: '/tmp/web',
+    contextLeft: null,
     preview: '',
     waitingFor: null,
     pendingPermission: null,
+    firstPrompt: null,
+    demoServers: [],
     startedAt: '2026-11-20T00:00:00Z',
+    shortcuts: [],
     ...overrides,
   };
 }
@@ -66,13 +76,18 @@ test('a repeated waiting state does not raise a second notice', () => {
   );
 });
 
-test('a waiting input state raises a notice', () => {
+test('the idle input signal from the core raises a waiting notice', () => {
   const result = notice({
     type: 'session',
-    session: session({ waitingFor: 'input' }),
-    previous: session({ workState: 'working' }),
+    session: session({ workState: 'waiting', waitingFor: 'input' }),
+    previous: session({ workState: 'working', waitingFor: null }),
   });
-  assert.equal(result.waitingFor, 'input');
+  assert.deepEqual(result, {
+    kind: 'waiting',
+    sessionId: 's1',
+    sessionName: 'Build',
+    waitingFor: 'input',
+  });
 });
 
 test('a closed session raises no notice', () => {

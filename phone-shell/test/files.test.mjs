@@ -80,3 +80,57 @@ test('the shared image name test is available to the shell', () => {
   assert.equal(shared.isImageName('shot.PNG'), true);
   assert.equal(shared.isImageName('notes.md'), false);
 });
+
+test('an image failure maps a size code to the size message', () => {
+  assert.equal(files.imageNoticeFor({ code: 'too_large' }), 'files.imageTooLarge');
+  assert.equal(files.imageNoticeFor({ code: 'unsupported' }), 'files.notImage');
+  assert.equal(files.imageNoticeFor({ status: 413 }), 'files.imageTooLarge');
+  assert.equal(files.imageNoticeFor({ status: 415 }), 'files.notImage');
+});
+
+test('an image over the cap keeps its size message', async () => {
+  const result = await files.loadPreview(
+    true,
+    async () => ({ content: '' }),
+    async () => {
+      throw { code: 'too_large' };
+    },
+  );
+  assert.deepEqual(result, { kind: 'error', key: 'files.imageTooLarge' });
+});
+
+test('an image without an extension previews after the text read fails', async () => {
+  const image = { contentType: 'image/png', data: 'iVBORw0KGgo=' };
+  const result = await files.loadPreview(
+    false,
+    async () => {
+      throw { code: 'unprocessable' };
+    },
+    async () => image,
+  );
+  assert.deepEqual(result, { kind: 'image', value: image });
+});
+
+test('a binary file that is not an image stays a text failure', async () => {
+  const result = await files.loadPreview(
+    false,
+    async () => {
+      throw { code: 'unprocessable' };
+    },
+    async () => {
+      throw { code: 'unsupported' };
+    },
+  );
+  assert.deepEqual(result, { kind: 'error', key: 'files.notText' });
+});
+
+test('a text file does not call the image read', async () => {
+  const result = await files.loadPreview(
+    false,
+    async () => ({ content: '# Notes' }),
+    async () => {
+      throw new Error('the image read must not run');
+    },
+  );
+  assert.deepEqual(result, { kind: 'text', value: { content: '# Notes' } });
+});

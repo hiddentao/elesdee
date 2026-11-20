@@ -65,7 +65,7 @@ The app asks for the phone's notification permission when it starts. If you refu
 
 **Files** and **Changes** sit beside the session actions.
 
-**Files** lists the session folder one folder at a time. Tap a folder to open it, and **Up** returns to the parent. A text file opens in a read-only view. An image file, such as PNG, JPEG, GIF, WebP, AVIF or BMP, opens as a picture. A binary file, an image that is not supported and an image over the size cap each show a short explanation instead of a broken view.
+**Files** lists the session folder one folder at a time. Tap a folder to open it, and **Up** returns to the parent. A text file opens in a read-only view. An image file, such as PNG, JPEG, GIF, WebP, AVIF or BMP, opens as a picture. A binary file, an image that is not supported and an image over the size cap each show their own short explanation instead of a broken view.
 
 **Upload a file** opens the file picker on the phone, or the browser's file picker in this layout. One file of up to 25 MiB is sent. It goes in elesdee's own folder for the session, not in the repository, with a private file mode. The name is reduced to one name, an existing file is never replaced, and a repeated name gets a number. The agent is told the path in its input.
 
