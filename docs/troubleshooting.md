@@ -46,6 +46,22 @@ A build without a Developer ID signature is blocked by macOS. The release notes 
 
 Open Settings, remove the provider and add it again with a valid key. The key is stored in the system keychain. The app does not show the saved key again.
 
+## The About page says updates are unavailable
+
+This build has no update signing key. It cannot check for or install updates. Download the newest release from this repository's GitHub releases page and install it by hand.
+
+## The update check failed
+
+The app could not reach GitHub. Check the network connection, then choose **Check for updates** on the About page.
+
+## The update did not pass its signature check
+
+The app refused the package and did not install it. Check for updates again. If the same package fails again, install the release by hand from this repository's GitHub releases page.
+
+## The update did not install
+
+The app keeps running and stops the install before it replaces the app. Choose **Install and restart** again. The sessions stay saved.
+
 ## Report a bug with diagnostics
 
 Open **Settings**, choose **Diagnostics**, and choose **Export diagnostics**. Pick a folder. The app writes one JSON file there, named `elesdee-diagnostics-<timestamp>.json`. Attach that file to a GitHub issue.

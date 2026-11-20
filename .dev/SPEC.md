@@ -1,6 +1,6 @@
 # elesdee — Spec
 
-Last updated: 19 November 2026
+Last updated: 20 November 2026
 
 ## Purpose
 
@@ -691,7 +691,7 @@ The desktop app and the mobile apps are published through GitHub Releases in thi
 - The desktop app runs on Apple Silicon Macs only. There is no Intel build.
 - It supports the two latest major versions of macOS.
 - Tauri's updater plugin reads a static JSON file from the latest GitHub release, for example `https://github.com/<owner>/<repo>/releases/latest/download/latest.json` ([Tauri docs](https://v2.tauri.app/plugin/updater/)).
-- The `tauri-action` GitHub Action builds the app, signs the update files and uploads this JSON file to the release ([tauri-action](https://github.com/tauri-apps/tauri-action)).
+- The release workflow builds the app, signs the update files and uploads this JSON file to the release ([Tauri docs](https://v2.tauri.app/plugin/updater/)).
 - The app checks the signature of each update before it installs it. Tauri does not allow this check to be turned off ([Tauri docs](https://v2.tauri.app/plugin/updater/)).
 - By default, macOS Gatekeeper checks that an app downloaded from outside the App Store is signed by a registered developer and notarized by Apple ([Apple](https://support.apple.com/guide/security/gatekeeper-and-runtime-protection-sec5599b66df/web)). This needs a Developer ID from the Apple Developer Program, which costs 99 USD per year ([Apple](https://developer.apple.com/programs/)).
 - I will join the Apple Developer Program before the first release, so every release is signed and notarized.
@@ -701,10 +701,12 @@ The desktop app and the mobile apps are published through GitHub Releases in thi
 - The app checks GitHub for a new release at launch and every few hours.
 - When it finds one, it downloads it in the background and verifies its signature.
 - It then tells me that an update is ready. It installs the update only when I click Install.
+- A build made without the update signing key does not check. It says that updates are unavailable, instead of failing without a message.
 
 **Update while sessions run**
 
 - An update restarts the core service. When I click Install, the app uses the same steps as quit: it saves every session, stops the core service, installs the update, starts again and resumes the sessions (see Crash recovery).
+- If sessions run, the app asks before it restarts. If I choose Later, it installs the update when every session is closed.
 - An agent that is mid-task is interrupted. After the restart, it resumes its conversation.
 - Tauri does not force a restart right after it installs an update. The app chooses when to restart ([Tauri docs](https://v2.tauri.app/plugin/updater/)).
 
