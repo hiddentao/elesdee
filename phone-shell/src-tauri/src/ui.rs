@@ -442,6 +442,22 @@ impl UiStore {
         self.find_build_with_name(computer_id, build_id, None)
     }
 
+    /// Resolves the build path in a package URL to an installed build.
+    ///
+    /// The path is a content hash with a fixed prefix, so the result stays
+    /// inside the active computer's build folder. A build that did not install
+    /// has no entry page and is not found.
+    fn find_build_by_path(
+        &self,
+        computer_id: &str,
+        build_segment: &str,
+        computer_name: Option<String>,
+    ) -> Option<Installed> {
+        let hash = build_segment.strip_prefix("blake3-")?;
+        let build_id = format!("blake3:{hash}");
+        self.find_build_with_name(computer_id, &build_id, computer_name)
+    }
+
     fn find_build_with_name(
         &self,
         computer_id: &str,
@@ -465,13 +481,21 @@ impl UiStore {
         if segments.next() != Some("ui") {
             return not_found_response();
         }
-        let Some(build_id) = segments.next() else {
+        let Some(build_segment) = segments.next() else {
             return not_found_response();
         };
         let active = lock(&self.inner).active.clone();
-        let Some(installed) =
-            active.filter(|installed| build_path(&installed.build_id) == build_id)
-        else {
+        let Some(active) = active else {
+            return not_found_response();
+        };
+        // The active computer anchors the build root. Its current build and
+        // the one previous build stay installed, so a page that is open while
+        // the computer updates keeps loading its own assets.
+        let Some(installed) = self.find_build_by_path(
+            &active.computer_id,
+            build_segment,
+            active.computer_name.clone(),
+        ) else {
             return not_found_response();
         };
         let rest = segments.collect::<Vec<_>>().join("/");
@@ -1032,22 +1056,42 @@ mod tests {
         }
     }
 
+    /// Creates one stored build below the store root and returns its folder.
+    fn stored_build(
+        folder: &Path,
+        computer_id: &str,
+        build_id: &str,
+        index: &[u8],
+        asset: &[u8],
+    ) -> PathBuf {
+        let directory = folder
+            .join("computers")
+            .join(computer_id)
+            .join("ui")
+            .join("builds")
+            .join(build_dir_name(build_id).expect("build name"));
+        std::fs::create_dir_all(directory.join("assets")).expect("build folder");
+        std::fs::write(directory.join(INDEX_FILE), index).expect("index");
+        std::fs::write(directory.join("assets/app.js"), asset).expect("asset");
+        directory
+    }
+
     #[test]
-    fn the_protocol_serves_the_active_build_and_refuses_another() {
+    fn the_protocol_serves_the_current_and_previous_builds() {
         let folder = temp_folder("serve");
-        let package = folder.join("package");
-        std::fs::create_dir_all(package.join("assets")).expect("package");
-        std::fs::write(package.join(INDEX_FILE), b"index").expect("index");
-        std::fs::write(package.join("assets/app.js"), b"app").expect("asset");
-        let build = format!("blake3:{}", blake3::hash(b"x").to_hex());
         let store = UiStore::new(&folder);
+        let current = format!("blake3:{}", "a".repeat(64));
+        let previous = format!("blake3:{}", "b".repeat(64));
+        let current_directory =
+            stored_build(&folder, "computer", &current, b"current", b"current-js");
+        stored_build(&folder, "computer", &previous, b"previous", b"previous-js");
         {
             let mut inner = lock(&store.inner);
             inner.active = Some(Installed {
                 computer_id: "computer".to_owned(),
-                build_id: build.clone(),
+                build_id: current.clone(),
                 computer_name: Some("Studio".to_owned()),
-                directory: package.clone(),
+                directory: current_directory,
             });
         }
 
@@ -1057,17 +1101,57 @@ mod tests {
                 .body(Vec::new())
                 .expect("request")
         };
-        let path = build_path(&build);
-        let response = store.handle(request(&format!("/ui/{path}/")));
+        let current_path = build_path(&current);
+        let response = store.handle(request(&format!("/ui/{current_path}/")));
         assert_eq!(response.status(), StatusCode::OK);
-        assert_eq!(response.body(), b"index");
-        let response = store.handle(request(&format!("/ui/{path}/assets/app.js")));
+        assert_eq!(response.body(), b"current");
+
+        let previous_path = build_path(&previous);
+        let response = store.handle(request(&format!("/ui/{previous_path}/")));
         assert_eq!(response.status(), StatusCode::OK);
-        assert_eq!(response.body(), b"app");
-        let response = store.handle(request(&format!("/ui/{path}/../outside.js")));
+        assert_eq!(response.body(), b"previous");
+        let response = store.handle(request(&format!("/ui/{previous_path}/assets/app.js")));
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.body(), b"previous-js");
+
+        let unknown = build_path(&format!("blake3:{}", "c".repeat(64)));
+        let response = store.handle(request(&format!("/ui/{unknown}/")));
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
-        let other = format!("blake3:{}", blake3::hash(b"y").to_hex());
-        let response = store.handle(request(&format!("/ui/{}/", build_path(&other))));
+
+        let response = store.handle(request(&format!("/ui/{previous_path}/../outside.js")));
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        let response = store.handle(request(&format!("/ui/{previous_path}/assets/../../x.js")));
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        let response = store.handle(request("/ui/not-a-build/"));
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+        let _ = std::fs::remove_dir_all(folder);
+    }
+
+    #[test]
+    fn the_protocol_refuses_a_build_stored_for_another_computer() {
+        let folder = temp_folder("serve-other");
+        let store = UiStore::new(&folder);
+        let current = format!("blake3:{}", "a".repeat(64));
+        let other = format!("blake3:{}", "d".repeat(64));
+        let current_directory = stored_build(&folder, "computer", &current, b"current", b"js");
+        stored_build(&folder, "other", &other, b"other", b"other-js");
+        {
+            let mut inner = lock(&store.inner);
+            inner.active = Some(Installed {
+                computer_id: "computer".to_owned(),
+                build_id: current.clone(),
+                computer_name: None,
+                directory: current_directory,
+            });
+        }
+
+        let response = store.handle(
+            HttpRequest::builder()
+                .uri(format!("/ui/{}/", build_path(&other)))
+                .body(Vec::new())
+                .expect("request"),
+        );
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
 
         let _ = std::fs::remove_dir_all(folder);
@@ -1076,22 +1160,22 @@ mod tests {
     #[test]
     fn the_entry_page_loads_the_marker_before_its_scripts() {
         let folder = temp_folder("marker");
-        let package = folder.join("package");
-        std::fs::create_dir_all(package.join("assets")).expect("package");
-        std::fs::write(
-            package.join(INDEX_FILE),
-            b"<!doctype html><html><head><script src=\"./assets/app.js\"></script></head><body></body></html>",
-        )
-        .expect("index");
-        let build = format!("blake3:{}", blake3::hash(b"x").to_hex());
+        let build = format!("blake3:{}", "e".repeat(64));
         let store = UiStore::new(&folder);
+        let package = stored_build(
+            &folder,
+            "computer-1",
+            &build,
+            b"<!doctype html><html><head><script src=\"./assets/app.js\"></script></head><body></body></html>",
+            b"app",
+        );
         {
             let mut inner = lock(&store.inner);
             inner.active = Some(Installed {
                 computer_id: "computer-1".to_owned(),
                 build_id: build.clone(),
                 computer_name: Some("Studio <desk>".to_owned()),
-                directory: package.clone(),
+                directory: package,
             });
         }
 

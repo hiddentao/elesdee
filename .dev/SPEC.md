@@ -556,6 +556,7 @@ The mobile app is the only way to control the IDE remotely. It is for iOS and An
 - Each Mac holds the UI package of its own version. On connect, the phone compares that version with its stored copy for that Mac. If the Mac has a new version, the phone downloads the whole package once and stores it.
 - The UI is not streamed. It runs from the stored package on the phone. Only data goes over the connection: session output, my input, and events.
 - So after I update the desktop app, the phone gets the new UI the next time it connects. The phone app needs no update.
+- An update does not break the screen that is open. The phone keeps the build it is using and the new one, so the open page keeps loading its scripts and styles, and the shell shows the new build when it next opens the screens.
 - The shell shows the stored UI package through a Tauri custom protocol, which serves web pages from the app's own code ([Tauri docs](https://docs.rs/tauri/latest/tauri/struct.Builder.html)).
 - The shell downloads UI packages only from paired Macs, over the authenticated connection. The UI cannot load code from the internet.
 - The shell offers its native features to the screens through a small bridge with its own version number. If a Mac's screens need a newer bridge, the phone tells me to update the phone app.

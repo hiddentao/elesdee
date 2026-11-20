@@ -37,8 +37,8 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
-        // The stored UI package is served on its own origin. Only the active
-        // build for the opened computer is reachable.
+        // The stored UI packages for the opened computer are served on their
+        // own origin. Its current and previous builds stay reachable.
         .register_uri_scheme_protocol("elesdee", |context, request| {
             match context.app_handle().try_state::<UiStore>() {
                 Some(store) => store.handle(request),
