@@ -12,6 +12,14 @@ import {
   sessionFromEvent,
   type OutputState,
 } from './live';
+import { historySupported, mergeHistory } from '../../../app/src/phone/history';
+import {
+  historyItemFromEvent,
+  historyStatusFromEvent,
+  toggleExpanded,
+  toolStateKey,
+} from './messages';
+import type { HistoryItem } from '../../../app/src/api/types';
 import {
   demoServerRows,
   demoStateClass,
@@ -78,6 +86,7 @@ import type {
 
 type Filter = 'all' | 'running' | 'waiting';
 type OverlayKind = 'keys' | 'switch' | 'close' | 'usage';
+type SessionView = 'messages' | 'terminal';
 
 interface Notice {
   key: MessageKey;
@@ -107,6 +116,10 @@ type Screen =
       sessions: Session[];
       session: Session;
       output: OutputState;
+      history: HistoryItem[];
+      historyStructured: boolean;
+      historyLoading: boolean;
+      view: SessionView;
       demoServers: DemoServer[];
       loading: boolean;
       ended: boolean;
@@ -287,6 +300,8 @@ export class ShellApp {
   private sessionsToken = 0;
   private stopEvents: (() => Promise<void>) | null = null;
   private stopOutput: (() => Promise<void>) | null = null;
+  private stopHistory: (() => Promise<void>) | null = null;
+  private readonly expandedTools = new Set<string>();
   private readonly connectionStates = new Map<string, ConnectionState>();
   private readonly forwards = new Map<number, ForwardView>();
   private renderPending = false;
@@ -362,6 +377,10 @@ export class ShellApp {
     const follow =
       output !== null &&
       output.scrollHeight - output.scrollTop - output.clientHeight < 24;
+    const messages = this.root.querySelector<HTMLElement>('.session-messages');
+    const followMessages =
+      messages !== null &&
+      messages.scrollHeight - messages.scrollTop - messages.clientHeight < 24;
 
     this.root.replaceChildren();
     const shell = el('div', { class: 'phone' });
@@ -387,6 +406,11 @@ export class ShellApp {
     const nextOutput = this.root.querySelector<HTMLElement>('.session-output');
     if (nextOutput && follow) {
       nextOutput.scrollTop = nextOutput.scrollHeight;
+    }
+    const nextMessages =
+      this.root.querySelector<HTMLElement>('.session-messages');
+    if (nextMessages && followMessages) {
+      nextMessages.scrollTop = nextMessages.scrollHeight;
     }
   }
 
@@ -905,6 +929,238 @@ export class ShellApp {
       main.append(card);
     }
 
+    main.append(this.renderContextStrip(screen));
+    if (screen.view === 'messages' && screen.historyStructured) {
+      main.append(this.renderMessages(screen));
+    } else {
+      if (
+        !historySupported(
+          screen.session.client ?? null,
+          screen.session.kind,
+        )
+      ) {
+        main.append(
+          el('p', {
+            class: 'session-note',
+            text: this.t('session.terminalOnly'),
+          }),
+        );
+      }
+      main.append(this.renderOutputPanel(screen));
+    }
+    const demoPanel = this.renderDemoServers(screen);
+    if (demoPanel) {
+      main.append(demoPanel);
+    }
+    main.append(this.renderComposer(screen.session, screen.view));
+    return main;
+  }
+
+  private renderContextStrip(
+    screen: Extract<Screen, { name: 'session' }>,
+  ): HTMLElement {
+    const session = screen.session;
+    const context =
+      session.contextLeft === null || session.contextLeft === undefined
+        ? this.t('session.contextUnknown')
+        : this.t('session.contextLeft', {
+            percent: Math.round(session.contextLeft),
+          });
+    const facts = el('div', { class: 'session-context-facts' }, [
+      el('span', {
+        class: 'session-context-state',
+        text: this.t(sessionStatusKey(session)),
+      }),
+      el('span', { class: 'session-context-item', text: context }),
+      session.branch
+        ? el('span', {
+            class: 'session-context-branch',
+            text: session.branch,
+            attrs: { title: session.branch },
+          })
+        : null,
+    ]);
+    const strip = el('div', { class: 'session-context' }, [facts]);
+    if (screen.historyStructured) {
+      strip.append(
+        el('button', {
+          class: 'btn btn-secondary session-view-toggle',
+          text:
+            screen.view === 'messages'
+              ? this.t('session.viewTerminal')
+              : this.t('session.viewMessages'),
+          attrs: {
+            type: 'button',
+            'aria-label': this.t('session.viewLabel'),
+          },
+          on: {
+            click: () => {
+              if (this.screen.name !== 'session') {
+                return;
+              }
+              this.screen = {
+                ...this.screen,
+                view:
+                  this.screen.view === 'messages' ? 'terminal' : 'messages',
+              };
+              this.scheduleRender();
+            },
+          },
+        }),
+      );
+    }
+    return strip;
+  }
+
+  private renderMessages(
+    screen: Extract<Screen, { name: 'session' }>,
+  ): HTMLElement {
+    const panel = el('section', {
+      class: 'session-messages-panel',
+      attrs: { 'aria-label': this.t('session.messages') },
+    });
+    const scroll = el('div', { class: 'session-messages' });
+    if (screen.history.length === 0) {
+      scroll.append(
+        el('p', {
+          class: 'phone-empty',
+          text: screen.historyLoading
+            ? this.t('session.messagesLoading')
+            : this.t('session.messagesEmpty'),
+          attrs: screen.historyLoading ? { 'aria-busy': 'true' } : {},
+        }),
+      );
+    } else {
+      const log = el('div', {
+        class: 'session-message-list',
+        attrs: {
+          role: 'log',
+          'aria-label': this.t('session.messages'),
+        },
+      });
+      for (const item of screen.history) {
+        log.append(this.renderHistoryItem(screen, item));
+      }
+      if (screen.session.workState === 'done') {
+        log.append(
+          el('p', {
+            class: 'session-messages-done',
+            text: this.t('session.finished'),
+          }),
+        );
+      }
+      scroll.append(log);
+    }
+    panel.append(
+      el('h2', {
+        class: 'phone-section-title',
+        text: this.t('session.messages'),
+      }),
+      scroll,
+    );
+    if (screen.ended) {
+      panel.append(
+        el('p', { class: 'session-note', text: this.t('session.ended') }),
+      );
+    }
+    return panel;
+  }
+
+  private renderHistoryItem(
+    screen: Extract<Screen, { name: 'session' }>,
+    item: HistoryItem,
+  ): HTMLElement {
+    if (item.kind === 'prompt') {
+      return el('article', { class: 'session-message is-prompt' }, [
+        el('span', {
+          class: 'session-message-label',
+          text: this.t('session.you'),
+        }),
+        el('p', { class: 'session-message-text', text: item.text }),
+      ]);
+    }
+    if (item.kind === 'reply') {
+      const text = el('p', { class: 'session-message-text', text: item.text });
+      if (item.state === 'streaming') {
+        text.append(
+          el('span', {
+            class: 'session-message-caret',
+            text: '▍',
+            attrs: { 'aria-hidden': 'true' },
+          }),
+        );
+      }
+      return el(
+        'article',
+        {
+          class: 'session-message is-reply',
+          attrs: { 'data-state': item.state },
+        },
+        [
+          el('span', {
+            class: 'session-message-label',
+            text: screen.session.client ?? this.t('session.agent'),
+          }),
+          text,
+        ],
+      );
+    }
+
+    const open = this.expandedTools.has(item.id);
+    const stateKey = toolStateKey(item.state);
+    const row = el('button', {
+      class: 'session-tool-row',
+      attrs: {
+        type: 'button',
+        id: `session-tool-${item.id}`,
+        'aria-expanded': open ? 'true' : 'false',
+        'data-state': item.state,
+      },
+      on: {
+        click: () => {
+          const next = toggleExpanded(this.expandedTools, item.id);
+          this.expandedTools.clear();
+          for (const id of next) {
+            this.expandedTools.add(id);
+          }
+          this.scheduleRender();
+        },
+      },
+    });
+    row.append(
+      el('span', {
+        class: 'session-tool-name',
+        text: item.tool ?? this.t('session.tool'),
+      }),
+      el('span', { class: 'session-tool-summary', text: item.text }),
+    );
+    if (stateKey) {
+      row.append(
+        el('span', {
+          class: 'session-tool-state',
+          text: this.t(stateKey),
+        }),
+      );
+    }
+    row.append(
+      el('span', {
+        class: 'session-tool-marker',
+        text: open ? '−' : '+',
+        attrs: { 'aria-hidden': 'true' },
+      }),
+    );
+    const tool = el('div', { class: 'session-tool' }, [row]);
+    if (open) {
+      tool.append(
+        el('pre', { class: 'session-tool-detail', text: item.text }),
+      );
+    }
+    return tool;
+  }
+
+  private renderOutputPanel(
+    screen: Extract<Screen, { name: 'session' }>,
+  ): HTMLElement {
     const panel = el('section', {
       class: 'session-output-panel',
       attrs: { 'aria-label': this.t('session.output') },
@@ -946,13 +1202,7 @@ export class ShellApp {
         el('p', { class: 'session-note', text: this.t('session.ended') }),
       );
     }
-    main.append(panel);
-    const demoPanel = this.renderDemoServers(screen);
-    if (demoPanel) {
-      main.append(demoPanel);
-    }
-    main.append(this.renderComposer(screen.session));
-    return main;
+    return panel;
   }
 
   private renderSessionActions(session: Session): HTMLElement {
@@ -1126,7 +1376,7 @@ export class ShellApp {
     return null;
   }
 
-  private renderComposer(session: Session): HTMLElement {
+  private renderComposer(session: Session, view: SessionView): HTMLElement {
     const wrap = el('section', {
       class: 'session-composer-wrap',
       attrs: { 'aria-label': this.t('keys.title') },
@@ -1167,8 +1417,14 @@ export class ShellApp {
       attrs: {
         type: 'text',
         id: `session-input-${session.id}`,
-        placeholder: this.t('session.inputPlaceholder'),
-        'aria-label': this.t('session.input'),
+        placeholder: this.t(
+          view === 'messages'
+            ? 'session.promptPlaceholder'
+            : 'session.inputPlaceholder',
+        ),
+        'aria-label': this.t(
+          view === 'messages' ? 'session.promptLabel' : 'session.input',
+        ),
         autocomplete: 'off',
         autocapitalize: 'sentences',
         spellcheck: 'false',
@@ -2752,6 +3008,58 @@ export class ShellApp {
     this.scheduleRender();
   }
 
+  private applyHistoryEvent(sessionId: string, value: unknown): void {
+    const screen = this.screen;
+    if (screen.name !== 'session' || screen.session.id !== sessionId) {
+      return;
+    }
+    const status = historyStatusFromEvent(value);
+    if (status) {
+      this.screen = {
+        ...screen,
+        historyStructured: status.structured,
+        historyLoading: false,
+        view: status.structured ? screen.view : 'terminal',
+        error: undefined,
+      };
+      this.scheduleRender();
+      return;
+    }
+    const item = historyItemFromEvent(value);
+    if (!item) {
+      return;
+    }
+    this.screen = {
+      ...screen,
+      history: mergeHistory(screen.history, item),
+      historyLoading: false,
+      error: undefined,
+    };
+    this.scheduleRender();
+  }
+
+  private failHistory(error: CommandError): void {
+    const screen = this.screen;
+    if (screen.name !== 'session') {
+      return;
+    }
+    this.screen = {
+      ...screen,
+      historyLoading: false,
+      error: noticeFor(error),
+    };
+    this.scheduleRender();
+  }
+
+  private endHistory(): void {
+    const screen = this.screen;
+    if (screen.name !== 'session') {
+      return;
+    }
+    this.screen = { ...screen, historyLoading: false, ended: true };
+    this.scheduleRender();
+  }
+
   private closeEvents(): void {
     const stop = this.stopEvents;
     this.stopEvents = null;
@@ -2763,6 +3071,14 @@ export class ShellApp {
   private closeOutput(): void {
     const stop = this.stopOutput;
     this.stopOutput = null;
+    if (stop) {
+      void stop();
+    }
+  }
+
+  private closeHistory(): void {
+    const stop = this.stopHistory;
+    this.stopHistory = null;
     if (stop) {
       void stop();
     }
@@ -2891,6 +3207,7 @@ export class ShellApp {
 
   private goComputers(): void {
     this.sessionsToken += 1;
+    this.closeHistory();
     this.closeOutput();
     this.closeEvents();
     this.screen = { name: 'computers' };
@@ -2905,6 +3222,7 @@ export class ShellApp {
         : this.screen.name === 'session'
           ? this.screen.sessions
           : [];
+    this.closeHistory();
     this.closeOutput();
     this.overlay = null;
     this.screen = {
@@ -2922,6 +3240,7 @@ export class ShellApp {
   private async openSessions(computer: ComputerRecord): Promise<void> {
     this.sessionsToken += 1;
     const token = this.sessionsToken;
+    this.closeHistory();
     this.closeOutput();
     this.closeEvents();
     this.screen = {
@@ -2975,19 +3294,26 @@ export class ShellApp {
     session: Session,
     sessions: Session[],
   ): Promise<void> {
+    this.closeHistory();
     this.closeOutput();
     this.overlay = null;
+    this.expandedTools.clear();
     this.sessionCache = mergeSession(this.sessionCache, session);
     const demoServers = sessionDemoServers(
       session.demoServers ?? [],
       session.id,
     );
+    const supported = historySupported(session.client ?? null, session.kind);
     this.screen = {
       name: 'session',
       computer,
       sessions,
       session,
       output: { text: '', lastSeq: 0, dropped: false },
+      history: [],
+      historyStructured: supported,
+      historyLoading: supported,
+      view: supported ? 'messages' : 'terminal',
       demoServers,
       loading: true,
       ended: false,
@@ -3018,6 +3344,39 @@ export class ShellApp {
       this.stopOutput = stop;
     } catch (error) {
       this.failOutput(asError(error));
+    }
+    if (supported) {
+      await this.startHistory(computer, session);
+    }
+  }
+
+  private async startHistory(
+    computer: ComputerRecord,
+    session: Session,
+  ): Promise<void> {
+    const id = this.nextId('history');
+    try {
+      const stop = await openSubscription(
+        computer.id,
+        id,
+        'history',
+        { sessionId: session.id, after: 0 },
+        {
+          onEvent: (value) => this.applyHistoryEvent(session.id, value),
+          onError: (error) => this.failHistory(error),
+          onEnd: () => this.endHistory(),
+        },
+      );
+      if (
+        this.screen.name !== 'session' ||
+        this.screen.session.id !== session.id
+      ) {
+        await stop();
+        return;
+      }
+      this.stopHistory = stop;
+    } catch (error) {
+      this.failHistory(asError(error));
     }
   }
 

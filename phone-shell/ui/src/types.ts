@@ -112,6 +112,7 @@ export interface Session {
   providerId?: string | null;
   branch?: string | null;
   folder?: string;
+  contextLeft?: number | null;
   preview: string;
   waitingFor: WaitingFor | null;
   pendingPermission: PendingPermission | null;

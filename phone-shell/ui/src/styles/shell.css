@@ -508,6 +508,181 @@ button:disabled {
   white-space: pre-wrap;
 }
 
+.session-context {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.session-context-facts {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+.session-context-state {
+  color: var(--running);
+  font-weight: 600;
+}
+
+.session-context-item,
+.session-context-branch {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-context-branch {
+  font-family: var(--mono-font);
+}
+
+.session-view-toggle {
+  flex: none;
+  min-height: 32px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.session-messages-panel {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.session-messages-panel .phone-section-title {
+  margin-top: 0;
+}
+
+.session-messages {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.session-message-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.session-message {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+
+.session-message.is-prompt {
+  border-left: 3px solid var(--accent);
+}
+
+.session-message.is-reply {
+  border-left: 3px solid var(--border);
+}
+
+.session-message-label {
+  color: var(--text-3);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.session-message-text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.session-message-caret {
+  color: var(--accent);
+}
+
+.session-tool {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.session-tool-row {
+  display: flex;
+  width: 100%;
+  align-items: baseline;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+}
+
+.session-tool-name {
+  flex: none;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.session-tool-summary {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-2);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-tool-state {
+  flex: none;
+  color: var(--text-3);
+  font-size: 11px;
+}
+
+.session-tool-row[data-state='failed'] .session-tool-state {
+  color: var(--danger);
+}
+
+.session-tool-marker {
+  flex: none;
+  color: var(--text-3);
+}
+
+.session-tool-detail {
+  margin: 0;
+  padding: 8px 10px;
+  border-top: 1px solid var(--border);
+  color: var(--text-2);
+  font-family: var(--mono-font);
+  font-size: 11px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.session-messages-done {
+  margin: 0;
+  color: var(--text-3);
+  font-size: 12px;
+  text-align: center;
+}
+
 .session-note {
   margin: 8px 0 0;
   color: var(--text-3);

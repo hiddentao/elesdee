@@ -44,7 +44,7 @@ async function call<T>(
   }
 }
 
-export type LiveChannel = 'events' | 'output';
+export type LiveChannel = 'events' | 'output' | 'history';
 
 export interface LiveHandlers {
   onEvent: (value: unknown) => void;
