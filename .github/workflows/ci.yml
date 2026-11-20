@@ -25,7 +25,9 @@ jobs:
       - name: Cache Rust
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: core
+          workspaces: |
+            core
+            link
       - name: Install UI dependencies
         run: npm ci
       - name: UI types and tests
@@ -38,6 +40,12 @@ jobs:
         run: cargo clippy --manifest-path core/Cargo.toml --all-targets -- -D warnings
       - name: Core tests
         run: cargo test --manifest-path core/Cargo.toml
+      - name: Link format
+        run: cargo fmt --manifest-path link/Cargo.toml --check
+      - name: Link clippy
+        run: cargo clippy --manifest-path link/Cargo.toml --all-targets -- -D warnings
+      - name: Link tests
+        run: cargo test --manifest-path link/Cargo.toml
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
       - name: End-to-end tests
