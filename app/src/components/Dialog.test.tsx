@@ -192,13 +192,17 @@ describe('Dialog', () => {
         <button type="button">Second</button>
       </Dialog>
     );
-    const view = render(renderDialog(true));
+    const view = render(renderDialog(false));
+    // Initial focus runs while the dialog is idle, before any busy status.
+    expect(screen.getByRole('button', { name: 'First' })).toHaveFocus();
+
+    view.rerender(renderDialog(true));
     expect(screen.getByRole('status')).toHaveFocus();
 
     view.rerender(renderDialog(false));
 
-    expect(screen.getByRole('button', { name: 'First' })).toHaveFocus();
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'First' })).toHaveFocus();
 
     await user.keyboard('{Escape}');
     expect(onClose).toHaveBeenCalledOnce();

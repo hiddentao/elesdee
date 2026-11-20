@@ -125,6 +125,7 @@ import { UpdateInstallDialog } from './components/UpdateInstallDialog';
 import { PlusIcon, SparkIcon, TerminalIcon } from './components/icons';
 import { useLanguage } from './i18n/LanguageProvider';
 import type { Translate } from './i18n';
+import { focusSessionRow } from './state/sessionRowFocus';
 import {
   closeSessionTab,
   moveSessionTab,
@@ -1651,15 +1652,7 @@ export default function App() {
               // The opener row belongs to the old project and unmounts.
               // Move focus to the session's new row, or the list.
               window.setTimeout(() => {
-                const rows =
-                  document.querySelectorAll<HTMLElement>('[data-session-id]');
-                for (const row of rows) {
-                  if (row.dataset.sessionId === session.id) {
-                    row.focus();
-                    return;
-                  }
-                }
-                document.querySelector<HTMLElement>('.session-list')?.focus();
+                focusSessionRow(session.id, '.session-list');
               }, 0);
             }
             return moved;

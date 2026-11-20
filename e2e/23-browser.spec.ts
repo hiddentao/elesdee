@@ -236,8 +236,18 @@ test('keeps arrow keys on the browser close and new-tab buttons', async ({
     await expect(secondTab).toBeVisible();
     await firstTab.click();
     await expect(firstTab).toHaveAttribute('aria-selected', 'true');
+    await expect(firstTab).toHaveAttribute(
+      'aria-controls',
+      'browser-tabpanel',
+    );
+    await expect(
+      page.getByRole('tabpanel', { name: 'First page' }),
+    ).toBeVisible();
     await page.keyboard.press('ArrowRight');
     await expect(secondTab).toBeFocused();
+    await expect(
+      page.getByRole('tabpanel', { name: 'Untitled page' }),
+    ).toBeVisible();
     expect(
       await secondTab.evaluate((element) => {
         const style = getComputedStyle(element);
