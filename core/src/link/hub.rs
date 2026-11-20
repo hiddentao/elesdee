@@ -7,16 +7,16 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use elesdee_link::{
-    CONFIRMATION_TTL_SECS, MAX_CONNECTED_PHONES, MAX_PAIRED_PHONES, MAX_STREAMS_TOTAL,
-    PAIRING_TICKET_TTL_SECS, PHONE_NAME_MAX_CHARS, PHONE_NAME_MIN_CHARS, PairTicket,
-    PairingSession, pairing_code,
+    CONFIRMATION_TTL_SECS, MAX_CONNECTED_PHONES, MAX_FORWARD_TUNNELS, MAX_PAIRED_PHONES,
+    MAX_STREAMS_TOTAL, PAIRING_TICKET_TTL_SECS, PHONE_NAME_MAX_CHARS, PHONE_NAME_MIN_CHARS,
+    PairTicket, PairingSession, pairing_code,
 };
 use iroh::endpoint::Connection;
 use iroh::endpoint::VarInt;
 use iroh::{Endpoint, EndpointAddr, EndpointId};
 use iroh_tickets::Ticket;
 use serde::Serialize;
-use tokio::sync::oneshot;
+use tokio::sync::{oneshot, watch};
 use zeroize::{Zeroize, Zeroizing};
 
 use super::wire::{PairDecision, PairReject, PairRequest};
@@ -169,6 +169,7 @@ struct HubInner {
     next_connection: AtomicU64,
     live: Mutex<HashMap<String, Vec<(u64, Connection)>>>,
     revoked: Mutex<HashSet<String>>,
+    forward_tunnels: Mutex<HashMap<u16, watch::Sender<bool>>>,
 }
 
 /// Shared remote-link state.
@@ -198,6 +199,7 @@ impl LinkHub {
                 next_connection: AtomicU64::new(0),
                 live: Mutex::new(HashMap::new()),
                 revoked: Mutex::new(HashSet::new()),
+                forward_tunnels: Mutex::new(HashMap::new()),
             }),
         }
     }
@@ -610,6 +612,42 @@ impl LinkHub {
         }
     }
 
+    /// Opens one demo-server tunnel.
+    ///
+    /// A port may have one tunnel, and the computer may hold at most
+    /// [`MAX_FORWARD_TUNNELS`] tunnels. The permit closes the tunnel's
+    /// cancellation channel when it drops.
+    pub fn open_forward(&self, port: u16) -> ForwardOpen {
+        let mut tunnels = lock(&self.inner.forward_tunnels);
+        if tunnels.contains_key(&port) {
+            return ForwardOpen::PortInUse;
+        }
+        if tunnels.len() >= MAX_FORWARD_TUNNELS {
+            return ForwardOpen::Limit;
+        }
+        let (cancel, receiver) = watch::channel(false);
+        tunnels.insert(port, cancel);
+        ForwardOpen::Opened(ForwardPermit {
+            hub: self.clone(),
+            port,
+            cancel: receiver,
+        })
+    }
+
+    /// Closes the tunnel for a port, if one is open.
+    pub fn close_forward(&self, port: u16) {
+        if let Some(cancel) = lock(&self.inner.forward_tunnels).get(&port) {
+            let _ = cancel.send(true);
+        }
+    }
+
+    /// Closes every demo-server tunnel.
+    pub fn close_all_forwards(&self) {
+        for cancel in lock(&self.inner.forward_tunnels).values() {
+            let _ = cancel.send(true);
+        }
+    }
+
     fn lock_state(&self) -> MutexGuard<'_, HubState> {
         lock(&self.inner.state)
     }
@@ -653,6 +691,41 @@ pub struct StreamPermit {
 impl Drop for StreamPermit {
     fn drop(&mut self) {
         self.hub.inner.streams_total.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
+/// The result of opening a demo-server tunnel.
+pub enum ForwardOpen {
+    /// The tunnel was reserved.
+    Opened(ForwardPermit),
+    /// Another tunnel already uses the port.
+    PortInUse,
+    /// The computer holds the maximum number of tunnels.
+    Limit,
+}
+
+/// Keeps one demo-server tunnel reserved until the handler ends.
+pub struct ForwardPermit {
+    hub: LinkHub,
+    port: u16,
+    cancel: watch::Receiver<bool>,
+}
+
+impl ForwardPermit {
+    /// Returns the loopback port.
+    pub fn port(&self) -> u16 {
+        self.port
+    }
+
+    /// Returns a receiver that reports when the tunnel is stopped.
+    pub fn cancellation(&self) -> watch::Receiver<bool> {
+        self.cancel.clone()
+    }
+}
+
+impl Drop for ForwardPermit {
+    fn drop(&mut self) {
+        lock(&self.hub.inner.forward_tunnels).remove(&self.port);
     }
 }
 

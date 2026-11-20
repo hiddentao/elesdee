@@ -26,6 +26,12 @@ pub const MAX_PAIRED_PHONES: usize = 16;
 /// Maximum connected phones on one computer.
 pub const MAX_CONNECTED_PHONES: usize = 8;
 
+/// Maximum open demo-server tunnels on one computer.
+///
+/// There is one tunnel per port, so this also caps the ports that may be
+/// forwarded at the same time.
+pub const MAX_FORWARD_TUNNELS: usize = 8;
+
 /// Pairing ticket lifetime in seconds.
 pub const PAIRING_TICKET_TTL_SECS: u64 = 120;
 

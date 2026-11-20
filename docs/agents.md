@@ -85,6 +85,7 @@ Claude Code, Codex and OpenCode 2 sessions get the same skill pack:
 | Skill | What it covers |
 | --- | --- |
 | elesdee | The session branch and worktree, the tools, and the other skills |
+| Demo servers | Starting a server, registering its port and giving you an address that opens on your phone |
 | Ask and notify | Asking you when blocked, waiting for the answer, notifications and reporting done |
 | Coordinate sessions | Helper sessions, briefs and merging their branches |
 | Handoff | The handoff note, the last commit and the push |

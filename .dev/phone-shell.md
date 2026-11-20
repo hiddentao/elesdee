@@ -576,7 +576,7 @@ Step 2 implements the key check at accept, the method allowlist and the frame li
 | `events.subscribe` | `GET /api/events` | Server to phone. |
 | `output.subscribe` | `GET /api/sessions/{id}/output` | Server to phone, replay by sequence. |
 | `ui.manifest`, `ui.download` | New link handlers | UI package only. |
-| `demoServers.list` | New local route | Registered ports only. |
+| `demoServers.list` | `GET /api/demo-servers` | Active registered ports only. |
 
 The phone cannot call:
 
@@ -591,7 +591,7 @@ The phone cannot call:
 
 The link server rejects an unknown method with `forbidden`. A test compares the allowlist table with the local router, so a new route does not become reachable by accident.
 
-Step 4 dispatches every allowlisted method that has a local route: `bootstrap`, `health`, the project, branch, provider and account lists, session create, close, input, permission, account and resume, question list and answer, session request approve and deny, the file list and text read, the diff read, and the event and output subscriptions. `sessions.create` drops a phone-supplied folder. `sessions.upload`, `files.image`, the UI package methods and `demoServers.list` return `unsupported` until their steps. A method outside the allowlist is rejected while the request frame decodes, so it returns `forbidden`.
+Step 4 dispatches every allowlisted method that has a local route: `bootstrap`, `health`, the project, branch, provider and account lists, session create, close, input, permission, account and resume, question list and answer, session request approve and deny, the file list and text read, the diff read, `demoServers.list`, and the event and output subscriptions. `sessions.create` drops a phone-supplied folder. `sessions.upload`, `files.image` and the UI package methods return `unsupported` until their steps. A method outside the allowlist is rejected while the request frame decodes, so it returns `forbidden`.
 
 A phone never chooses a job folder. When remote session creation is added, it starts in the project folder, and the link drops any `folder` parameter from a `sessions.create` request before a handler sees it.
 
@@ -609,11 +609,26 @@ Account keys never cross the link. The existing account response omits them.
 
 ### 6.4 Demo-server forwarding
 
-- The phone sends a port from the registered demo-server list. The desktop checks the list; any other port is refused. The forward handler checks the paired device list like the app handler.
+- The phone sends a port from the registered demo-server list. The desktop checks the active list; any other port is refused. The forward handler checks the paired device list like the app handler.
+- The handshake is two big-endian port bytes from the phone, then one status byte from the computer: `0` open, `1` refused, `2` approved but nothing listens. The bytes are defined in `link/src/forward.rs` and the statuses are shared.
 - The phone shell binds `127.0.0.1` only. It uses the same port when free, otherwise a free port, and shows the address.
-- The computer side connects to `127.0.0.1:<port>` only.
-- At most 8 tunnels, one per port.
-- The tunnel closes when the app pauses or the connection drops. Android may kill the app in the background. The test build checks this.
+- The computer side connects to `127.0.0.1:<port>` only. The port request carries no address, so the phone cannot ask for another host.
+- At most 8 tunnels, one per port. A duplicate port or a ninth tunnel is refused. Closing a tunnel frees its slot.
+- The tunnel closes when the session stops the server, closes or pauses, when the phone connection drops, or when the app shuts down. Android may kill the app in the background. The test build checks this.
+- The computer side is implemented and covered by a loopback test with a real local HTTP server. The phone shell listener is not implemented, so a device build cannot yet open the tunnel.
+
+**Implementation files**
+
+| Path | Contents |
+| --- | --- |
+| `link/src/forward.rs` | Port encoding, port range, status bytes and the local address. |
+| `link/src/limits.rs` | `MAX_FORWARD_TUNNELS`. |
+| `core/src/link/forward.rs` | Forward ALPN handler, registry check, loopback connect and teardown. |
+| `core/src/link/hub.rs` | One permit per port and tunnel cancellation. |
+| `core/src/api.rs` | `GET /api/demo-servers` and the stop route. |
+| `core/src/demo.rs` | Demo-server records and validation. |
+| `core/src/mcp.rs` | The `register_demo_server` tool. |
+| `phone-shell/src-tauri/src/forward.rs` | Not built. It will bind `127.0.0.1`, pick a free port and bridge accepted sockets through the forward ALPN. |
 
 ### 6.5 Logging and storage
 
@@ -645,7 +660,7 @@ Each step ends with an end-to-end test.
 | 5. UI package build and delivery | Vite phone config, packaging script, manifest, download, hash check, safe unzip, custom protocol serving, version gates. Files: `app/vite.phone.config.ts`, `scripts/package-phone-ui.mjs`, `core/src/link/ui.rs`, `phone-shell/src/`. | Node test: deterministic zip and matching hash. Rust test: hash mismatch rejected, traversal zip rejected, oversize rejected, atomic swap. Android: first download, desktop upgrade then phone update on connect, offline restart uses the stored build. |
 | 6. Reconnect and revocation | **Implemented in part.** Backoff, output resume and the revocation close code exist. Network change and foreground reconnect controls remain. Files: `link/src/reconnect.rs`, `phone-shell/src-tauri/src/commands.rs`. | **Implemented in part.** Rust tests cover the backoff sequence on a fake clock, output replay from a requested sequence and close code 3. The shell subscription stores the last sequence and reopens from it after a reconnect. A full reconnect test on a device remains. |
 | 7. Mobile actions | New-session form, close, switch account, usage, upload, files, images, diffs. Files: `core/src/link/`, `core/src/api.rs`, `app/src/phone/`. | One Rust test per method. Upload tests: bad name, duplicate name, oversize, path outside the session. File read tests: `..`, absolute path, symlink. Playwright: permission card, question form and composer. |
-| 8. Demo forwarding | Forward ALPN, port registry, loopback listener, port choice, teardown. Files: `core/src/link/forward.rs`, `phone-shell/src/forward.rs`. | Start a local HTTP server, register the port, fetch it through the phone listener. Refuse an unregistered port. Refuse a non-loopback bind. Android: open it in Chrome, then background the app and check the documented limit. |
+| 8. Demo forwarding | **Implemented on the computer.** Forward ALPN, registered-port check, loopback connect, one tunnel per port, teardown. The phone shell listener remains. Files: `link/src/forward.rs`, `core/src/link/forward.rs`, `core/src/link/hub.rs`, `core/src/api.rs`, `core/src/demo.rs`, `core/src/mcp.rs`. | **Run:** the link-crate forward and allowlist tests, and the core loopback test that registers a port, fetches a local HTTP server through the tunnel, refuses an unregistered port and refuses an unpaired phone. **Not run:** the phone shell listener and any device build. |
 | 9. CI and release | Android job with JDK, SDK, NDK and Rust targets. Shell version and APK artifact. Signing secrets. Path filters. | CI builds the APK on a phone-shell change, runs the Rust and JS tests, and uploads the artifact. Install the artifact on a device and check the version screen. |
 
 First three steps in order: link crate, core endpoint and pairing, phone shell and pairing screen. They prove the riskiest parts first: the ticket format, the pairing handshake, and Tauri mobile on a real phone.

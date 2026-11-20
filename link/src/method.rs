@@ -251,4 +251,14 @@ mod tests {
             .collect();
         assert_eq!(streaming, ["events.subscribe", "output.subscribe"]);
     }
+
+    #[test]
+    fn demo_servers_are_listed_but_forwarding_is_not_a_method() {
+        assert_eq!(
+            Method::parse("demoServers.list"),
+            Some(Method::DemoServersList)
+        );
+        assert_eq!(Method::parse("demoServers.forward"), None);
+        assert_eq!(Method::parse("demoServers.open"), None);
+    }
 }

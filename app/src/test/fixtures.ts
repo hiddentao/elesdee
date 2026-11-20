@@ -22,6 +22,7 @@ export function makeSession(overrides: Partial<Session> = {}): Session {
     preview: 'Ready',
     waitingFor: null,
     pendingPermission: null,
+    demoServers: [],
     startedAt: '2026-11-19T10:00:00Z',
     shortcuts: [],
     ...overrides,

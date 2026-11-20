@@ -10,6 +10,7 @@
 //! and session output streams with sequence replay.
 
 mod app;
+mod forward;
 pub mod hub;
 pub mod identity;
 mod pair;
@@ -25,15 +26,16 @@ use elesdee_link::{
     APP_ALPN, DeviceIdentity, FORWARD_ALPN, MAX_STREAMS_PER_CONNECTION, PAIR_ALPN,
     QUIC_IDLE_TIMEOUT, QUIC_KEEP_ALIVE, SecretKey,
 };
+use iroh::endpoint::QuicTransportConfig;
 use iroh::endpoint::VarInt;
 use iroh::endpoint::presets;
-use iroh::endpoint::{Connection, QuicTransportConfig};
-use iroh::protocol::{AcceptError, ProtocolHandler, Router};
+use iroh::protocol::Router;
 use iroh::{Endpoint, EndpointAddr};
 
 use crate::state::AppState;
 use crate::text::clean_label;
 pub use app::AppHandler;
+pub use forward::ForwardHandler;
 pub use hub::{ApproveFailure, DesktopInfo, LinkHub, PairingSnapshot, TicketCreated};
 pub use identity::{IDENTITY_FILE, identity_path, load_or_create_identity};
 pub use pair::PairHandler;
@@ -138,10 +140,11 @@ impl LinkService {
             state.link().clone(),
             crate::api::router(state.clone()),
         );
+        let forward = ForwardHandler::new(state.clone(), state.link().clone());
         let router = Router::builder(endpoint.clone())
             .accept(PAIR_ALPN, pair)
             .accept(APP_ALPN, app)
-            .accept(FORWARD_ALPN, ForwardReject)
+            .accept(FORWARD_ALPN, forward)
             .spawn();
         Self { endpoint, router }
     }
@@ -197,16 +200,6 @@ async fn bind_endpoint(secret_key: SecretKey) -> Result<Endpoint, iroh::endpoint
         .transport_config(transport)
         .bind()
         .await
-}
-
-#[derive(Debug, Clone)]
-struct ForwardReject;
-
-impl ProtocolHandler for ForwardReject {
-    async fn accept(&self, connection: Connection) -> Result<(), AcceptError> {
-        connection.close(VarInt::from_u32(0), b"forwarding is not available");
-        Ok(())
-    }
 }
 
 /// Returns the current Unix time in seconds.

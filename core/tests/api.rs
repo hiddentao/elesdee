@@ -153,6 +153,38 @@ async fn write_handoff_note(app: &Router, id: &str, note: &str) {
     assert_eq!(body["result"]["isError"], false, "{body}");
 }
 
+async fn mcp_text(app: &Router, id: &str, name: &str, arguments: Value) -> (bool, String) {
+    let (status, body) = call(
+        app,
+        "POST",
+        &format!("/internal/mcp/{id}"),
+        Some(json!({
+            "jsonrpc": "2.0",
+            "id": 92,
+            "method": "tools/call",
+            "params": { "name": name, "arguments": arguments }
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    (
+        body["result"]["isError"]
+            .as_bool()
+            .unwrap_or_else(|| panic!("missing isError: {body}")),
+        body["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned(),
+    )
+}
+
+fn demo_servers(session: &Value) -> Vec<Value> {
+    session["demoServers"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+}
+
 async fn wait_for_file_contains(path: &Path, needle: &str) -> String {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
     loop {
@@ -3127,6 +3159,7 @@ async fn mcp_session_tools_ask_answer_notify_and_report_done() {
         "check_usage",
         "wait_for_session",
         "share_file",
+        "register_demo_server",
     ] {
         assert!(names.contains(&name), "missing tool {name}");
     }
@@ -9516,6 +9549,76 @@ async fn mcp_browser_tools_are_scoped_to_the_calling_session() {
 }
 
 #[tokio::test]
+async fn demo_servers_register_list_and_stop() {
+    let data_dir = TempDirectory::new("demo-data");
+    let repo = TempDirectory::new("demo-repo");
+    let state = AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    );
+    let app = router(state);
+    let session = create_terminal(&app, &repo.path).await;
+    let id = session["id"].as_str().expect("session id").to_owned();
+    let name = session["name"].as_str().expect("session name").to_owned();
+
+    let (failed, text) = mcp_text(
+        &app,
+        &id,
+        "register_demo_server",
+        json!({ "name": "Preview", "port": 3000 }),
+    )
+    .await;
+    assert!(!failed, "{text}");
+    assert!(text.contains("http://localhost:3000"), "{text}");
+
+    let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    let listed = bootstrap["sessions"]
+        .as_array()
+        .expect("sessions")
+        .iter()
+        .find(|session| session["id"] == id)
+        .expect("session");
+    let servers = demo_servers(listed);
+    assert_eq!(servers.len(), 1, "{listed}");
+    assert_eq!(servers[0]["name"], "Preview");
+    assert_eq!(servers[0]["port"], 3000);
+    assert_eq!(servers[0]["address"], "http://localhost:3000");
+    assert_eq!(servers[0]["state"], "active");
+    let server_id = servers[0]["id"].as_str().expect("server id").to_owned();
+
+    let (status, all) = call(&app, "GET", "/api/demo-servers", None).await;
+    assert_eq!(status, StatusCode::OK, "{all}");
+    assert_eq!(all[0]["sessionId"], id);
+    assert_eq!(all[0]["sessionName"], name);
+    assert_eq!(all[0]["port"], 3000);
+
+    let (status, updated) = call(
+        &app,
+        "POST",
+        &format!("/api/sessions/{id}/demo-servers/{server_id}/stop"),
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{updated}");
+    assert_eq!(demo_servers(&updated)[0]["state"], "stopped");
+
+    let (_, all) = call(&app, "GET", "/api/demo-servers", None).await;
+    assert!(all.as_array().expect("demo servers").is_empty());
+
+    let (status, unknown) = call(
+        &app,
+        "POST",
+        &format!("/api/sessions/{id}/demo-servers/unknown/stop"),
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{unknown}");
+
+    let (status, _) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
 async fn mcp_browser_refuses_a_non_http_address_and_shares_a_screenshot() {
     let base = start_browser_page_server().await;
     let data_dir = TempDirectory::new("browser-share-data");
@@ -9577,4 +9680,208 @@ async fn mcp_browser_refuses_a_non_http_address_and_shares_a_screenshot() {
 
     let (status, _) = close_session(&app, id).await;
     assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn demo_servers_enforce_their_limits_and_session_ownership() {
+    let data_dir = TempDirectory::new("demo-limits-data");
+    let repo = TempDirectory::new("demo-limits-repo");
+    let state = AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    );
+    let app = router(state);
+    let first = create_terminal(&app, &repo.path).await;
+    let first_id = first["id"].as_str().expect("session id").to_owned();
+    let second = create_terminal(&app, &repo.path).await;
+    let second_id = second["id"].as_str().expect("session id").to_owned();
+
+    let (failed, text) = mcp_text(
+        &app,
+        &first_id,
+        "register_demo_server",
+        json!({ "name": "   ", "port": 3000 }),
+    )
+    .await;
+    assert!(failed, "{text}");
+
+    let (failed, text) = mcp_text(
+        &app,
+        &first_id,
+        "register_demo_server",
+        json!({ "name": "Privileged", "port": 80 }),
+    )
+    .await;
+    assert!(failed, "{text}");
+    assert!(text.contains("1024"), "{text}");
+
+    let (failed, text) = mcp_text(
+        &app,
+        &first_id,
+        "register_demo_server",
+        json!({ "name": "Service", "port": 4319 }),
+    )
+    .await;
+    assert!(failed, "{text}");
+    assert!(text.contains("elesdee"), "{text}");
+
+    for port in 3000..3008 {
+        let (failed, text) = mcp_text(
+            &app,
+            &first_id,
+            "register_demo_server",
+            json!({ "name": format!("Preview {port}"), "port": port }),
+        )
+        .await;
+        assert!(!failed, "{text}");
+    }
+    let (failed, text) = mcp_text(
+        &app,
+        &first_id,
+        "register_demo_server",
+        json!({ "name": "One too many", "port": 3008 }),
+    )
+    .await;
+    assert!(failed, "{text}");
+    assert!(text.contains('8'), "{text}");
+
+    let (failed, text) = mcp_text(
+        &app,
+        &second_id,
+        "register_demo_server",
+        json!({ "name": "Shared", "port": 3000 }),
+    )
+    .await;
+    assert!(failed, "{text}");
+    assert!(text.contains("Another session"), "{text}");
+
+    // A repeated port in the same session updates its name and stays one entry.
+    let (failed, text) = mcp_text(
+        &app,
+        &first_id,
+        "register_demo_server",
+        json!({ "name": "Renamed preview", "port": 3000 }),
+    )
+    .await;
+    assert!(!failed, "{text}");
+    let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    let listed = bootstrap["sessions"]
+        .as_array()
+        .expect("sessions")
+        .iter()
+        .find(|session| session["id"] == first_id)
+        .expect("session");
+    let servers = demo_servers(listed);
+    assert_eq!(servers.len(), 8);
+    assert!(
+        servers
+            .iter()
+            .any(|server| server["name"] == "Renamed preview" && server["port"] == 3000)
+    );
+
+    // A stopped record frees a slot for a new registration.
+    let stopped_id = servers
+        .iter()
+        .find(|server| server["port"] == 3001)
+        .and_then(|server| server["id"].as_str())
+        .expect("server to stop")
+        .to_owned();
+    let (status, _) = call(
+        &app,
+        "POST",
+        &format!("/api/sessions/{first_id}/demo-servers/{stopped_id}/stop"),
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (failed, text) = mcp_text(
+        &app,
+        &first_id,
+        "register_demo_server",
+        json!({ "name": "Replacement", "port": 3008 }),
+    )
+    .await;
+    assert!(!failed, "{text}");
+    let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    let listed = bootstrap["sessions"]
+        .as_array()
+        .expect("sessions")
+        .iter()
+        .find(|session| session["id"] == first_id)
+        .expect("session");
+    let servers = demo_servers(listed);
+    assert_eq!(servers.len(), 8);
+    assert!(servers.iter().all(|server| server["port"] != 3001));
+    assert!(
+        servers
+            .iter()
+            .any(|server| server["name"] == "Replacement" && server["port"] == 3008)
+    );
+
+    let (status, _) = close_session(&app, &first_id).await;
+    assert_eq!(status, StatusCode::OK);
+    let (failed, text) = mcp_text(
+        &app,
+        &first_id,
+        "register_demo_server",
+        json!({ "name": "After close", "port": 3100 }),
+    )
+    .await;
+    assert!(failed, "{text}");
+    assert!(text.contains("closed"), "{text}");
+}
+
+#[tokio::test]
+async fn closing_or_pausing_a_session_stops_its_demo_servers() {
+    let data_dir = TempDirectory::new("demo-stop-data");
+    let repo = TempDirectory::new("demo-stop-repo");
+    let state = AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    );
+    let app = router(state.clone());
+    let session = create_terminal(&app, &repo.path).await;
+    let id = session["id"].as_str().expect("session id").to_owned();
+
+    let (failed, text) = mcp_text(
+        &app,
+        &id,
+        "register_demo_server",
+        json!({ "name": "Preview", "port": 3000 }),
+    )
+    .await;
+    assert!(!failed, "{text}");
+
+    let entry = state.session(&id).expect("session entry");
+    entry.pause("Paused. Test.");
+    let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    let listed = bootstrap["sessions"]
+        .as_array()
+        .expect("sessions")
+        .iter()
+        .find(|session| session["id"] == id)
+        .expect("session");
+    assert_eq!(demo_servers(listed)[0]["state"], "stopped");
+    assert!(state.demo_server_by_port(3000).is_none());
+
+    // The same port can be registered again after the pause.
+    let (failed, text) = mcp_text(
+        &app,
+        &id,
+        "register_demo_server",
+        json!({ "name": "Preview again", "port": 3000 }),
+    )
+    .await;
+    assert!(!failed, "{text}");
+
+    let (status, _) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK);
+    let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    let listed = bootstrap["sessions"]
+        .as_array()
+        .expect("sessions")
+        .iter()
+        .find(|session| session["id"] == id)
+        .expect("session");
+    assert_eq!(demo_servers(listed)[0]["state"], "stopped");
 }

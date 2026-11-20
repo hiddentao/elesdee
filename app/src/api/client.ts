@@ -287,6 +287,16 @@ export function deleteSession(id: string): Promise<void> {
   });
 }
 
+export function stopDemoServer(
+  sessionId: string,
+  serverId: string,
+): Promise<Session> {
+  return request<Session>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/demo-servers/${encodeURIComponent(serverId)}/stop`,
+    post({}),
+  );
+}
+
 export function sendInput(id: string, data: string): Promise<void> {
   return request<void>(`/api/sessions/${encodeURIComponent(id)}/input`, post({ data }));
 }

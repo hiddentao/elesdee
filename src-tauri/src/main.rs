@@ -3,8 +3,8 @@
 
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
 
 use tauri::{Emitter, Manager};
 
@@ -33,7 +33,7 @@ fn stop_core(child: &mut Child) {
             match child.try_wait() {
                 Ok(Some(_)) => return,
                 Ok(None) => std::thread::sleep(std::time::Duration::from_millis(100)),
-                Err(_) => break
+                Err(_) => break,
             }
         }
     }
@@ -108,42 +108,70 @@ fn open_terminal(path: String) -> Result<(), String> {
     open_with(&folder, true)
 }
 
+#[tauri::command]
+fn open_url(url: String) -> Result<(), String> {
+    if !is_loopback_url(&url) {
+        return Err("Only a loopback address can be opened.".to_owned());
+    }
+    opener(false)
+        .arg(&url)
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| format!("Could not open the address: {error}"))
+}
+
+/// Returns true for the local demo-server address that the app shows.
+fn is_loopback_url(url: &str) -> bool {
+    let Some(rest) = url.strip_prefix("http://") else {
+        return false;
+    };
+    let Some((host, port)) = rest.rsplit_once(':') else {
+        return false;
+    };
+    if !matches!(host, "localhost" | "127.0.0.1") {
+        return false;
+    }
+    port.parse::<u16>().is_ok_and(|port| port > 0)
+}
+
 fn open_with(folder: &std::path::Path, terminal: bool) -> Result<(), String> {
+    opener(terminal)
+        .arg(folder)
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| format!("Could not open the folder: {error}"))
+}
+
+fn opener(terminal: bool) -> Command {
     #[cfg(target_os = "macos")]
-    let mut command = {
+    {
         let mut command = Command::new("open");
         if terminal {
             command.args(["-a", "Terminal"]);
         }
         command
-    };
+    }
     #[cfg(target_os = "windows")]
-    let mut command = {
-        let mut command = Command::new("explorer");
+    {
         if terminal {
-            command = Command::new("cmd");
-            command.args(["/C", "start", "cmd", "/K", "cd", "/d"]).arg(folder);
-            return command
-                .spawn()
-                .map(|_| ())
-                .map_err(|error| format!("Could not open a terminal: {error}"));
+            let mut command = Command::new("cmd");
+            command.args(["/C", "start", "cmd", "/K", "cd", "/d"]);
+            return command;
         }
-        command
-    };
+        Command::new("explorer")
+    }
     #[cfg(all(unix, not(target_os = "macos")))]
-    let mut command = {
-        let mut command = Command::new(if terminal { "x-terminal-emulator" } else { "xdg-open" });
+    {
+        let mut command = Command::new(if terminal {
+            "x-terminal-emulator"
+        } else {
+            "xdg-open"
+        });
         if terminal {
             command.arg("--working-directory");
         }
         command
-    };
-
-    command
-        .arg(folder)
-        .spawn()
-        .map(|_| ())
-        .map_err(|error| format!("Could not open the folder: {error}"))
+    }
 }
 
 fn main() {
@@ -153,6 +181,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             open_folder,
             open_terminal,
+            open_url,
             quit_app
         ])
         .setup(|app| {

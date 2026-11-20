@@ -524,6 +524,11 @@ pub fn router(state: AppState) -> Router {
         .route("/api/pairing/deny", post(deny_pairing))
         .route("/api/devices", get(list_devices))
         .route("/api/devices/{id}", delete(remove_device))
+        .route("/api/demo-servers", get(list_demo_servers))
+        .route(
+            "/api/sessions/{id}/demo-servers/{server_id}/stop",
+            post(stop_demo_server),
+        )
         .route("/api/sessions", post(create_session))
         .route(
             "/api/sessions/{id}",
@@ -819,6 +824,50 @@ async fn remove_device(
     state.link().mark_revoked(&id);
     state.link().revoke_connections(&id);
     Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DemoServerEntry {
+    #[serde(flatten)]
+    server: crate::demo::DemoServer,
+    session_name: String,
+}
+
+async fn list_demo_servers(State(state): State<AppState>) -> Json<Vec<DemoServerEntry>> {
+    Json(
+        state
+            .active_demo_servers()
+            .into_iter()
+            .map(|(session_name, server)| DemoServerEntry {
+                server,
+                session_name,
+            })
+            .collect(),
+    )
+}
+
+async fn stop_demo_server(
+    State(state): State<AppState>,
+    UrlPath((id, server_id)): UrlPath<(String, String)>,
+) -> Result<Json<Session>, ApiError> {
+    let (session, port) = state
+        .stop_demo_server(&id, &server_id)
+        .map_err(demo_error)?;
+    state.link().close_forward(port);
+    state.emit(SessionEvent::updated(session.clone()));
+    state.save();
+    Ok(Json(session))
+}
+
+fn demo_error(error: crate::demo::DemoFailure) -> ApiError {
+    match error {
+        crate::demo::DemoFailure::UnknownSession | crate::demo::DemoFailure::NotFound => {
+            ApiError::not_found(error.to_string())
+        }
+        crate::demo::DemoFailure::Closed => ApiError::conflict(error.to_string()),
+        _ => ApiError::unprocessable(error.to_string()),
+    }
 }
 
 async fn list_projects(
@@ -2056,6 +2105,7 @@ async fn close_session(
     };
 
     let session = entry.finish_close(preview.as_deref());
+    state.close_demo_tunnels(&session);
     state.withdraw_questions_for_session(&id);
     state.withdraw_requests_for_session(&id);
     state.release_activation();
@@ -2820,6 +2870,7 @@ async fn pause_session(
     }
     entry.remove_session_files();
     let session = entry.pause(reason);
+    state.close_demo_tunnels(&session);
     state.emit(SessionEvent::updated(session.clone()));
     state.save();
     Ok(session)
@@ -4049,6 +4100,7 @@ fn prepare_terminal(
         agent_session_id: None,
         handoff_note: None,
         context_left: None,
+        demo_servers: Vec::new(),
         started_at: timestamp(),
         shortcuts: Vec::new(),
     };
@@ -4149,6 +4201,7 @@ async fn prepare_agent(
         agent_session_id,
         handoff_note: None,
         context_left: None,
+        demo_servers: Vec::new(),
         started_at: timestamp(),
         shortcuts: shortcuts::for_client(account.client),
     };

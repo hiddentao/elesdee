@@ -10,10 +10,11 @@ use axum::body::Body;
 use axum::http::{Request as HttpRequest, StatusCode, header};
 use data_encoding::BASE32_NOPAD;
 use http_body_util::BodyExt;
-use iroh::endpoint::{ConnectionError, RecvStream, VarInt, presets};
+use iroh::endpoint::{ConnectionError, RecvStream, SendStream, VarInt, presets};
 use iroh::{Endpoint, EndpointAddr};
 use iroh_tickets::Ticket;
 use serde_json::{Value, json};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tower::ServiceExt;
 
 use elesdee_core::api::router;
@@ -21,9 +22,10 @@ use elesdee_core::link::{PairReply, PairRequest, read_pair_frame, write_pair_fra
 use elesdee_core::state::PairedDevice;
 use elesdee_core::{AppState, LinkService};
 use elesdee_link::{
-    APP_ALPN, AppHello, CLOSE_REVOKED, ErrorCode, MAX_APP_FRAME_BYTES, MAX_HEADER_BYTES,
-    MAX_UPLOAD_BYTES, Method, PAIR_ALPN, PairTicket, Request, Response, SecretKey, StreamEvent,
-    Welcome, pairing_code, read_app_frame, write_app_frame,
+    APP_ALPN, AppHello, CLOSE_REVOKED, ErrorCode, FORWARD_ALPN, FORWARD_OK, FORWARD_REFUSED,
+    MAX_APP_FRAME_BYTES, MAX_HEADER_BYTES, MAX_UPLOAD_BYTES, Method, PAIR_ALPN, PairTicket,
+    Request, Response, SecretKey, StreamEvent, Welcome, encode_port, pairing_code, read_app_frame,
+    write_app_frame,
 };
 
 const TEST_HOST: &str = "127.0.0.1:4319";
@@ -964,4 +966,179 @@ async fn a_bad_origin_cannot_read_devices() {
         .expect("build request");
     let response = app.clone().oneshot(request).await.expect("call route");
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
+}
+
+async fn register_demo_server(app: &Router, session_id: &str, port: u16) {
+    let (status, body) = call(
+        app,
+        "POST",
+        &format!("/internal/mcp/{session_id}"),
+        Some(json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "register_demo_server",
+                "arguments": { "name": "Preview", "port": port }
+            }
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["result"]["isError"], false, "{body}");
+}
+
+async fn start_http_server() -> u16 {
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+        .await
+        .expect("bind http server");
+    let port = listener.local_addr().expect("server address").port();
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut socket, _)) = listener.accept().await else {
+                return;
+            };
+            tokio::spawn(async move {
+                let mut request = [0u8; 1024];
+                let _ = socket.read(&mut request).await;
+                let response =
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhello";
+                let _ = socket.write_all(response).await;
+                let _ = socket.shutdown().await;
+            });
+        }
+    });
+    port
+}
+
+async fn open_forward(
+    phone: &Endpoint,
+    addr: &EndpointAddr,
+    port: u16,
+) -> (iroh::endpoint::Connection, SendStream, RecvStream, u8) {
+    let connection = phone
+        .connect(addr.clone(), FORWARD_ALPN)
+        .await
+        .expect("forward connect");
+    let (mut send, mut recv) = connection.open_bi().await.expect("forward stream");
+    send.write_all(&encode_port(port))
+        .await
+        .expect("write port");
+    let mut status = [0u8; 1];
+    recv.read_exact(&mut status)
+        .await
+        .expect("read forward status");
+    (connection, send, recv, status[0])
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_paired_phone_forwards_only_a_registered_port() {
+    tokio::time::timeout(TIMEOUT, async {
+        let directory = TempDirectory::new("forward");
+        let state = test_state(&directory.path);
+        let app = router(state.clone());
+        let session = create_terminal(&app, &directory.path).await;
+        let session_id = session["id"].as_str().expect("session id").to_owned();
+
+        let service = LinkService::start_with_endpoint(state.clone(), loopback_endpoint().await);
+        let addr = service.addr();
+        let ticket = PairTicket::decode_string(
+            &state
+                .link()
+                .create_ticket_at(elesdee_core::link::now_unix() + 120, false)
+                .expect("ticket")
+                .ticket,
+        )
+        .expect("decode ticket");
+        let phone = loopback_endpoint().await;
+        let (pair_connection, _device) = approve_and_read(&app, &phone, &ticket).await;
+        pair_connection.close(0u32.into(), b"done");
+
+        let port = start_http_server().await;
+        register_demo_server(&app, &session_id, port).await;
+
+        // The list method returns only registered ports.
+        let response =
+            app_request(&phone, &addr, Request::new(Method::DemoServersList, None)).await;
+        let list = response.result().expect("demo server list");
+        assert_eq!(list.as_array().expect("list").len(), 1, "{list}");
+        assert_eq!(list[0]["port"], port);
+        assert_eq!(list[0]["sessionId"], session_id);
+
+        // A registered port reaches the local server through the tunnel.
+        let (connection, mut send, mut recv, status) = open_forward(&phone, &addr, port).await;
+        assert_eq!(status, FORWARD_OK);
+        send.write_all(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
+            .await
+            .expect("write request");
+        let response = recv.read_to_end(4096).await.expect("read http response");
+        let text = String::from_utf8_lossy(&response);
+        assert!(text.contains("200 OK"), "{text}");
+        assert!(text.contains("hello"), "{text}");
+        connection.close(0u32.into(), b"done");
+
+        // An unregistered port is refused without a connection.
+        let unregistered = if port == 34567 { 34568 } else { 34567 };
+        let (connection, _send, _recv, status) = open_forward(&phone, &addr, unregistered).await;
+        assert_eq!(status, FORWARD_REFUSED);
+        connection.close(0u32.into(), b"done");
+
+        // After a stop the port is no longer on the list and is refused.
+        let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+        let listed = bootstrap["sessions"]
+            .as_array()
+            .expect("sessions")
+            .iter()
+            .find(|value| value["id"] == session_id)
+            .expect("session");
+        let server_id = listed["demoServers"][0]["id"].as_str().expect("server id");
+        let (status, _) = call(
+            &app,
+            "POST",
+            &format!("/api/sessions/{session_id}/demo-servers/{server_id}/stop"),
+            Some(json!({})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let (connection, _send, _recv, status) = open_forward(&phone, &addr, port).await;
+        assert_eq!(status, FORWARD_REFUSED);
+        connection.close(0u32.into(), b"done");
+
+        phone.close().await;
+        service.shutdown().await;
+        assert!(state.shutdown_all());
+    })
+    .await
+    .expect("forward integration test timed out");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_unpaired_phone_cannot_forward() {
+    tokio::time::timeout(TIMEOUT, async {
+        let directory = TempDirectory::new("forward-unpaired");
+        let state = test_state(&directory.path);
+        let service = LinkService::start_with_endpoint(state.clone(), loopback_endpoint().await);
+        let addr = service.addr();
+
+        let phone = loopback_endpoint().await;
+        let connection = phone
+            .connect(addr.clone(), FORWARD_ALPN)
+            .await
+            .expect("forward connect");
+        let closed = tokio::time::timeout(Duration::from_secs(10), connection.closed())
+            .await
+            .expect("the unpaired phone was not closed");
+        match closed {
+            ConnectionError::ApplicationClosed(close) => {
+                assert_eq!(close.error_code, VarInt::from_u32(2));
+            }
+            other => panic!("unexpected close for an unpaired phone: {other:?}"),
+        }
+
+        phone.close().await;
+        service.shutdown().await;
+        assert!(state.shutdown_all());
+    })
+    .await
+    .expect("unpaired forward test timed out");
 }

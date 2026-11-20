@@ -239,6 +239,18 @@ fn tools() -> Vec<Value> {
                 }
             }
         }),
+        json!({
+            "name": "register_demo_server",
+            "description": "Tell the app that a demo server runs on a loopback port. The app records it for this session and returns the address to print. The user can open the address on this computer, and a paired phone can open the same port. Register again after a stop, pause or close.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "name": { "type": "string", "description": "A short name, such as Preview." },
+                    "port": { "type": "integer", "minimum": 1024, "maximum": 65535 }
+                },
+                "required": ["name", "port"]
+            }
+        }),
     ]
 }
 
@@ -268,6 +280,7 @@ pub async fn call_tool(
         "browser_type" => browser_type(state, session_id, arguments).await,
         "browser_wait" => browser_wait(state, session_id, arguments).await,
         "browser_screenshot" => browser_screenshot(state, session_id, arguments).await,
+        "register_demo_server" => register_demo_server(state, session_id, arguments),
         other => (format!("Unknown tool: {other}"), true),
     }
 }
@@ -769,6 +782,37 @@ async fn share_file(state: &AppState, session_id: &str, arguments: Value) -> (St
     }
 }
 
+fn register_demo_server(state: &AppState, session_id: &str, arguments: Value) -> (String, bool) {
+    let Some(name) = arguments
+        .get("name")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+    else {
+        return ("The demo server name is required.".to_owned(), true);
+    };
+    let Some(port) = arguments.get("port").and_then(Value::as_u64) else {
+        return ("The port is required.".to_owned(), true);
+    };
+    let Ok(port) = u16::try_from(port) else {
+        return ("The port must be between 1024 and 65535.".to_owned(), true);
+    };
+    match state.register_demo_server(session_id, name, port) {
+        Ok((session, server)) => {
+            state.emit(crate::state::SessionEvent::updated(session));
+            state.save();
+            (
+                format!(
+                    "Registered \"{}\" at {}. Open this address on this computer, or the same port on a paired phone.",
+                    server.name, server.address
+                ),
+                false,
+            )
+        }
+        Err(error) => (error.to_string(), true),
+    }
+}
+
 async fn shared_secret_values(state: &AppState, mut secrets: Vec<String>) -> Vec<String> {
     let store = state.secret_store();
     let account_ids = state
@@ -1084,6 +1128,10 @@ const SKILLS: &[(&str, &str)] = &[
         include_str!("../assets/skills/coordinate-sessions/SKILL.md"),
     ),
     ("handoff", include_str!("../assets/skills/handoff/SKILL.md")),
+    (
+        "demo-servers",
+        include_str!("../assets/skills/demo-servers/SKILL.md"),
+    ),
     (
         "frontend-design",
         include_str!("../assets/skills/frontend-design/SKILL.md"),

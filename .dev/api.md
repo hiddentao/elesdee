@@ -188,7 +188,7 @@ Every later stream carries one request with the shared four-byte JSON length fra
 | `output.subscribe` | `GET /api/sessions/{id}/output?after=`, streamed |
 
 - The result is the local route's JSON, or the local error message with the matching link code. A method outside the allowlist returns `forbidden` before a handler runs.
-- `sessions.upload`, `files.image`, `ui.manifest`, `ui.download` and `demoServers.list` are allowlisted but return `unsupported` until their steps.
+- `sessions.upload`, `files.image`, `ui.manifest` and `ui.download` are allowlisted but return `unsupported` until their steps. `demoServers.list` returns the active registered entries.
 - `events.subscribe` has no parameters. It forwards `session.updated` from the event stream and the question, request, notification, shared-file and account events from the auxiliary stream. A phone that falls behind loses the stream and reconnects; the bootstrap snapshot shows the current state.
 - `output.subscribe` takes `{ sessionId, after }`. It sends a stream start, replays the retained output with a higher sequence than `after`, and keeps the stream open. A replayed event may carry `gap`. The stream ends when the session closes. A slow reader gets a fresh snapshot from its last sequence, which fills the gap.
 - The link holds the same output stream permit as the local API and applies its own stream cap.
@@ -211,8 +211,8 @@ The phone shell reconnects after a drop. It waits 0.5 s, 1 s, 2 s, 4 s, 8 s, 15 
 
 ## Session tools and skills
 
-- Claude Code, Codex and OpenCode 2 sessions get the elesdee MCP server and the skill pack: `elesdee`, `ask-and-notify`, `coordinate-sessions`, `handoff`, `frontend-design` and `browser-checks`. Antigravity gets neither.
-- The server exposes `ask_me`, `wait_for_answer`, `withdraw_question`, `notify_me`, `report_done`, `write_handoff_note`, `list_sessions`, `read_session`, `send_message`, `check_usage`, `start_session`, `wait_for_session`, `share_file`, `browser_open`, `browser_read`, `browser_click`, `browser_type`, `browser_wait` and `browser_screenshot`. Register demo server arrives with the demo servers.
+- Claude Code, Codex and OpenCode 2 sessions get the elesdee MCP server and the skill pack: `elesdee`, `demo-servers`, `handoff`, `ask-and-notify`, `coordinate-sessions`, `frontend-design` and `browser-checks`. Antigravity gets neither.
+- The server exposes `ask_me`, `wait_for_answer`, `withdraw_question`, `notify_me`, `report_done`, `write_handoff_note`, `list_sessions`, `read_session`, `send_message`, `check_usage`, `start_session`, `wait_for_session`, `share_file`, `register_demo_server`, `browser_open`, `browser_read`, `browser_click`, `browser_type`, `browser_wait` and `browser_screenshot`.
 - `wait_for_session` waits on another session's status and work state. `until` is `attention` (default: input, permission, question, pause, done or closed), `waiting`, `done`, `closed` or `change`. `timeoutSeconds` is 1–25. The call returns the session state and `timedOut`; it never blocks past the route timeout. It stops with an error when the calling session closes.
 - `share_file` takes a path relative to the session folder and an optional caption. It copies the file into the shared store and returns the `SharedFile` record. A source that resolves outside the folder, a folder, a hard link, a secret file name, private-key content or a stored account key in the content is refused.
 - The core writes each session's skill kit under `<data dir>/skills/<session id>`. Directories use mode 0700 and files use mode 0600. The kit is removed on close, agent exit, delete and shutdown, and a startup sweep removes stale kits.
@@ -235,6 +235,39 @@ The phone shell reconnects after a drop. It waits 0.5 s, 1 s, 2 s, 4 s, 8 s, 15 
 - The state shape is `{ sessionId, started, available, tabs, activeTabId, screenshotSeq, error }`. Each tab is `{ id, url, title, loading, canGoBack, canGoForward }`. `screenshotSeq` changes when a new screenshot is captured; the UI uses it to refresh the image.
 - The screenshot route returns the latest PNG for the given tab, or the active tab when `tab` is absent. It returns 404 when there is no page or no capture yet.
 - The six agent tools use the calling session's context and take no session id. A closed session gets an error tool result. `browser_open` and `browser_read` start the browser when needed. `browser_screenshot` writes a PNG into the shared file store and returns the `SharedFile` record.
+## Demo servers
+
+```ts
+type DemoServerState = "active" | "stopped";
+
+interface DemoServer {
+  id: string;
+  sessionId: string;
+  name: string;
+  port: number;
+  address: string;     // "http://localhost:3000"
+  state: DemoServerState;
+  createdAt: string;   // RFC 3339
+}
+
+interface DemoServerListEntry extends DemoServer {
+  sessionName: string;
+}
+```
+
+| Method | Path | Body | Result |
+| --- | --- | --- | --- |
+| GET | `/api/demo-servers` | | `DemoServerListEntry[]` for active servers |
+| POST | `/api/sessions/{id}/demo-servers/{serverId}/stop` | `{}` | `Session` |
+
+- `register_demo_server` is an MCP tool, not a local route. It takes a name and a port and returns the local address. The tool refuses with `isError` when the session is closed, the name is empty, the port is outside 1024–65535, the port is the core service's port, another active session registered the port, or the session already holds 8 servers.
+- The name is cleaned of control and invisible characters and capped at 64 characters. A repeated port in the same session updates its name and makes it active again. The record id and creation time stay.
+- `GET /api/demo-servers` returns only active records. The array is empty when no server is registered. Records are ordered by session order and then registration order.
+- The stop route returns the updated session with `state: "stopped"`, emits `session.updated`, and closes that port's forward tunnels. A second stop returns the same stopped record.
+- An unknown session or server returns 404. A closed session refuses a registration through the tool, not through the stop route.
+- The records live with the session and appear in `bootstrap`. They are saved in `state.json`. On restart every saved record becomes `stopped`, because the agent process and its servers no longer run.
+- Close and pause set every server in the session to `stopped` and close its tunnels. Delete removes the session and its records.
+- The link method `demoServers.list` maps to `GET /api/demo-servers`. The phone receives only active ports. Forwarding itself uses the separate `elesdee/forward/1` ALPN; it is not an RPC method.
 
 ## Switching accounts and context
 
@@ -513,7 +546,7 @@ interface OutputEvent {
 | GET | `/api/sessions/{id}/output?after={seq}` | | SSE: `data: {"seq":n,"data":"..."}` and an optional `gap` |
 | GET | `/api/events` | | SSE: `data: {"type":"session.updated","session":Session}` |
 
-Errors use `{ "error": "message" }`. Pairing returns 503 when the link endpoint is not running, and 409 when no phone waits for approval or the device limit is reached. Removing an unknown device returns 404. Unknown sessions return 404. A session that is closed, or whose process has exited, returns 409 for input. An invalid session name or terminal size returns 400. An agent session in a non-Git folder returns 422. Reopening an active session, deleting an active session, or reopening or deleting while a close is running returns 409; reopening with a missing folder, repository, branch or client returns 422. A permission answer returns 404 for an unknown session and 409 when the session is closed, there is no pending request, the request id does not match, or the request was already answered. An empty project name returns 400, a bad project folder returns 422, and a duplicate project folder returns 409. An unknown project returns 404. A project change that cannot be written to disk returns 500 and is rolled back in memory. A default account that does not exist, a default branch that does not exist, or a project folder that is not a Git repository returns 422. An unsafe branch name returns 400. An empty account name, empty key or overlong model returns 400; an unsupported provider and client pair or an unsupported auth mode returns 422; a keychain failure returns 500. An unknown preset account or a model that does not fit the client returns 422; an invalid preset name, environment variable or config key returns 400; a secret-like environment variable or config key returns 422; an unknown stored preset returns 404. An allowed account list that is empty returns 400; an unknown account, a list without the current account, or a switch to an account outside the list returns 422; changing the list on a closed session returns 409. A blocked Host or Origin returns 403, a bad POST or PATCH content type returns 415, a full session list or stream list returns 429, a request that exceeds the 30-second timeout returns 408, and a wrong non-OPTIONS method returns 405. A file path outside the session folder returns 400, a binary file returns 422, and content above 1 MiB returns 413. A closed session returns 409 for a browser action, an unknown tab returns 409, an invalid or non-http address returns 400, an unavailable browser returns 503, and a browser action that fails returns 502.
+Errors use `{ "error": "message" }`. Pairing returns 503 when the link endpoint is not running, and 409 when no phone waits for approval or the device limit is reached. Removing an unknown device returns 404. Unknown sessions return 404. A session that is closed, or whose process has exited, returns 409 for input. An invalid session name or terminal size returns 400. An agent session in a non-Git folder returns 422. Reopening an active session, deleting an active session, or reopening or deleting while a close is running returns 409; reopening with a missing folder, repository, branch or client returns 422. A permission answer returns 404 for an unknown session and 409 when the session is closed, there is no pending request, the request id does not match, or the request was already answered. An empty project name returns 400, a bad project folder returns 422, and a duplicate project folder returns 409. An unknown project returns 404. A project change that cannot be written to disk returns 500 and is rolled back in memory. A default account that does not exist, a default branch that does not exist, or a project folder that is not a Git repository returns 422. An unsafe branch name returns 400. An empty account name, empty key or overlong model returns 400; an unsupported provider and client pair or an unsupported auth mode returns 422; a keychain failure returns 500. An unknown preset account or a model that does not fit the client returns 422; an invalid preset name, environment variable or config key returns 400; a secret-like environment variable or config key returns 422; an unknown stored preset returns 404. An allowed account list that is empty returns 400; an unknown account, a list without the current account, or a switch to an account outside the list returns 422; changing the list on a closed session returns 409. A blocked Host or Origin returns 403, a bad POST or PATCH content type returns 415, a full session list or stream list returns 429, a request that exceeds the 30-second timeout returns 408, and a wrong non-OPTIONS method returns 405. A file path outside the session folder returns 400, a binary file returns 422, and content above 1 MiB returns 413. A closed session returns 409 for a browser action, an unknown tab returns 409, an invalid or non-http address returns 400, an unavailable browser returns 503, and a browser action that fails returns 502. A demo-server stop for an unknown session or server returns 404; a registration on a closed session is refused by the tool.
 
 ## Rules
 
