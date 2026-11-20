@@ -566,6 +566,8 @@ export const zhCN = {
   'phone.filter': '会话筛选',
   'phone.all': '全部',
   'phone.running': '运行中',
+  'phone.noProjectsTitle': '还没有项目',
+  'phone.noProjects': '在电脑上添加项目后即可开始会话。',
   'phone.everythingElse': '其他',
   'phone.noSessions': '暂无会话。',
   'phone.allTabsLabel': '所有标签页，{count}',
@@ -576,7 +578,6 @@ export const zhCN = {
   'phone.sheetTitleMany': '{count} 个标签页',
   'phone.question': '问题',
   'phone.chooseSession': '选择一个会话。',
-  'phone.open': '打开',
 
   'phone.terminalCommand': "终端命令",
   'phone.startSession': "新建会话",

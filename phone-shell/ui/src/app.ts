@@ -65,6 +65,13 @@ import {
   switchableConfigs,
   usageSummary,
 } from '../../../app/src/phone/sessionActions';
+import {
+  hasProjects,
+  matchesPhoneFilter,
+  rowPreview,
+  startBlocker,
+  type PhoneFilter,
+} from '../../../app/src/phone/list';
 import { combo } from './combo';
 import {
   noticeForEvent,
@@ -110,8 +117,7 @@ import type {
   WorkState,
 } from './types';
 
-type Filter = 'all' | 'running' | 'waiting';
-type OverlayKind = 'keys' | 'switch' | 'close' | 'usage';
+type OverlayKind = 'keys' | 'switch' | 'close' | 'usage' | 'actions';
 type SessionView = 'messages' | 'terminal';
 
 interface Notice {
@@ -132,7 +138,7 @@ type Screen =
       name: 'sessions';
       computer: ComputerRecord;
       sessions: Session[];
-      filter: Filter;
+      filter: PhoneFilter;
       loading: boolean;
       error?: Notice;
       uiNotice?: Notice;
@@ -252,16 +258,6 @@ function sessionStatusKey(session: Session): MessageKey {
   return session.workState ? labels[session.workState] : 'status.active';
 }
 
-function matchesFilter(session: Session, filter: Filter): boolean {
-  if (filter === 'running') {
-    return session.status === 'active' && !session.waitingFor;
-  }
-  if (filter === 'waiting') {
-    return session.waitingFor !== null;
-  }
-  return true;
-}
-
 type Child = Node | string | null | undefined | false;
 
 interface ElementOptions {
@@ -301,12 +297,18 @@ function iconButton(
   label: string,
   svg: string,
   onClick: () => void,
+  options: { disabled?: boolean; title?: string } = {},
 ): HTMLElement {
+  const attrs: Record<string, string> = { type: 'button', 'aria-label': label };
+  if (options.title) {
+    attrs.title = options.title;
+  }
   const button = el('button', {
     class: 'phone-icon',
-    attrs: { type: 'button', 'aria-label': label },
-    on: { click: onClick },
+    attrs,
+    on: options.disabled ? {} : { click: onClick },
   });
+  button.disabled = options.disabled === true;
   button.innerHTML = svg;
   return button;
 }
@@ -317,6 +319,8 @@ const REFRESH_ICON =
   '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16 10a6 6 0 1 1-1.8-4.3M16 4v4h-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const KEYBOARD_ICON =
   '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="18" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M6.5 10h1M9.5 10h1M12.5 10h1M15.5 10h1M6.5 13h1M9.5 13h1M12.5 13h1M15.5 13h1M8 16h8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>';
+const MORE_ICON =
+  '<svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="4" cy="10" r="1.5" fill="currentColor"/><circle cx="10" cy="10" r="1.5" fill="currentColor"/><circle cx="16" cy="10" r="1.5" fill="currentColor"/></svg>';
 
 export class ShellApp {
   private readonly root: HTMLElement;
@@ -347,10 +351,7 @@ export class ShellApp {
   private usageError: Notice | null = null;
   private switchLoading = false;
   private sessionCache: Session[] = [];
-  private readonly railStates = new Map<
-    string,
-    { open: boolean; scroll: number }
-  >();
+  private readonly railStates = new Map<string, boolean>();
   private readonly latches = new Map<string, KeyModifiers>();
   private readonly drafts = new Map<string, string>();
   private repeatTimer: ReturnType<typeof setInterval> | null = null;
@@ -476,6 +477,12 @@ export class ShellApp {
           el('span', { class: 'phone-sub', text: screen.computer.name }),
         ]),
       );
+      head.append(
+        iconButton(this.t('session.actions'), MORE_ICON, () => {
+          this.overlay = { kind: 'actions', sessionId: screen.session.id };
+          this.scheduleRender();
+        }),
+      );
       return head;
     }
 
@@ -499,9 +506,16 @@ export class ShellApp {
         ]),
       );
       head.append(
-        iconButton(this.t('session.new'), PLUS_ICON, () => {
-          void this.openNewSession(screen.computer);
-        }),
+        iconButton(
+          this.t('session.new'),
+          PLUS_ICON,
+          () => {
+            void this.openNewSession(screen.computer);
+          },
+          hasProjects(this.projects)
+            ? {}
+            : { disabled: true, title: this.t('sessions.noProjects') },
+        ),
       );
       head.append(
         iconButton(this.t('sessions.refresh'), REFRESH_ICON, () => {
@@ -857,7 +871,7 @@ export class ShellApp {
     }
 
     const visible = screen.sessions.filter((session) =>
-      matchesFilter(session, screen.filter),
+      matchesPhoneFilter(session, screen.filter),
     );
     const connectionNotice = screen.connection
       ? this.connectionNotice(screen.connection)
@@ -869,6 +883,23 @@ export class ShellApp {
     if (notificationNotice) {
       main.append(this.noticeEl(notificationNotice));
     }
+
+    if (!hasProjects(this.projects)) {
+      main.append(
+        el('section', { class: 'phone-empty-card' }, [
+          el('h2', {
+            class: 'phone-empty-title',
+            text: this.t('sessions.noProjectsTitle'),
+          }),
+          el('p', {
+            class: 'phone-empty-text',
+            text: this.t('sessions.noProjects'),
+          }),
+        ]),
+      );
+      return main;
+    }
+
     const waiting = visible.filter((session) => session.waitingFor !== null);
     const rest = visible.filter((session) => session.waitingFor === null);
 
@@ -976,7 +1007,7 @@ export class ShellApp {
             el('span', { class: 'row-id', text: session.projectId }),
           ]),
           session.preview
-            ? el('span', { class: 'row-preview', text: session.preview })
+            ? el('span', { class: 'row-preview', text: rowPreview(session) })
             : null,
         ]),
       ]);
@@ -1019,12 +1050,10 @@ export class ShellApp {
       ]),
     );
 
-    main.append(this.renderSessionActions(screen.session));
     const card = this.renderSessionCard(screen.session);
     if (card) {
       main.append(card);
     }
-
     main.append(this.renderSessionTools());
     main.append(this.renderContextStrip(screen));
     const filePanel = this.renderSessionFilePanel(screen);
@@ -1304,42 +1333,6 @@ export class ShellApp {
       );
     }
     return panel;
-  }
-
-  private renderSessionActions(session: Session): HTMLElement {
-    const actions = el('div', {
-      class: 'session-actions',
-      attrs: { role: 'group', 'aria-label': this.t('session.actions') },
-    });
-    if (canSwitch(session)) {
-      actions.append(
-        el('button', {
-          class: 'btn btn-secondary',
-          text: this.t('session.switch'),
-          attrs: { type: 'button' },
-          on: { click: () => void this.openSwitch(session.id) },
-        }),
-      );
-    }
-    actions.append(
-      el('button', {
-        class: 'btn btn-secondary',
-        text: this.t('session.usage'),
-        attrs: { type: 'button' },
-        on: { click: () => void this.openUsage() },
-      }),
-    );
-    if (session.status === 'active') {
-      actions.append(
-        el('button', {
-          class: 'btn btn-secondary',
-          text: this.t('session.close'),
-          attrs: { type: 'button' },
-          on: { click: () => this.openClose(session.id) },
-        }),
-      );
-    }
-    return actions;
   }
 
   private renderSessionTools(): HTMLElement {
@@ -1982,11 +1975,8 @@ export class ShellApp {
       class: 'session-composer-wrap',
       attrs: { 'aria-label': this.t('keys.title') },
     });
-    const rail = this.railStates.get(session.id) ?? {
-      open: true,
-      scroll: 0,
-    };
-    if (rail.open) {
+    const rail = this.railStates.get(session.id) ?? true;
+    if (rail) {
       wrap.append(this.renderKeyRail(session));
     }
 
@@ -1997,16 +1987,13 @@ export class ShellApp {
         type: 'button',
         id: `keyboard-${session.id}`,
         'aria-label': this.t(
-          rail.open ? 'keys.hide' : 'keys.show',
+          rail ? 'keys.hide' : 'keys.show',
         ),
-        'aria-pressed': rail.open ? 'true' : 'false',
+        'aria-pressed': rail ? 'true' : 'false',
       },
       on: {
         click: () => {
-          this.railStates.set(session.id, {
-            open: !rail.open,
-            scroll: rail.scroll,
-          });
+          this.railStates.set(session.id, !rail);
           this.scheduleRender();
         },
       },
@@ -2057,10 +2044,6 @@ export class ShellApp {
 
   private renderKeyRail(session: Session): HTMLElement {
     const latches = this.latches.get(session.id) ?? noModifiers();
-    const state = this.railStates.get(session.id) ?? {
-      open: true,
-      scroll: 0,
-    };
     const rail = el('div', {
       class: 'key-rail',
       attrs: {
@@ -2122,13 +2105,6 @@ export class ShellApp {
         },
       }),
     );
-    rail.scrollLeft = state.scroll;
-    rail.addEventListener('scroll', () => {
-      this.railStates.set(session.id, {
-        open: state.open,
-        scroll: rail.scrollLeft,
-      });
-    });
     return rail;
   }
 
@@ -2570,9 +2546,40 @@ export class ShellApp {
       main.append(this.noticeEl(screen.error));
     }
 
+    if (!hasProjects(this.projects)) {
+      main.append(
+        el('section', { class: 'phone-empty-card' }, [
+          el('h2', {
+            class: 'phone-empty-title',
+            text: this.t('sessions.noProjectsTitle'),
+          }),
+          el('p', {
+            class: 'phone-empty-text',
+            text: this.t('sessions.noProjects'),
+          }),
+        ]),
+      );
+      return main;
+    }
+
     const form = el('form', { class: 'new-session-form' });
     const computer = screen.computer;
     const formState = screen.form;
+    let submitButton: HTMLButtonElement | null = null;
+    let incompleteNote: HTMLElement | null = null;
+
+    const syncSubmit = (): void => {
+      if (!submitButton) {
+        return;
+      }
+      const blocked =
+        startBlocker(this.projects, formState.projectId, formState.configId) !==
+        null;
+      submitButton.disabled = screen.busy || blocked;
+      if (incompleteNote) {
+        incompleteNote.hidden = !blocked;
+      }
+    };
 
     let configCombo: ReturnType<typeof combo> | null = null;
     let branchCombo: ReturnType<typeof combo> | null = null;
@@ -2611,6 +2618,7 @@ export class ShellApp {
         formState.sourceBranch = project?.defaultSourceBranch ?? null;
         formState.sourceBranchLabel = formState.sourceBranch ?? '';
         branchCombo?.setValue(formState.sourceBranch, formState.sourceBranchLabel);
+        syncSubmit();
       },
     });
 
@@ -2634,6 +2642,7 @@ export class ShellApp {
         const config = configFor(id);
         formState.configId = id;
         formState.configLabel = config ? configChoiceLabel(config) : '';
+        syncSubmit();
       },
     });
 
@@ -2716,6 +2725,14 @@ export class ShellApp {
     form.append(nameField, promptField);
 
     const actions = el('div', { class: 'screen-actions' });
+    const submit = el('button', {
+      class: 'btn btn-primary',
+      text: screen.busy
+        ? this.t('newSession.submitting')
+        : this.t('newSession.submit'),
+      attrs: { type: 'submit' },
+    }) as HTMLButtonElement;
+    submitButton = submit;
     actions.append(
       el('button', {
         class: 'btn btn-secondary',
@@ -2723,20 +2740,19 @@ export class ShellApp {
         attrs: { type: 'button' },
         on: { click: () => this.goSessions(computer) },
       }),
-      el('button', {
-        class: 'btn btn-primary',
-        text: screen.busy
-          ? this.t('newSession.submitting')
-          : this.t('newSession.submit'),
-        attrs: { type: 'submit' },
-      }),
+      submit,
     );
     if (screen.busy) {
       actions.querySelectorAll('button').forEach((button) => {
         button.disabled = true;
       });
     }
-    form.append(actions);
+    incompleteNote = el('p', {
+      class: 'sheet-note',
+      text: this.t('error.startIncomplete'),
+    });
+    form.append(incompleteNote, actions);
+    syncSubmit();
     form.addEventListener('submit', (event) => {
       event.preventDefault();
       void this.startSession(formState);
@@ -2773,7 +2789,9 @@ export class ShellApp {
               ? 'session.switch'
               : overlay.kind === 'close'
                 ? 'close.title'
-                : 'usage.title',
+                : overlay.kind === 'actions'
+                  ? 'session.actions'
+                  : 'usage.title',
         ),
       },
     });
@@ -2791,7 +2809,9 @@ export class ShellApp {
               ? 'session.switch'
               : overlay.kind === 'close'
                 ? 'close.title'
-                : 'usage.title',
+                : overlay.kind === 'actions'
+                  ? 'session.actions'
+                  : 'usage.title',
         ),
       }),
       el('button', {
@@ -2809,6 +2829,8 @@ export class ShellApp {
       this.renderSwitchSheet(sheet, overlay.sessionId, close);
     } else if (overlay.kind === 'close') {
       this.renderCloseSheet(sheet, overlay.sessionId, close);
+    } else if (overlay.kind === 'actions') {
+      this.renderActionsSheet(sheet, overlay.sessionId, close);
     } else {
       this.renderUsageSheet(sheet);
     }
@@ -2988,6 +3010,48 @@ export class ShellApp {
     body.append(form);
     sheet.append(body);
     void close;
+  }
+
+  private renderActionsSheet(
+    sheet: HTMLElement,
+    sessionId: string | undefined,
+    close: () => void,
+  ): void {
+    const session = sessionId ? this.sessionById(sessionId) : null;
+    const body = el('div', { class: 'sheet-body' });
+    if (!session) {
+      body.append(el('p', { class: 'sheet-note', text: this.t('error.generic') }));
+      sheet.append(body);
+      return;
+    }
+    const row = (label: string, action: () => void, danger = false): void => {
+      body.append(
+        el('button', {
+          class: danger ? 'sheet-row is-danger' : 'sheet-row',
+          attrs: { type: 'button' },
+          on: {
+            click: () => {
+              close();
+              action();
+            },
+          },
+        }, [
+          el('span', { class: 'sheet-row-name', text: label }),
+        ]),
+      );
+    };
+    if (canSwitch(session)) {
+      row(this.t('session.switch'), () => void this.openSwitch(session.id));
+    }
+    row(this.t('session.usage'), () => void this.openUsage());
+    if (session.status === 'active') {
+      row(
+        this.t('session.close'),
+        () => this.openClose(session.id),
+        true,
+      );
+    }
+    sheet.append(body);
   }
 
   private renderSwitchSheet(

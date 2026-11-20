@@ -70,6 +70,15 @@ body {
   color: var(--text);
 }
 
+.phone-icon:disabled {
+  opacity: 0.45;
+}
+
+.phone-icon:disabled:hover {
+  background: transparent;
+  color: var(--text-2);
+}
+
 .phone-icon svg {
   width: 18px;
   height: 18px;
@@ -163,6 +172,28 @@ body {
   color: var(--text-3);
   font-size: 13px;
   text-align: center;
+}
+
+.phone-empty-card {
+  margin-top: 18px;
+  padding: 18px 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  text-align: center;
+}
+
+.phone-empty-title {
+  margin: 0 0 6px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.phone-empty-text {
+  margin: 0;
+  color: var(--text-3);
+  font-size: 13px;
+  line-height: 1.45;
 }
 
 .phone-session {
@@ -336,6 +367,14 @@ body {
 
 .phone-sheet-row.is-on {
   background: var(--surface-3);
+}
+
+.phone-sheet-row.is-danger .phone-sheet-row-name {
+  color: var(--danger);
+}
+
+.phone-sheet-check {
+  color: var(--accent);
 }
 
 .phone-sheet-row-name {
@@ -572,20 +611,6 @@ body {
 
 /* Session actions, terminal input and key rail */
 
-.phone-session-actions {
-  display: flex;
-  flex: none;
-  gap: 6px;
-  margin: 8px 12px 0;
-}
-
-.phone-session-actions .btn {
-  flex: 1;
-  min-height: 34px;
-  padding: 0 8px;
-  font-size: 12px;
-}
-
 .phone-card-error {
   margin: 8px 12px 0;
   padding: 8px 10px;
@@ -635,26 +660,21 @@ body {
 
 .phone-key-rail {
   display: flex;
-  gap: 6px;
-  overflow-x: auto;
-  padding-bottom: 2px;
-  scrollbar-width: none;
-}
-
-.phone-key-rail::-webkit-scrollbar {
-  display: none;
+  flex-wrap: wrap;
+  gap: 5px 6px;
+  align-items: stretch;
 }
 
 .phone-key-rail .key-chip,
 .phone-key-latches .key-chip {
   display: inline-flex;
   flex: none;
-  min-width: 40px;
+  min-width: 34px;
   min-height: 34px;
   align-items: center;
   justify-content: center;
   gap: 5px;
-  padding: 0 10px;
+  padding: 0 8px;
   border: 1px solid var(--border-strong);
   border-radius: 9px;
   background: var(--surface-2);

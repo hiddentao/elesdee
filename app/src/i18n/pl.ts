@@ -624,6 +624,8 @@ export const pl = {
   'phone.filter': 'Filtr sesji',
   'phone.all': 'Wszystkie',
   'phone.running': 'Uruchomione',
+  'phone.noProjectsTitle': 'Nie ma jeszcze projektów',
+  'phone.noProjects': 'Dodaj projekt na komputerze, aby rozpocząć sesję.',
   'phone.everythingElse': 'Wszystko inne',
   'phone.noSessions': 'Brak sesji.',
   'phone.allTabsLabel': 'Wszystkie karty, {count}',
@@ -634,7 +636,6 @@ export const pl = {
   'phone.sheetTitleMany': 'Karty: {count}',
   'phone.question': 'Pytanie',
   'phone.chooseSession': 'Wybierz sesję.',
-  'phone.open': 'Otwórz',
 
   'phone.terminalCommand': "Polecenie terminala",
   'phone.startSession': "Nowa sesja",

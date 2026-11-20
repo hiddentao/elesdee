@@ -619,6 +619,8 @@ export const ko = {
   'phone.filter': '세션 필터',
   'phone.all': '모두',
   'phone.running': '실행 중',
+  'phone.noProjectsTitle': '아직 프로젝트가 없습니다',
+  'phone.noProjects': '컴퓨터에서 프로젝트를 추가하면 세션을 시작할 수 있습니다.',
   'phone.everythingElse': '기타',
   'phone.noSessions': '아직 세션이 없습니다.',
   'phone.allTabsLabel': '모든 탭, {count}',
@@ -629,7 +631,6 @@ export const ko = {
   'phone.sheetTitleMany': '탭 {count}개',
   'phone.question': '질문',
   'phone.chooseSession': '세션을 선택하세요.',
-  'phone.open': '열기',
 
   'phone.terminalCommand': "터미널 명령",
   'phone.startSession': "새 세션",

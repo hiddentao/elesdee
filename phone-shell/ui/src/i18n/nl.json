@@ -33,6 +33,8 @@
   "sessions.filter": "Sessiefilter",
   "sessions.all": "Alle",
   "sessions.running": "Lopend",
+  "sessions.noProjectsTitle": "Nog geen projecten",
+  "sessions.noProjects": "Voeg op de computer een project toe om een sessie te starten.",
   "status.active": "Actief",
   "status.closed": "Gesloten",
   "status.working": "Bezig",

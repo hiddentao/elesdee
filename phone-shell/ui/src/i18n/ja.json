@@ -33,6 +33,8 @@
   "sessions.filter": "セッションフィルター",
   "sessions.all": "すべて",
   "sessions.running": "実行中",
+  "sessions.noProjectsTitle": "プロジェクトがまだありません",
+  "sessions.noProjects": "コンピューターでプロジェクトを追加すると、セッションを開始できます。",
   "status.active": "アクティブ",
   "status.closed": "クローズ済み",
   "status.working": "作業中",

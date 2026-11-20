@@ -117,6 +117,15 @@ button:disabled {
   color: var(--text);
 }
 
+.phone-icon:disabled {
+  opacity: 0.45;
+}
+
+.phone-icon:disabled:hover {
+  background: transparent;
+  color: var(--text-2);
+}
+
 .phone-icon svg {
   width: 18px;
   height: 18px;
@@ -136,6 +145,28 @@ button:disabled {
   color: var(--text-3);
   font-size: 13px;
   text-align: center;
+}
+
+.phone-empty-card {
+  margin-top: 18px;
+  padding: 18px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  text-align: center;
+}
+
+.phone-empty-title {
+  margin: 0 0 6px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.phone-empty-text {
+  margin: 0;
+  color: var(--text-3);
+  font-size: 13px;
+  line-height: 1.45;
 }
 
 .phone-section-title {
@@ -783,19 +814,6 @@ button:disabled {
   overflow: hidden;
 }
 
-.session-actions {
-  display: flex;
-  flex: none;
-  gap: 6px;
-}
-
-.session-actions .btn {
-  flex: 1;
-  min-height: 34px;
-  padding: 0 10px;
-  font-size: 12px;
-}
-
 .session-card {
   flex: none;
 }
@@ -879,26 +897,20 @@ button:disabled {
 
 .key-rail {
   display: flex;
+  flex-wrap: wrap;
   align-items: stretch;
-  gap: 6px;
-  overflow-x: auto;
-  padding-bottom: 2px;
-  scrollbar-width: none;
-}
-
-.key-rail::-webkit-scrollbar {
-  display: none;
+  gap: 5px 6px;
 }
 
 .key-chip {
   display: inline-flex;
   flex: none;
-  min-width: 40px;
+  min-width: 34px;
   min-height: 34px;
   align-items: center;
   justify-content: center;
   gap: 5px;
-  padding: 0 10px;
+  padding: 0 8px;
   border: 1px solid var(--border-strong);
   border-radius: 9px;
   background: var(--surface-2);
@@ -1213,6 +1225,10 @@ button:disabled {
 .sheet-row-meta {
   color: var(--text-3);
   font-size: 11.5px;
+}
+
+.sheet-row.is-danger .sheet-row-name {
+  color: var(--danger);
 }
 
 .usage-card {

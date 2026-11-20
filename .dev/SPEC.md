@@ -136,7 +136,7 @@ The agents write their conversation to files on disk, and each keeps its own int
 
 - A new install starts with no projects. The first screen checks for Claude Code, Codex, OpenCode 2 and Antigravity and shows their versions.
 - It offers one action: Add a project. The project form asks for a name and a folder.
-- Until the Mac starts a session, the phone shows an empty session list.
+- Until the Mac starts a session, the phone shows an empty session list. When the Mac has no projects, the phone explains that a project must be added on the computer and disables the New session action.
 
 **Sessions sidebar**
 
@@ -577,7 +577,7 @@ The mobile app is the only way to control the IDE remotely. It is for iOS and An
 
 From the mobile app I can:
 
-- See all running sessions, updated in real time.
+- See all sessions, updated in real time, and filter to running sessions (working or waiting) or to sessions that need me.
 - Swipe a tab left to reveal Close. The swipe stops at the Close action and never closes the tab by itself. Close hides the tab; the session keeps running and can be opened again from the session list.
 - Type and send input to any session.
 - Upload files into a session. An uploaded file goes in elesdee's own folder for that session, outside the repo, and the agent is told its path. Nothing is added to the repo unless the agent copies it in.
@@ -598,7 +598,7 @@ The approach follows Orca Mobile's terminal shortcut rail ([Orca docs](https://o
 - The rail shows those agent keys on its own, with their purpose. For Claude Code: Shift+Tab cycles permission modes, Ctrl+O shows the verbose transcript, Ctrl+T shows the to-do list, Ctrl+R opens history search and Ctrl+G opens the external editor. For Codex: Shift+Tab cycles approval modes, Ctrl+T shows the transcript, Ctrl+R opens history search and Ctrl+G opens the external editor. For OpenCode 2: Ctrl+P opens the command palette and Ctrl+L clears the screen. Antigravity gets the base keys only. Keys the rail already has keep one chip, with the agent's meaning on it. A terminal session gets the base keys only.
 - Shift, Ctrl and Alt are latches. Tap one, then tap a key, and the two go together. A latch clears after one key.
 - Hold an arrow, Backspace or Delete to repeat it, as a held desktop key does.
-- The rail scrolls sideways. A keyboard button in the input row shows or hides it, and the session keeps its place when the rail opens again.
+- The rail wraps to another row when the keys do not fit, so every key and the + stay reachable. A keyboard button in the input row shows or hides it.
 - The + at the end of the rail opens "Keyboard keys". The sheet lists the agent's keys with their purpose, then my saved keys. I pick modifiers, name a key (C, F5, PageUp), and add it. I can remove saved keys there. There are up to 8.
 - Saved keys belong to the phone, not to a session. They sit on the rail and send to the terminal like the built-in keys.
 - A hardware keyboard, or a keyboard app with Ctrl and Alt keys, sends chords to the terminal too. Plain text still goes to the focused input.

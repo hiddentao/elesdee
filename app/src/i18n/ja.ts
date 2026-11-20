@@ -620,6 +620,8 @@ export const ja = {
   'phone.filter': 'セッションフィルター',
   'phone.all': 'すべて',
   'phone.running': '実行中',
+  'phone.noProjectsTitle': 'プロジェクトがまだありません',
+  'phone.noProjects': 'コンピューターでプロジェクトを追加すると、セッションを開始できます。',
   'phone.everythingElse': 'その他',
   'phone.noSessions': 'セッションはまだありません。',
   'phone.allTabsLabel': 'すべてのタブ、{count}',
@@ -630,7 +632,6 @@ export const ja = {
   'phone.sheetTitleMany': '{count} 個のタブ',
   'phone.question': '質問',
   'phone.chooseSession': 'セッションを選択してください。',
-  'phone.open': '開く',
 
   'phone.terminalCommand': "ターミナルコマンド",
   'phone.startSession': "新しいセッション",

@@ -623,6 +623,8 @@ export const it = {
   'phone.filter': 'Filtro sessioni',
   'phone.all': 'Tutte',
   'phone.running': 'In esecuzione',
+  'phone.noProjectsTitle': 'Nessun progetto per ora',
+  'phone.noProjects': 'Aggiungi un progetto sul computer per avviare una sessione.',
   'phone.everythingElse': 'Tutto il resto',
   'phone.noSessions': 'Nessuna sessione per ora.',
   'phone.allTabsLabel': 'Tutte le schede, {count}',
@@ -633,7 +635,6 @@ export const it = {
   'phone.sheetTitleMany': '{count} schede',
   'phone.question': 'Domanda',
   'phone.chooseSession': 'Scegli una sessione.',
-  'phone.open': 'Apri',
 
   'phone.terminalCommand': "Comando del terminale",
   'phone.startSession': "Nuova sessione",

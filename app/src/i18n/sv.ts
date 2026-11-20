@@ -623,6 +623,8 @@ export const sv = {
   'phone.filter': 'Sessionsfilter',
   'phone.all': 'Alla',
   'phone.running': 'Körs',
+  'phone.noProjectsTitle': 'Inga projekt ännu',
+  'phone.noProjects': 'Lägg till ett projekt på datorn för att starta en session.',
   'phone.everythingElse': 'Allt annat',
   'phone.noSessions': 'Inga sessioner ännu.',
   'phone.allTabsLabel': 'Alla flikar, {count}',
@@ -633,7 +635,6 @@ export const sv = {
   'phone.sheetTitleMany': '{count} flikar',
   'phone.question': 'Fråga',
   'phone.chooseSession': 'Välj en session.',
-  'phone.open': 'Öppna',
 
   'phone.terminalCommand': "Terminalkommando",
   'phone.startSession': "Ny session",

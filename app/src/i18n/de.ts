@@ -617,6 +617,8 @@ export const de = {
   'phone.filter': 'Sitzungsfilter',
   'phone.all': 'Alle',
   'phone.running': 'Laufend',
+  'phone.noProjectsTitle': 'Noch keine Projekte',
+  'phone.noProjects': 'Füge am Computer ein Projekt hinzu, um eine Sitzung zu starten.',
   'phone.everythingElse': 'Alles andere',
   'phone.noSessions': 'Noch keine Sitzungen.',
   'phone.allTabsLabel': 'Alle Tabs, {count}',
@@ -627,7 +629,6 @@ export const de = {
   'phone.sheetTitleMany': '{count} Tabs',
   'phone.question': 'Frage',
   'phone.chooseSession': 'Wähle eine Sitzung.',
-  'phone.open': 'Öffnen',
 
   'phone.terminalCommand': "Terminalbefehl",
   'phone.startSession': "Neue Sitzung",

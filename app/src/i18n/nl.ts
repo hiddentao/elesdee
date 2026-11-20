@@ -620,6 +620,8 @@ export const nl = {
   'phone.filter': 'Sessiefilter',
   'phone.all': 'Alle',
   'phone.running': 'Lopend',
+  'phone.noProjectsTitle': 'Nog geen projecten',
+  'phone.noProjects': 'Voeg op de computer een project toe om een sessie te starten.',
   'phone.everythingElse': 'Al het andere',
   'phone.noSessions': 'Nog geen sessies.',
   'phone.allTabsLabel': 'Alle tabbladen, {count}',
@@ -630,7 +632,6 @@ export const nl = {
   'phone.sheetTitleMany': '{count} tabbladen',
   'phone.question': 'Vraag',
   'phone.chooseSession': 'Kies een sessie.',
-  'phone.open': 'Openen',
 
   'phone.terminalCommand': "Terminalopdracht",
   'phone.startSession': "Nieuwe sessie",

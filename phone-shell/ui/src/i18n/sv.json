@@ -33,6 +33,8 @@
   "sessions.filter": "Sessionsfilter",
   "sessions.all": "Alla",
   "sessions.running": "Körs",
+  "sessions.noProjectsTitle": "Inga projekt ännu",
+  "sessions.noProjects": "Lägg till ett projekt på datorn för att starta en session.",
   "status.active": "Aktiv",
   "status.closed": "Stängd",
   "status.working": "Arbetar",

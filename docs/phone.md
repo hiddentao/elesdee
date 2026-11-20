@@ -28,13 +28,15 @@ The globe button in the header opens **Languages**. Pick one of the 12 interface
 
 ## Session list
 
-The list shows every session with its project, status and recent output. **Waiting for you** sits above the other sessions. The filters show all sessions, running sessions or sessions that need you. A paired phone app updates the list from the computer's event stream.
+The list shows every session with its project, status and recent output. **Waiting for you** sits above the other sessions. The filters show all sessions, running sessions or sessions that need you. Running means a session is working or waiting; paused and finished sessions stay out of it. A paired phone app updates the list from the computer's event stream.
+
+When the computer has no projects, the list says so and explains that a project must be added on the computer first. The New session action is disabled until a project exists, because the phone cannot add one.
 
 Tap a session to open it.
 
 ## Tabs
 
-In the browser layout, the tab bar shows one session at a time. Scroll it sideways to move to the next session. The number button opens a sheet with every open session, grouped by **Waiting for you** and **Everything else**. The open session is marked.
+In the browser layout, the tab bar shows one session at a time. Scroll it sideways to move to the next session. The number button opens a sheet with every open session, grouped by **Waiting for you** and **Everything else**. Every row shows its work state, and the open session is marked.
 
 Swipe a row left to reveal **Close**. No matter how far you swipe, it stops at the button and does not close the tab. Tap **Close** to hide the tab. The session keeps running and appears again in the session list.
 
@@ -44,14 +46,15 @@ A session with a structured conversation opens on its messages. Your prompts and
 
 Antigravity and terminal sessions have no structured source, so they open on the terminal. The button above the conversation is the one tap between the messages and the real read-only terminal for every other session.
 
+The session actions sit in one overflow menu in the header: switch the AI config, open the usage panel and close the session. Close asks first, as it does on the computer.
+
 - The terminal output is read-only. The terminal input sends text when you press Send; the message composer on the message view sends a whole prompt the same way.
 - A key rail above the input sends Esc, Tab, Shift+Tab, Backspace, Delete, the four arrows, Ctrl+C and Ctrl+D. It also shows the keys of the session's agent, such as the permission-mode key of Claude Code, with a short purpose.
-- Tap Shift, Control or Alt to latch it for the next key. The latch clears after one key. Hold an arrow, Backspace or Delete to repeat it. The keyboard button shows or hides the rail, and the rail scrolls sideways.
+- Tap Shift, Control or Alt to latch it for the next key. The latch clears after one key. Hold an arrow, Backspace or Delete to repeat it. The keyboard button shows or hides the rail. The keys wrap to more rows when they do not fit, so every key and the **+** stay reachable.
 - The **+** on the rail opens **Keyboard keys**. It lists the agent's keys and your saved keys. Name a key such as `C`, `F5` or `PageUp`, add Shift, Control or Alt, and add it to the rail. You can save up to eight keys. They belong to the phone, not to one session.
 - The conversation and the output follow the session as it runs. If the connection drops, the app reconnects and continues from the last item it saw.
 - A session created from the phone starts in its project folder. The phone cannot choose another folder.
-- **New session** on the session list asks for a project, an AI config, an optional source branch, an optional name and an optional first prompt.
-- The session actions switch the AI config, open the usage panel and close the session. Close asks first, as it does on the computer.
+- **New session** on the session list asks for a project, an AI config, an optional source branch, an optional name and an optional first prompt. **Start session** stays disabled until a project and an AI config are chosen.
 - Approval requests, agent questions and session requests appear as cards. Answer or approve them there.
 - The back button returns to the session list.
 
@@ -63,7 +66,7 @@ The app asks for the phone's notification permission when it starts. If you refu
 
 ## Files, images, uploads and changes
 
-**Files** and **Changes** sit beside the session actions.
+**Files** and **Changes** sit above the conversation.
 
 **Files** lists the session folder one folder at a time. Tap a folder to open it, and **Up** returns to the parent. A text file opens in a read-only view. An image file, such as PNG, JPEG, GIF, WebP, AVIF or BMP, opens as a picture. A binary file, an image that is not supported and an image over the size cap each show their own short explanation instead of a broken view.
 

@@ -33,6 +33,8 @@
   "sessions.filter": "会话筛选",
   "sessions.all": "全部",
   "sessions.running": "运行中",
+  "sessions.noProjectsTitle": "还没有项目",
+  "sessions.noProjects": "在电脑上添加项目后即可开始会话。",
   "status.active": "活动",
   "status.closed": "已关闭",
   "status.working": "工作中",

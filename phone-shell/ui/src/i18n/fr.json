@@ -33,6 +33,8 @@
   "sessions.filter": "Filtre des sessions",
   "sessions.all": "Toutes",
   "sessions.running": "En cours",
+  "sessions.noProjectsTitle": "Aucun projet pour l’instant",
+  "sessions.noProjects": "Ajoutez un projet sur l’ordinateur pour démarrer une session.",
   "status.active": "Active",
   "status.closed": "Fermée",
   "status.working": "En cours",

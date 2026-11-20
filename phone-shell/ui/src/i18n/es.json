@@ -33,6 +33,8 @@
   "sessions.filter": "Filtro de sesiones",
   "sessions.all": "Todas",
   "sessions.running": "En ejecución",
+  "sessions.noProjectsTitle": "Aún no hay proyectos",
+  "sessions.noProjects": "Añade un proyecto en el ordenador para iniciar una sesión.",
   "status.active": "Activa",
   "status.closed": "Cerrada",
   "status.working": "Trabajando",

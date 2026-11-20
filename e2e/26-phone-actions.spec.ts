@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import {
   bootstrap,
   closeSession,
@@ -10,6 +10,11 @@ import {
   getSession,
   uniqueName,
 } from './helpers';
+
+async function openSessionActions(page: Page) {
+  await page.getByRole('button', { name: 'Session actions' }).click();
+  return page.getByRole('dialog', { name: 'Session actions' });
+}
 
 test('phone layout sends terminal input and runs session actions', async ({
   page,
@@ -77,14 +82,19 @@ test('phone layout sends terminal input and runs session actions', async ({
   await page.reload();
   await expect(page.locator('.phone-title')).toHaveText(switchSession.name);
 
-  await page.getByRole('button', { name: 'Usage' }).click();
+  const actionSheet = await openSessionActions(page);
+  await actionSheet.getByRole('button', { name: 'Usage' }).click();
   const usage = page.getByRole('dialog', { name: 'Usage' });
   await expect(usage).toBeVisible();
   await expect(usage).toContainText(first.name);
   await usage.getByRole('button', { name: 'Close' }).click();
   await expect(usage).not.toBeVisible();
 
-  await page.getByRole('button', { name: 'Switch AI config…' }).click();
+  await (
+    await openSessionActions(page)
+  )
+    .getByRole('button', { name: 'Switch AI config…' })
+    .click();
   const switchSheet = page.getByRole('dialog', { name: 'Switch AI config' });
   await switchSheet.getByRole('textbox', { name: 'Type to find an AI config' }).fill(second.name);
   await switchSheet.getByRole('button', { name: new RegExp(second.name) }).click();
@@ -114,7 +124,11 @@ test('phone layout sends terminal input and runs session actions', async ({
     timeout: 30_000,
   });
 
-  await page.getByRole('button', { name: 'Close…' }).click();
+  await (
+    await openSessionActions(page)
+  )
+    .getByRole('button', { name: 'Close…' })
+    .click();
   const close = page.getByRole('dialog', { name: 'Close session?' });
   await expect(close).toContainText(
     "Closing commits the agent's work",

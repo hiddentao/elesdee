@@ -33,6 +33,8 @@
   "sessions.filter": "Session filter",
   "sessions.all": "All",
   "sessions.running": "Running",
+  "sessions.noProjectsTitle": "No projects yet",
+  "sessions.noProjects": "Add a project on the computer to start a session.",
   "status.active": "Active",
   "status.closed": "Closed",
   "status.working": "Working",

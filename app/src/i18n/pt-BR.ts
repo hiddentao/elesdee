@@ -627,6 +627,8 @@ export const ptBR = {
   'phone.filter': 'Filtro de sessões',
   'phone.all': 'Todas',
   'phone.running': 'Em execução',
+  'phone.noProjectsTitle': 'Ainda não há projetos',
+  'phone.noProjects': 'Adicione um projeto no computador para iniciar uma sessão.',
   'phone.everythingElse': 'Todo o resto',
   'phone.noSessions': 'Nenhuma sessão ainda.',
   'phone.allTabsLabel': 'Todas as abas, {count}',
@@ -637,7 +639,6 @@ export const ptBR = {
   'phone.sheetTitleMany': '{count} abas',
   'phone.question': 'Pergunta',
   'phone.chooseSession': 'Escolha uma sessão.',
-  'phone.open': 'Abrir',
 
   'phone.terminalCommand': "Comando do terminal",
   'phone.startSession': "Nova sessão",

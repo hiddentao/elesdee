@@ -622,6 +622,8 @@ export const es = {
   'phone.filter': 'Filtro de sesiones',
   'phone.all': 'Todas',
   'phone.running': 'En ejecución',
+  'phone.noProjectsTitle': 'Aún no hay proyectos',
+  'phone.noProjects': 'Añade un proyecto en el ordenador para iniciar una sesión.',
   'phone.everythingElse': 'Todo lo demás',
   'phone.noSessions': 'Aún no hay sesiones.',
   'phone.allTabsLabel': 'Todas las pestañas, {count}',
@@ -632,7 +634,6 @@ export const es = {
   'phone.sheetTitleMany': '{count} pestañas',
   'phone.question': 'Pregunta',
   'phone.chooseSession': 'Elige una sesión.',
-  'phone.open': 'Abrir',
 
   'phone.terminalCommand': "Comando del terminal",
   'phone.startSession': "Nueva sesión",

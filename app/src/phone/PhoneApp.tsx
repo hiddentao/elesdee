@@ -39,7 +39,15 @@ import { UsageDialog } from '../components/UsageDialog';
 import { GlobeIcon } from '../components/icons';
 import { LANGUAGES, formatNumber, type MessageKey, type Translate } from '../i18n';
 import { useLanguage } from '../i18n/LanguageProvider';
-import { workLabel } from '../state/sessionStatus';
+import { tabStateLabel, workLabel } from '../state/sessionStatus';
+import {
+  hasProjects,
+  isWaiting,
+  matchesPhoneFilter,
+  rowPreview,
+  startBlocker,
+  type PhoneFilter,
+} from './list';
 import {
   MAX_SAVED_KEYS,
   addSavedKey,
@@ -73,12 +81,6 @@ import {
 import { SessionFiles, type PhoneFilePanel } from './SessionFiles';
 import { usePhoneNotifications } from './notifications';
 
-type Filter = 'all' | 'running' | 'waiting';
-
-function isWaiting(session: Session): boolean {
-  return session.waitingFor !== null;
-}
-
 function sessionHashId(): string | null {
   const match = window.location.hash.match(/^#session=([^&]+)$/);
   return match ? decodeURIComponent(match[1]) : null;
@@ -106,6 +108,7 @@ export default function PhoneApp() {
   const [switchOpen, setSwitchOpen] = useState(false);
   const [closeOpen, setCloseOpen] = useState(false);
   const [usageOpen, setUsageOpen] = useState(false);
+  const [actionsOpen, setActionsOpen] = useState(false);
   const [keysOpen, setKeysOpen] = useState(false);
   const [railOpen, setRailOpen] = useState(true);
   const [draft, setDraft] = useState('');
@@ -124,7 +127,7 @@ export default function PhoneApp() {
   const [historyStructured, setHistoryStructured] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [expandedTools, setExpandedTools] = useState<Set<string>>(new Set());
-  const [filter, setFilter] = useState<Filter>('all');
+  const [filter, setFilter] = useState<PhoneFilter>('all');
   const [sheetOpen, setSheetOpen] = useState(false);
   const [dismissedTabs, setDismissedTabs] = useState<Set<string>>(new Set());
   const [languageSheetOpen, setLanguageSheetOpen] = useState(false);
@@ -356,6 +359,7 @@ export default function PhoneApp() {
     setActiveId(id);
     setScreen('session');
     setSheetOpen(false);
+    setActionsOpen(false);
     window.history.replaceState(null, '', `#session=${encodeURIComponent(id)}`);
   }
 
@@ -382,6 +386,7 @@ export default function PhoneApp() {
 
   function showList() {
     setScreen('list');
+    setActionsOpen(false);
     window.history.replaceState(null, '', window.location.pathname);
   }
 
@@ -546,11 +551,9 @@ export default function PhoneApp() {
     writeSavedKeys(keyStorage(), next);
   }
 
-  const visible = sessions.filter((session) => {
-    if (filter === 'running') return session.status === 'active' && !isWaiting(session);
-    if (filter === 'waiting') return isWaiting(session);
-    return true;
-  });
+  const visible = sessions.filter((session) =>
+    matchesPhoneFilter(session, filter),
+  );
   const waiting = visible.filter(isWaiting);
   const rest = visible.filter((session) => !isWaiting(session));
   const activeQuestion = active
@@ -560,6 +563,7 @@ export default function PhoneApp() {
     ? requests.find((request) => request.parentSessionId === active.id) ?? null
     : null;
   const countLabel = openSessions.length;
+  const canStart = hasProjects(projects);
 
   return (
     <div className="phone">
@@ -595,9 +599,22 @@ export default function PhoneApp() {
             aria-label={t('phone.startSession')}
             aria-haspopup="dialog"
             aria-expanded={startOpen}
+            disabled={!canStart}
+            title={canStart ? undefined : t('phone.noProjects')}
             onClick={() => setStartOpen(true)}
           >
             <span aria-hidden="true">+</span>
+          </button>
+        ) : screen === 'session' && active ? (
+          <button
+            type="button"
+            className="phone-icon"
+            aria-label={t('phone.sessionActions')}
+            aria-haspopup="dialog"
+            aria-expanded={actionsOpen}
+            onClick={() => setActionsOpen(true)}
+          >
+            <MoreIcon />
           </button>
         ) : null}
         <button
@@ -621,64 +638,75 @@ export default function PhoneApp() {
         </p>
       ) : screen === 'list' ? (
         <main className="phone-list">
-          <div
-            className="phone-filters"
-            role="group"
-            aria-label={t('phone.filter')}
-          >
-            {(['all', 'running', 'waiting'] as const).map((value) => (
-              <button
-                key={value}
-                type="button"
-                className={filter === value ? 'chip is-on' : 'chip'}
-                aria-pressed={filter === value}
-                onClick={() => setFilter(value)}
-              >
-                {value === 'all'
-                  ? t('phone.all')
-                  : value === 'running'
-                    ? t('phone.running')
-                    : t('status.waiting')}
-              </button>
-            ))}
-          </div>
-
-          {waiting.length > 0 ? (
-            <section>
-              <h2 className="phone-section-title">
-                {t('status.waitingForYou')}
+          {!canStart ? (
+            <section className="phone-empty-card">
+              <h2 className="phone-empty-title">
+                {t('phone.noProjectsTitle')}
               </h2>
-              {waiting.map((session) => (
-                <SessionRow
-                  key={session.id}
-                  session={session}
-                  onSelect={selectSession}
-                  t={t}
-                />
-              ))}
+              <p className="phone-empty-text">{t('phone.noProjects')}</p>
             </section>
-          ) : null}
+          ) : (
+            <>
+              <div
+                className="phone-filters"
+                role="group"
+                aria-label={t('phone.filter')}
+              >
+                {(['all', 'running', 'waiting'] as const).map((value) => (
+                  <button
+                    key={value}
+                    type="button"
+                    className={filter === value ? 'chip is-on' : 'chip'}
+                    aria-pressed={filter === value}
+                    onClick={() => setFilter(value)}
+                  >
+                    {value === 'all'
+                      ? t('phone.all')
+                      : value === 'running'
+                        ? t('phone.running')
+                        : t('status.waiting')}
+                  </button>
+                ))}
+              </div>
 
-          <section>
-            {waiting.length > 0 ? (
-              <h2 className="phone-section-title">
-                {t('phone.everythingElse')}
-              </h2>
-            ) : null}
-            {rest.length === 0 && waiting.length === 0 ? (
-              <p className="phone-empty">{t('phone.noSessions')}</p>
-            ) : (
-              rest.map((session) => (
-                <SessionRow
-                  key={session.id}
-                  session={session}
-                  onSelect={selectSession}
-                  active={session.id === activeId}
-                  t={t}
-                />
-              ))
-            )}
-          </section>
+              {waiting.length > 0 ? (
+                <section>
+                  <h2 className="phone-section-title">
+                    {t('status.waitingForYou')}
+                  </h2>
+                  {waiting.map((session) => (
+                    <SessionRow
+                      key={session.id}
+                      session={session}
+                      onSelect={selectSession}
+                      t={t}
+                    />
+                  ))}
+                </section>
+              ) : null}
+
+              <section>
+                {waiting.length > 0 ? (
+                  <h2 className="phone-section-title">
+                    {t('phone.everythingElse')}
+                  </h2>
+                ) : null}
+                {rest.length === 0 && waiting.length === 0 ? (
+                  <p className="phone-empty">{t('phone.noSessions')}</p>
+                ) : (
+                  rest.map((session) => (
+                    <SessionRow
+                      key={session.id}
+                      session={session}
+                      onSelect={selectSession}
+                      active={session.id === activeId}
+                      t={t}
+                    />
+                  ))
+                )}
+              </section>
+            </>
+          )}
         </main>
       ) : active ? (
         <main className="phone-session">
@@ -699,9 +727,7 @@ export default function PhoneApp() {
                 >
                   <span className="phone-tab-name">{session.name}</span>
                   <span className="phone-tab-meta">
-                    {isWaiting(session)
-                      ? t('status.waiting')
-                      : workLabel(session, t) ?? t('status.active')}
+                    {tabStateLabel(session, t)}
                   </span>
                 </button>
               ))}
@@ -775,36 +801,6 @@ export default function PhoneApp() {
               </div>
             </div>
           ) : null}
-
-          <div
-            className="phone-session-actions"
-            role="group"
-            aria-label={t('phone.sessionActions')}
-          >
-            {canSwitch(active) ? (
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={() => setSwitchOpen(true)}
-              >
-                {t('session.switchAccountMenu')}
-              </button>
-            ) : null}
-            <button
-              type="button"
-              className="btn btn-secondary"
-              onClick={() => setUsageOpen(true)}
-            >
-              {t('usage.title')}
-            </button>
-            <button
-              type="button"
-              className="btn btn-secondary"
-              onClick={() => setCloseOpen(true)}
-            >
-              {t('session.closeMenuAction')}
-            </button>
-          </div>
 
           {actionNotice ? (
             <p className="phone-card-error" role="alert">
@@ -1057,6 +1053,26 @@ export default function PhoneApp() {
         />
       ) : null}
 
+      {actionsOpen && active ? (
+        <SessionActionsSheet
+          session={active}
+          t={t}
+          onSwitch={() => {
+            setActionsOpen(false);
+            setSwitchOpen(true);
+          }}
+          onUsage={() => {
+            setActionsOpen(false);
+            setUsageOpen(true);
+          }}
+          onCloseSession={() => {
+            setActionsOpen(false);
+            setCloseOpen(true);
+          }}
+          onClose={() => setActionsOpen(false)}
+        />
+      ) : null}
+
       {switchOpen && active ? (
         <SwitchConfigSheet
           session={active}
@@ -1094,6 +1110,16 @@ export default function PhoneApp() {
         />
       ) : null}
     </div>
+  );
+}
+
+function MoreIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" width="20" height="20">
+      <circle cx="5" cy="12" r="1.7" fill="currentColor" />
+      <circle cx="12" cy="12" r="1.7" fill="currentColor" />
+      <circle cx="19" cy="12" r="1.7" fill="currentColor" />
+    </svg>
   );
 }
 
@@ -1437,6 +1463,7 @@ function StartSessionSheet({
   const [submitting, setSubmitting] = useState(false);
 
   const project = projects.find((entry) => entry.id === projectId) ?? null;
+  const blocker = startBlocker(projects, projectId, configId);
   const projectOptions = projects.map((entry) => ({
     id: entry.id,
     label: entry.name,
@@ -1522,87 +1549,159 @@ function StartSessionSheet({
             ×
           </button>
         </div>
-        <form className="phone-start-form" onSubmit={submit} noValidate>
-          <Combobox
-            id="phone-start-project"
-            label={t('newSession.project')}
-            value={projectId}
-            options={projectOptions}
-            selectedOption={projectOptions.find((option) => option.id === projectId) ?? null}
-            onChange={chooseProject}
-            placeholder={t('newSession.projectPlaceholder')}
-            required
-            autoFocus
-          />
-          <Combobox
-            id="phone-start-config"
-            label={t('newSession.config')}
-            value={configId}
-            options={configOptions}
-            selectedOption={configOptions.find((option) => option.id === configId) ?? null}
-            onChange={setConfigId}
-            placeholder={t('newSession.configPlaceholder')}
-            required
-          />
-          <Combobox
-            key={projectId ?? 'no-project'}
-            id="phone-start-branch"
-            label={t('newSession.sourceBranch')}
-            value={branch}
-            loadOptions={loadBranches}
-            selectedOption={branch ? { id: branch, label: branch } : null}
-            onChange={setBranch}
-            placeholder={t('newSession.sourceBranchPlaceholder')}
-            disabled={!project}
-          />
-          <div className="field">
-            <label htmlFor="phone-start-name">{t('newSession.name')}</label>
-            <input
-              id="phone-start-name"
-              className="text-input"
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              placeholder={t('newSession.namePlaceholder')}
+        {projects.length === 0 ? (
+          <p className="phone-sheet-note">{t('phone.noProjects')}</p>
+        ) : (
+          <form className="phone-start-form" onSubmit={submit} noValidate>
+            <Combobox
+              id="phone-start-project"
+              label={t('newSession.project')}
+              value={projectId}
+              options={projectOptions}
+              selectedOption={projectOptions.find((option) => option.id === projectId) ?? null}
+              onChange={chooseProject}
+              placeholder={t('newSession.projectPlaceholder')}
+              required
+              autoFocus
             />
-          </div>
-          <div className="field">
-            <label htmlFor="phone-start-prompt">
-              {t('newSession.firstPrompt')}
-            </label>
-            <textarea
-              id="phone-start-prompt"
-              className="text-input prompt-input"
-              value={prompt}
-              onChange={(event) => setPrompt(event.target.value)}
-              placeholder={t('newSession.firstPromptPlaceholder')}
-              rows={3}
+            <Combobox
+              id="phone-start-config"
+              label={t('newSession.config')}
+              value={configId}
+              options={configOptions}
+              selectedOption={configOptions.find((option) => option.id === configId) ?? null}
+              onChange={setConfigId}
+              placeholder={t('newSession.configPlaceholder')}
+              required
             />
-          </div>
-          {error ? (
-            <p className="phone-card-error" role="alert">
-              {error}
-            </p>
-          ) : null}
-          <div className="phone-sheet-actions">
-            <button
-              type="button"
-              className="btn btn-secondary"
-              onClick={onClose}
-              disabled={submitting}
-            >
-              {t('common.cancel')}
-            </button>
-            <button
-              type="submit"
-              className="btn btn-primary"
-              disabled={submitting}
-            >
-              {submitting
-                ? t('newSession.submitting')
-                : t('newSession.submit')}
-            </button>
-          </div>
-        </form>
+            <Combobox
+              key={projectId ?? 'no-project'}
+              id="phone-start-branch"
+              label={t('newSession.sourceBranch')}
+              value={branch}
+              loadOptions={loadBranches}
+              selectedOption={branch ? { id: branch, label: branch } : null}
+              onChange={setBranch}
+              placeholder={t('newSession.sourceBranchPlaceholder')}
+              disabled={!project}
+            />
+            <div className="field">
+              <label htmlFor="phone-start-name">{t('newSession.name')}</label>
+              <input
+                id="phone-start-name"
+                className="text-input"
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                placeholder={t('newSession.namePlaceholder')}
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="phone-start-prompt">
+                {t('newSession.firstPrompt')}
+              </label>
+              <textarea
+                id="phone-start-prompt"
+                className="text-input prompt-input"
+                value={prompt}
+                onChange={(event) => setPrompt(event.target.value)}
+                placeholder={t('newSession.firstPromptPlaceholder')}
+                rows={3}
+              />
+            </div>
+            {error ? (
+              <p className="phone-card-error" role="alert">
+                {error}
+              </p>
+            ) : null}
+            {blocker === 'incomplete' ? (
+              <p className="phone-sheet-note">
+                {t('phone.startIncomplete')}
+              </p>
+            ) : null}
+            <div className="phone-sheet-actions">
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={onClose}
+                disabled={submitting}
+              >
+                {t('common.cancel')}
+              </button>
+              <button
+                type="submit"
+                className="btn btn-primary"
+                disabled={submitting || blocker !== null}
+              >
+                {submitting
+                  ? t('newSession.submitting')
+                  : t('newSession.submit')}
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SessionActionsSheet({
+  session,
+  t,
+  onSwitch,
+  onUsage,
+  onCloseSession,
+  onClose,
+}: {
+  session: Session;
+  t: Translate;
+  onSwitch: () => void;
+  onUsage: () => void;
+  onCloseSession: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="phone-sheet-layer">
+      <button
+        type="button"
+        className="phone-sheet-scrim"
+        aria-label={t('common.close')}
+        onClick={onClose}
+      />
+      <div
+        className="phone-sheet"
+        role="dialog"
+        aria-label={t('phone.sessionActions')}
+      >
+        <div className="phone-sheet-head">
+          <h2 className="phone-sheet-title">{t('phone.sessionActions')}</h2>
+          <button
+            type="button"
+            className="phone-sheet-close"
+            aria-label={t('common.close')}
+            onClick={onClose}
+          >
+            ×
+          </button>
+        </div>
+        {canSwitch(session) ? (
+          <button type="button" className="phone-sheet-row" onClick={onSwitch}>
+            <span className="phone-sheet-row-name">
+              {t('session.switchAccountMenu')}
+            </span>
+          </button>
+        ) : null}
+        <button type="button" className="phone-sheet-row" onClick={onUsage}>
+          <span className="phone-sheet-row-name">{t('usage.title')}</span>
+        </button>
+        <button
+          type="button"
+          className="phone-sheet-row is-danger"
+          onClick={onCloseSession}
+        >
+          <span className="phone-sheet-row-name">
+            {t('session.closeMenuAction')}
+          </span>
+        </button>
       </div>
     </div>
   );
@@ -1722,17 +1821,9 @@ function SessionRow({
     >
       <span className="phone-row-main">
         <span className="phone-row-name">{session.name}</span>
-        <span className="phone-row-preview">
-          {isWaiting(session)
-            ? t('status.waitingForYou')
-            : session.preview || session.projectId}
-        </span>
+        <span className="phone-row-preview">{rowPreview(session)}</span>
       </span>
-      <span className="phone-row-state">
-        {session.status === 'closed'
-          ? t('status.closed')
-          : workLabel(session, t) ?? t('status.active')}
-      </span>
+      <span className="phone-row-state">{tabStateLabel(session, t)}</span>
     </button>
   );
 }
@@ -1855,11 +1946,12 @@ function SheetRow({
       >
         <span className="phone-sheet-row-name">{session.name}</span>
         <span className="phone-sheet-row-meta">
-          {active
-            ? t('phone.open')
-            : isWaiting(session)
-              ? t('status.waiting')
-              : workLabel(session, t) ?? t('status.active')}
+          {tabStateLabel(session, t)}
+          {active ? (
+            <span className="phone-sheet-check" aria-hidden="true">
+              {' '}✓
+            </span>
+          ) : null}
         </span>
       </button>
     </div>
