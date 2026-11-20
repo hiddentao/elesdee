@@ -405,6 +405,12 @@ export const fr = {
   'usage.close': 'Fermer l’utilisation',
   'usage.percentLeft': '{percent} % restants',
   'usage.belowMinimum': 'Sous le solde minimum.',
+  'usage.fiveHour': 'Limite de 5 heures',
+  'usage.weekly': 'Limite hebdomadaire',
+  'usage.balance': 'Solde',
+  'usage.readAt': 'Relevé {time}.',
+  'usage.stale': 'Dernier relevé {time}. La dernière lecture a échoué.',
+  'usage.checked': 'Aucune donnée d’utilisation. Vérifié {time}.',
 
   'combobox.optionsLabel': 'Options de {label}',
   'combobox.loading': 'Chargement…',

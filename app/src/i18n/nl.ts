@@ -402,6 +402,12 @@ export const nl = {
   'usage.close': 'Gebruik sluiten',
   'usage.percentLeft': '{percent}% over',
   'usage.belowMinimum': 'Onder het minimumsaldo.',
+  'usage.fiveHour': 'Limiet van 5 uur',
+  'usage.weekly': 'Weeklimiet',
+  'usage.balance': 'Saldo',
+  'usage.readAt': 'Gelezen {time}.',
+  'usage.stale': 'Laatst gelezen {time}. De laatste meting is mislukt.',
+  'usage.checked': 'Geen gebruiksgegevens. Gecontroleerd {time}.',
 
   'combobox.optionsLabel': 'Opties voor {label}',
   'combobox.loading': 'Laden…',

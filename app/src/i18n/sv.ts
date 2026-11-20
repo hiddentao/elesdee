@@ -402,6 +402,12 @@ export const sv = {
   'usage.close': 'Stäng användning',
   'usage.percentLeft': '{percent} % kvar',
   'usage.belowMinimum': 'Under minimisaldot.',
+  'usage.fiveHour': '5-timmarsgräns',
+  'usage.weekly': 'Veckogräns',
+  'usage.balance': 'Saldo',
+  'usage.readAt': 'Läst {time}.',
+  'usage.stale': 'Senast läst {time}. Den senaste läsningen misslyckades.',
+  'usage.checked': 'Inga användningsdata. Kontrollerat {time}.',
 
   'combobox.optionsLabel': 'Alternativ för {label}',
   'combobox.loading': 'Läser in…',

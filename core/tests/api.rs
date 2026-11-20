@@ -1,12 +1,16 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use axum::Router;
 use axum::body::Body;
+use axum::extract::State as AxumState;
 use axum::http::{Request, StatusCode, header};
+use axum::response::{IntoResponse, Response};
+use axum::routing::get;
 use http_body_util::BodyExt;
 use serde_json::{Value, json};
 use tower::ServiceExt;
@@ -2354,6 +2358,10 @@ async fn opencode_sessions_get_the_full_skill_set() {
         sample: false,
         rows: Vec::new(),
         foot: String::new(),
+        usage_read_at: None,
+        usage_checked_at: None,
+        usage_status: None,
+        usage_source: None,
         server: None,
         model: None,
         api_style: None,
@@ -8026,6 +8034,19 @@ async fn send_hook(
     call(app, "POST", &uri, Some(body)).await
 }
 
+async fn send_statusline(
+    app: &Router,
+    id: &str,
+    token: Option<&str>,
+    body: Value,
+) -> (StatusCode, Value) {
+    let uri = match token {
+        Some(token) => format!("/internal/statusline/claude/{id}?token={token}"),
+        None => format!("/internal/statusline/claude/{id}"),
+    };
+    call(app, "POST", &uri, Some(body)).await
+}
+
 async fn wait_for_pending(app: &Router, id: &str) -> Value {
     let deadline = tokio::time::Instant::now() + TIMEOUT;
     loop {
@@ -8166,4 +8187,317 @@ fn process_alive(pid: u32) -> bool {
         return false;
     };
     unsafe { libc::kill(pid, 0) == 0 }
+}
+
+#[derive(Clone)]
+struct BalanceServer {
+    calls: Arc<AtomicUsize>,
+    auth: Arc<Mutex<Option<String>>>,
+    body: Value,
+    status: StatusCode,
+}
+
+async fn balance_handler(
+    AxumState(server): AxumState<BalanceServer>,
+    headers: axum::http::HeaderMap,
+) -> Response {
+    server.calls.fetch_add(1, Ordering::SeqCst);
+    *server.auth.lock().expect("auth") = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    (server.status, axum::Json(server.body.clone())).into_response()
+}
+
+async fn start_balance_server(
+    body: Value,
+    status: StatusCode,
+) -> (String, Arc<AtomicUsize>, Arc<Mutex<Option<String>>>) {
+    let server = BalanceServer {
+        calls: Arc::new(AtomicUsize::new(0)),
+        auth: Arc::new(Mutex::new(None)),
+        body,
+        status,
+    };
+    let calls = Arc::clone(&server.calls);
+    let auth = Arc::clone(&server.auth);
+    let app = Router::new()
+        .route("/user/balance", get(balance_handler))
+        .with_state(server);
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+        .await
+        .expect("bind balance server");
+    let address = listener.local_addr().expect("balance server address");
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    (format!("http://{address}"), calls, auth)
+}
+
+async fn create_deepseek_account(app: &Router, name: &str, key: &str) -> String {
+    let (status, account) = call(
+        app,
+        "POST",
+        "/api/accounts",
+        Some(json!({
+            "name": name,
+            "providerId": "deepseek",
+            "auth": "key",
+            "key": key
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{account}");
+    account["id"].as_str().expect("account id").to_owned()
+}
+
+#[tokio::test]
+async fn refresh_without_an_official_source_returns_no_usage_data() {
+    let app = router(AppState::ephemeral());
+    let (status, account) = call(
+        &app,
+        "POST",
+        "/api/accounts/max/usage/refresh",
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{account}");
+    assert_eq!(account["usageStatus"], Value::Null);
+    assert_eq!(account["usageReadAt"], Value::Null);
+    assert_eq!(account["usageCheckedAt"], Value::Null);
+    assert_eq!(account["foot"], "No official usage source.");
+    assert_eq!(account["rows"].as_array().expect("rows").len(), 0);
+}
+
+#[tokio::test]
+async fn deepseek_balance_is_read_from_the_official_endpoint_and_coalesced() {
+    let body = json!({
+        "is_available": true,
+        "balance_infos": [{
+            "currency": "USD",
+            "total_balance": "110.00",
+            "granted_balance": "10.00",
+            "topped_up_balance": "100.00"
+        }]
+    });
+    let (base, calls, auth) = start_balance_server(body, StatusCode::OK).await;
+    let data_dir = TempDirectory::new("usage-deepseek");
+    let app = router(
+        AppState::with_test_command_and_data_dir(
+            vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+            data_dir.path.clone(),
+        )
+        .with_test_usage_base(base),
+    );
+    let key = "sk-deepseek-secret";
+    let id = create_deepseek_account(&app, "DeepSeek usage", key).await;
+    let uri = format!("/api/accounts/{id}/usage/refresh");
+
+    let (first, second) = tokio::join!(
+        call(&app, "POST", &uri, Some(json!({}))),
+        call(&app, "POST", &uri, Some(json!({})))
+    );
+    assert_eq!(first.0, StatusCode::OK, "{}", first.1);
+    assert_eq!(second.0, StatusCode::OK, "{}", second.1);
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        1,
+        "concurrent reads must share one request"
+    );
+    assert_eq!(
+        auth.lock().expect("auth").as_deref(),
+        Some("Bearer sk-deepseek-secret")
+    );
+
+    let account = &first.1;
+    assert_eq!(account["usageStatus"], "fresh");
+    assert_eq!(account["usageSource"], "deepseek");
+    assert!(account["usageReadAt"].as_str().is_some());
+    assert_eq!(account["rows"][0]["window"], "balance");
+    assert_eq!(account["rows"][0]["value"], "USD 110.00");
+    assert!(
+        !account.to_string().contains(key),
+        "the key leaked into the API response"
+    );
+    let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    assert!(
+        !bootstrap.to_string().contains(key),
+        "the key leaked into bootstrap"
+    );
+    let state_text = fs::read_to_string(data_dir.path.join("state.json")).expect("state file");
+    assert!(!state_text.contains(key), "the key leaked into state.json");
+}
+
+#[tokio::test]
+async fn a_failed_balance_read_marks_the_account_unknown_and_keeps_the_key_private() {
+    let (base, calls, auth) =
+        start_balance_server(json!({}), StatusCode::INTERNAL_SERVER_ERROR).await;
+    let data_dir = TempDirectory::new("usage-deepseek-fail");
+    let app = router(
+        AppState::with_test_command_and_data_dir(
+            vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+            data_dir.path.clone(),
+        )
+        .with_test_usage_base(base),
+    );
+    let key = "sk-deepseek-failure";
+    let id = create_deepseek_account(&app, "DeepSeek failure", key).await;
+
+    let (status, response) = call(
+        &app,
+        "POST",
+        &format!("/api/accounts/{id}/usage/refresh"),
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY, "{response}");
+    assert!(!response.to_string().contains(key));
+
+    let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    let account = bootstrap["accounts"]
+        .as_array()
+        .expect("accounts")
+        .iter()
+        .find(|account| account["id"] == id)
+        .expect("account");
+    assert_eq!(account["usageStatus"], "unknown");
+    assert_eq!(account["usageSource"], "deepseek");
+    assert!(account["usageCheckedAt"].as_str().is_some());
+    assert!(account["usageReadAt"].is_null());
+    assert_eq!(account["rows"].as_array().expect("rows").len(), 0);
+    assert!(!bootstrap.to_string().contains(key));
+    assert_eq!(
+        auth.lock().expect("auth").as_deref(),
+        Some("Bearer sk-deepseek-failure")
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    let state_text = fs::read_to_string(data_dir.path.join("state.json")).expect("state file");
+    assert!(!state_text.contains(key));
+}
+
+#[tokio::test]
+async fn a_failed_read_keeps_the_last_values_and_marks_them_stale() {
+    let (base, _, _) = start_balance_server(json!({}), StatusCode::OK).await;
+    let data_dir = TempDirectory::new("usage-deepseek-stale");
+    let app = router(
+        AppState::with_test_command_and_data_dir(
+            vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+            data_dir.path.clone(),
+        )
+        .with_test_usage_base(base),
+    );
+    let key = "sk-deepseek-stale";
+    let id = create_deepseek_account(&app, "DeepSeek stale", key).await;
+
+    let (status, _) = call(
+        &app,
+        "POST",
+        &format!("/api/accounts/{id}/usage"),
+        Some(json!({ "rows": [{ "label": "Manual", "used": 20 }] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (_, before) = call(&app, "GET", "/api/bootstrap", None).await;
+    let read_at = before["accounts"]
+        .as_array()
+        .expect("accounts")
+        .iter()
+        .find(|account| account["id"] == id)
+        .expect("account")["usageReadAt"]
+        .clone();
+    assert!(read_at.as_str().is_some());
+
+    let (status, _) = call(
+        &app,
+        "POST",
+        &format!("/api/accounts/{id}/usage/refresh"),
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY);
+
+    let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    let account = bootstrap["accounts"]
+        .as_array()
+        .expect("accounts")
+        .iter()
+        .find(|account| account["id"] == id)
+        .expect("account");
+    assert_eq!(account["usageStatus"], "stale");
+    assert_eq!(account["usageReadAt"], read_at);
+    assert!(account["usageCheckedAt"].as_str().is_some());
+    assert_eq!(account["rows"][0]["used"], 20);
+    assert!(!bootstrap.to_string().contains(key));
+}
+
+#[tokio::test]
+async fn claude_status_line_updates_usage_and_switches_the_session() {
+    let data_dir = TempDirectory::new("usage-statusline-data");
+    let repo = TempDirectory::new("usage-statusline-repo");
+    init_git_repo(&repo.path);
+    let app = router(AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    ));
+    let backup = create_test_account(&app, "Status backup", "sk-status-backup").await;
+    let (status, _) = call(
+        &app,
+        "POST",
+        &format!("/api/accounts/{backup}/usage"),
+        Some(json!({ "rows": [{ "label": "Weekly", "used": 20 }] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    let session = create_claude_agent(&app, &repo.path, "Status line").await;
+    let id = session["id"].as_str().expect("session id").to_owned();
+    let (_, settings) = claude_settings(&data_dir.path, &id);
+    let token = settings_token(&settings);
+    let command = settings["statusLine"]["command"]
+        .as_str()
+        .expect("status line command");
+    assert_eq!(settings["statusLine"]["type"], "command");
+    assert!(
+        command.contains(&format!("/internal/statusline/claude/{id}?token={token}")),
+        "{command}"
+    );
+
+    let payload = json!({
+        "rate_limits": {
+            "five_hour": { "used_percentage": 95, "resets_at": 1738425600 },
+            "seven_day": { "used_percentage": 41.2, "resets_at": 1738857600 }
+        }
+    });
+    let (status, _) = send_statusline(&app, &id, Some("wrong-token"), payload.clone()).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _) = send_statusline(&app, &id, None, payload.clone()).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, response) = send_statusline(&app, &id, Some(&token), payload).await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{response}");
+
+    let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    assert!(
+        !bootstrap.to_string().contains(&token),
+        "the status line token leaked into bootstrap"
+    );
+    let max = bootstrap["accounts"]
+        .as_array()
+        .expect("accounts")
+        .iter()
+        .find(|account| account["id"] == "max")
+        .expect("max account");
+    assert_eq!(max["usageStatus"], "fresh");
+    assert_eq!(max["usageSource"], "statusline");
+    assert!(max["usageReadAt"].as_str().is_some());
+    assert_eq!(max["foot"], "");
+    assert_eq!(max["rows"][0]["window"], "five_hour");
+    assert_eq!(max["rows"][0]["used"], 95);
+    assert_eq!(max["rows"][0]["resetsAt"], 1738425600);
+    assert_eq!(max["rows"][1]["window"], "seven_day");
+    assert_eq!(max["rows"][1]["used"], 41);
+
+    let switched = wait_for_session(&app, &id, |session| session["accountId"] == backup).await;
+    assert_eq!(switched["status"], "active");
+    let (status, _) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK);
 }

@@ -1,7 +1,12 @@
 import type { UsageRow } from '../api/types';
 import { formatNumber } from '../i18n';
 import { useLanguage } from '../i18n/LanguageProvider';
-import { balanceBelowMin, rowRemaining, rowWarn } from '../state/usage';
+import {
+  balanceBelowMin,
+  rowLabel,
+  rowRemaining,
+  rowWarn,
+} from '../state/usage';
 
 export function UsageLimitRow({ row }: { row: UsageRow }) {
   const { t, language } = useLanguage();
@@ -18,7 +23,7 @@ export function UsageLimitRow({ row }: { row: UsageRow }) {
 
   return (
     <span className={classes}>
-      <span className="usage-limit-label">{row.label}</span>
+      <span className="usage-limit-label">{rowLabel(row, t)}</span>
       {remaining !== null ? (
         <>
           <span className="usage-limit-bar" aria-hidden="true">

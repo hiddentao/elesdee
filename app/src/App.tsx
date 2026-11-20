@@ -351,6 +351,20 @@ export default function App() {
         setSharedVersion((value) => value + 1);
         return;
       }
+      if (event.type === 'account.updated') {
+        setAccounts((current) => {
+          const index = current.findIndex(
+            (account) => account.id === event.account.id,
+          );
+          if (index === -1) {
+            return [...current, event.account];
+          }
+          const next = current.slice();
+          next[index] = event.account;
+          return next;
+        });
+        return;
+      }
       setToast({
         message: `${event.notification.sessionName}: ${event.notification.message}`,
         error: false,

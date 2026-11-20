@@ -382,6 +382,12 @@ export const en = {
   'usage.close': 'Close usage',
   'usage.percentLeft': '{percent}% left',
   'usage.belowMinimum': 'Below the minimum balance.',
+  'usage.fiveHour': '5-hour limit',
+  'usage.weekly': 'Weekly limit',
+  'usage.balance': 'Balance',
+  'usage.readAt': 'Read {time}.',
+  'usage.stale': 'Last read {time}. The latest read failed.',
+  'usage.checked': 'No usage data. Checked {time}.',
 
   'combobox.optionsLabel': '{label} options',
   'combobox.loading': 'Loading…',

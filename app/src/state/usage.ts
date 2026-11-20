@@ -3,7 +3,61 @@ import {
   formatNumber,
   translate,
   type Language,
+  type Translate,
 } from '../i18n';
+
+export function rowLabel(row: UsageRow, t: Translate): string {
+  if (row.window === 'five_hour') {
+    return t('usage.fiveHour');
+  }
+  if (row.window === 'seven_day') {
+    return t('usage.weekly');
+  }
+  if (row.window === 'balance') {
+    return t('usage.balance');
+  }
+  return row.label;
+}
+
+export function formatUsageTime(
+  value: string | null | undefined,
+  language: Language,
+): string | null {
+  if (!value) {
+    return null;
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+  return new Intl.DateTimeFormat(language, {
+    dateStyle: 'short',
+    timeStyle: 'short',
+  }).format(date);
+}
+
+export function usageStatusText(
+  account: Account,
+  language: Language,
+  t: Translate,
+): string | null {
+  if (account.usageStatus === 'fresh') {
+    const time = formatUsageTime(account.usageReadAt, language);
+    return time ? t('usage.readAt', { time }) : null;
+  }
+  if (account.usageStatus === 'stale') {
+    const time = formatUsageTime(
+      account.usageReadAt ?? account.usageCheckedAt,
+      language,
+    );
+    return time ? t('usage.stale', { time }) : null;
+  }
+  if (account.usageStatus === 'unknown') {
+    const time = formatUsageTime(account.usageCheckedAt, language);
+    return time ? t('usage.checked', { time }) : null;
+  }
+  return null;
+}
 
 function parseNumber(value: string | undefined): number | null {
   if (!value) {

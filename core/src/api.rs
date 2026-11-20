@@ -408,6 +408,11 @@ pub fn router(state: AppState) -> Router {
         .route("/api/providers", get(list_providers))
         .route("/api/accounts", get(list_accounts).post(create_account))
         .route("/api/accounts/{id}/usage", post(update_account_usage))
+        .route(
+            "/api/accounts/{id}/usage/refresh",
+            post(refresh_account_usage),
+        )
+        .route("/internal/statusline/claude/{id}", post(claude_statusline))
         .route("/api/presets", get(list_presets).post(create_preset))
         .route(
             "/api/presets/{id}",
@@ -1278,6 +1283,10 @@ async fn create_account(
         sample: false,
         rows: Vec::new(),
         foot: "No official usage source.".to_owned(),
+        usage_read_at: None,
+        usage_checked_at: None,
+        usage_status: None,
+        usage_source: None,
         server: if provider.custom || request.auth == Auth::Local {
             server
         } else {
@@ -1316,7 +1325,7 @@ async fn store_account_key(state: &AppState, account_id: &str, key: &str) -> Res
     }
 }
 
-async fn account_key(state: &AppState, account_id: &str) -> Result<String, ApiError> {
+pub(crate) async fn account_key(state: &AppState, account_id: &str) -> Result<String, ApiError> {
     let store = state.secret_store();
     let id = account_id.to_owned();
     let result = tokio::task::spawn_blocking(move || store.get_key(&id)).await;
@@ -2273,15 +2282,59 @@ async fn update_account_usage(
     {
         return Err(ApiError::bad_request("A usage label is too long."));
     }
-    let account = state
-        .update_account_rows(&id, request.rows)
+    let account = crate::usage::apply_usage(&state, &id, crate::usage::MANUAL, request.rows)
+        .await
         .ok_or_else(|| ApiError::not_found("Unknown account."))?;
     state.save();
-    auto_switch_account(&state, &account).await;
     Ok(Json(account))
 }
 
-async fn auto_switch_account(state: &AppState, account: &Account) {
+async fn refresh_account_usage(
+    State(state): State<AppState>,
+    UrlPath(id): UrlPath<String>,
+) -> Result<Json<Account>, ApiError> {
+    match crate::usage::refresh_account(&state, &id, true).await {
+        Ok(account) => Ok(Json(account)),
+        Err(crate::usage::RefreshError::Unknown) => Err(ApiError::not_found("Unknown account.")),
+        Err(crate::usage::RefreshError::Read) => {
+            Err(ApiError::bad_gateway("The usage read failed."))
+        }
+    }
+}
+
+async fn claude_statusline(
+    State(state): State<AppState>,
+    UrlPath(id): UrlPath<String>,
+    query: Result<Query<HookQuery>, QueryRejection>,
+    body: Result<Json<serde_json::Value>, JsonRejection>,
+) -> Result<Response, ApiError> {
+    let Query(query) = query.map_err(|_| ApiError::forbidden("Invalid hook credentials."))?;
+    let provided = query.token.as_deref().unwrap_or_default();
+    let entry = state
+        .session(&id)
+        .ok_or_else(|| ApiError::forbidden("Invalid hook credentials."))?;
+    let session = entry.session();
+    if session.kind != SessionKind::Agent || session.client != Some(Client::ClaudeCode) {
+        return Err(ApiError::forbidden("Invalid hook credentials."));
+    }
+    let expected = entry
+        .claude_token()
+        .ok_or_else(|| ApiError::forbidden("Invalid hook credentials."))?;
+    if !claude::token_matches(&expected, provided) {
+        return Err(ApiError::forbidden("Invalid hook credentials."));
+    }
+
+    let Json(input) = body.map_err(|_| ApiError::bad_request("Invalid status line input."))?;
+    if let Some(account_id) = session.account_id.as_deref() {
+        let rows = crate::usage::claude_rows(&input);
+        if !rows.is_empty() {
+            crate::usage::apply_usage(&state, account_id, crate::usage::STATUS_LINE, rows).await;
+        }
+    }
+    Ok(StatusCode::NO_CONTENT.into_response())
+}
+
+pub(crate) async fn auto_switch_account(state: &AppState, account: &Account) {
     let usage = crate::providers::usage_state(account);
     if usage == crate::providers::UsageState::Room {
         resume_paused_sessions(state, account).await;

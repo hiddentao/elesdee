@@ -264,6 +264,8 @@ pub enum AuxEvent {
     Notification { notification: Notification },
     #[serde(rename = "sharedfile.created")]
     SharedFile { file: SharedFile },
+    #[serde(rename = "account.updated")]
+    Account { account: Account },
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -278,17 +280,30 @@ pub struct Project {
     pub default_source_branch: Option<String>,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum UsageStatus {
+    Fresh,
+    Stale,
+    Unknown,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct UsageRow {
     pub label: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub window: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub used: Option<u8>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub value: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub min: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub warn: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resets_at: Option<i64>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -304,6 +319,14 @@ pub struct Account {
     pub sample: bool,
     pub rows: Vec<UsageRow>,
     pub foot: String,
+    #[serde(default)]
+    pub usage_read_at: Option<String>,
+    #[serde(default)]
+    pub usage_checked_at: Option<String>,
+    #[serde(default)]
+    pub usage_status: Option<UsageStatus>,
+    #[serde(default)]
+    pub usage_source: Option<String>,
     pub server: Option<String>,
     pub model: Option<String>,
     #[serde(default)]
@@ -516,6 +539,10 @@ struct Inner {
     agent_identity: AsyncMutex<()>,
     store: Option<Arc<StateStore>>,
     persist_lock: Mutex<()>,
+    usage_gates: Mutex<HashMap<String, Arc<AsyncMutex<()>>>>,
+    usage_last_attempt: Mutex<HashMap<String, Instant>>,
+    usage_last_save: Mutex<HashMap<String, Instant>>,
+    usage_base_override: Option<String>,
     link: crate::link::LinkHub,
 }
 
@@ -796,6 +823,10 @@ impl AppState {
                 agent_identity: AsyncMutex::new(()),
                 store,
                 persist_lock: Mutex::new(()),
+                usage_gates: Mutex::new(HashMap::new()),
+                usage_last_attempt: Mutex::new(HashMap::new()),
+                usage_last_save: Mutex::new(HashMap::new()),
+                usage_base_override: None,
                 link: crate::link::LinkHub::new(),
             }),
         }
@@ -968,11 +999,86 @@ impl AppState {
         lock(&self.inner.accounts).retain(|account| account.id != id);
     }
 
-    pub fn update_account_rows(&self, id: &str, rows: Vec<UsageRow>) -> Option<Account> {
+    pub fn set_account_usage(
+        &self,
+        id: &str,
+        rows: Vec<UsageRow>,
+        source: &str,
+        read_at: &str,
+        checked_at: &str,
+    ) -> Option<Account> {
         let mut accounts = lock(&self.inner.accounts);
         let account = accounts.iter_mut().find(|account| account.id == id)?;
         account.rows = rows;
+        account.usage_source = Some(source.to_owned());
+        account.usage_status = Some(UsageStatus::Fresh);
+        account.usage_read_at = Some(read_at.to_owned());
+        account.usage_checked_at = Some(checked_at.to_owned());
+        account.foot.clear();
         Some(account.clone())
+    }
+
+    pub fn mark_account_usage_failed(
+        &self,
+        id: &str,
+        source: &str,
+        checked_at: &str,
+    ) -> Option<Account> {
+        let mut accounts = lock(&self.inner.accounts);
+        let account = accounts.iter_mut().find(|account| account.id == id)?;
+        account.usage_source = Some(source.to_owned());
+        account.usage_status = Some(if account.rows.is_empty() {
+            UsageStatus::Unknown
+        } else {
+            UsageStatus::Stale
+        });
+        account.usage_checked_at = Some(checked_at.to_owned());
+        account.foot.clear();
+        Some(account.clone())
+    }
+
+    /// Returns the gate that serializes reads for one account.
+    pub fn usage_gate(&self, account_id: &str) -> Arc<AsyncMutex<()>> {
+        lock(&self.inner.usage_gates)
+            .entry(account_id.to_owned())
+            .or_insert_with(|| Arc::new(AsyncMutex::new(())))
+            .clone()
+    }
+
+    pub fn usage_read_due(&self, account_id: &str, minimum: Duration) -> bool {
+        lock(&self.inner.usage_last_attempt)
+            .get(account_id)
+            .is_none_or(|attempt| attempt.elapsed() >= minimum)
+    }
+
+    pub fn note_usage_attempt(&self, account_id: &str) {
+        lock(&self.inner.usage_last_attempt).insert(account_id.to_owned(), Instant::now());
+    }
+
+    pub fn usage_save_due(&self, account_id: &str, minimum: Duration) -> bool {
+        lock(&self.inner.usage_last_save)
+            .get(account_id)
+            .is_none_or(|saved| saved.elapsed() >= minimum)
+    }
+
+    pub fn note_usage_saved(&self, account_id: &str) {
+        lock(&self.inner.usage_last_save).insert(account_id.to_owned(), Instant::now());
+    }
+
+    pub fn publish_account(&self, account: Account) {
+        self.emit_aux(AuxEvent::Account { account });
+    }
+
+    #[doc(hidden)]
+    pub fn with_test_usage_base(mut self, base: String) -> Self {
+        if let Some(inner) = Arc::get_mut(&mut self.inner) {
+            inner.usage_base_override = Some(base);
+        }
+        self
+    }
+
+    pub fn usage_base_override(&self) -> Option<&str> {
+        self.inner.usage_base_override.as_deref()
     }
 
     pub fn presets(&self) -> Vec<Preset> {

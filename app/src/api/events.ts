@@ -69,6 +69,8 @@ export function subscribeAux(
           type: 'notification',
           notification: payload.notification,
         });
+      } else if (payload.type === 'account.updated' && payload.account) {
+        onEvent({ type: 'account.updated', account: payload.account });
       }
     } catch {
       // Ignore malformed events and keep the stream open.
