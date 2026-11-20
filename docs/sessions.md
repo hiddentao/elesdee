@@ -30,7 +30,8 @@ Runs a plain shell. It has no agent, branch or worktree. The folder can be a Git
 6. For an agent session, optionally choose a source branch. The new session branch starts from that commit. With no choice, it starts from the current branch.
 7. Optionally enter a first prompt. The app passes it to the agent at launch.
 8. Optionally enter a name.
-9. Choose **Start**.
+9. Open **Additional settings** to add environment variables for this session. Use one `NAME=value` per line.
+10. Choose **Start**.
 
 If you leave the name empty, an agent session is named from the first prompt, or after its client when there is no prompt. A terminal session is named after its folder.
 

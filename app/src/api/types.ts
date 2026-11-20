@@ -43,6 +43,7 @@ export interface Session {
   firstPrompt?: string | null;
   parentSessionId?: string | null;
   parentSessionName?: string | null;
+  envOverrides?: EnvOverride[];
   startedAt: string;
   shortcuts: Shortcut[];
 }
@@ -156,6 +157,11 @@ export interface HealthResponse {
   agents: AgentCheck[];
 }
 
+export interface EnvOverride {
+  name: string;
+  value: string;
+}
+
 export interface CreateSessionInput {
   projectId: string;
   kind: SessionKind;
@@ -164,6 +170,7 @@ export interface CreateSessionInput {
   folder?: string;
   sourceBranch?: string;
   firstPrompt?: string;
+  env?: EnvOverride[];
 }
 
 export interface CreateProjectInput {

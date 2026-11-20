@@ -137,6 +137,12 @@ pub enum PermissionDecision {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct EnvOverride {
+    pub name: String,
+    pub value: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Session {
     pub id: String,
@@ -160,6 +166,8 @@ pub struct Session {
     pub parent_session_id: Option<String>,
     #[serde(default)]
     pub parent_session_name: Option<String>,
+    #[serde(default)]
+    pub env_overrides: Vec<EnvOverride>,
     pub started_at: String,
     pub shortcuts: Vec<Shortcut>,
 }

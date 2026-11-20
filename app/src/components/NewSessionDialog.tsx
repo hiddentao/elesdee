@@ -33,6 +33,7 @@ interface FormErrors {
   client?: string;
   account?: string;
   folder?: string;
+  env?: string;
   form?: string;
 }
 
@@ -67,6 +68,7 @@ export function NewSessionDialog({
   const [accountId, setAccountId] = useState<string | null>(null);
   const [sourceBranch, setSourceBranch] = useState<string | null>(null);
   const [firstPrompt, setFirstPrompt] = useState('');
+  const [envText, setEnvText] = useState('');
   const [name, setName] = useState('');
   const [folder, setFolder] = useState(
     () =>
@@ -207,6 +209,23 @@ export function NewSessionDialog({
       nextErrors.folder = 'Enter a folder.';
     }
 
+    const env: Array<{ name: string; value: string }> = [];
+    for (const raw of envText.split('\n')) {
+      const line = raw.trim();
+      if (!line) {
+        continue;
+      }
+      const separator = line.indexOf('=');
+      if (separator <= 0) {
+        nextErrors.env = 'Use NAME=value on each line.';
+        break;
+      }
+      env.push({
+        name: line.slice(0, separator).trim(),
+        value: line.slice(separator + 1),
+      });
+    }
+
     if (Object.keys(nextErrors).length > 0) {
       const firstInvalid = nextErrors.project
         ? 'new-session-project'
@@ -216,7 +235,9 @@ export function NewSessionDialog({
             ? 'new-session-account'
             : nextErrors.folder
               ? 'new-session-folder'
-              : null;
+              : nextErrors.env
+                ? 'new-session-env'
+                : null;
 
       setErrors(nextErrors);
       setFocusTarget(firstInvalid);
@@ -238,6 +259,9 @@ export function NewSessionDialog({
       if (firstPrompt.trim() !== '') {
         input.firstPrompt = firstPrompt.trim();
       }
+    }
+    if (env.length > 0) {
+      input.env = env;
     }
 
     setErrors({});
@@ -483,6 +507,44 @@ export function NewSessionDialog({
               onChange={(event) => setName(event.target.value)}
             />
           </div>
+
+          <details className="field additional-settings">
+            <summary>Additional settings</summary>
+            <div className="field">
+              <label htmlFor="new-session-env">
+                Environment variables (optional)
+              </label>
+              <textarea
+                id="new-session-env"
+                className="text-input prompt-input"
+                value={envText}
+                placeholder={'NAME=value\nANOTHER_NAME=value'}
+                rows={3}
+                spellCheck={false}
+                aria-invalid={errors.env ? true : undefined}
+                aria-describedby={
+                  errors.env ? 'new-session-env-error' : 'new-session-env-hint'
+                }
+                onChange={(event) => {
+                  setEnvText(event.target.value);
+                  setErrors((current) => ({ ...current, env: undefined }));
+                }}
+              />
+              {errors.env ? (
+                <p
+                  className="field-error"
+                  id="new-session-env-error"
+                  role="alert"
+                >
+                  {errors.env}
+                </p>
+              ) : (
+                <p className="field-hint" id="new-session-env-hint">
+                  One NAME=value per line. They apply to this session only.
+                </p>
+              )}
+            </div>
+          </details>
 
           {errors.form ? (
             <div className="form-error" role="alert">

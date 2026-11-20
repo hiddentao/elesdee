@@ -1825,6 +1825,75 @@ async fn closing_a_session_withdraws_its_questions() {
 }
 
 #[tokio::test]
+async fn session_environment_overrides_reach_the_process() {
+    let data_dir = TempDirectory::new("env-data");
+    let repo = TempDirectory::new("env-repo");
+    init_git_repo(&repo.path);
+    let app = router(AppState::with_test_command_and_data_dir(
+        vec![
+            "/bin/sh".to_owned(),
+            "-c".to_owned(),
+            "printf 'value:%s\\n' \"$E2E_VALUE\"; sleep 30".to_owned(),
+        ],
+        data_dir.path.clone(),
+    ));
+    ensure_test_project(&app, &repo.path).await;
+    let (status, session) = call(
+        &app,
+        "POST",
+        "/api/sessions",
+        Some(json!({
+            "projectId": "web",
+            "kind": "agent",
+            "accountId": "max",
+            "name": "Env overrides",
+            "folder": repo.path.to_string_lossy(),
+            "env": [{ "name": "E2E_VALUE", "value": "hello" }]
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let id = session["id"].as_str().expect("session id");
+    let request = request_builder("GET", &format!("/api/sessions/{id}/output?after=0"))
+        .body(Body::empty())
+        .expect("build output request");
+    let response = app.clone().oneshot(request).await.expect("open output");
+    let text = read_sse_until(response.into_body(), |text| text.contains("value:hello")).await;
+    assert!(sse_data_text(&text).contains("value:hello"));
+
+    let (status, _) = close_session(&app, id).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn invalid_environment_names_are_rejected() {
+    let data_dir = TempDirectory::new("env-bad-data");
+    let repo = TempDirectory::new("env-bad-repo");
+    init_git_repo(&repo.path);
+    let app = router(AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    ));
+    ensure_test_project(&app, &repo.path).await;
+
+    for (name, status) in [("1BAD", StatusCode::BAD_REQUEST), ("BAD-NAME", StatusCode::BAD_REQUEST)] {
+        let (result, body) = call(
+            &app,
+            "POST",
+            "/api/sessions",
+            Some(json!({
+                "projectId": "web",
+                "kind": "terminal",
+                "folder": repo.path.to_string_lossy(),
+                "env": [{ "name": name, "value": "x" }]
+            })),
+        )
+        .await;
+        assert_eq!(result, status, "{body}");
+    }
+}
+
+#[tokio::test]
 async fn cors_preflight_and_allowed_origin_headers() {
     let app = router(AppState::ephemeral());
     let origins = [

@@ -10,7 +10,7 @@ const agentStub = path.join(runDir, 'agent-stub.sh');
 
 fs.writeFileSync(
   agentStub,
-  '#!/bin/sh\nfor arg in "$@"; do printf \'arg:%s\\n\' "$arg"; done\nprintf \'env-anthropic-base:%s\\n\' "${ANTHROPIC_BASE_URL:-}"\nprintf \'env-anthropic-token:%s\\n\' "${ANTHROPIC_AUTH_TOKEN:-}"\nprintf \'env-anthropic-key:%s\\n\' "${ANTHROPIC_API_KEY:-}"\nprintf \'env-openai-key:%s\\n\' "${OPENAI_API_KEY:-}"\nprintf \'env-openai-base:%s\\n\' "${OPENAI_BASE_URL:-}"\nprintf \'env-opencode-config:%s\\n\' "${OPENCODE_CONFIG:-}"\nwhile IFS= read -r line; do printf \'input:%s\\n\' "$line"; done\n',
+  '#!/bin/sh\nfor arg in "$@"; do printf \'arg:%s\\n\' "$arg"; done\nprintf \'env-anthropic-base:%s\\n\' "${ANTHROPIC_BASE_URL:-}"\nprintf \'env-anthropic-token:%s\\n\' "${ANTHROPIC_AUTH_TOKEN:-}"\nprintf \'env-anthropic-key:%s\\n\' "${ANTHROPIC_API_KEY:-}"\nprintf \'env-openai-key:%s\\n\' "${OPENAI_API_KEY:-}"\nprintf \'env-openai-base:%s\\n\' "${OPENAI_BASE_URL:-}"\nprintf \'env-opencode-config:%s\\n\' "${OPENCODE_CONFIG:-}"\nprintf \'env-e2e-value:%s\\n\' "${E2E_VALUE:-}"\nwhile IFS= read -r line; do printf \'input:%s\\n\' "$line"; done\n',
 );
 fs.chmodSync(agentStub, 0o755);
 

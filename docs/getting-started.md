@@ -63,7 +63,8 @@ Sample accounts appear on a new install. They are marked **Sample** and have no 
 6. For an agent session, optionally choose a source branch.
 7. Optionally enter a first prompt. The app uses it to name the session when the name is empty.
 8. Optionally enter a session name.
-9. Choose **Start**.
+9. Open **Additional settings** to add environment variables for this launch.
+10. Choose **Start**.
 
 The session opens in a tab. Its terminal is live. Type into it as you would in a normal terminal.
 

@@ -2833,3 +2833,14 @@ button:disabled {
 .session-parent {
   color: var(--text-3);
 }
+
+.additional-settings summary {
+  cursor: pointer;
+  color: var(--text-2);
+  font-size: var(--fs-small);
+  font-weight: 600;
+}
+
+.additional-settings[open] summary {
+  margin-bottom: 8px;
+}

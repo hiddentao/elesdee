@@ -1760,6 +1760,7 @@ mod tests {
             first_prompt: None,
             parent_session_id: None,
             parent_session_name: None,
+            env_overrides: Vec::new(),
             started_at: "2026-01-01T00:00:00Z".to_owned(),
             shortcuts: Vec::new(),
         };
@@ -1797,6 +1798,7 @@ mod tests {
             first_prompt: None,
             parent_session_id: None,
             parent_session_name: None,
+            env_overrides: Vec::new(),
             started_at: "2026-01-01T00:00:00Z".to_owned(),
             shortcuts: Vec::new(),
         };

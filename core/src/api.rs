@@ -165,6 +165,7 @@ struct CreateSessionRequest {
     first_prompt: Option<String>,
     parent_session_id: Option<String>,
     parent_session_name: Option<String>,
+    env: Option<Vec<crate::state::EnvOverride>>,
     cols: Option<u16>,
     rows: Option<u16>,
 }
@@ -801,7 +802,13 @@ async fn account_environment(
 fn secret_environment_values(environment: &[(String, String)]) -> Vec<String> {
     environment
         .iter()
-        .filter(|(name, _)| name.contains("KEY") || name.contains("TOKEN"))
+        .filter(|(name, _)| {
+            let name = name.to_ascii_uppercase();
+            name.contains("KEY")
+                || name.contains("TOKEN")
+                || name.contains("SECRET")
+                || name.contains("PASSWORD")
+        })
         .map(|(_, value)| value.clone())
         .filter(|value| !value.is_empty())
         .collect()
@@ -826,6 +833,7 @@ async fn create_session(
 ) -> Result<Json<Session>, ApiError> {
     let Json(request) = body.map_err(invalid_json)?;
     let size = requested_size(request.cols, request.rows)?;
+    let env_overrides = validated_env(request.env.clone())?;
     let project = state
         .project(&request.project_id)
         .ok_or_else(|| ApiError::not_found("Unknown project."))?;
@@ -834,6 +842,7 @@ async fn create_session(
         SessionKind::Terminal => prepare_terminal(&state, &request, &project)?,
         SessionKind::Agent => prepare_agent(&state, &request, &project).await?,
     };
+    prepared.session.env_overrides = env_overrides.clone();
     let is_claude_agent = prepared.session.kind == SessionKind::Agent
         && prepared.session.client == Some(Client::ClaudeCode);
     let agent_client = prepared.session.client;
@@ -978,6 +987,10 @@ async fn create_session(
                 ));
             }
         }
+    }
+
+    for item in &env_overrides {
+        environment.push((item.name.clone(), item.value.clone()));
     }
 
     if let Some(client) = agent_client {
@@ -1259,6 +1272,9 @@ async fn reopen_session(
         entry.set_home(home.clone());
         environment = antigravity::environment(&home, &key);
     }
+    for item in &suspended.env_overrides {
+        environment.push((item.name.clone(), item.value.clone()));
+    }
     let size = entry.stored_size();
     if let Some(client) = suspended.client {
         configure_session_tools(&state, &entry, &id, client, &mut command, &mut environment)?;
@@ -1465,6 +1481,10 @@ async fn relaunch_with_account(
                 ));
             }
         }
+    }
+
+    for item in &session.env_overrides {
+        environment.push((item.name.clone(), item.value.clone()));
     }
 
     if let Err(error) = configure_session_tools(
@@ -2548,6 +2568,7 @@ fn prepare_terminal(
         first_prompt: None,
         parent_session_id: None,
         parent_session_name: None,
+        env_overrides: Vec::new(),
         started_at: timestamp(),
         shortcuts: Vec::new(),
     };
@@ -2624,6 +2645,7 @@ async fn prepare_agent(
         first_prompt,
         parent_session_id: request.parent_session_id.clone(),
         parent_session_name: request.parent_session_name.clone(),
+        env_overrides: request.env.clone().unwrap_or_default(),
         started_at: timestamp(),
         shortcuts: shortcuts::for_client(account.client),
     };
@@ -2858,6 +2880,46 @@ fn requested_prompt(prompt: Option<&str>) -> Option<String> {
         .map(str::trim)
         .filter(|prompt| !prompt.is_empty())
         .map(|prompt| clip(prompt, 8000))
+}
+
+fn validated_env(
+    values: Option<Vec<crate::state::EnvOverride>>,
+) -> Result<Vec<crate::state::EnvOverride>, ApiError> {
+    let Some(values) = values else {
+        return Ok(Vec::new());
+    };
+    if values.len() > 32 {
+        return Err(ApiError::bad_request("Too many environment variables."));
+    }
+    let mut seen = std::collections::HashSet::new();
+    for item in &values {
+        let name = item.name.trim();
+        let valid_name = !name.is_empty()
+            && name.chars().count() <= 64
+            && name
+                .chars()
+                .next()
+                .is_some_and(|first| first.is_ascii_alphabetic() || first == '_')
+            && name
+                .chars()
+                .all(|character| character.is_ascii_alphanumeric() || character == '_');
+        if !valid_name {
+            return Err(ApiError::bad_request("An environment variable name is not valid."));
+        }
+        if item.value.chars().count() > 2000 || item.value.contains('\0') {
+            return Err(ApiError::bad_request("An environment variable value is not valid."));
+        }
+        if !seen.insert(name.to_owned()) {
+            return Err(ApiError::bad_request("An environment variable is set twice."));
+        }
+    }
+    Ok(values
+        .into_iter()
+        .map(|item| crate::state::EnvOverride {
+            name: item.name.trim().to_owned(),
+            value: item.value,
+        })
+        .collect())
 }
 
 fn name_from_prompt(prompt: &str) -> String {
