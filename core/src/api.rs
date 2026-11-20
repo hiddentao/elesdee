@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::convert::Infallible;
 use std::ffi::OsString;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -3846,14 +3847,15 @@ async fn upload_session_file(
     .map_err(upload_error)?;
 
     let line = format!("Uploaded file: {}\n", uploaded.path);
-    entry
-        .write_input(line.into_bytes())
-        .await
-        .map_err(|failure| match failure {
+    if let Err(failure) = entry.write_input(line.into_bytes()).await {
+        let stored = PathBuf::from(&uploaded.path);
+        let _ = tokio::task::spawn_blocking(move || fs::remove_file(stored)).await;
+        return Err(match failure {
             InputFailure::Closed => ApiError::conflict("Session is closed."),
             InputFailure::Closing => ApiError::conflict("Session is closing."),
             InputFailure::NotRunning => ApiError::conflict("Session is not running."),
-        })?;
+        });
+    }
 
     Ok((StatusCode::CREATED, Json(uploaded)))
 }
