@@ -1,6 +1,6 @@
 #[cfg(unix)]
 use std::collections::HashSet;
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 use std::env;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -421,6 +421,19 @@ impl SessionEntry {
 
     pub fn set_short(&self, short: String) {
         lock(&self.data).session.short = short;
+    }
+
+    pub fn set_launch_overrides(
+        &self,
+        preset_id: Option<String>,
+        model: Option<String>,
+        config: BTreeMap<String, String>,
+    ) -> Session {
+        let mut state = lock(&self.data);
+        state.session.preset_id = preset_id;
+        state.session.model = model;
+        state.session.config = config;
+        state.session.clone()
     }
 
     pub fn set_agent_worktree(&self, folder: String, branch: String, repo_root: String) -> Session {
@@ -1763,6 +1776,9 @@ mod tests {
             parent_session_id: None,
             parent_session_name: None,
             env_overrides: Vec::new(),
+            preset_id: None,
+            model: None,
+            config: BTreeMap::new(),
             started_at: "2026-01-01T00:00:00Z".to_owned(),
             shortcuts: Vec::new(),
         };
@@ -1801,6 +1817,9 @@ mod tests {
             parent_session_id: None,
             parent_session_name: None,
             env_overrides: Vec::new(),
+            preset_id: None,
+            model: None,
+            config: BTreeMap::new(),
             started_at: "2026-01-01T00:00:00Z".to_owned(),
             shortcuts: Vec::new(),
         };

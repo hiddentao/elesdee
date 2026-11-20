@@ -15,6 +15,14 @@ The service binds `127.0.0.1` only. It accepts requests only for loopback hostna
 - A project name must not be empty. Its folder must exist and be a directory. The folder is canonicalized, and two projects cannot use the same canonical folder.
 - A project id is a unique slug of its name. A repeated name gets a numeric suffix.
 - A project stores an optional default account and an optional default source branch. `PATCH /api/projects/{id}` sets a field by sending its value and clears it by sending `null`; an absent field keeps its current value. The default account must exist. A default branch must be a safe branch name and must exist as a local or remote branch in the project folder's Git repository; tags, other revisions and reflog expressions are rejected.
+- A launch preset names an account and adds an optional model, environment overrides and config overrides. A preset with no stored record is derived from its account with the id `account:<account id>` and `stored: false`. Accounts with a stored preset do not get a second derived entry.
+- Preset names are 1–64 characters. Up to 32 environment variables and 32 config keys are accepted. Config keys use letters, digits, `_`, `-` and dots; each dotted segment is non-empty and the key is at most 120 characters. Config values are at most 2000 characters.
+- A preset model must fit the account's client. Antigravity uses lowercase slugs of letters, digits, `.`, `_` and `-`; other clients also accept uppercase letters and `:`, `/`, `@` and `+`. A model that does not fit returns 422. An unknown account returns 422. An invalid name, environment variable, config key or config value returns 400.
+- `POST /api/presets` uses the account name when `name` is absent or empty. `PATCH` keeps a field when it is absent and replaces `env` or `config` when it is present. Sending `model: null` clears the model. An unknown stored preset returns 404.
+- A session with `presetId` resolves a stored preset or an `account:<id>` entry. If `accountId` is absent, the preset's account is used; if both are present and differ, the request returns 422. An unknown preset returns 422. A terminal session with a preset returns 400.
+- Preset environment variables apply first, then the session's `env` values. A per-launch value wins. The effective environment is stored on the session and applied again on reopen and account switch.
+- Config overrides apply to one launch. Claude Code writes them into its private settings file, Codex passes `-c key=value` arguments, OpenCode merges them into its launch config file, and Antigravity writes them into its private settings file. The model uses the same mechanism for each client. Values parse as JSON when possible, otherwise as text. Dotted keys create nested objects. Claude hooks and the OpenCode MCP and skill entries are added after the overrides and cannot be replaced. Nothing is written into the repository.
+- Presets are saved in `state.json`. Account keys are never part of a preset.
 - At most 64 sessions may be active at one time. This is a safety cap for memory and process limits. A new session above the cap returns 429. Closing a session frees its slot.
 - At most 32 output streams and 32 event streams may be open at once. More returns 429.
 - The optional `folder` is canonicalized. When it is absent, the project folder is used. A terminal session runs in that folder. For an agent, the folder must be inside a Git repository; the session runs in a new worktree under `<data dir>/worktrees/<session id>`.
@@ -117,7 +125,7 @@ interface PairedDevice {
 ## Persistence
 
 - State lives in `ELESDEE_DATA_DIR`, default `~/.elesdee`, in `state.json`. The directory is created with mode 0700 and files with mode 0600. Writes use a temporary file, fsync and rename.
-- Projects and their default account and source branch, accounts, sessions, each session's desired columns and rows, its output log, an agent's repository root, and the paired device list are saved. Account keys and pairing secrets are not saved. No runtime handles are saved.
+- Projects and their default account and source branch, accounts, launch presets, sessions, each session's desired columns and rows, its output log, an agent's repository root, and the paired device list are saved. Account keys and pairing secrets are not saved. No runtime handles are saved.
 - The desktop link identity is a separate 32-byte key in `<data dir>/link.key`, with mode 0600, written once and reused. It is never in `state.json` and never logged. A missing key creates a new identity; every paired phone must pair again.
 - The paired device list is written on pair, removal and graceful shutdown. `lastSeen` updates in memory at most once a minute.
 - State is saved on project create, account create, session create, rename, close, reopen, delete, resize, and graceful shutdown. It is not written for each output chunk.
@@ -162,8 +170,38 @@ interface Session {
   preview: string;
   waitingFor: WaitingFor | null;
   pendingPermission: PendingPermission | null;
+  envOverrides: EnvOverride[];   // the effective launch environment
+  presetId: string | null;
+  model: string | null;
+  config: Record<string, string>; // config overrides applied at launch
+  firstPrompt?: string | null;
+  parentSessionId?: string | null;
+  parentSessionName?: string | null;
   startedAt: string;             // RFC 3339
   shortcuts: Shortcut[];         // supplied by the server for this client
+}
+
+interface EnvOverride {
+  name: string;
+  value: string;
+}
+
+interface Preset {
+  id: string;                    // unique slug of the name
+  name: string;
+  accountId: string;
+  model: string | null;
+  env: EnvOverride[];
+  config: Record<string, string>; // keys may use dots for nested settings
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface LaunchPreset extends Omit<Preset, 'createdAt' | 'updatedAt'> {
+  id: string;                    // a stored preset id, or "account:<account id>"
+  stored: boolean;
+  createdAt: string | null;      // null for an account-derived preset
+  updatedAt: string | null;
 }
 
 interface Project {
@@ -265,7 +303,7 @@ interface OutputEvent {
 | Method | Path | Body | Result |
 | --- | --- | --- | --- |
 | GET | `/api/health` | | `{ ok, version, agents: AgentCheck[] }` |
-| GET | `/api/bootstrap` | | `{ projects, accounts, sessions }` |
+| GET | `/api/bootstrap` | | `{ projects, accounts, presets, sessions }` |
 | GET | `/api/projects?q={text}` | | `Project[]` |
 | POST | `/api/projects` | `{ name, folder }` | `Project` |
 | PATCH | `/api/projects/{id}` | `{ defaultAccountId?, defaultSourceBranch? }` | `Project` |
@@ -279,7 +317,11 @@ interface OutputEvent {
 | DELETE | `/api/pairing` | | `204` |
 | GET | `/api/devices` | | `PairedDevice[]` |
 | DELETE | `/api/devices/{id}` | | `204` |
-| POST | `/api/sessions` | `{ projectId, kind, accountId?, name?, folder?, cols?, rows? }` | `Session` |
+| GET | `/api/presets?q={text}` | | `LaunchPreset[]` |
+| POST | `/api/presets` | `{ name?, accountId, model?, env?, config? }` | `LaunchPreset` |
+| PATCH | `/api/presets/{id}` | `{ name?, accountId?, model?, env?, config? }` | `LaunchPreset` |
+| DELETE | `/api/presets/{id}` | | `204` |
+| POST | `/api/sessions` | `{ projectId, kind, accountId?, presetId?, name?, folder?, env?, cols?, rows? }` | `Session` |
 | POST | `/api/sessions/{id}/close` | `{}` | `Session` |
 | PATCH | `/api/sessions/{id}` | `{ name }` | `Session` |
 | POST | `/api/sessions/{id}/reopen` | `{}` | `Session` |
@@ -294,7 +336,7 @@ interface OutputEvent {
 | GET | `/api/sessions/{id}/output?after={seq}` | | SSE: `data: {"seq":n,"data":"..."}` and an optional `gap` |
 | GET | `/api/events` | | SSE: `data: {"type":"session.updated","session":Session}` |
 
-Errors use `{ "error": "message" }`. Pairing returns 503 when the link endpoint is not running, and 409 when no phone waits for approval or the device limit is reached. Removing an unknown device returns 404. Unknown sessions return 404. A session that is closed, or whose process has exited, returns 409 for input. An invalid session name or terminal size returns 400. An agent session in a non-Git folder returns 422. Reopening an active session, deleting an active session, or reopening or deleting while a close is running returns 409; reopening with a missing folder, repository, branch or client returns 422. A permission answer returns 404 for an unknown session and 409 when the session is closed, there is no pending request, the request id does not match, or the request was already answered. An empty project name returns 400, a bad project folder returns 422, and a duplicate project folder returns 409. An unknown project returns 404. A project change that cannot be written to disk returns 500 and is rolled back in memory. A default account that does not exist, a default branch that does not exist, or a project folder that is not a Git repository returns 422. An unsafe branch name returns 400. An empty account name, empty key or overlong model returns 400; an unsupported provider and client pair or an unsupported auth mode returns 422; a keychain failure returns 500. A blocked Host or Origin returns 403, a bad POST or PATCH content type returns 415, a full session list or stream list returns 429, a request that exceeds the 30-second timeout returns 408, and a wrong non-OPTIONS method returns 405. A file path outside the session folder returns 400, a binary file returns 422, and content above 1 MiB returns 413.
+Errors use `{ "error": "message" }`. Pairing returns 503 when the link endpoint is not running, and 409 when no phone waits for approval or the device limit is reached. Removing an unknown device returns 404. Unknown sessions return 404. A session that is closed, or whose process has exited, returns 409 for input. An invalid session name or terminal size returns 400. An agent session in a non-Git folder returns 422. Reopening an active session, deleting an active session, or reopening or deleting while a close is running returns 409; reopening with a missing folder, repository, branch or client returns 422. A permission answer returns 404 for an unknown session and 409 when the session is closed, there is no pending request, the request id does not match, or the request was already answered. An empty project name returns 400, a bad project folder returns 422, and a duplicate project folder returns 409. An unknown project returns 404. A project change that cannot be written to disk returns 500 and is rolled back in memory. A default account that does not exist, a default branch that does not exist, or a project folder that is not a Git repository returns 422. An unsafe branch name returns 400. An empty account name, empty key or overlong model returns 400; an unsupported provider and client pair or an unsupported auth mode returns 422; a keychain failure returns 500. An unknown preset account or a model that does not fit the client returns 422; an invalid preset name, environment variable or config key returns 400; an unknown stored preset returns 404. A blocked Host or Origin returns 403, a bad POST or PATCH content type returns 415, a full session list or stream list returns 429, a request that exceeds the 30-second timeout returns 408, and a wrong non-OPTIONS method returns 405. A file path outside the session folder returns 400, a binary file returns 422, and content above 1 MiB returns 413.
 
 ## Rules
 

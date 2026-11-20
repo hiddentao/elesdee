@@ -3,8 +3,9 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use portable_pty::CommandBuilder;
-use serde_json::json;
+use serde_json::{Map, Value, json};
 
+use crate::overrides::{ConfigOverrides, apply_json_config};
 use crate::private_fs;
 
 const SETTINGS_DIR: &str = "claude-settings";
@@ -30,7 +31,13 @@ pub struct ClaudeSettings {
     pub path: PathBuf,
 }
 
-pub fn write_settings(data_dir: &Path, session_id: &str, port: u16) -> io::Result<ClaudeSettings> {
+pub fn write_settings(
+    data_dir: &Path,
+    session_id: &str,
+    port: u16,
+    model: Option<&str>,
+    config: &ConfigOverrides,
+) -> io::Result<ClaudeSettings> {
     let directory = data_dir.join(SETTINGS_DIR);
     private_fs::create_private_dir_all(&directory)?;
 
@@ -51,7 +58,13 @@ pub fn write_settings(data_dir: &Path, session_id: &str, port: u16) -> io::Resul
         };
         hooks.insert(event.to_owned(), groups);
     }
-    let bytes = serde_json::to_vec_pretty(&json!({ "hooks": hooks })).map_err(io::Error::other)?;
+    let mut settings = Map::new();
+    apply_json_config(&mut settings, config);
+    settings.insert("hooks".to_owned(), Value::Object(hooks));
+    if let Some(model) = model {
+        settings.insert("model".to_owned(), Value::String(model.to_owned()));
+    }
+    let bytes = serde_json::to_vec_pretty(&Value::Object(settings)).map_err(io::Error::other)?;
 
     let path = session_settings_path(data_dir, session_id);
     if let Err(error) = private_fs::write_private_file(&path, &bytes) {

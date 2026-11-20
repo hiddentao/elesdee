@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::private_fs;
 use crate::seed;
-use crate::state::{Account, PairedDevice, Project, Question, Session, SessionRequest};
+use crate::state::{Account, PairedDevice, Preset, Project, Question, Session, SessionRequest};
 
 const STATE_VERSION: u32 = 1;
 const STATE_FILE: &str = "state.json";
@@ -21,6 +21,8 @@ pub(crate) struct PersistedState {
     #[serde(default)]
     pub accounts: Option<Vec<Account>>,
     #[serde(default)]
+    pub presets: Option<Vec<Preset>>,
+    #[serde(default)]
     pub questions: Option<Vec<Question>>,
     #[serde(default)]
     pub session_requests: Option<Vec<SessionRequest>>,
@@ -33,6 +35,7 @@ impl PersistedState {
     pub fn new(
         projects: Vec<Project>,
         accounts: Option<Vec<Account>>,
+        presets: Option<Vec<Preset>>,
         questions: Option<Vec<Question>>,
         session_requests: Option<Vec<SessionRequest>>,
         paired_devices: Vec<PairedDevice>,
@@ -42,6 +45,7 @@ impl PersistedState {
             version: STATE_VERSION,
             projects,
             accounts,
+            presets,
             questions,
             session_requests,
             paired_devices,

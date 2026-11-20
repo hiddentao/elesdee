@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::convert::Infallible;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -29,6 +30,7 @@ use crate::clients;
 use crate::files;
 use crate::git;
 use crate::link::{ApproveFailure, PairReject};
+use crate::overrides;
 use crate::seed;
 use crate::sessions::{
     self, BeginPermission, CloseFailure, InputFailure, PermissionAnswerFailure, ResizeFailure,
@@ -37,9 +39,9 @@ use crate::sessions::{
 use crate::shortcuts;
 use crate::slug::slugify;
 use crate::state::{
-    Account, AppState, Auth, Bootstrap, Client, DeleteSessionFailure, HealthResponse, PairedDevice,
-    PendingPermission, PermissionDecision, Project, Question, QuestionFailure, Session,
-    SessionEvent, SessionKind, SessionState, WorkState,
+    Account, AppState, Auth, Bootstrap, Client, DeleteSessionFailure, EnvOverride, HealthResponse,
+    LaunchPreset, PairedDevice, PendingPermission, PermissionDecision, Project, Question,
+    QuestionFailure, Session, SessionEvent, SessionKind, SessionState, WorkState,
 };
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
@@ -181,9 +183,31 @@ struct CreateSessionRequest {
     first_prompt: Option<String>,
     parent_session_id: Option<String>,
     parent_session_name: Option<String>,
-    env: Option<Vec<crate::state::EnvOverride>>,
+    preset_id: Option<String>,
+    env: Option<Vec<EnvOverride>>,
     cols: Option<u16>,
     rows: Option<u16>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CreatePresetRequest {
+    name: Option<String>,
+    account_id: String,
+    model: Option<String>,
+    env: Option<Vec<EnvOverride>>,
+    config: Option<BTreeMap<String, String>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdatePresetRequest {
+    name: Option<String>,
+    account_id: Option<String>,
+    #[serde(default, deserialize_with = "optional_field")]
+    model: Option<Option<String>>,
+    env: Option<Vec<EnvOverride>>,
+    config: Option<BTreeMap<String, String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -365,6 +389,11 @@ pub fn router(state: AppState) -> Router {
         .route("/api/providers", get(list_providers))
         .route("/api/accounts", get(list_accounts).post(create_account))
         .route("/api/accounts/{id}/usage", post(update_account_usage))
+        .route("/api/presets", get(list_presets).post(create_preset))
+        .route(
+            "/api/presets/{id}",
+            patch(update_preset).delete(delete_preset),
+        )
         .route("/api/questions", get(list_questions))
         .route("/api/questions/{id}/answer", post(answer_question))
         .route("/api/questions/{id}/withdraw", post(withdraw_question))
@@ -759,6 +788,252 @@ fn matches_filter(value: &str, filter: &str) -> bool {
     value.to_lowercase().contains(filter)
 }
 
+async fn list_presets(
+    State(state): State<AppState>,
+    query: Result<Query<ListQuery>, QueryRejection>,
+) -> Result<Json<Vec<LaunchPreset>>, ApiError> {
+    let filter = list_filter(query)?;
+    let accounts = state.accounts();
+    let mut presets = state.launch_presets();
+    if let Some(filter) = filter.as_deref() {
+        presets.retain(|preset| {
+            let account = accounts
+                .iter()
+                .find(|account| account.id == preset.account_id);
+            matches_filter(&preset.name, filter)
+                || preset
+                    .model
+                    .as_deref()
+                    .is_some_and(|model| matches_filter(model, filter))
+                || account.is_some_and(|account| {
+                    matches_filter(&account.name, filter)
+                        || matches_filter(account.client.display_name(), filter)
+                        || matches_filter(&account.provider, filter)
+                        || matches_filter(&account.plan, filter)
+                })
+        });
+    }
+    Ok(Json(presets))
+}
+
+async fn create_preset(
+    State(state): State<AppState>,
+    body: Result<Json<CreatePresetRequest>, JsonRejection>,
+) -> Result<Json<LaunchPreset>, ApiError> {
+    let Json(request) = body.map_err(invalid_json)?;
+    let account_id = request.account_id.trim();
+    if account_id.is_empty() {
+        return Err(ApiError::bad_request("Choose an account."));
+    }
+    let account = state
+        .account(account_id)
+        .ok_or_else(|| ApiError::unprocessable("The preset account does not exist."))?;
+
+    let name = match cleaned_optional(request.name) {
+        Some(name) => validated_preset_name(&name)?,
+        None => account.name.clone(),
+    };
+    let model = validated_model(account.client, request.model)?;
+    let env = validated_env(request.env)?;
+    let config = validated_config(request.config)?;
+    let preset = state.add_preset(name, account.id.clone(), model, env, config);
+    state.save();
+
+    Ok(Json(LaunchPreset::from_stored(preset)))
+}
+
+async fn update_preset(
+    State(state): State<AppState>,
+    UrlPath(id): UrlPath<String>,
+    body: Result<Json<UpdatePresetRequest>, JsonRejection>,
+) -> Result<Json<LaunchPreset>, ApiError> {
+    let Json(request) = body.map_err(invalid_json)?;
+    let existing = state
+        .preset(&id)
+        .ok_or_else(|| ApiError::not_found("Unknown preset."))?;
+
+    let account_id = match request.account_id {
+        Some(account_id) => {
+            let account_id = account_id.trim().to_owned();
+            if account_id.is_empty() {
+                return Err(ApiError::bad_request("Choose an account."));
+            }
+            account_id
+        }
+        None => existing.account_id.clone(),
+    };
+    let account = state
+        .account(&account_id)
+        .ok_or_else(|| ApiError::unprocessable("The preset account does not exist."))?;
+
+    let name = request
+        .name
+        .as_deref()
+        .map(validated_preset_name)
+        .transpose()?;
+    let model = match &request.model {
+        Some(value) => Some(validated_model(account.client, value.clone())?),
+        None => {
+            if let Some(current) = existing.model.clone() {
+                validated_model(account.client, Some(current))?;
+            }
+            None
+        }
+    };
+    let env = request
+        .env
+        .map(|env| validated_env(Some(env)))
+        .transpose()?;
+    let config = request
+        .config
+        .map(|config| validated_config(Some(config)))
+        .transpose()?;
+
+    let updated = state
+        .update_preset(
+            &id,
+            name,
+            if account.id == existing.account_id {
+                None
+            } else {
+                Some(account.id.clone())
+            },
+            model,
+            env,
+            config,
+        )
+        .ok_or_else(|| ApiError::not_found("Unknown preset."))?;
+    state.save();
+
+    Ok(Json(LaunchPreset::from_stored(updated)))
+}
+
+async fn delete_preset(
+    State(state): State<AppState>,
+    UrlPath(id): UrlPath<String>,
+) -> Result<StatusCode, ApiError> {
+    if !state.remove_preset(&id) {
+        return Err(ApiError::not_found("Unknown preset."));
+    }
+    state.save();
+    Ok(StatusCode::NO_CONTENT)
+}
+
+fn validated_preset_name(value: &str) -> Result<String, ApiError> {
+    let name = value.trim();
+    if name.is_empty() || name.chars().count() > 64 {
+        return Err(ApiError::bad_request(
+            "A preset name must be 1 to 64 characters.",
+        ));
+    }
+    if name.chars().any(char::is_control) {
+        return Err(ApiError::bad_request("The preset name is not valid."));
+    }
+    Ok(name.to_owned())
+}
+
+fn validated_model(client: Client, value: Option<String>) -> Result<Option<String>, ApiError> {
+    let Some(model) = cleaned_optional(value) else {
+        return Ok(None);
+    };
+    if model.chars().count() > 120 {
+        return Err(ApiError::bad_request("The model name is too long."));
+    }
+    let valid = model.chars().all(|character| match client {
+        Client::Antigravity => {
+            character.is_ascii_lowercase()
+                || character.is_ascii_digit()
+                || matches!(character, '.' | '_' | '-')
+        }
+        _ => {
+            character.is_ascii_alphanumeric()
+                || matches!(character, '.' | '_' | '-' | ':' | '/' | '@' | '+')
+        }
+    }) && !model
+        .chars()
+        .next()
+        .is_some_and(|first| matches!(first, '.' | '-' | ':' | '/'));
+    if !valid {
+        return Err(ApiError::unprocessable(
+            "The model is not valid for this client.",
+        ));
+    }
+    Ok(Some(model))
+}
+
+fn validated_config(
+    config: Option<BTreeMap<String, String>>,
+) -> Result<BTreeMap<String, String>, ApiError> {
+    let Some(config) = config else {
+        return Ok(BTreeMap::new());
+    };
+    if config.len() > 32 {
+        return Err(ApiError::bad_request("Too many config overrides."));
+    }
+    for (key, value) in &config {
+        let valid_key = !key.is_empty()
+            && key.chars().count() <= 120
+            && key.split('.').all(|segment| {
+                !segment.is_empty()
+                    && segment.chars().all(|character| {
+                        character.is_ascii_alphanumeric() || matches!(character, '_' | '-')
+                    })
+            });
+        if !valid_key {
+            return Err(ApiError::bad_request("A config key is not valid."));
+        }
+        if value.chars().count() > 2000 || value.contains('\0') {
+            return Err(ApiError::bad_request("A config value is not valid."));
+        }
+    }
+    Ok(config)
+}
+
+fn resolve_launch_preset(
+    state: &AppState,
+    id: Option<&str>,
+) -> Result<Option<LaunchPreset>, ApiError> {
+    let Some(id) = id.map(str::trim).filter(|id| !id.is_empty()) else {
+        return Ok(None);
+    };
+    state
+        .launch_preset(id)
+        .map(Some)
+        .ok_or_else(|| ApiError::unprocessable("The preset does not exist."))
+}
+
+fn merged_environment(preset: &[EnvOverride], launch: Vec<EnvOverride>) -> Vec<EnvOverride> {
+    let launch_names = launch
+        .iter()
+        .map(|item| item.name.clone())
+        .collect::<std::collections::HashSet<_>>();
+    let mut merged = preset
+        .iter()
+        .filter(|item| !launch_names.contains(&item.name))
+        .cloned()
+        .collect::<Vec<_>>();
+    merged.extend(launch);
+    merged
+}
+
+fn apply_launch_arguments(
+    client: Client,
+    model: Option<&str>,
+    config: &BTreeMap<String, String>,
+    command: &mut CommandBuilder,
+) {
+    if client != Client::Codex {
+        return;
+    }
+    for argument in overrides::codex_arguments(config) {
+        command.arg(argument);
+    }
+    if let Some(model) = model {
+        command.arg("-c");
+        command.arg(format!("model={}", overrides::codex_value(model)));
+    }
+}
+
 async fn create_project(
     State(state): State<AppState>,
     body: Result<Json<CreateProjectRequest>, JsonRejection>,
@@ -1041,9 +1316,35 @@ async fn create_session(
     State(state): State<AppState>,
     body: Result<Json<CreateSessionRequest>, JsonRejection>,
 ) -> Result<Json<Session>, ApiError> {
-    let Json(request) = body.map_err(invalid_json)?;
+    let Json(mut request) = body.map_err(invalid_json)?;
     let size = requested_size(request.cols, request.rows)?;
-    let env_overrides = validated_env(request.env.clone())?;
+    let launch_env = validated_env(request.env.take())?;
+    let preset = resolve_launch_preset(&state, request.preset_id.as_deref())?;
+    if request.kind == SessionKind::Terminal && preset.is_some() {
+        return Err(ApiError::bad_request(
+            "Presets apply to agent sessions only.",
+        ));
+    }
+    if let Some(preset) = &preset {
+        match request
+            .account_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|account| !account.is_empty())
+        {
+            Some(account_id) if account_id != preset.account_id => {
+                return Err(ApiError::unprocessable(
+                    "The account does not match the preset.",
+                ));
+            }
+            Some(_) => {}
+            None => request.account_id = Some(preset.account_id.clone()),
+        }
+    }
+    let env_overrides = match &preset {
+        Some(preset) => merged_environment(&preset.env, launch_env),
+        None => launch_env,
+    };
     let project = state
         .project(&request.project_id)
         .ok_or_else(|| ApiError::not_found("Unknown project."))?;
@@ -1053,9 +1354,16 @@ async fn create_session(
         SessionKind::Agent => prepare_agent(&state, &request, &project).await?,
     };
     prepared.session.env_overrides = env_overrides.clone();
+    if let Some(preset) = &preset {
+        prepared.session.preset_id = Some(preset.id.clone());
+        prepared.session.model = preset.model.clone();
+        prepared.session.config = preset.config.clone();
+    }
     let is_claude_agent = prepared.session.kind == SessionKind::Agent
         && prepared.session.client == Some(Client::ClaudeCode);
     let agent_client = prepared.session.client;
+    let launch_model = prepared.session.model.clone();
+    let launch_config = prepared.session.config.clone();
     let identity_guard = if prepared.repo_root.is_some() {
         Some(state.lock_agent_identity().await)
     } else {
@@ -1157,6 +1465,15 @@ async fn create_session(
     };
     drop(identity_guard);
 
+    if let Some(client) = agent_client {
+        apply_launch_arguments(
+            client,
+            launch_model.as_deref(),
+            &launch_config,
+            &mut prepared.command,
+        );
+    }
+
     if is_claude_agent {
         match install_claude_settings(&state, &entry, &session_id) {
             Ok(settings_path) => {
@@ -1186,7 +1503,12 @@ async fn create_session(
                 return Err(error);
             }
         };
-        match antigravity::prepare_home(&data_dir, &session_id) {
+        match antigravity::prepare_home(
+            &data_dir,
+            &session_id,
+            launch_model.as_deref(),
+            &launch_config,
+        ) {
             Ok(home) => {
                 entry.set_home(home.clone());
                 environment = antigravity::environment(&home, &key);
@@ -1459,6 +1781,12 @@ async fn reopen_session(
         for argument in sessions::resume_arguments(client) {
             command.arg(*argument);
         }
+        apply_launch_arguments(
+            client,
+            suspended.model.as_deref(),
+            &suspended.config,
+            &mut command,
+        );
     }
     let is_claude_agent =
         suspended.kind == SessionKind::Agent && suspended.client == Some(Client::ClaudeCode);
@@ -1477,7 +1805,13 @@ async fn reopen_session(
             .data_dir()
             .ok_or_else(|| ApiError::unprocessable("Agent sessions need a data directory."))?;
         let key = account_key(&state, account_id).await?;
-        let home = antigravity::prepare_home(data_dir, &id).map_err(|error| {
+        let home = antigravity::prepare_home(
+            data_dir,
+            &id,
+            suspended.model.as_deref(),
+            &suspended.config,
+        )
+        .map_err(|error| {
             tracing::error!(session = %id, %error, "could not prepare the Antigravity home");
             ApiError::unprocessable("Could not prepare the Antigravity session home.")
         })?;
@@ -1660,6 +1994,14 @@ async fn relaunch_with_account(
     }
     entry.remove_session_files();
 
+    let (model, config) = if resume {
+        (session.model.clone(), session.config.clone())
+    } else {
+        entry.set_launch_overrides(None, None, BTreeMap::new());
+        (None, BTreeMap::new())
+    };
+    apply_launch_arguments(account.client, model.as_deref(), &config, &mut command);
+
     if account.client == Client::ClaudeCode {
         match install_claude_settings(state, entry, &session.id) {
             Ok(settings_path) => {
@@ -1680,7 +2022,7 @@ async fn relaunch_with_account(
         let data_dir = state
             .data_dir()
             .ok_or_else(|| ApiError::unprocessable("Agent sessions need a data directory."))?;
-        match antigravity::prepare_home(data_dir, &session.id) {
+        match antigravity::prepare_home(data_dir, &session.id, model.as_deref(), &config) {
             Ok(home) => {
                 entry.set_home(home.clone());
                 environment.extend(antigravity::environment(&home, &key));
@@ -2853,6 +3195,9 @@ fn prepare_terminal(
         parent_session_id: None,
         parent_session_name: None,
         env_overrides: Vec::new(),
+        preset_id: None,
+        model: None,
+        config: BTreeMap::new(),
         started_at: timestamp(),
         shortcuts: Vec::new(),
     };
@@ -2929,7 +3274,10 @@ async fn prepare_agent(
         first_prompt,
         parent_session_id: request.parent_session_id.clone(),
         parent_session_name: request.parent_session_name.clone(),
-        env_overrides: request.env.clone().unwrap_or_default(),
+        env_overrides: Vec::new(),
+        preset_id: None,
+        model: None,
+        config: BTreeMap::new(),
         started_at: timestamp(),
         shortcuts: shortcuts::for_client(account.client),
     };
@@ -3027,11 +3375,18 @@ fn configure_session_tools(
             }
         }
         Client::OpenCode2 => {
-            let path = crate::mcp::write_opencode_config(data_dir, session_id, state.port())
-                .map_err(|error| {
-                    tracing::error!(session = %session_id, %error, "could not write MCP config");
-                    ApiError::unprocessable("Could not prepare session tools.")
-                })?;
+            let session = entry.session();
+            let path = crate::mcp::write_opencode_config(
+                data_dir,
+                session_id,
+                state.port(),
+                session.model.as_deref(),
+                &session.config,
+            )
+            .map_err(|error| {
+                tracing::error!(session = %session_id, %error, "could not write MCP config");
+                ApiError::unprocessable("Could not prepare session tools.")
+            })?;
             entry.set_mcp_config(path.clone());
             environment.push((
                 "OPENCODE_CONFIG".to_owned(),
@@ -3119,7 +3474,15 @@ fn install_claude_settings(
     let data_dir = state
         .data_dir()
         .ok_or_else(|| ApiError::unprocessable("Agent sessions need a data directory."))?;
-    let settings = claude::write_settings(data_dir, session_id, state.port()).map_err(|error| {
+    let session = entry.session();
+    let settings = claude::write_settings(
+        data_dir,
+        session_id,
+        state.port(),
+        session.model.as_deref(),
+        &session.config,
+    )
+    .map_err(|error| {
         tracing::error!(session = %session_id, %error, "could not write Claude hook settings");
         ApiError::unprocessable("Could not prepare Claude Code hooks.")
     })?;

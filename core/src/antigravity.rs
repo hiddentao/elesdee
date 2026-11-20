@@ -2,18 +2,25 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use serde_json::{Map, Value, json};
+
+use crate::overrides::{ConfigOverrides, apply_json_config};
 use crate::private_fs;
 
 pub const PROVIDER_ID: &str = "google";
 pub const DEFAULT_MODEL: &str = "gemini-3.8-flash-medium";
 const HOMES_DIR: &str = "homes";
-const SETTINGS: &[u8] = br#"{"modelProvider":"gemini"}"#;
 
 pub fn home_path(data_dir: &Path, session_id: &str) -> PathBuf {
     data_dir.join(HOMES_DIR).join(session_id)
 }
 
-pub fn prepare_home(data_dir: &Path, session_id: &str) -> io::Result<PathBuf> {
+pub fn prepare_home(
+    data_dir: &Path,
+    session_id: &str,
+    model: Option<&str>,
+    config: &ConfigOverrides,
+) -> io::Result<PathBuf> {
     let home = home_path(data_dir, session_id);
     let prepared = (|| {
         let settings_dir = home.join(".gemini").join("antigravity-cli");
@@ -25,7 +32,14 @@ pub fn prepare_home(data_dir: &Path, session_id: &str) -> io::Result<PathBuf> {
         ] {
             private_fs::create_private_dir_all(&directory)?;
         }
-        private_fs::write_private_file(&settings_dir.join("settings.json"), SETTINGS)
+        let mut settings = Map::new();
+        apply_json_config(&mut settings, config);
+        settings.insert("modelProvider".to_owned(), json!("gemini"));
+        if let Some(model) = model {
+            settings.insert("model".to_owned(), Value::String(model.to_owned()));
+        }
+        let bytes = serde_json::to_vec(&Value::Object(settings)).map_err(io::Error::other)?;
+        private_fs::write_private_file(&settings_dir.join("settings.json"), &bytes)
     })();
 
     if let Err(error) = prepared {
@@ -60,7 +74,8 @@ mod tests {
     #[test]
     fn prepares_a_private_home_and_settings() {
         let data_dir = temporary_directory();
-        let home = prepare_home(&data_dir, "session-id").expect("prepare home");
+        let home = prepare_home(&data_dir, "session-id", None, &ConfigOverrides::new())
+            .expect("prepare home");
         assert_eq!(home, data_dir.join("homes").join("session-id"));
         let settings = home.join(".gemini/antigravity-cli/settings.json");
         assert_eq!(

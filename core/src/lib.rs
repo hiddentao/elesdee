@@ -8,6 +8,7 @@ mod git;
 pub mod link;
 mod mcp;
 mod opencode;
+mod overrides;
 mod persist;
 mod private_fs;
 mod providers;
