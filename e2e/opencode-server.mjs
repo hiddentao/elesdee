@@ -49,6 +49,8 @@ const server = http.createServer((request, response) => {
   response.end('{"error":"not found"}');
 });
 
-server.listen(4398, '127.0.0.1', () => {
-  console.log('fake OpenCode server on 127.0.0.1:4398');
+const port = Number(process.env.ELESDEE_OPENCODE_PORT ?? 4398);
+
+server.listen(port, '127.0.0.1', () => {
+  console.log(`fake OpenCode server on 127.0.0.1:${port}`);
 });

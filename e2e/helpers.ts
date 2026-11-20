@@ -4,7 +4,8 @@ import path from 'node:path';
 import { expect, type APIRequestContext, type Page } from '@playwright/test';
 import { dataDir, projectsDir } from './env';
 
-export const CORE_URL = 'http://127.0.0.1:4399';
+export const CORE_URL =
+  process.env.ELESDEE_E2E_CORE_URL ?? 'http://127.0.0.1:4399';
 
 export interface Project {
   id: string;

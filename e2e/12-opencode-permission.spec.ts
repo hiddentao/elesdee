@@ -9,8 +9,11 @@ import {
   uniqueName,
 } from './helpers';
 
+const OPENCODE_URL =
+  process.env.ELESDEE_E2E_OPENCODE_URL ?? 'http://127.0.0.1:4398';
+
 test('answers an OpenCode permission from the app', async ({ page, request }) => {
-  await request.post('http://127.0.0.1:4398/reset');
+  await request.post(`${OPENCODE_URL}/reset`);
 
   const label = uniqueName('opencode-permission-project');
   const repo = createGitRepo(label);
@@ -44,7 +47,7 @@ test('answers an OpenCode permission from the app', async ({ page, request }) =>
   await expect
     .poll(
       async () => {
-        const response = await request.get('http://127.0.0.1:4398/state');
+        const response = await request.get(`${OPENCODE_URL}/state`);
         return ((await response.json()) as { replied: string | null }).replied;
       },
       { timeout: 10_000 },
