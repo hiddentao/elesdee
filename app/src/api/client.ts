@@ -5,6 +5,7 @@ import type {
   ApproveSessionResult,
   BootstrapResponse,
   Branch,
+  BrowserState,
   CreateAccountInput,
   CreatePresetInput,
   CreateProjectInput,
@@ -378,4 +379,81 @@ export async function readSharedFile(
     throw new ApiError(response.status, await errorMessage(response));
   }
   return response.text();
+}
+
+export function getBrowserState(
+  id: string,
+  signal?: AbortSignal,
+): Promise<BrowserState> {
+  return request<BrowserState>(
+    `/api/sessions/${encodeURIComponent(id)}/browser`,
+    signal ? { signal } : undefined,
+  );
+}
+
+export function openBrowserUrl(id: string, url: string): Promise<BrowserState> {
+  return request<BrowserState>(
+    `/api/sessions/${encodeURIComponent(id)}/browser/open`,
+    post({ url }),
+  );
+}
+
+export function browserBack(id: string): Promise<BrowserState> {
+  return request<BrowserState>(
+    `/api/sessions/${encodeURIComponent(id)}/browser/back`,
+    post({}),
+  );
+}
+
+export function browserForward(id: string): Promise<BrowserState> {
+  return request<BrowserState>(
+    `/api/sessions/${encodeURIComponent(id)}/browser/forward`,
+    post({}),
+  );
+}
+
+export function browserReload(id: string): Promise<BrowserState> {
+  return request<BrowserState>(
+    `/api/sessions/${encodeURIComponent(id)}/browser/reload`,
+    post({}),
+  );
+}
+
+export function createBrowserTab(
+  id: string,
+  url?: string,
+): Promise<BrowserState> {
+  return request<BrowserState>(
+    `/api/sessions/${encodeURIComponent(id)}/browser/tabs`,
+    post(url ? { url } : {}),
+  );
+}
+
+export function activateBrowserTab(
+  id: string,
+  tabId: string,
+): Promise<BrowserState> {
+  return request<BrowserState>(
+    `/api/sessions/${encodeURIComponent(id)}/browser/tabs/${encodeURIComponent(tabId)}/activate`,
+    post({}),
+  );
+}
+
+export function closeBrowserTab(
+  id: string,
+  tabId: string,
+): Promise<BrowserState> {
+  return request<BrowserState>(
+    `/api/sessions/${encodeURIComponent(id)}/browser/tabs/${encodeURIComponent(tabId)}/close`,
+    post({}),
+  );
+}
+
+export function browserScreenshotUrl(
+  id: string,
+  tabId: string,
+  seq: number,
+): string {
+  const params = new URLSearchParams({ tab: tabId, v: String(seq) });
+  return `${API_BASE}/api/sessions/${encodeURIComponent(id)}/browser/screenshot?${params.toString()}`;
 }

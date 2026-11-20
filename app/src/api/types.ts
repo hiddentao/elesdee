@@ -349,3 +349,22 @@ export interface SessionUpdatedEvent {
   type: 'session.updated';
   session: Session;
 }
+
+export interface BrowserTab {
+  id: string;
+  url: string;
+  title: string;
+  loading: boolean;
+  canGoBack: boolean;
+  canGoForward: boolean;
+}
+
+export interface BrowserState {
+  sessionId: string;
+  started: boolean;
+  available: boolean;
+  tabs: BrowserTab[];
+  activeTabId: string | null;
+  screenshotSeq: number;
+  error: string | null;
+}

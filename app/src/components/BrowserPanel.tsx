@@ -1,0 +1,276 @@
+import { useEffect, useRef, useState, type FormEvent } from 'react';
+import {
+  activateBrowserTab,
+  browserBack,
+  browserForward,
+  browserReload,
+  browserScreenshotUrl,
+  closeBrowserTab,
+  createBrowserTab,
+  getBrowserState,
+  openBrowserUrl,
+} from '../api/client';
+import type { BrowserState, BrowserTab, Session } from '../api/types';
+import { useLanguage } from '../i18n/LanguageProvider';
+import { CloseIcon, GlobeIcon, PlusIcon } from './icons';
+
+interface BrowserPanelProps {
+  session: Session;
+}
+
+export function BrowserPanel({ session }: BrowserPanelProps) {
+  const { t } = useLanguage();
+  const [state, setState] = useState<BrowserState | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [address, setAddress] = useState('');
+  const addressRef = useRef<HTMLInputElement>(null);
+  const addressFocused = useRef(false);
+
+  const activeTab: BrowserTab | null =
+    state?.tabs.find((tab) => tab.id === state.activeTabId) ?? null;
+
+  useEffect(() => {
+    let stopped = false;
+    let timer: number | undefined;
+
+    const load = async () => {
+      try {
+        const next = await getBrowserState(session.id);
+        if (!stopped) {
+          setState(next);
+          setError(null);
+        }
+      } catch (failure) {
+        if (!stopped) {
+          setError(
+            failure instanceof Error && failure.message
+              ? failure.message
+              : t('panel.requestFailed'),
+          );
+        }
+      }
+      if (!stopped) {
+        timer = window.setTimeout(load, 1000);
+      }
+    };
+
+    setState(null);
+    setError(null);
+    setBusy(null);
+    setAddress('');
+    void load();
+    return () => {
+      stopped = true;
+      if (timer !== undefined) {
+        window.clearTimeout(timer);
+      }
+    };
+    // The panel is recreated for each session.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.id]);
+
+  useEffect(() => {
+    if (!addressFocused.current) {
+      setAddress(activeTab?.url ?? '');
+    }
+  }, [activeTab?.id, activeTab?.url]);
+
+  async function run(action: () => Promise<BrowserState>, busyLabel: string) {
+    setBusy(busyLabel);
+    setError(null);
+    try {
+      setState(await action());
+    } catch (failure) {
+      setError(
+        failure instanceof Error && failure.message
+          ? failure.message
+          : t('panel.browserFailed'),
+      );
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  function submitAddress(event: FormEvent) {
+    event.preventDefault();
+    const url = address.trim();
+    if (!url) {
+      return;
+    }
+    void run(() => openBrowserUrl(session.id, url), t('panel.browserLoading'));
+  }
+
+  async function newTab() {
+    await run(() => createBrowserTab(session.id), t('panel.browserLoading'));
+    addressRef.current?.focus();
+  }
+
+  const loading = busy !== null || activeTab?.loading === true;
+  const unavailable = state !== null && !state.available;
+  const message = state?.error ?? error;
+
+  return (
+    <div className="browser-panel">
+      <div className="browser-bar">
+        <div className="browser-controls">
+          <button
+            type="button"
+            className="icon-btn browser-control"
+            aria-label={t('panel.browserBack')}
+            title={t('panel.browserBack')}
+            disabled={!activeTab?.canGoBack || busy !== null}
+            onClick={() =>
+              void run(() => browserBack(session.id), t('panel.browserLoading'))
+            }
+          >
+            <span aria-hidden="true">←</span>
+          </button>
+          <button
+            type="button"
+            className="icon-btn browser-control"
+            aria-label={t('panel.browserForward')}
+            title={t('panel.browserForward')}
+            disabled={!activeTab?.canGoForward || busy !== null}
+            onClick={() =>
+              void run(() => browserForward(session.id), t('panel.browserLoading'))
+            }
+          >
+            <span aria-hidden="true">→</span>
+          </button>
+          <button
+            type="button"
+            className="icon-btn browser-control"
+            aria-label={t('panel.browserReload')}
+            title={t('panel.browserReload')}
+            disabled={!activeTab || busy !== null}
+            onClick={() =>
+              void run(() => browserReload(session.id), t('panel.browserLoading'))
+            }
+          >
+            <span aria-hidden="true">↻</span>
+          </button>
+        </div>
+
+        <form className="browser-address" onSubmit={submitAddress}>
+          <GlobeIcon />
+          <input
+            ref={addressRef}
+            type="text"
+            value={address}
+            aria-label={t('panel.browserAddress')}
+            placeholder="https://"
+            spellCheck={false}
+            onFocus={() => {
+              addressFocused.current = true;
+            }}
+            onBlur={() => {
+              addressFocused.current = false;
+            }}
+            onChange={(event) => setAddress(event.target.value)}
+          />
+          <button
+            type="submit"
+            className="btn btn-ghost browser-go"
+            disabled={busy !== null || address.trim() === ''}
+          >
+            {t('panel.browserOpen')}
+          </button>
+        </form>
+      </div>
+
+      <div
+        className="browser-tabs"
+        role="tablist"
+        aria-label={t('panel.browserTabLabel')}
+      >
+        {state?.tabs.map((tab) => {
+          const label = tab.title || tab.url || t('panel.browserNoTitle');
+          return (
+            <div className="browser-tab-item" role="presentation" key={tab.id}>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={tab.id === state.activeTabId}
+                className={`browser-tab${
+                  tab.id === state.activeTabId ? ' is-on' : ''
+                }`}
+                title={tab.url || label}
+                onClick={() =>
+                  void run(
+                    () => activateBrowserTab(session.id, tab.id),
+                    t('panel.browserLoading'),
+                  )
+                }
+              >
+                {tab.loading ? (
+                  <span className="browser-tab-loading" aria-hidden="true" />
+                ) : null}
+                <span className="browser-tab-title">{label}</span>
+              </button>
+              <button
+                type="button"
+                className="browser-tab-close"
+                aria-label={t('panel.browserCloseTab', { title: label })}
+                title={t('panel.browserCloseTab', { title: label })}
+                onClick={() =>
+                  void run(
+                    () => closeBrowserTab(session.id, tab.id),
+                    t('panel.browserLoading'),
+                  )
+                }
+              >
+                <CloseIcon />
+              </button>
+            </div>
+          );
+        })}
+        <button
+          type="button"
+          className="icon-btn browser-new-tab"
+          aria-label={t('panel.browserNewTab')}
+          title={t('panel.browserNewTab')}
+          disabled={busy !== null}
+          onClick={() => void newTab()}
+        >
+          <PlusIcon />
+        </button>
+      </div>
+
+      {message ? (
+        <p className="dock-error" role="alert">
+          {message}
+        </p>
+      ) : null}
+
+      {loading ? (
+        <p className="browser-status" role="status" aria-live="polite">
+          {busy ?? t('panel.browserLoading')}
+        </p>
+      ) : null}
+
+      {unavailable && !message ? (
+        <p className="dock-note">{t('panel.browserUnavailable')}</p>
+      ) : null}
+
+      <div className="browser-view">
+        {activeTab && state && state.screenshotSeq > 0 ? (
+          <img
+            key={`${activeTab.id}:${state.screenshotSeq}`}
+            className="browser-image"
+            src={browserScreenshotUrl(
+              session.id,
+              activeTab.id,
+              state.screenshotSeq,
+            )}
+            alt={t('panel.browserView', {
+              title: activeTab.title || t('panel.browserNoTitle'),
+            })}
+          />
+        ) : !activeTab ? (
+          <p className="dock-note">{t('panel.browserEmpty')}</p>
+        ) : null}
+      </div>
+    </div>
+  );
+}

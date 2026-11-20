@@ -2,21 +2,39 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  activateBrowserTab,
+  browserBack,
+  browserForward,
+  browserReload,
+  browserScreenshotUrl,
+  closeBrowserTab,
+  createBrowserTab,
+  getBrowserState,
   listFiles,
   listSharedFiles,
+  openBrowserUrl,
   readFile,
   readSharedFile,
   sessionChanges,
   sharedFileUrl,
   writeFile,
 } from '../api/client';
-import type { FileEntry, SharedFile } from '../api/types';
+import type { BrowserState, FileEntry, SharedFile } from '../api/types';
 import { makeSession } from '../test/fixtures';
 import { SessionSidePanel } from './SessionSidePanel';
 
 vi.mock('../api/client', () => ({
+  activateBrowserTab: vi.fn(),
+  browserBack: vi.fn(),
+  browserForward: vi.fn(),
+  browserReload: vi.fn(),
+  browserScreenshotUrl: vi.fn(),
+  closeBrowserTab: vi.fn(),
+  createBrowserTab: vi.fn(),
+  getBrowserState: vi.fn(),
   listFiles: vi.fn(),
   listSharedFiles: vi.fn(),
+  openBrowserUrl: vi.fn(),
   readFile: vi.fn(),
   readSharedFile: vi.fn(),
   sessionChanges: vi.fn(),
@@ -69,6 +87,27 @@ function renderPanel(
 }
 
 beforeEach(() => {
+  const browser: BrowserState = {
+    sessionId: 's1',
+    started: false,
+    available: true,
+    tabs: [],
+    activeTabId: null,
+    screenshotSeq: 0,
+    error: null,
+  };
+  vi.mocked(getBrowserState).mockResolvedValue(browser);
+  vi.mocked(browserScreenshotUrl).mockImplementation(
+    (id, tabId, seq) =>
+      `/api/sessions/${id}/browser/screenshot?tab=${tabId}&v=${seq}`,
+  );
+  vi.mocked(openBrowserUrl).mockResolvedValue(browser);
+  vi.mocked(activateBrowserTab).mockResolvedValue(browser);
+  vi.mocked(closeBrowserTab).mockResolvedValue(browser);
+  vi.mocked(createBrowserTab).mockResolvedValue(browser);
+  vi.mocked(browserBack).mockResolvedValue(browser);
+  vi.mocked(browserForward).mockResolvedValue(browser);
+  vi.mocked(browserReload).mockResolvedValue(browser);
   vi.mocked(listFiles).mockImplementation((_id, path = '') =>
     Promise.resolve({
       path,
@@ -202,6 +241,9 @@ describe('SessionSidePanel files', () => {
 
     await user.click(screen.getByRole('tab', { name: 'Changes' }));
     expect(onSelectTab).toHaveBeenCalledWith('changes');
+
+    await user.click(screen.getByRole('tab', { name: 'Browser' }));
+    expect(onSelectTab).toHaveBeenCalledWith('browser');
 
     await user.click(screen.getByRole('button', { name: 'Close side panel' }));
     expect(onClose).toHaveBeenCalledTimes(1);
