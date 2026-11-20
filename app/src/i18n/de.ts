@@ -292,6 +292,11 @@ export const de = {
   'newSession.namePlaceholder':
     'Nutzt den ersten Prompt oder Ordner, wenn leer',
   'newSession.additional': 'Weitere Einstellungen',
+  'newSession.uncommitted': 'Nicht committete Änderungen',
+  'newSession.uncommittedHint':
+    'Das Repository enthält nicht committete Änderungen. Wähle, womit die neue Sitzung startet.',
+  'newSession.uncommittedCopy': 'In die neue Sitzung kopieren',
+  'newSession.uncommittedLeave': 'Nicht übernehmen',
   'newSession.env': 'Umgebungsvariablen (optional)',
   'newSession.envHint':
     'Eine NAME=Wert-Zeile pro Zeile. Sie gelten nur für diese Sitzung.',

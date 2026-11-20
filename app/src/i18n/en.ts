@@ -283,6 +283,11 @@ export const en = {
   'newSession.namePlaceholder':
     'Uses the first prompt or folder when empty',
   'newSession.additional': 'Additional settings',
+  'newSession.uncommitted': 'Uncommitted changes',
+  'newSession.uncommittedHint':
+    'The repository has uncommitted changes. Choose what the new session starts with.',
+  'newSession.uncommittedCopy': 'Copy them into the new session',
+  'newSession.uncommittedLeave': 'Leave them out',
   'newSession.env': 'Environment variables (optional)',
   'newSession.envHint':
     'One NAME=value per line. They apply to this session only.',

@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
-import { ApiError, listBranches, listPresets, listProjects } from '../api/client';
+import {
+  ApiError,
+  getGitStatus,
+  listBranches,
+  listPresets,
+  listProjects,
+} from '../api/client';
 import { isTauri, pickFolder } from '../api/shell';
 import type {
   Account,
@@ -151,6 +157,8 @@ export function NewSessionDialog({
   const [sourceBranch, setSourceBranch] = useState<string | null>(
     initialProject?.defaultSourceBranch ?? null,
   );
+  const [dirty, setDirty] = useState(false);
+  const [copyUncommitted, setCopyUncommitted] = useState(false);
   const [firstPrompt, setFirstPrompt] = useState('');
   const [envText, setEnvText] = useState('');
   const [name, setName] = useState('');
@@ -177,6 +185,36 @@ export function NewSessionDialog({
 
     setFocusTarget(null);
   }, [focusTarget]);
+
+  useEffect(() => {
+    setCopyUncommitted(false);
+    if (kind !== 'agent' || folder.trim() === '') {
+      setDirty(false);
+      return;
+    }
+
+    let cancelled = false;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      getGitStatus(folder.trim(), controller.signal)
+        .then((status) => {
+          if (!cancelled) {
+            setDirty(status.git && status.dirty);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setDirty(false);
+          }
+        });
+    }, 300);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [folder, kind]);
 
   const loadProjectOptions = useCallback<ComboboxLoader>(
     async (query, signal) => {
@@ -380,6 +418,9 @@ export function NewSessionDialog({
       }
       if (sourceBranch) {
         input.sourceBranch = sourceBranch;
+      }
+      if (dirty && copyUncommitted) {
+        input.copyUncommittedChanges = true;
       }
       if (firstPrompt.trim() !== '') {
         input.firstPrompt = firstPrompt.trim();
@@ -663,6 +704,34 @@ export function NewSessionDialog({
 
           <details className="field additional-settings">
             <summary>{t('newSession.additional')}</summary>
+            {dirty ? (
+              <fieldset className="field" id="new-session-uncommitted">
+                <legend>{t('newSession.uncommitted')}</legend>
+                <p className="field-hint">{t('newSession.uncommittedHint')}</p>
+                <div className="segmented">
+                  <label className="segment">
+                    <input
+                      type="radio"
+                      name="uncommitted-changes"
+                      value="copy"
+                      checked={copyUncommitted}
+                      onChange={() => setCopyUncommitted(true)}
+                    />
+                    <span>{t('newSession.uncommittedCopy')}</span>
+                  </label>
+                  <label className="segment">
+                    <input
+                      type="radio"
+                      name="uncommitted-changes"
+                      value="leave"
+                      checked={!copyUncommitted}
+                      onChange={() => setCopyUncommitted(false)}
+                    />
+                    <span>{t('newSession.uncommittedLeave')}</span>
+                  </label>
+                </div>
+              </fieldset>
+            ) : null}
             <div className="field">
               <label htmlFor="new-session-env">{t('newSession.env')}</label>
               <textarea

@@ -31,6 +31,9 @@ The service binds `127.0.0.1` only. It accepts requests only for loopback hostna
 - A live session's PTY can be resized. An unknown session returns 404 and a closed or exited session returns 409.
 - `short` is unique within a project. A repeated name gets a numeric suffix. Agent branch names are also checked against existing Git refs, so a kept branch from an earlier session gets a new suffix.
 - An agent session runs on branch `elesdee/<project>/<short>`. A terminal session has `branch: null`.
+- An agent launch syncs the source before it creates the worktree. A remote source such as `origin/<branch>` fetches that remote and starts from its latest commit. A local source that tracks a remote branch fetches the remote and starts from the newer commit; when the local branch is behind and no worktree has it checked out, the branch is fast-forwarded. When the local and remote branches have diverged, the launch returns 422 and changes nothing. A folder with no remote, a branch with no upstream and a local-only branch start from the local commit without a fetch. A failed fetch or a Git timeout returns 422.
+- `copyUncommittedChanges` copies the checkout's staged, unstaged and untracked changes into the new worktree. Tracked changes are applied as a patch against `HEAD`; untracked files are copied. The checkout is not changed. A patch that does not apply, a path outside the worktree, a special file, a non-UTF-8 path or more than 256 MiB of untracked files returns 422 and rolls the session back.
+- `GET /api/git-status?folder=` reports whether the launch form should ask about uncommitted changes. It returns `{ "git": boolean, "dirty": boolean }`. A folder outside Git returns `git: false` with no error; an unknown folder returns 422.
 - Closing an agent session stops the process, commits dirty files, pushes through the branch's upstream remote or the only remote, and removes the worktree on success. A failed commit, push, removal or Git timeout keeps the worktree and puts the reason in `preview`. Removal never uses `--force`. The branch is kept.
 - While an agent session is closing, reopen and delete return 409 and `preview` is updated only when the close finishes.
 - When a session process exits, the session stays `active`, its `workState` becomes `done`, and a `session.updated` event is sent. Input then returns 409.
@@ -325,6 +328,7 @@ interface OutputEvent {
 | GET | `/api/projects?q={text}` | | `Project[]` |
 | POST | `/api/projects` | `{ name, folder }` | `Project` |
 | PATCH | `/api/projects/{id}` | `{ defaultAccountId?, defaultSourceBranch? }` | `Project` |
+| GET | `/api/git-status?folder={folder}` | | `{ git, dirty }` |
 | GET | `/api/accounts?q={text}` | | `Account[]` |
 | POST | `/api/accounts` | `{ name, providerId, client, auth: "key", key, model? }` | `Account` |
 | POST | `/api/pairing` | `{}` | `{ expiresAt, relayReady }` |
@@ -339,7 +343,7 @@ interface OutputEvent {
 | POST | `/api/presets` | `{ name?, accountId, model?, env?, config? }` | `LaunchPreset` |
 | PATCH | `/api/presets/{id}` | `{ name?, accountId?, model?, env?, config? }` | `LaunchPreset` |
 | DELETE | `/api/presets/{id}` | | `204` |
-| POST | `/api/sessions` | `{ projectId, kind, accountId?, presetId?, name?, folder?, env?, cols?, rows? }` | `Session` |
+| POST | `/api/sessions` | `{ projectId, kind, accountId?, presetId?, name?, folder?, sourceBranch?, copyUncommittedChanges?, env?, cols?, rows? }` | `Session` |
 | POST | `/api/sessions/{id}/close` | `{}` | `Session` |
 | PATCH | `/api/sessions/{id}` | `{ name }` | `Session` |
 | POST | `/api/sessions/{id}/reopen` | `{}` | `Session` |

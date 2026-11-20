@@ -1275,6 +1275,448 @@ async fn unknown_source_branch_is_rejected() {
     );
 }
 
+fn test_app(data_dir: &Path) -> Router {
+    router(AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.to_path_buf(),
+    ))
+}
+
+fn push_to_remote(repo: &Path, remote: &str, branch: &str) {
+    let output = run_git(repo, &["push", "-q", remote, branch]);
+    assert!(
+        output.status.success(),
+        "git push failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+fn clone_remote(remote: &Path, parent: &Path, name: &str) -> PathBuf {
+    let target = parent.join(name);
+    let output = Command::new("git")
+        .args(["clone", "--quiet"])
+        .arg(remote)
+        .arg(&target)
+        .output()
+        .expect("run git clone");
+    assert!(
+        output.status.success(),
+        "git clone failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    target
+}
+
+fn commit_file(repo: &Path, name: &str, content: &str, message: &str) {
+    fs::write(repo.join(name), content).expect("write commit file");
+    assert!(run_git(repo, &["add", "."]).status.success());
+    let output = run_git(
+        repo,
+        &[
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.com",
+            "commit",
+            "-qm",
+            message,
+        ],
+    );
+    assert!(
+        output.status.success(),
+        "git commit failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+async fn launch_agent(
+    app: &Router,
+    repo: &Path,
+    name: &str,
+    source: Option<&str>,
+    copy: bool,
+) -> (StatusCode, Value) {
+    let mut body = json!({
+        "projectId": "web",
+        "kind": "agent",
+        "accountId": "max",
+        "name": name,
+        "folder": repo.to_string_lossy(),
+        "copyUncommittedChanges": copy
+    });
+    if let Some(source) = source {
+        body["sourceBranch"] = Value::String(source.to_owned());
+    }
+    call(app, "POST", "/api/sessions", Some(body)).await
+}
+
+#[tokio::test]
+async fn launch_fetches_a_tracking_branch_and_keeps_the_checkout() {
+    let data_dir = TempDirectory::new("sync-data");
+    let repo = TempDirectory::new("sync-repo");
+    let remote_dir = TempDirectory::new("sync-remote");
+    let clone_dir = TempDirectory::new("sync-clone");
+    init_git_repo(&repo.path);
+    let remote = remote_dir.path.join("remote.git");
+    init_bare_repo(&remote);
+    add_origin(&repo.path, &remote);
+    push_to_remote(&repo.path, "origin", "main");
+    assert!(
+        run_git(
+            &repo.path,
+            &["branch", "--set-upstream-to=origin/main", "main"]
+        )
+        .status
+        .success(),
+        "set the tracking branch"
+    );
+    let before = git_stdout(&repo.path, &["rev-parse", "main"]);
+
+    let clone = clone_remote(&remote, &clone_dir.path, "clone");
+    commit_file(&clone, "remote.txt", "from remote\n", "remote update");
+    push_to_remote(&clone, "origin", "main");
+
+    let app = test_app(&data_dir.path);
+    ensure_test_project(&app, &repo.path).await;
+    let (status, session) = launch_agent(&app, &repo.path, "Sync Main", Some("main"), false).await;
+
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let folder = PathBuf::from(session["folder"].as_str().expect("session folder"));
+    assert_eq!(
+        fs::read_to_string(folder.join("remote.txt")).expect("remote file"),
+        "from remote\n"
+    );
+    assert_eq!(
+        git_stdout(&repo.path, &["rev-parse", "main"]),
+        before,
+        "the checked-out branch moved"
+    );
+    assert_eq!(
+        git_stdout(&repo.path, &["status", "--porcelain"]),
+        "",
+        "the checkout changed"
+    );
+
+    let id = session["id"].as_str().expect("session id");
+    let (status, _) = close_session(&app, id).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn launch_fast_forwards_a_tracking_branch_that_is_not_checked_out() {
+    let data_dir = TempDirectory::new("sync-work-data");
+    let repo = TempDirectory::new("sync-work-repo");
+    let remote_dir = TempDirectory::new("sync-work-remote");
+    let clone_dir = TempDirectory::new("sync-work-clone");
+    init_git_repo(&repo.path);
+    let remote = remote_dir.path.join("remote.git");
+    init_bare_repo(&remote);
+    add_origin(&repo.path, &remote);
+    push_to_remote(&repo.path, "origin", "main");
+    assert!(
+        run_git(&repo.path, &["checkout", "-q", "-b", "work"])
+            .status
+            .success()
+    );
+    assert!(
+        run_git(&repo.path, &["push", "-q", "-u", "origin", "work"])
+            .status
+            .success(),
+        "push the work branch with its upstream"
+    );
+    assert!(
+        run_git(&repo.path, &["checkout", "-q", "main"])
+            .status
+            .success()
+    );
+    let before = git_stdout(&repo.path, &["rev-parse", "work"]);
+
+    let clone = clone_remote(&remote, &clone_dir.path, "clone");
+    assert!(
+        run_git(&clone, &["checkout", "-q", "work"])
+            .status
+            .success()
+    );
+    commit_file(&clone, "later.txt", "from the remote\n", "work update");
+    push_to_remote(&clone, "origin", "work");
+
+    let app = test_app(&data_dir.path);
+    ensure_test_project(&app, &repo.path).await;
+    let (status, session) = launch_agent(&app, &repo.path, "Sync Work", Some("work"), false).await;
+
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let folder = PathBuf::from(session["folder"].as_str().expect("session folder"));
+    assert!(folder.join("later.txt").is_file(), "the worktree is stale");
+    assert_ne!(git_stdout(&repo.path, &["rev-parse", "work"]), before);
+    assert_eq!(
+        git_stdout(&repo.path, &["rev-parse", "work"]),
+        git_stdout(&repo.path, &["rev-parse", "origin/work"]),
+        "the local branch did not move to its upstream"
+    );
+
+    let id = session["id"].as_str().expect("session id");
+    let (status, _) = close_session(&app, id).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn launch_from_a_remote_branch_fetches_the_latest_commit() {
+    let data_dir = TempDirectory::new("sync-remote-data");
+    let repo = TempDirectory::new("sync-remote-repo");
+    let remote_dir = TempDirectory::new("sync-remote-bare");
+    let clone_dir = TempDirectory::new("sync-remote-clone");
+    init_git_repo(&repo.path);
+    let remote = remote_dir.path.join("remote.git");
+    init_bare_repo(&remote);
+    add_origin(&repo.path, &remote);
+    push_to_remote(&repo.path, "origin", "main");
+    assert!(
+        run_git(&repo.path, &["fetch", "-q", "origin"])
+            .status
+            .success()
+    );
+
+    let clone = clone_remote(&remote, &clone_dir.path, "clone");
+    commit_file(&clone, "fresh.txt", "fresh remote\n", "remote update");
+    push_to_remote(&clone, "origin", "main");
+
+    let app = test_app(&data_dir.path);
+    ensure_test_project(&app, &repo.path).await;
+    let (status, session) =
+        launch_agent(&app, &repo.path, "Remote Main", Some("origin/main"), false).await;
+
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let folder = PathBuf::from(session["folder"].as_str().expect("session folder"));
+    assert_eq!(
+        fs::read_to_string(folder.join("fresh.txt")).expect("fresh file"),
+        "fresh remote\n"
+    );
+
+    let id = session["id"].as_str().expect("session id");
+    let (status, _) = close_session(&app, id).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn launch_without_a_remote_uses_the_local_branch() {
+    let data_dir = TempDirectory::new("sync-none-data");
+    let repo = TempDirectory::new("sync-none-repo");
+    init_git_repo(&repo.path);
+    assert!(
+        run_git(&repo.path, &["checkout", "-q", "-b", "feature"])
+            .status
+            .success()
+    );
+    commit_file(
+        &repo.path,
+        "feature.txt",
+        "local feature\n",
+        "feature commit",
+    );
+    assert!(
+        run_git(&repo.path, &["checkout", "-q", "main"])
+            .status
+            .success()
+    );
+
+    let app = test_app(&data_dir.path);
+    ensure_test_project(&app, &repo.path).await;
+    let (status, session) =
+        launch_agent(&app, &repo.path, "No Remote", Some("feature"), false).await;
+
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let folder = PathBuf::from(session["folder"].as_str().expect("session folder"));
+    assert!(folder.join("feature.txt").is_file());
+
+    let id = session["id"].as_str().expect("session id");
+    let (status, _) = close_session(&app, id).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn launch_without_an_upstream_does_not_fetch() {
+    let data_dir = TempDirectory::new("sync-upstream-data");
+    let repo = TempDirectory::new("sync-upstream-repo");
+    init_git_repo(&repo.path);
+    add_origin(&repo.path, &repo.path.join("missing-remote.git"));
+
+    let app = test_app(&data_dir.path);
+    ensure_test_project(&app, &repo.path).await;
+    let (status, session) =
+        launch_agent(&app, &repo.path, "No Upstream", Some("main"), false).await;
+
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let folder = PathBuf::from(session["folder"].as_str().expect("session folder"));
+    assert!(folder.join("README.md").is_file());
+
+    let id = session["id"].as_str().expect("session id");
+    let (status, _) = close_session(&app, id).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn launch_reports_a_failed_fetch() {
+    let data_dir = TempDirectory::new("sync-fail-data");
+    let repo = TempDirectory::new("sync-fail-repo");
+    init_git_repo(&repo.path);
+    add_origin(&repo.path, &repo.path.join("missing-remote.git"));
+    assert!(
+        run_git(&repo.path, &["config", "branch.main.remote", "origin"])
+            .status
+            .success()
+    );
+    assert!(
+        run_git(
+            &repo.path,
+            &["config", "branch.main.merge", "refs/heads/main"]
+        )
+        .status
+        .success()
+    );
+
+    let app = test_app(&data_dir.path);
+    ensure_test_project(&app, &repo.path).await;
+    let (status, body) = launch_agent(&app, &repo.path, "Fetch Fails", Some("main"), false).await;
+
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert!(
+        body["error"]
+            .as_str()
+            .is_some_and(|error| error.contains("fetch")),
+        "{body}"
+    );
+    assert_eq!(
+        git_ref_count(&repo.path),
+        1,
+        "a failed launch left a branch"
+    );
+    let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    assert_eq!(
+        bootstrap["sessions"].as_array().map(Vec::len),
+        Some(0),
+        "a failed launch left a session"
+    );
+}
+
+#[tokio::test]
+async fn launch_stops_when_the_tracking_branch_has_diverged() {
+    let data_dir = TempDirectory::new("sync-diverge-data");
+    let repo = TempDirectory::new("sync-diverge-repo");
+    let remote_dir = TempDirectory::new("sync-diverge-remote");
+    let clone_dir = TempDirectory::new("sync-diverge-clone");
+    init_git_repo(&repo.path);
+    let remote = remote_dir.path.join("remote.git");
+    init_bare_repo(&remote);
+    add_origin(&repo.path, &remote);
+    push_to_remote(&repo.path, "origin", "main");
+    assert!(
+        run_git(
+            &repo.path,
+            &["branch", "--set-upstream-to=origin/main", "main"]
+        )
+        .status
+        .success()
+    );
+    commit_file(&repo.path, "local.txt", "local work\n", "local commit");
+
+    let clone = clone_remote(&remote, &clone_dir.path, "clone");
+    commit_file(&clone, "remote.txt", "remote work\n", "remote commit");
+    push_to_remote(&clone, "origin", "main");
+
+    let app = test_app(&data_dir.path);
+    ensure_test_project(&app, &repo.path).await;
+    let before = git_stdout(&repo.path, &["rev-parse", "main"]);
+    let (status, body) = launch_agent(&app, &repo.path, "Diverged", Some("main"), false).await;
+
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert!(
+        body["error"]
+            .as_str()
+            .is_some_and(|error| error.contains("diverged")),
+        "{body}"
+    );
+    assert_eq!(git_stdout(&repo.path, &["rev-parse", "main"]), before);
+    assert_eq!(git_ref_count(&repo.path), 1);
+}
+
+#[tokio::test]
+async fn launch_copies_chosen_uncommitted_changes() {
+    let data_dir = TempDirectory::new("copy-data");
+    let repo = TempDirectory::new("copy-repo");
+    init_git_repo(&repo.path);
+    fs::write(repo.path.join("README.md"), "dirty change\n").expect("dirty README");
+    fs::write(repo.path.join("notes.txt"), "untracked notes\n").expect("untracked file");
+
+    let app = test_app(&data_dir.path);
+    ensure_test_project(&app, &repo.path).await;
+
+    let (status, copied) = launch_agent(&app, &repo.path, "Copy Changes", Some("main"), true).await;
+    assert_eq!(status, StatusCode::OK, "{copied}");
+    let copied_folder = PathBuf::from(copied["folder"].as_str().expect("session folder"));
+    assert_eq!(
+        fs::read_to_string(copied_folder.join("README.md")).expect("copied README"),
+        "dirty change\n"
+    );
+    assert_eq!(
+        fs::read_to_string(copied_folder.join("notes.txt")).expect("copied notes"),
+        "untracked notes\n"
+    );
+
+    let (status, left) = launch_agent(&app, &repo.path, "Leave Changes", Some("main"), false).await;
+    assert_eq!(status, StatusCode::OK, "{left}");
+    let left_folder = PathBuf::from(left["folder"].as_str().expect("session folder"));
+    assert_eq!(
+        fs::read_to_string(left_folder.join("README.md")).expect("base README"),
+        "initial\n"
+    );
+    assert!(!left_folder.join("notes.txt").exists());
+
+    assert_eq!(
+        fs::read_to_string(repo.path.join("README.md")).expect("checkout README"),
+        "dirty change\n",
+        "the checkout changed"
+    );
+    assert!(repo.path.join("notes.txt").is_file());
+
+    for session in [copied, left] {
+        let id = session["id"].as_str().expect("session id");
+        let (status, _) = close_session(&app, id).await;
+        assert_eq!(status, StatusCode::OK);
+    }
+}
+
+#[tokio::test]
+async fn git_status_reports_dirty_work_and_plain_folders() {
+    let data_dir = TempDirectory::new("status-data");
+    let repo = TempDirectory::new("status-repo");
+    let plain = TempDirectory::new("status-plain");
+    init_git_repo(&repo.path);
+    let app = test_app(&data_dir.path);
+
+    let clean = format!(
+        "/api/git-status?folder={}",
+        url_escape(&repo.path.to_string_lossy())
+    );
+    let (status, body) = call(&app, "GET", &clean, None).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["git"], true);
+    assert_eq!(body["dirty"], false);
+
+    fs::write(repo.path.join("notes.txt"), "notes\n").expect("write notes");
+    let (status, body) = call(&app, "GET", &clean, None).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["dirty"], true);
+
+    let plain_url = format!(
+        "/api/git-status?folder={}",
+        url_escape(&plain.path.to_string_lossy())
+    );
+    let (status, body) = call(&app, "GET", &plain_url, None).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["git"], false);
+    assert_eq!(body["dirty"], false);
+}
+
 fn url_escape(value: &str) -> String {
     value
         .replace('%', "%25")

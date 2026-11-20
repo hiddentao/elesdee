@@ -292,6 +292,11 @@ export const nl = {
   'newSession.namePlaceholder':
     'Gebruikt de eerste prompt of map als die leeg is',
   'newSession.additional': 'Extra instellingen',
+  'newSession.uncommitted': 'Niet-vastgelegde wijzigingen',
+  'newSession.uncommittedHint':
+    'De repository heeft niet-vastgelegde wijzigingen. Kies waarmee de nieuwe sessie begint.',
+  'newSession.uncommittedCopy': 'Kopieer ze naar de nieuwe sessie',
+  'newSession.uncommittedLeave': 'Laat ze weg',
   'newSession.env': 'Omgevingsvariabelen (optioneel)',
   'newSession.envHint':
     'Eén regel NAME=value per regel. Ze gelden alleen voor deze sessie.',

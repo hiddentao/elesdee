@@ -60,10 +60,10 @@ Sample accounts appear on a new install. They are marked **Sample** and have no 
 3. Choose **Agent** or **Terminal**.
 4. For an agent session, choose a client and a preset. Each connected account is a preset; a stored preset adds its model and overrides to the launch.
 5. Set the folder if you want a different one from the project folder.
-6. For an agent session, optionally choose a source branch.
+6. For an agent session, optionally choose a source branch. The app fetches the remote first and starts from the latest commit, without changing your own checkout.
 7. Optionally enter a first prompt. The app uses it to name the session when the name is empty.
 8. Optionally enter a session name.
-9. Open **Additional settings** to add environment variables for this launch.
+9. Open **Additional settings** to add environment variables for this launch. When the repository has uncommitted changes, it also asks whether to copy them into the new session or leave them out.
 10. Choose **Start**.
 
 The session opens in a tab. Its terminal is live. Type into it as you would in a normal terminal.

@@ -292,6 +292,11 @@ export const ja = {
   'newSession.namePlaceholder':
     '空のときは最初のプロンプトまたはフォルダーを使用',
   'newSession.additional': '追加設定',
+  'newSession.uncommitted': '未コミットの変更',
+  'newSession.uncommittedHint':
+    'リポジトリに未コミットの変更があります。新しいセッションの開始状態を選んでください。',
+  'newSession.uncommittedCopy': '新しいセッションにコピーする',
+  'newSession.uncommittedLeave': '含めない',
   'newSession.env': '環境変数（任意）',
   'newSession.envHint':
     '1 行に 1 つの NAME=value。このセッションにのみ適用されます。',

@@ -292,6 +292,11 @@ export const sv = {
   'newSession.namePlaceholder':
     'Använder den första prompten eller mappen när det är tomt',
   'newSession.additional': 'Ytterligare inställningar',
+  'newSession.uncommitted': 'Oincheckade ändringar',
+  'newSession.uncommittedHint':
+    'Repot har oincheckade ändringar. Välj vad den nya sessionen ska börja med.',
+  'newSession.uncommittedCopy': 'Kopiera dem till den nya sessionen',
+  'newSession.uncommittedLeave': 'Lämna dem utanför',
   'newSession.env': 'Miljövariabler (valfritt)',
   'newSession.envHint':
     'En rad NAME=value per rad. De gäller bara den här sessionen.',

@@ -294,6 +294,11 @@ export const es = {
   'newSession.namePlaceholder':
     'Usa el primer prompt o la carpeta cuando está vacío',
   'newSession.additional': 'Ajustes adicionales',
+  'newSession.uncommitted': 'Cambios sin confirmar',
+  'newSession.uncommittedHint':
+    'El repositorio contiene cambios sin confirmar. Elige con qué empieza la nueva sesión.',
+  'newSession.uncommittedCopy': 'Copiarlos en la nueva sesión',
+  'newSession.uncommittedLeave': 'Dejarlos fuera',
   'newSession.env': 'Variables de entorno (opcional)',
   'newSession.envHint':
     'Una línea NAME=value por línea. Solo se aplican a esta sesión.',

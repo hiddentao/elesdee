@@ -27,10 +27,10 @@ Runs a plain shell. It has no agent, branch or worktree. The folder can be a Git
 3. Choose **Agent** or **Terminal**.
 4. For an agent session, choose a client and a preset. Every connected account is a preset. A stored preset also brings its model, environment variables and config settings into this launch. You can change the filled-in default. The closed field keeps the account's remaining usage visible.
 5. Set the folder if you want a different one.
-6. For an agent session, optionally choose a source branch. The new session branch starts from that commit. With no choice, it starts from the current branch.
+6. For an agent session, optionally choose a source branch. The app fetches the remote first, so the new session branch starts from the latest commit. When the branch tracks a remote branch, the app also moves that local branch forward when it is not checked out. It never changes your own checkout and never forces a branch. With no choice, the session starts from the current branch.
 7. Optionally enter a first prompt. The app passes it to the agent at launch.
 8. Optionally enter a name.
-9. Open **Additional settings** to add environment variables for this session. Use one `NAME=value` per line.
+9. Open **Additional settings** to add environment variables for this session. Use one `NAME=value` per line. When the repository has uncommitted changes, it also asks whether to copy them into the new session or leave them out. The choice applies to this launch only.
 10. Choose **Start**.
 
 If you leave the name empty, an agent session is named from the first prompt, or after its client when there is no prompt. A terminal session is named after its folder.

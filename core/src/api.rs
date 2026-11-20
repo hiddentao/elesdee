@@ -181,6 +181,8 @@ struct CreateSessionRequest {
     name: Option<String>,
     folder: Option<String>,
     source_branch: Option<String>,
+    #[serde(default)]
+    copy_uncommitted_changes: bool,
     first_prompt: Option<String>,
     parent_session_id: Option<String>,
     parent_session_name: Option<String>,
@@ -268,6 +270,18 @@ struct ListQuery {
 struct BranchQuery {
     folder: String,
     q: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct FolderQuery {
+    folder: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GitStatusResponse {
+    git: bool,
+    dirty: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -389,6 +403,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/projects", get(list_projects).post(create_project))
         .route("/api/projects/{id}", patch(update_project))
         .route("/api/branches", get(list_branches))
+        .route("/api/git-status", get(git_status))
         .route("/api/providers", get(list_providers))
         .route("/api/accounts", get(list_accounts).post(create_account))
         .route("/api/accounts/{id}/usage", post(update_account_usage))
@@ -728,6 +743,24 @@ async fn list_branches(
         branches.retain(|branch| branch.name.to_lowercase().contains(&filter));
     }
     Ok(Json(branches))
+}
+
+async fn git_status(
+    State(state): State<AppState>,
+    query: Result<Query<FolderQuery>, QueryRejection>,
+) -> Result<Json<GitStatusResponse>, ApiError> {
+    let Query(query) = query.map_err(|_| ApiError::bad_request("Invalid folder query."))?;
+    let folder = canonical_directory(seed::expand_tilde(query.folder.trim()))?;
+    let Some(repo_root) = git::repo_root(folder, state.git_timeout()).await else {
+        return Ok(Json(GitStatusResponse {
+            git: false,
+            dirty: false,
+        }));
+    };
+    let dirty = git::has_uncommitted_changes(repo_root, state.git_timeout())
+        .await
+        .unwrap_or(false);
+    Ok(Json(GitStatusResponse { git: true, dirty }))
 }
 
 async fn list_providers() -> Json<Vec<ProviderInfo>> {
@@ -1443,9 +1476,23 @@ async fn create_session(
                     rollback_created_session(&state, &entry, &session_id, None).await;
                     return Err(ApiError::unprocessable("The source branch does not exist."));
                 }
-                branch.to_owned()
+                Some(branch.to_owned())
             }
-            None => "HEAD".to_owned(),
+            None => None,
+        };
+        let synced = match git::sync_source(
+            repo_root.clone(),
+            source,
+            state.git_push_timeout(),
+            state.git_timeout(),
+        )
+        .await
+        {
+            Ok(synced) => synced,
+            Err(error) => {
+                rollback_created_session(&state, &entry, &session_id, None).await;
+                return Err(ApiError::unprocessable(error.message()));
+            }
         };
         let base = slugify(&current.name, "session");
         let project_part = slugify(&current.project_id, "project");
@@ -1472,7 +1519,7 @@ async fn create_session(
             worktrees_root,
             worktree.clone(),
             branch.clone(),
-            source,
+            synced.base,
             state.git_timeout(),
         )
         .await
@@ -1484,6 +1531,17 @@ async fn create_session(
             ));
         }
         worktree_cleanup = Some((repo_root.clone(), worktree.clone(), branch.clone()));
+        if request.copy_uncommitted_changes
+            && let Err(error) = git::copy_uncommitted_changes(
+                repo_root.clone(),
+                worktree.clone(),
+                state.git_timeout(),
+            )
+            .await
+        {
+            rollback_created_session(&state, &entry, &session_id, worktree_cleanup.clone()).await;
+            return Err(ApiError::unprocessable(error.message()));
+        }
         entry.set_agent_worktree(path_string(&worktree), branch, path_string(&repo_root));
         worktree
     } else {

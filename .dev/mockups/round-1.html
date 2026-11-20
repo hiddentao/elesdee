@@ -2935,7 +2935,7 @@ svg { display: block; }
               (ns.additionalOpen ? '<div class="ns-overrides">' +
                 '<div class="ns-label">First prompt</div>' +
                 '<textarea class="ns-textarea" data-ns-field="prompt" aria-label="First prompt" placeholder="What should the agent do?">' + esc(ns.prompt) + "</textarea>" +
-                (ns.source === "local" ? '<label class="ns-check"><input type="checkbox" data-ns-copy' + (ns.copyChanges ? " checked" : "") + "> Copy uncommitted changes into the new session</label>" : "") +
+                (ns.source !== "folder" ? '<label class="ns-check"><input type="checkbox" data-ns-copy' + (ns.copyChanges ? " checked" : "") + "> Copy uncommitted changes into the new session</label>" : "") +
                 '<p class="ns-note">The latest code is fetched before the agent starts. The session gets its own worktree.</p>' +
                 '<div class="ns-label">Config overrides</div>' +
                 '<p class="ns-note">These apply to this launch only. They do not change the global config.</p>' +

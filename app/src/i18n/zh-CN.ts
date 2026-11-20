@@ -274,6 +274,11 @@ export const zhCN = {
   'newSession.namePlaceholder':
     '为空时使用首个提示或文件夹',
   'newSession.additional': '其他设置',
+  'newSession.uncommitted': '未提交的更改',
+  'newSession.uncommittedHint':
+    '代码库中有未提交的更改。选择新会话如何开始。',
+  'newSession.uncommittedCopy': '将它们复制到新会话',
+  'newSession.uncommittedLeave': '不包含它们',
   'newSession.env': '环境变量（可选）',
   'newSession.envHint':
     '每行一个 NAME=value。仅适用于此会话。',

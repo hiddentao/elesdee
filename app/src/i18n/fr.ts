@@ -294,6 +294,11 @@ export const fr = {
   'newSession.namePlaceholder':
     'Utilise le premier prompt ou le dossier s’il est vide',
   'newSession.additional': 'Réglages supplémentaires',
+  'newSession.uncommitted': 'Modifications non validées',
+  'newSession.uncommittedHint':
+    'Le dépôt contient des modifications non validées. Choisissez ce que la nouvelle session reprend.',
+  'newSession.uncommittedCopy': 'Les copier dans la nouvelle session',
+  'newSession.uncommittedLeave': 'Les laisser de côté',
   'newSession.env': 'Variables d’environnement (facultatif)',
   'newSession.envHint':
     'Une ligne NAME=value par ligne. Elles s’appliquent à cette session uniquement.',

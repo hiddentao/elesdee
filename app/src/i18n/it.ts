@@ -294,6 +294,11 @@ export const it = {
   'newSession.namePlaceholder':
     'Usa il primo prompt o la cartella quando è vuoto',
   'newSession.additional': 'Impostazioni aggiuntive',
+  'newSession.uncommitted': 'Modifiche non salvate',
+  'newSession.uncommittedHint':
+    'Il repository contiene modifiche non salvate. Scegli cosa includere nella nuova sessione.',
+  'newSession.uncommittedCopy': 'Copiale nella nuova sessione',
+  'newSession.uncommittedLeave': 'Lasciale fuori',
   'newSession.env': 'Variabili d’ambiente (facoltativo)',
   'newSession.envHint':
     'Una riga NAME=value per riga. Valgono solo per questa sessione.',
