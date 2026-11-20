@@ -43,6 +43,7 @@ export function Dialog({
   const dialogRef = useRef<HTMLDivElement>(null);
   const statusRef = useRef<HTMLParagraphElement>(null);
   const initialFocusDone = useRef(false);
+  const wasBusy = useRef(busy);
   const [opener] = useState<HTMLElement | null>(() =>
     document.activeElement instanceof HTMLElement
       ? document.activeElement
@@ -91,6 +92,31 @@ export function Dialog({
     if (busy) {
       statusRef.current?.focus();
     }
+  }, [busy]);
+
+  useEffect(() => {
+    const was = wasBusy.current;
+    wasBusy.current = busy;
+    if (!was || busy) {
+      return;
+    }
+
+    // The busy status unmounts when the request ends. If focus was on it,
+    // the browser drops focus to the page body, so put it back inside.
+    const active = document.activeElement;
+    if (
+      active instanceof HTMLElement &&
+      active !== document.body &&
+      active.isConnected
+    ) {
+      return;
+    }
+    const dialog = dialogRef.current;
+    if (!dialog) {
+      return;
+    }
+    const focusable = focusableElements(dialog);
+    (focusable[0] ?? dialog).focus();
   }, [busy]);
 
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {

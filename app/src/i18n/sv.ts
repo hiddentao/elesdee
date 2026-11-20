@@ -449,6 +449,8 @@ export const sv = {
   'newSession.sourceBranchPlaceholder': 'Aktuell gren',
   'newSession.sourceBranchHint':
     'Den nya sessionsgrenen börjar vid den här commiten.',
+  'newSession.sourceBranchMissing':
+    'Den sparade standardgrenen finns inte längre. Välj en annan gren.',
   'newSession.currentTag': 'Aktuell',
   'newSession.firstPrompt': 'Första prompt (valfritt)',
   'newSession.firstPromptPlaceholder':

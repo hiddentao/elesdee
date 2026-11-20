@@ -96,7 +96,7 @@ export function SessionHeader({
           className={`btn btn-ghost session-panel-toggle${panelOpen ? ' is-on' : ''}`}
           aria-label={t('session.panel')}
           aria-expanded={panelOpen}
-          aria-controls="session-side-panel"
+          aria-controls={panelOpen ? 'session-side-panel' : undefined}
           title={t('session.panel')}
           onClick={onTogglePanel}
         >

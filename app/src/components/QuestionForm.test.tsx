@@ -41,6 +41,29 @@ describe('QuestionForm', () => {
     expect(onAnswer).toHaveBeenCalledWith('No');
   });
 
+  it('keeps repeated option text as separate buttons', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const user = userEvent.setup();
+    const onAnswer = vi.fn().mockResolvedValue(undefined);
+    render(
+      <QuestionForm
+        question={{ ...question, options: ['Red', 'Red'] }}
+        onAnswer={onAnswer}
+      />,
+    );
+
+    const options = screen.getAllByRole('button', { name: 'Red' });
+    expect(options).toHaveLength(2);
+    await user.click(options[1]);
+    expect(onAnswer).toHaveBeenCalledWith('Red');
+    expect(
+      error.mock.calls.some((call) =>
+        String(call[0]).includes('same key'),
+      ),
+    ).toBe(false);
+    error.mockRestore();
+  });
+
   it('does not send an empty answer', async () => {
     const user = userEvent.setup();
     const onAnswer = vi.fn().mockResolvedValue(undefined);

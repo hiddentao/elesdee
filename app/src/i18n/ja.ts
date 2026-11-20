@@ -449,6 +449,8 @@ export const ja = {
   'newSession.sourceBranchPlaceholder': '現在のブランチ',
   'newSession.sourceBranchHint':
     '新しいセッションのブランチはこのコミットから始まります。',
+  'newSession.sourceBranchMissing':
+    '保存された既定のブランチはもう存在しません。別のブランチを選んでください。',
   'newSession.currentTag': '現在',
   'newSession.firstPrompt': '最初のプロンプト（任意）',
   'newSession.firstPromptPlaceholder':

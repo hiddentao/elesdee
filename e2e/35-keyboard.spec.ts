@@ -61,7 +61,13 @@ test('the session panel tabs respond to arrow keys and keep one tab stop', async
   try {
     await openApp(page);
     await sessionRow(page, name).first().click();
-    await page.getByRole('button', { name: 'Session panel' }).click();
+    const panelToggle = page.getByRole('button', { name: 'Session panel' });
+    await expect(panelToggle).not.toHaveAttribute('aria-controls');
+    await panelToggle.click();
+    await expect(panelToggle).toHaveAttribute(
+      'aria-controls',
+      'session-side-panel',
+    );
 
     const tablist = page.getByRole('tablist', { name: 'Session panels' });
     const files = tablist.getByRole('tab', { name: 'Files', exact: true });
@@ -113,6 +119,46 @@ test('the session panel tabs respond to arrow keys and keep one tab stop', async
     await expect(browser).toHaveAttribute('aria-selected', 'true');
   } finally {
     await closeSession(request, session.id);
+  }
+});
+
+test('keeps focus on the session row when the side panel changes session', async ({
+  page,
+  request,
+}) => {
+  const label = uniqueName('keys-panel-switch');
+  const folder = createProjectFolder(label);
+  const project = await createProject(request, label, folder);
+  const firstName = uniqueName('keys-panel-first');
+  const secondName = uniqueName('keys-panel-second');
+  const first = await createTerminalSession(request, {
+    projectId: project.id,
+    name: firstName,
+    folder,
+  });
+  const second = await createTerminalSession(request, {
+    projectId: project.id,
+    name: secondName,
+    folder,
+  });
+
+  try {
+    await openApp(page);
+    await sessionRow(page, firstName).first().click();
+    const panelToggle = page.getByRole('button', { name: 'Session panel' });
+    await panelToggle.click();
+    await expect(
+      page.getByRole('tablist', { name: 'Session panels' }),
+    ).toBeVisible();
+
+    const secondRow = sessionRow(page, secondName).first();
+    await secondRow.click();
+
+    await expect(secondRow).toBeFocused();
+    await expect(panelToggle).not.toBeFocused();
+  } finally {
+    await closeSession(request, first.id);
+    await closeSession(request, second.id);
   }
 });
 
@@ -172,6 +218,8 @@ test('the file tree moves, expands, collapses and opens files from the keyboard'
 
     await page.keyboard.press('Enter');
     await expect(page.locator('.editor-path')).toHaveText('beta.txt');
+    await expect(beta).toHaveAttribute('aria-selected', 'true');
+    await expect(beta.locator('button')).not.toHaveAttribute('aria-current');
     await expect(page.locator('.cm-content')).toBeVisible();
     await expect(page.locator('.cm-content')).toContainText('beta file');
   } finally {
@@ -215,6 +263,7 @@ test('moves a session to another project from the actions menu', async ({
 
     await expect(dialog).not.toBeVisible();
     await expect(page.getByText('Session moved.')).toBeVisible();
+    await expect(sessionRow(page, name).first()).toBeFocused();
     await expect
       .poll(async () => (await getSession(request, session.id))?.projectId)
       .toBe(target.id);

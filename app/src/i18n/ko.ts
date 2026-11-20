@@ -444,6 +444,8 @@ export const ko = {
   'newSession.sourceBranchPlaceholder': '현재 브랜치',
   'newSession.sourceBranchHint':
     '새 세션 브랜치는 이 커밋에서 시작합니다.',
+  'newSession.sourceBranchMissing':
+    '저장된 기본 브랜치가 더 이상 없습니다. 다른 브랜치를 선택하세요.',
   'newSession.currentTag': '현재',
   'newSession.firstPrompt': '첫 번째 프롬프트(선택 사항)',
   'newSession.firstPromptPlaceholder':

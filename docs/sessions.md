@@ -27,8 +27,8 @@ Runs a plain shell. It has no agent, branch or worktree. The folder can be a Git
 3. Choose **Agent** or **Terminal**.
 4. For an agent session, choose an AI config. The config brings its provider, client, model, effort, extra arguments, environment variables and config settings into this launch. You can change the filled-in default. The closed field keeps the provider's remaining usage visible.
 5. Choose the AI configs the session may use. The configs of the starting client are selected by default. Add configs of other clients, or remove any config except the one in use. The app switches automatically only between these configs.
-6. Set the repository folder if you want a different one. The list shows the repositories earlier sessions started from, even after those sessions moved to another project; pick one, or type a path. When GitHub is connected, type in the same box to search your GitHub repositories. A repository that a project already holds is marked **Added** and opens that project's folder. The match uses the git remote, so two checkouts with the same folder name stay apart. A repository that is not on this computer is cloned into the clone folder you choose, and the session starts in the cloned folder.
-7. For an agent session, optionally choose a source branch. The app fetches the remote first, so the new session branch starts from the latest commit. When the branch tracks a remote branch, the app also moves that local branch forward when it is not checked out. It never changes your own checkout and never forces a branch. With no choice, the session starts from the current branch.
+6. Set the repository folder if you want a different one. The list shows the repositories earlier sessions started from, even after those sessions moved to another project; pick one, or type a path. When GitHub is connected, type in the same box to search your GitHub repositories. A repository that a project already holds is marked **Added** and opens that project's folder. The search matches the owner and repository name even when the local folder has another name. The match uses the git remote, so two checkouts with the same folder name stay apart. A repository that is not on this computer is cloned into the clone folder you choose, and the session starts in the cloned folder.
+7. For an agent session, optionally choose a source branch. The app fetches the remote first, so the new session branch starts from the latest commit. When the branch tracks a remote branch, the app also moves that local branch forward when it is not checked out. It never changes your own checkout and never forces a branch. With no choice, the session starts from the current branch. If the project's saved default branch no longer exists, the form clears it and asks you to pick another.
 8. Optionally enter a name.
 9. Open **Additional settings** to enter the first prompt, add environment variables for this session, and choose what to do with uncommitted changes. Use one `NAME=value` per line for the variables. When the repository has uncommitted changes, it asks whether to copy them into the new session or leave them out. The choice applies to this launch only.
 10. Choose **Start**.
@@ -43,7 +43,7 @@ A project groups sessions. Moving a session changes only its project. The sessio
 
 In the grouped session list, drag a session onto another project. The target project shows a dashed outline. Press Escape during the drag to cancel. A small pointer movement still selects the session.
 
-You can also open the session menu and choose **Move to project…**. Pick a project from the filterable list and confirm. This is the same move as dragging.
+You can also open the session menu and choose **Move to project…**. Pick a project from the filterable list and confirm. This is the same move as dragging. After the move, focus goes to the session's row in its new project.
 
 To move a session with the keyboard, focus its row and press **M**. The sidebar says which project is the target. Use the up and down arrows to choose another project, **Enter** to move, or **Escape** to cancel.
 
@@ -55,9 +55,9 @@ Each agent has its own short key list in the session. The core service supplies 
 
 ## Files, Changes and the browser
 
-Each session has a side panel. It is closed by default and remembers its open state and tab for each session. Open it with the panel button in the session header. The terminal stays usable while the panel is open.
+Each session has a side panel. It is closed by default and remembers its open state and tab for each session. Open it with the panel button in the session header. The terminal stays usable while the panel is open. Closing the panel returns focus to the panel button; switching sessions leaves focus on the session you chose.
 
-**Files** shows the folders and files in the session's worktree or folder. Select a file to open it in the editor. The editor highlights the language, shows a dot for unsaved changes, and saves only when you choose **Save**. A failed read or save shows an error in the panel.
+**Files** shows the folders and files in the session's worktree or folder. Select a file to open it in the editor; the tree marks it as selected. The editor highlights the language, shows a dot for unsaved changes, and saves only when you choose **Save**. A failed read or save shows an error in the panel.
 
 Files must be UTF-8 text up to 1 MiB. The app refuses binary files and larger files. Every path stays inside the session folder: paths that climb out, leave through a symlink, or name a folder where a file is expected are refused.
 
@@ -82,6 +82,8 @@ The sidebar shows two states:
 - **Active**, with a short preview of recent output, or **Waiting for you** when the session needs an answer.
 - **Closed**, when **Show closed sessions** is on.
 
+The session header shows Active or Closed, together with the work state in words, such as **Working**, **Paused** or **Waiting for you**.
+
 ## Questions
 
 An agent can ask you a question through the session tools. The question appears as a card above its terminal and in the sidebar **Questions** list. Answer it there. The session stays marked as waiting until you answer, the agent withdraws the question, or you close the session.
@@ -96,7 +98,7 @@ A session can ask to start another session. The request appears in the parent se
 
 Click the provider pill in the session header. The chooser lists the AI configs allowed for this session with their provider usage and marks the config the automatic switch would use next. Choose a config and confirm. The session keeps its worktree and restarts with the new config. The same client continues its conversation. A different client starts again in the same worktree, and it gets the handoff note and the end of the previous log as its first message.
 
-The chooser also edits the allowed list while the session runs. Add a config from the filterable list, or remove one. The config in use always stays allowed. A switch to a config outside the list is refused, and the app never switches to one by itself.
+The chooser also edits the allowed list while the session runs. Add a config from the filterable list, or remove one. The list is capped and scrolls; it keeps the config in use in view and shows a scrollbar when there are more configs than fit. A switch to a config outside the list is refused, and the app never switches to one by itself.
 
 You can also open the session menu and choose **Switch AI config…**.
 

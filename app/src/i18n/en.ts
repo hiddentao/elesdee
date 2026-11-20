@@ -435,6 +435,8 @@ export const en = {
   'newSession.sourceBranchPlaceholder': 'Current branch',
   'newSession.sourceBranchHint':
     'The new session branch starts from this commit.',
+  'newSession.sourceBranchMissing':
+    'The saved default branch no longer exists. Pick another branch.',
   'newSession.currentTag': 'Current',
   'newSession.firstPrompt': 'First prompt (optional)',
   'newSession.firstPromptPlaceholder': 'Tell the agent what to do first',

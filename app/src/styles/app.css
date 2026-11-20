@@ -45,6 +45,14 @@ button:disabled {
   box-shadow: var(--focus-ring);
 }
 
+/* Scrolling strips clip an outer ring, so their controls draw it inside. */
+.tabs button:focus-visible,
+.browser-tabs button:focus-visible,
+.allowed-account-list button:focus-visible {
+  outline-offset: -2px;
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
 .sr-only {
   position: absolute;
   width: 1px;
@@ -1002,12 +1010,11 @@ button:disabled {
   color: var(--text-3);
 }
 
-.status-dot {
-  flex: 0 0 auto;
+.status-badge-marker {
+  align-self: center;
+  margin-top: 0;
   width: 7px;
   height: 7px;
-  border-radius: 50%;
-  background: var(--status-color);
 }
 
 .session-meta-line {
@@ -1641,20 +1648,23 @@ button:disabled {
 
 .dialog-body::-webkit-scrollbar,
 .usage-popover-body::-webkit-scrollbar,
-.diff-snippet::-webkit-scrollbar {
+.diff-snippet::-webkit-scrollbar,
+.allowed-account-list::-webkit-scrollbar {
   width: 11px;
   height: 11px;
 }
 
 .dialog-body::-webkit-scrollbar-track,
 .usage-popover-body::-webkit-scrollbar-track,
-.diff-snippet::-webkit-scrollbar-track {
+.diff-snippet::-webkit-scrollbar-track,
+.allowed-account-list::-webkit-scrollbar-track {
   background: transparent;
 }
 
 .dialog-body::-webkit-scrollbar-thumb,
 .usage-popover-body::-webkit-scrollbar-thumb,
-.diff-snippet::-webkit-scrollbar-thumb {
+.diff-snippet::-webkit-scrollbar-thumb,
+.allowed-account-list::-webkit-scrollbar-thumb {
   border: 3px solid transparent;
   border-radius: 999px;
   background: var(--border-strong);

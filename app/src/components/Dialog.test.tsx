@@ -1,7 +1,7 @@
 import { StrictMode, useState } from 'react';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { Dialog } from './Dialog';
 
 function Harness() {
@@ -175,6 +175,33 @@ describe('Dialog', () => {
 
     await user.tab({ shift: true });
     expect(screen.getByRole('button', { name: 'Second' })).toHaveFocus();
+  });
+
+  it('puts focus back inside when a busy request ends', async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    const renderDialog = (busy: boolean) => (
+      <Dialog
+        titleId="busy-end-title"
+        busy={busy}
+        busyLabel="Starting session…"
+        onClose={onClose}
+      >
+        <h2 id="busy-end-title">Busy dialog</h2>
+        <button type="button">First</button>
+        <button type="button">Second</button>
+      </Dialog>
+    );
+    const view = render(renderDialog(true));
+    expect(screen.getByRole('status')).toHaveFocus();
+
+    view.rerender(renderDialog(false));
+
+    expect(screen.getByRole('button', { name: 'First' })).toHaveFocus();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+
+    await user.keyboard('{Escape}');
+    expect(onClose).toHaveBeenCalledOnce();
   });
 
   it('restores focus to the opener after a StrictMode mount', async () => {

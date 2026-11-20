@@ -449,6 +449,8 @@ export const es = {
   'newSession.sourceBranchPlaceholder': 'Rama actual',
   'newSession.sourceBranchHint':
     'La nueva rama de la sesión parte de este commit.',
+  'newSession.sourceBranchMissing':
+    'La rama predeterminada guardada ya no existe. Elige otra rama.',
   'newSession.currentTag': 'Actual',
   'newSession.firstPrompt': 'Primer prompt (opcional)',
   'newSession.firstPromptPlaceholder':

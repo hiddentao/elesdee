@@ -409,6 +409,7 @@ export const zhCN = {
   'newSession.sourceBranch': '源分支（可选）',
   'newSession.sourceBranchPlaceholder': '当前分支',
   'newSession.sourceBranchHint': '新的会话分支从此提交开始。',
+  'newSession.sourceBranchMissing': '保存的默认分支已不存在。请选择其他分支。',
   'newSession.currentTag': '当前',
   'newSession.firstPrompt': '首个提示（可选）',
   'newSession.firstPromptPlaceholder': '告诉智能体先做什么',

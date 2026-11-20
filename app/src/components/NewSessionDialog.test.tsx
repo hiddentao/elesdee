@@ -141,6 +141,7 @@ beforeEach(() => {
 
 interface RenderOptions {
   sessions?: Session[];
+  projects?: Project[];
   initialProjectId?: string | null;
   onCreate?: (input: CreateSessionInput) => Promise<Session>;
   github?: RepositoryGitHubActions;
@@ -158,7 +159,7 @@ function renderDialog(options: RenderOptions = {}) {
 
   render(
     <NewSessionDialog
-      projects={[coreProject, webProject]}
+      projects={options.projects ?? [coreProject, webProject]}
       providers={[provider]}
       configs={[config]}
       sessions={options.sessions ?? []}
@@ -428,8 +429,57 @@ describe('NewSessionDialog', () => {
     expect(
       screen.getAllByRole('option', { name: /web/ }),
     ).toHaveLength(1);
+    expect(screen.getByRole('option', { name: /web/ })).toHaveTextContent(
+      'Added',
+    );
     expect(
       screen.getByRole('option', { name: /acme\/api/ }),
+    ).toBeInTheDocument();
+  });
+
+  it('finds an added repository by owner and name when its folder is renamed', async () => {
+    const user = userEvent.setup();
+    const repo: GitHubRepo = {
+      id: 5,
+      fullName: 'acme/web',
+      name: 'web',
+      owner: 'acme',
+      private: false,
+      cloneUrl: 'https://github.com/acme/web.git',
+      htmlUrl: 'https://github.com/acme/web',
+      description: '',
+      updatedAt: null,
+      added: true,
+      localFolder: '/work/client-app',
+    };
+    renderDialog({
+      github: githubActions({ listRepos: vi.fn(async () => [repo]) }),
+    });
+    const repository = screen.getByLabelText('Repository folder');
+
+    await user.clear(repository);
+    await user.type(repository, 'acme');
+
+    const option = await screen.findByRole('option', { name: /client-app/ });
+    expect(option).toHaveTextContent('Added');
+    await option.click();
+    expect(repository).toHaveValue('/work/client-app');
+  });
+
+  it('clears a saved default branch that no longer exists', async () => {
+    renderDialog({
+      projects: [
+        { ...coreProject, defaultSourceBranch: 'removed-branch' },
+        webProject,
+      ],
+    });
+
+    const branch = screen.getByLabelText('Source branch (optional)');
+    await waitFor(() => expect(branch).toHaveValue(''));
+    expect(
+      screen.getByText(
+        'The saved default branch no longer exists. Pick another branch.',
+      ),
     ).toBeInTheDocument();
   });
 

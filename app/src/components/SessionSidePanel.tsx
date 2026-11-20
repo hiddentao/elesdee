@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -50,6 +51,8 @@ interface SessionSidePanelProps {
   sharedVersion?: number;
   onSelectTab: (tab: DockTab) => void;
   onClose: () => void;
+  /** Reports whether the public-server confirmation is open. */
+  onDialogOpenChange?: (open: boolean) => void;
 }
 
 interface OpenFile {
@@ -86,6 +89,7 @@ export function SessionSidePanel({
   sharedVersion = 0,
   onSelectTab,
   onClose,
+  onDialogOpenChange,
 }: SessionSidePanelProps) {
   const { t } = useLanguage();
   const [children, setChildren] = useState<Record<string, FileEntry[]>>({});
@@ -126,6 +130,7 @@ export function SessionSidePanel({
   const [activeTreePath, setActiveTreePath] = useState<string | null>(null);
 
   const request = useRef(0);
+  const panelRef = useRef<HTMLElement>(null);
   const tabRefs = useRef<Partial<Record<DockTab, HTMLButtonElement | null>>>({});
   const treeRowRefs = useRef<Record<string, HTMLLIElement | null>>({});
   const openerRef = useRef<HTMLElement | null>(
@@ -133,15 +138,39 @@ export function SessionSidePanel({
       ? document.activeElement
       : null,
   );
+  const focusInsideRef = useRef(false);
+
+  useEffect(() => {
+    const onFocusIn = (event: FocusEvent) => {
+      focusInsideRef.current =
+        panelRef.current?.contains(event.target as Node) ?? false;
+    };
+    document.addEventListener('focusin', onFocusIn);
+    return () => document.removeEventListener('focusin', onFocusIn);
+  }, []);
 
   useEffect(() => {
     const opener = openerRef.current;
+    const panel = panelRef.current;
     return () => {
-      if (opener?.isConnected) {
+      // Switching sessions unmounts this panel too. Return focus to the
+      // opener only when the user closed the panel from inside it.
+      const active = document.activeElement;
+      const inside =
+        focusInsideRef.current ||
+        (panel !== null && active instanceof Node && panel.contains(active));
+      if (inside && opener?.isConnected) {
         opener.focus();
       }
     };
   }, []);
+
+  // Lift the app frame's inert state in the same commit that unmounts the
+  // dialog, so its opener can take focus back.
+  useLayoutEffect(() => {
+    onDialogOpenChange?.(funnelTarget !== null);
+    return () => onDialogOpenChange?.(false);
+  }, [funnelTarget, onDialogOpenChange]);
 
   async function loadDirectory(path: string) {
     setLoadingDirs((current) => new Set(current).add(path));
@@ -529,6 +558,9 @@ export function SessionSidePanel({
           role="treeitem"
           data-tree-path={entry.path}
           aria-expanded={entry.directory ? isOpen : undefined}
+          aria-selected={
+            !entry.directory && selectedPath === entry.path ? true : undefined
+          }
           tabIndex={entry.path === rovingPath ? 0 : -1}
         >
           <button
@@ -538,7 +570,6 @@ export function SessionSidePanel({
               selectedPath === entry.path ? ' is-on' : ''
             }`}
             style={{ paddingLeft: 7 + depth * 14 }}
-            aria-current={selectedPath === entry.path ? 'true' : undefined}
             onClick={() => {
               focusTreeRow(entry.path);
               if (entry.directory) {
@@ -582,6 +613,7 @@ export function SessionSidePanel({
 
   return (
     <aside
+      ref={panelRef}
       id="session-side-panel"
       className="dock"
       aria-label={t('panel.label', { name: session.name })}

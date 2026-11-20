@@ -450,6 +450,8 @@ export const it = {
   'newSession.sourceBranchPlaceholder': 'Branch attuale',
   'newSession.sourceBranchHint':
     'Il nuovo branch della sessione parte da questo commit.',
+  'newSession.sourceBranchMissing':
+    'Il branch predefinito salvato non esiste più. Scegli un altro branch.',
   'newSession.currentTag': 'Attuale',
   'newSession.firstPrompt': 'Primo prompt (facoltativo)',
   'newSession.firstPromptPlaceholder':

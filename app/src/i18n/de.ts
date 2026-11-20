@@ -447,6 +447,8 @@ export const de = {
   'newSession.sourceBranchPlaceholder': 'Aktueller Branch',
   'newSession.sourceBranchHint':
     'Der neue Sitzungs-Branch startet bei diesem Commit.',
+  'newSession.sourceBranchMissing':
+    'Der gespeicherte Standard-Branch existiert nicht mehr. Wähle einen anderen Branch.',
   'newSession.currentTag': 'Aktuell',
   'newSession.firstPrompt': 'Erster Prompt (optional)',
   'newSession.firstPromptPlaceholder':

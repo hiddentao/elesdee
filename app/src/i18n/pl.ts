@@ -450,6 +450,8 @@ export const pl = {
   'newSession.sourceBranchPlaceholder': 'Bieżąca gałąź',
   'newSession.sourceBranchHint':
     'Nowa gałąź sesji zaczyna się od tego commita.',
+  'newSession.sourceBranchMissing':
+    'Zapisana gałąź domyślna już nie istnieje. Wybierz inną gałąź.',
   'newSession.currentTag': 'Bieżąca',
   'newSession.firstPrompt': 'Pierwszy prompt (opcjonalnie)',
   'newSession.firstPromptPlaceholder':

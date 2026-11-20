@@ -686,7 +686,13 @@ export function Sidebar({
         </div>
       ) : null}
 
-      <div className="session-list" ref={listRef}>
+      <div
+        className="session-list"
+        ref={listRef}
+        role="group"
+        aria-label={t('sidebar.sessions')}
+        tabIndex={-1}
+      >
         {!hasProjects ? (
           <p className="sidebar-empty">{t('sidebar.noSessionsYet')}</p>
         ) : view === 'flat' ? (
