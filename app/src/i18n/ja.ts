@@ -396,6 +396,12 @@ export const ja = {
   'usage.close': '使用量を閉じる',
   'usage.percentLeft': '残り {percent}%',
   'usage.belowMinimum': '最低残高を下回っています。',
+  'usage.fiveHour': '5 時間の上限',
+  'usage.weekly': '週間の上限',
+  'usage.balance': '残高',
+  'usage.readAt': '{time} に読み取り。',
+  'usage.stale': '最終読み取り {time}。最新の読み取りに失敗しました。',
+  'usage.checked': '使用量データはありません。{time} に確認。',
 
   'combobox.optionsLabel': '{label}のオプション',
   'combobox.loading': '読み込み中…',

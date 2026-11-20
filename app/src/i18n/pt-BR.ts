@@ -402,6 +402,12 @@ export const ptBR = {
   'usage.close': 'Fechar uso',
   'usage.percentLeft': '{percent}% restante',
   'usage.belowMinimum': 'Abaixo do saldo mínimo.',
+  'usage.fiveHour': 'Limite de 5 horas',
+  'usage.weekly': 'Limite semanal',
+  'usage.balance': 'Saldo',
+  'usage.readAt': 'Lido {time}.',
+  'usage.stale': 'Última leitura {time}. A última leitura falhou.',
+  'usage.checked': 'Nenhum dado de uso. Verificado {time}.',
 
   'combobox.optionsLabel': 'Opções de {label}',
   'combobox.loading': 'Carregando…',

@@ -399,6 +399,12 @@ export const ko = {
   'usage.close': '사용량 닫기',
   'usage.percentLeft': '{percent}% 남음',
   'usage.belowMinimum': '최소 잔액 미만.',
+  'usage.fiveHour': '5시간 한도',
+  'usage.weekly': '주간 한도',
+  'usage.balance': '잔액',
+  'usage.readAt': '{time}에 읽음.',
+  'usage.stale': '마지막 읽기 {time}. 최근 읽기에 실패했습니다.',
+  'usage.checked': '사용량 데이터가 없습니다. {time}에 확인함.',
 
   'combobox.optionsLabel': '{label} 옵션',
   'combobox.loading': '로드 중…',

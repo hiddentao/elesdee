@@ -75,6 +75,26 @@ describe('UsageDialog', () => {
     expect(screen.getByRole('button', { name: 'Close' })).toHaveFocus();
   });
 
+  it('shows the read time in place of the server note', () => {
+    render(
+      <UsageDialog
+        accounts={[
+          makeAccount({
+            rows: [{ label: 'ignored', window: 'five_hour', used: 20 }],
+            foot: 'Old note.',
+            usageStatus: 'fresh',
+            usageReadAt: '2026-11-20T10:00:00Z',
+          }),
+        ]}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('5-hour limit')).toBeInTheDocument();
+    expect(screen.queryByText('Old note.')).not.toBeInTheDocument();
+    expect(screen.getByText(/^Read /)).toBeInTheDocument();
+  });
+
   it('shows no usage data when there are no accounts', () => {
     render(<UsageDialog accounts={[]} onClose={vi.fn()} />);
 

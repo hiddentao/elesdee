@@ -58,6 +58,17 @@ The service binds `127.0.0.1` only. It accepts requests only for loopback hostna
 - The home is removed on close, agent exit, delete and shutdown. Reopen creates it again and reads the key again.
 - Antigravity sessions get no Claude hook settings and no permission card. Their `shortcuts` list is empty; the UI shows the base keys.
 
+## Usage sources
+
+- Claude Code reports plan limits through a status line command that the core writes into the session's private settings file. The command posts the JSON that Claude Code sends on standard input to `/internal/statusline/claude/{id}` with the session's hook token. The core reads `rate_limits.five_hour` and `rate_limits.seven_day`, each with `used_percentage` and `resets_at`, and ignores the rest of the payload.
+- Codex reports plan limits over the session's app-server websocket. The core sends `initialize`, `initialized` and `account/rateLimits/read`, then applies `account/rateLimits/updated` notifications. Windows are told apart by length: 300 minutes is the 5-hour window and 10,080 minutes is the weekly window.
+- DeepSeek reports a prepaid balance from `GET https://api.deepseek.com/user/balance` with the account key from the keychain. The key is sent only in the request's `Authorization` header. It is never logged, returned or written to `state.json`.
+- Other providers have no official source. The account keeps `foot: "No official usage source."`, has no usage status and is skipped by auto-switch.
+- A reading stores the rows, the window kind, `usageSource`, `usageReadAt`, `usageCheckedAt` and `usageStatus`. `usageStatus` is `fresh` after a successful read, `stale` when the last read failed but earlier values remain, and `unknown` when no value was ever read. A failed read sends an `account.updated` event and leaves every session untouched.
+- A fresh reading runs auto-switch immediately. A failed read never switches or pauses a session.
+- DeepSeek balances are read in the background at most once a minute per account and only for non-sample accounts with a key. `POST /api/accounts/{id}/usage/refresh` reads at once, but two concurrent reads for the same account share one request, and a forced refresh within two seconds of the last attempt reuses the stored values.
+- The manual route `POST /api/accounts/{id}/usage` remains for a caller that supplies rows itself. It sets `usageSource: "manual"` and a fresh status.
+
 ## Pairing and devices
 
 The core starts one iroh endpoint for the phone link. The local routes below control pairing and the paired device list. They are local only. They are not reachable through the link, and they keep the Host and Origin rules.
@@ -274,12 +285,16 @@ interface Changes {
   error: string | null;     // a Git failure the UI can show
 }
 
+type UsageStatus = "fresh" | "stale" | "unknown";
+
 interface UsageRow {
-  label: string;
+  label: string;                 // fallback text when the window is unknown
+  window?: "five_hour" | "seven_day" | "balance" | string;
   used?: number;                 // percent used
   value?: string;                // text value, such as a balance
   min?: string;
   warn?: boolean;
+  resetsAt?: number;             // Unix seconds
 }
 
 interface Account {
@@ -291,7 +306,11 @@ interface Account {
   auth: "subscription" | "key" | "local";
   sample: boolean;              // seed account, not added by the user
   rows: UsageRow[];
-  foot: string;
+  foot: string;                 // "No official usage source." when none exists
+  usageReadAt: string | null;   // RFC 3339, last successful read
+  usageCheckedAt: string | null; // RFC 3339, last attempt
+  usageStatus: UsageStatus | null;
+  usageSource: "statusline" | "app-server" | "deepseek" | "manual" | null;
   server: string | null;
   model: string | null;
 }
@@ -326,6 +345,9 @@ interface OutputEvent {
 | PATCH | `/api/projects/{id}` | `{ defaultAccountId?, defaultSourceBranch? }` | `Project` |
 | GET | `/api/accounts?q={text}` | | `Account[]` |
 | POST | `/api/accounts` | `{ name, providerId, client, auth: "key", key, model? }` | `Account` |
+| POST | `/api/accounts/{id}/usage` | `{ rows: UsageRow[] }` | `Account` |
+| POST | `/api/accounts/{id}/usage/refresh` | `{}` | `Account`; 502 when the read fails |
+| POST | `/internal/statusline/claude/{id}?token={token}` | the Claude Code status line JSON | `204` |
 | POST | `/api/pairing` | `{}` | `{ expiresAt, relayReady }` |
 | GET | `/api/pairing/qr` | | `image/png` |
 | GET | `/api/pairing` | | `PairingStatus` |
@@ -368,6 +390,7 @@ Errors use `{ "error": "message" }`. Pairing returns 503 when the link endpoint 
 - An agent session runs the chosen client when one is installed. The client command is chosen by the server, never sent by the UI.
 - The server tells the UI the client's key shortcuts. The UI keeps no list of client keys. An Antigravity session gets an empty list, so the UI shows the base keys.
 - Every change to a session sends `session.updated` on `/api/events`.
+- Every usage reading, successful or failed, sends `account.updated` on `/api/questions/events` with the full account. The desktop UI replaces that account in its list; no other account field changes.
 - Output events carry a sequence number. `after=n` replays the output with a higher sequence number.
 - `after` must be at most the newest sequence. A greater value returns 400.
 - The retained log is bounded. When old chunks have been dropped, the first replayed event carries `gap` with the oldest retained and newest known sequence, so the UI can show that text was lost.

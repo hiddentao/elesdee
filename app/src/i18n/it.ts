@@ -400,6 +400,12 @@ export const it = {
   'usage.close': 'Chiudi utilizzo',
   'usage.percentLeft': '{percent}% rimanente',
   'usage.belowMinimum': 'Sotto il saldo minimo.',
+  'usage.fiveHour': 'Limite di 5 ore',
+  'usage.weekly': 'Limite settimanale',
+  'usage.balance': 'Saldo',
+  'usage.readAt': 'Letto {time}.',
+  'usage.stale': 'Ultima lettura {time}. L’ultima lettura non è riuscita.',
+  'usage.checked': 'Nessun dato di utilizzo. Controllato {time}.',
 
   'combobox.optionsLabel': 'Opzioni di {label}',
   'combobox.loading': 'Caricamento…',

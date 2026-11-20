@@ -61,6 +61,10 @@ pub fn write_settings(
     let mut settings = Map::new();
     apply_json_config(&mut settings, config);
     settings.insert("hooks".to_owned(), Value::Object(hooks));
+    settings.insert(
+        "statusLine".to_owned(),
+        json!({ "type": "command", "command": status_line_command(port, session_id, &token) }),
+    );
     if let Some(model) = model {
         settings.insert("model".to_owned(), Value::String(model.to_owned()));
     }
@@ -73,6 +77,16 @@ pub fn write_settings(
     }
 
     Ok(ClaudeSettings { token, path })
+}
+
+/// The status line command forwards the JSON that Claude Code writes on
+/// standard input to the core service and prints nothing.
+pub fn status_line_command(port: u16, session_id: &str, token: &str) -> String {
+    format!(
+        "curl -s --max-time 2 -X POST -H 'content-type: application/json' --data-binary @- \
+         'http://127.0.0.1:{port}/internal/statusline/claude/{session_id}?token={token}' \
+         >/dev/null 2>&1 || true"
+    )
 }
 
 pub fn session_settings_path(data_dir: &Path, session_id: &str) -> PathBuf {
@@ -182,6 +196,19 @@ mod tests {
         ] {
             assert!(!tool_needs_card(tool), "{tool}");
         }
+    }
+
+    #[test]
+    fn status_line_posts_to_the_core_and_prints_nothing() {
+        let command = status_line_command(4319, "session-1", "abc123");
+        assert!(
+            command.contains(
+                "http://127.0.0.1:4319/internal/statusline/claude/session-1?token=abc123"
+            )
+        );
+        assert!(command.contains("--max-time 2"));
+        assert!(command.contains("--data-binary @-"));
+        assert!(command.contains(">/dev/null 2>&1"));
     }
 
     #[test]

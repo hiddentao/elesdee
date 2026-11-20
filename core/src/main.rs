@@ -2,7 +2,7 @@ use std::env;
 use std::net::SocketAddr;
 use std::process::ExitCode;
 
-use elesdee_core::{AppState, LinkService, router};
+use elesdee_core::{AppState, LinkService, router, start_usage_poller};
 use tokio::net::TcpListener;
 use tracing_subscriber::EnvFilter;
 
@@ -27,6 +27,7 @@ async fn main() -> ExitCode {
             None
         }
     };
+    start_usage_poller(state.clone());
     let bootstrap = state.bootstrap();
     let app = router(state.clone());
     let requested = SocketAddr::from(([127, 0, 0, 1], port));

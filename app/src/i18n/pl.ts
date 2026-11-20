@@ -399,6 +399,12 @@ export const pl = {
   'usage.close': 'Zamknij użycie',
   'usage.percentLeft': 'Pozostało {percent}%',
   'usage.belowMinimum': 'Poniżej minimalnego salda.',
+  'usage.fiveHour': 'Limit 5 godzin',
+  'usage.weekly': 'Limit tygodniowy',
+  'usage.balance': 'Saldo',
+  'usage.readAt': 'Odczytano {time}.',
+  'usage.stale': 'Ostatni odczyt {time}. Ostatni odczyt nie powiódł się.',
+  'usage.checked': 'Brak danych o użyciu. Sprawdzono {time}.',
 
   'combobox.optionsLabel': 'Opcje: {label}',
   'combobox.loading': 'Ładowanie…',

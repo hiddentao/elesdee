@@ -72,11 +72,15 @@ export interface UpdateProjectDefaultsInput {
 
 export interface UsageRow {
   label: string;
+  window?: 'five_hour' | 'seven_day' | 'balance' | string | null;
   used?: number;
   value?: string;
   min?: string;
   warn?: boolean;
+  resetsAt?: number | null;
 }
+
+export type UsageStatus = 'fresh' | 'stale' | 'unknown';
 
 export interface Account {
   id: string;
@@ -88,6 +92,10 @@ export interface Account {
   sample: boolean;
   rows: UsageRow[];
   foot: string;
+  usageReadAt?: string | null;
+  usageCheckedAt?: string | null;
+  usageStatus?: UsageStatus | null;
+  usageSource?: string | null;
   server: string | null;
   model: string | null;
   apiStyle?: string | null;
@@ -200,7 +208,8 @@ export interface Notification {
 export type AuxEvent =
   | { type: 'question.updated'; question: Question }
   | { type: 'request.updated'; request: SessionRequest }
-  | { type: 'notification'; notification: Notification };
+  | { type: 'notification'; notification: Notification }
+  | { type: 'account.updated'; account: Account };
 
 export interface HealthResponse {
   ok: boolean;

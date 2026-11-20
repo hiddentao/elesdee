@@ -12,6 +12,8 @@ Open **Settings** from the bottom of the sidebar. Settings opens over the sessio
 
 The Providers page lists the accounts on this computer. Each row shows the account name, client, plan and usage summary. Sample accounts carry a **Sample** tag.
 
+The app reads usage from official sources. Claude Code reports its plan limits while a session runs, Codex reports them from its app server, and DeepSeek reports the account balance. The usage panel shows the 5-hour and weekly limits or the balance, with the time of the last read. If a read fails, the last numbers stay and the account says the reading is stale. Providers without an official source show **No usage data**.
+
 Choose **Add account** to connect a provider. Choose the provider, the sign-in method, and the fields it needs: an API key, a server URL, a model or an API style. See [Agents and providers](agents.md) for the provider list.
 
 ## Presets

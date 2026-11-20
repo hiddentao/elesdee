@@ -395,6 +395,12 @@ export const de = {
   'usage.close': 'Nutzung schließen',
   'usage.percentLeft': '{percent} % übrig',
   'usage.belowMinimum': 'Unter dem Mindestguthaben.',
+  'usage.fiveHour': '5-Stunden-Limit',
+  'usage.weekly': 'Wochenlimit',
+  'usage.balance': 'Guthaben',
+  'usage.readAt': 'Gelesen {time}.',
+  'usage.stale': 'Zuletzt gelesen {time}. Die letzte Abfrage ist fehlgeschlagen.',
+  'usage.checked': 'Keine Nutzungsdaten. Geprüft {time}.',
 
   'combobox.optionsLabel': '{label}-Optionen',
   'combobox.loading': 'Wird geladen…',

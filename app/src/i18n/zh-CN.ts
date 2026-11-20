@@ -367,6 +367,12 @@ export const zhCN = {
   'usage.close': '关闭用量',
   'usage.percentLeft': '剩余 {percent}%',
   'usage.belowMinimum': '低于最低余额。',
+  'usage.fiveHour': '5 小时限额',
+  'usage.weekly': '每周限额',
+  'usage.balance': '余额',
+  'usage.readAt': '已读取 {time}。',
+  'usage.stale': '上次读取 {time}。最近一次读取失败。',
+  'usage.checked': '没有使用量数据。已检查 {time}。',
 
   'combobox.optionsLabel': '{label}选项',
   'combobox.loading': '正在加载…',

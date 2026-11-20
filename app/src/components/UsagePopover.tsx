@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import type { Account } from '../api/types';
 import { useLanguage } from '../i18n/LanguageProvider';
+import { usageStatusText } from '../state/usage';
 import { UsageLimitRow } from './UsageLimitRow';
 import { CloseIcon } from './icons';
 
@@ -22,7 +23,7 @@ export function UsagePopover({
   trigger,
   onClose,
 }: UsagePopoverProps) {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const panelRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
   const [opener] = useState<HTMLElement | null>(() =>
@@ -117,39 +118,41 @@ export function UsagePopover({
         {accounts.length === 0 ? (
           <p className="usage-empty">{t('usage.none')}</p>
         ) : (
-          accounts.map((account) => (
-            <section
-              className="usage-card"
-              key={account.id}
-              aria-label={account.name}
-            >
-              <div className="usage-card-head">
-                <div className="usage-card-main">
-                  <span className="usage-name">{account.name}</span>
-                  {account.sample ? (
-                    <span className="sample-tag">{t('common.sample')}</span>
-                  ) : null}
-                  <span className="usage-plan">
-                    {account.plan} · {account.client}
-                  </span>
+          accounts.map((account) => {
+            const status =
+              usageStatusText(account, language, t) ?? account.foot;
+            return (
+              <section
+                className="usage-card"
+                key={account.id}
+                aria-label={account.name}
+              >
+                <div className="usage-card-head">
+                  <div className="usage-card-main">
+                    <span className="usage-name">{account.name}</span>
+                    {account.sample ? (
+                      <span className="sample-tag">{t('common.sample')}</span>
+                    ) : null}
+                    <span className="usage-plan">
+                      {account.plan} · {account.client}
+                    </span>
+                  </div>
                 </div>
-              </div>
 
-              {account.rows.length === 0 ? (
-                <p className="usage-empty">{t('usage.none')}</p>
-              ) : (
-                <div className="usage-card-rows">
-                  {account.rows.map((row, index) => (
-                    <UsageLimitRow key={`${row.label}-${index}`} row={row} />
-                  ))}
-                </div>
-              )}
+                {account.rows.length === 0 ? (
+                  <p className="usage-empty">{t('usage.none')}</p>
+                ) : (
+                  <div className="usage-card-rows">
+                    {account.rows.map((row, index) => (
+                      <UsageLimitRow key={`${row.label}-${index}`} row={row} />
+                    ))}
+                  </div>
+                )}
 
-              {account.foot ? (
-                <p className="usage-foot">{account.foot}</p>
-              ) : null}
-            </section>
-          ))
+                {status ? <p className="usage-foot">{status}</p> : null}
+              </section>
+            );
+          })
         )}
       </div>
     </div>

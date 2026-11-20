@@ -71,6 +71,8 @@ pub fn launch_args(command: &mut CommandBuilder, url: &str) {
     command.arg(url);
 }
 
+const RATE_LIMITS_REQUEST: &str = "elesdee-rate-limits";
+
 pub async fn run(
     url: String,
     entry: Arc<SessionEntry>,
@@ -82,6 +84,7 @@ pub async fn run(
         tracing::warn!(session = %entry.id(), %url, "could not connect to the Codex app server");
         return;
     };
+    let account_id = entry.session().account_id;
     let (mut writer, mut reader) = socket.split();
     let initialize = json!({
         "jsonrpc": "2.0",
@@ -92,12 +95,21 @@ pub async fn run(
             "capabilities": { "experimentalApi": true, "requiredHumanApproval": true }
         }
     });
-    if writer
-        .send(Message::Text(initialize.to_string().into()))
-        .await
-        .is_err()
-    {
-        return;
+    let initialized = json!({ "jsonrpc": "2.0", "method": "initialized" });
+    let read_limits = json!({
+        "jsonrpc": "2.0",
+        "id": RATE_LIMITS_REQUEST,
+        "method": "account/rateLimits/read",
+        "params": {}
+    });
+    for message in [initialize, initialized, read_limits] {
+        if writer
+            .send(Message::Text(message.to_string().into()))
+            .await
+            .is_err()
+        {
+            return;
+        }
     }
 
     loop {
@@ -113,7 +125,42 @@ pub async fn run(
                 let Some(Ok(message)) = message else { break };
                 let Message::Text(text) = message else { continue };
                 let Ok(value) = serde_json::from_str::<Value>(&text) else { continue };
+
+                if value.get("method").is_none() {
+                    let is_rate_reply =
+                        value.get("id").and_then(Value::as_str) == Some(RATE_LIMITS_REQUEST);
+                    if is_rate_reply
+                        && let Some(account_id) = account_id.as_deref()
+                    {
+                        let rows = crate::usage::codex_rows(&value);
+                        if !rows.is_empty() {
+                            crate::usage::apply_usage(
+                                &state,
+                                account_id,
+                                crate::usage::APP_SERVER,
+                                rows,
+                            )
+                            .await;
+                        }
+                    }
+                    continue;
+                }
+
                 let Some(method) = value.get("method").and_then(Value::as_str) else { continue };
+                if method == "account/rateLimits/updated"
+                    && let Some(account_id) = account_id.as_deref()
+                {
+                    let rows = crate::usage::codex_rows(&value);
+                    if !rows.is_empty() {
+                        crate::usage::apply_usage(
+                            &state,
+                            account_id,
+                            crate::usage::APP_SERVER,
+                            rows,
+                        )
+                        .await;
+                    }
+                }
                 if let Some(thread_id) = thread_id(method, value.get("params"))
                     && let Some(session) = entry.note_agent_session_id(thread_id)
                 {
@@ -217,7 +264,13 @@ fn decision_response(decision: &Decision) -> Option<Value> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use super::*;
+    use crate::sessions::{OutputBudget, SessionRuntimeConfig};
+    use crate::state::{
+        Account, Auth, Client, Session, SessionKind, SessionState, UsageStatus, WorkState,
+    };
 
     #[test]
     fn approval_maps_methods_to_tools_and_keeps_the_reply_id() {
@@ -267,5 +320,158 @@ mod tests {
             thread_id("turn/started", Some(&json!({ "threadId": " " }))),
             None
         );
+    }
+
+    async fn next_json(
+        socket: &mut tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>,
+    ) -> Value {
+        loop {
+            let message = socket.next().await.expect("message").expect("socket");
+            if let Message::Text(text) = message {
+                return serde_json::from_str(&text).expect("json");
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn the_app_server_read_and_update_feed_the_account() {
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .expect("bind");
+        let address = listener.local_addr().expect("address");
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.expect("accept");
+            let mut socket = tokio_tungstenite::accept_async(stream)
+                .await
+                .expect("handshake");
+            assert_eq!(next_json(&mut socket).await["method"], "initialize");
+            socket
+                .send(Message::Text(
+                    json!({ "jsonrpc": "2.0", "id": 1, "result": {} })
+                        .to_string()
+                        .into(),
+                ))
+                .await
+                .expect("initialize reply");
+            assert_eq!(next_json(&mut socket).await["method"], "initialized");
+            assert_eq!(
+                next_json(&mut socket).await["method"],
+                "account/rateLimits/read"
+            );
+            socket
+                .send(Message::Text(
+                    json!({
+                        "jsonrpc": "2.0",
+                        "id": RATE_LIMITS_REQUEST,
+                        "result": { "rateLimits": {
+                            "primary": { "usedPercent": 25, "windowDurationMins": 300, "resetsAt": 10 },
+                            "secondary": { "usedPercent": 61, "windowDurationMins": 10080, "resetsAt": 20 }
+                        }}
+                    })
+                    .to_string()
+                    .into(),
+                ))
+                .await
+                .expect("rate limits reply");
+            socket
+                .send(Message::Text(
+                    json!({
+                        "jsonrpc": "2.0",
+                        "method": "account/rateLimits/updated",
+                        "params": { "rateLimits": {
+                            "primary": { "usedPercent": 95, "windowDurationMins": 300, "resetsAt": 10 },
+                            "secondary": { "usedPercent": 61, "windowDurationMins": 10080, "resetsAt": 20 }
+                        }}
+                    })
+                    .to_string()
+                    .into(),
+                ))
+                .await
+                .expect("rate limits update");
+            socket.close(None).await.expect("close");
+        });
+
+        let state = AppState::ephemeral();
+        let account = state.add_account(Account {
+            id: String::new(),
+            name: "Codex usage".to_owned(),
+            plan: "subscription".to_owned(),
+            client: Client::Codex,
+            provider: "openai".to_owned(),
+            auth: Auth::Subscription,
+            sample: false,
+            rows: Vec::new(),
+            foot: "No official usage source.".to_owned(),
+            usage_read_at: None,
+            usage_checked_at: None,
+            usage_status: None,
+            usage_source: None,
+            server: None,
+            model: None,
+            api_style: None,
+        });
+        let (events, _) = tokio::sync::broadcast::channel(8);
+        let entry = Arc::new(SessionEntry::new(
+            Session {
+                id: "codex-usage".to_owned(),
+                name: "Codex usage".to_owned(),
+                short: "codex-usage".to_owned(),
+                project_id: "web".to_owned(),
+                kind: SessionKind::Agent,
+                status: SessionState::Active,
+                work_state: Some(WorkState::Working),
+                client: Some(Client::Codex),
+                account_id: Some(account.id.clone()),
+                branch: None,
+                folder: "/tmp".to_owned(),
+                preview: String::new(),
+                waiting_for: None,
+                pending_permission: None,
+                first_prompt: None,
+                parent_session_id: None,
+                parent_session_name: None,
+                env_overrides: Vec::new(),
+                preset_id: None,
+                model: None,
+                config: BTreeMap::new(),
+                agent_session_id: None,
+                handoff_note: None,
+                started_at: "2026-01-01T00:00:00Z".to_owned(),
+                shortcuts: Vec::new(),
+            },
+            Arc::new(OutputBudget::new(1024 * 1024)),
+            SessionRuntimeConfig::new(events, Duration::from_secs(2)),
+        ));
+        let (sender, receiver) = mpsc::unbounded_channel();
+        let url = format!("ws://{address}");
+
+        tokio::time::timeout(
+            Duration::from_secs(5),
+            run(url, Arc::clone(&entry), receiver, state.clone()),
+        )
+        .await
+        .expect("the app-server run finished");
+        drop(sender);
+        server.await.expect("server");
+
+        let stored = state.account(&account.id).expect("account");
+        assert_eq!(
+            stored.usage_source.as_deref(),
+            Some(crate::usage::APP_SERVER)
+        );
+        assert_eq!(stored.usage_status, Some(UsageStatus::Fresh));
+        assert!(stored.usage_read_at.is_some());
+        assert!(stored.foot.is_empty());
+        assert_eq!(stored.rows.len(), 2);
+        assert_eq!(
+            stored.rows[0].window.as_deref(),
+            Some(crate::usage::FIVE_HOUR)
+        );
+        assert_eq!(stored.rows[0].used, Some(95));
+        assert_eq!(
+            stored.rows[1].window.as_deref(),
+            Some(crate::usage::SEVEN_DAY)
+        );
+        assert_eq!(stored.rows[1].used, Some(61));
     }
 }

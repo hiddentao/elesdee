@@ -20,9 +20,11 @@ mod shortcuts;
 mod slug;
 pub mod state;
 mod text;
+mod usage;
 
 pub use secrets::{KeyringStore, MemorySecretStore, SecretError, SecretStore};
 
 pub use api::router;
 pub use link::{LinkHub, LinkService};
 pub use state::AppState;
+pub use usage::start_poller as start_usage_poller;

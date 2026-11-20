@@ -1,11 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import type { Account } from '../api/types';
+import { translate, type Translate } from '../i18n';
 import {
   accountUsage,
   balanceBelowMin,
+  formatUsageTime,
+  rowLabel,
   rowWarn,
   tightestAccount,
+  usageStatusText,
 } from './usage';
+
+const t: Translate = (key, values) => translate('en', key, values);
 
 function makeAccount(overrides: Partial<Account> = {}): Account {
   return {
@@ -87,6 +93,55 @@ describe('usage helpers', () => {
   it('warns on a low remaining percent', () => {
     expect(rowWarn({ label: 'Weekly', used: 85 })).toBe(true);
     expect(rowWarn({ label: 'Weekly', used: 40 })).toBe(false);
+  });
+
+  it('names known usage windows from the catalog', () => {
+    expect(rowLabel({ label: 'ignored', window: 'five_hour' }, t)).toBe(
+      '5-hour limit',
+    );
+    expect(rowLabel({ label: 'ignored', window: 'seven_day' }, t)).toBe(
+      'Weekly limit',
+    );
+    expect(rowLabel({ label: 'ignored', window: 'balance' }, t)).toBe(
+      'Balance',
+    );
+    expect(rowLabel({ label: 'Custom', window: 'other' }, t)).toBe('Custom');
+  });
+
+  it('reports when the usage was read and whether the read is stale', () => {
+    const readAt = '2026-11-20T10:00:00Z';
+    const time = formatUsageTime(readAt, 'en');
+    expect(time).not.toBeNull();
+
+    const fresh = usageStatusText(
+      makeAccount({ usageStatus: 'fresh', usageReadAt: readAt }),
+      'en',
+      t,
+    );
+    expect(fresh).toBe(`Read ${time}.`);
+
+    const stale = usageStatusText(
+      makeAccount({
+        usageStatus: 'stale',
+        usageReadAt: readAt,
+        usageCheckedAt: '2026-11-20T11:00:00Z',
+      }),
+      'en',
+      t,
+    );
+    expect(stale).toBe(`Last read ${time}. The latest read failed.`);
+
+    const unknownTime = formatUsageTime('2026-11-20T11:00:00Z', 'en');
+    const unknown = usageStatusText(
+      makeAccount({
+        usageStatus: 'unknown',
+        usageCheckedAt: '2026-11-20T11:00:00Z',
+      }),
+      'en',
+      t,
+    );
+    expect(unknown).toBe(`No usage data. Checked ${unknownTime}.`);
+    expect(usageStatusText(makeAccount(), 'en', t)).toBeNull();
   });
 
   it('finds the account with the least remaining usage', () => {
