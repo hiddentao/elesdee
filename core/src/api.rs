@@ -1199,6 +1199,7 @@ fn demo_error(error: crate::demo::DemoFailure) -> ApiError {
             ApiError::not_found(error.to_string())
         }
         crate::demo::DemoFailure::Closed => ApiError::conflict(error.to_string()),
+        crate::demo::DemoFailure::FunnelStillPublic { .. } => ApiError::conflict(error.to_string()),
         _ => ApiError::unprocessable(error.to_string()),
     }
 }

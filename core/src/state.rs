@@ -2185,7 +2185,16 @@ impl AppState {
             return Err(DemoFailure::PortInUse);
         }
         let tailscale_address = self.inner.tailscale.address(port);
-        let session = entry.register_demo_server(name, port, tailscale_address)?;
+        let session =
+            entry.register_demo_server(name, port, tailscale_address, |pruned_port: u16| {
+                self.inner
+                    .tailscale
+                    .disable_funnel(pruned_port)
+                    .map_err(|error| DemoFailure::FunnelStillPublic {
+                        port: pruned_port,
+                        reason: funnel_failure_reason(&error),
+                    })
+            })?;
         let server = session
             .demo_servers
             .iter()
