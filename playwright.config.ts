@@ -8,6 +8,8 @@ const corePort = Number(process.env.ELESDEE_E2E_CORE_PORT ?? 4399);
 const webPort = Number(process.env.ELESDEE_E2E_WEB_PORT ?? 5199);
 const opencodePort = Number(process.env.ELESDEE_E2E_OPENCODE_PORT ?? 4398);
 const codexPort = Number(process.env.ELESDEE_E2E_CODEX_PORT ?? 4397);
+const githubPort = Number(process.env.ELESDEE_E2E_GITHUB_PORT ?? 4396);
+const githubMode = path.join(runDir, 'github-mode.txt');
 const chromePath = process.env.ELESDEE_E2E_CHROME ?? chromium.executablePath();
 const agentStub = path.join(runDir, 'agent-stub.sh');
 const signInStub = path.join(runDir, 'sign-in-stub.sh');
@@ -41,6 +43,7 @@ exit 0
 );
 fs.chmodSync(signInStub, 0o755);
 fs.writeFileSync(signInControl, 'success');
+fs.writeFileSync(githubMode, 'success');
 
 export default defineConfig({
   testDir: './e2e',
@@ -68,7 +71,7 @@ export default defineConfig({
   globalTeardown: './e2e/global-teardown.ts',
   webServer: [
     {
-      command: `ELESDEE_PORT=${corePort} ELESDEE_DATA_DIR=${JSON.stringify(path.join(runDir, 'data'))} ELESDEE_AGENT_BIN=${JSON.stringify(agentStub)} ELESDEE_SIGNIN_BIN=${JSON.stringify(signInStub)} SIGNIN_CONTROL=${JSON.stringify(signInControl)} ELESDEE_SIGNIN_TIMEOUT_SECS=20 ELESDEE_MEMORY_SECRETS=1 ELESDEE_OPENCODE_PORT=${opencodePort} ELESDEE_CODEX_WS=ws://127.0.0.1:${codexPort} CHROME=${JSON.stringify(chromePath)} cargo run --manifest-path core/Cargo.toml`,
+      command: `ELESDEE_PORT=${corePort} ELESDEE_DATA_DIR=${JSON.stringify(path.join(runDir, 'data'))} ELESDEE_AGENT_BIN=${JSON.stringify(agentStub)} ELESDEE_SIGNIN_BIN=${JSON.stringify(signInStub)} SIGNIN_CONTROL=${JSON.stringify(signInControl)} ELESDEE_SIGNIN_TIMEOUT_SECS=20 ELESDEE_MEMORY_SECRETS=1 ELESDEE_OPENCODE_PORT=${opencodePort} ELESDEE_CODEX_WS=ws://127.0.0.1:${codexPort} ELESDEE_GITHUB_CLIENT_ID=test-client ELESDEE_GITHUB_API_BASE=http://127.0.0.1:${githubPort} ELESDEE_GITHUB_LOGIN_BASE=http://127.0.0.1:${githubPort} ELESDEE_GITHUB_DEFAULT_PARENT=${JSON.stringify(path.join(runDir, 'github-clones'))} CHROME=${JSON.stringify(chromePath)} cargo run --manifest-path core/Cargo.toml`,
       url: `http://127.0.0.1:${corePort}/api/health`,
       timeout: 300_000,
       reuseExistingServer: false,
@@ -86,6 +89,14 @@ export default defineConfig({
     {
       command: `ELESDEE_CODEX_PORT=${codexPort} node e2e/codex-server.mjs`,
       url: `http://127.0.0.1:${codexPort}/health`,
+      timeout: 30_000,
+      reuseExistingServer: false,
+      stdout: 'pipe',
+      stderr: 'pipe',
+    },
+    {
+      command: `ELESDEE_GITHUB_PORT=${githubPort} ELESDEE_GITHUB_RUN_DIR=${JSON.stringify(runDir)} node e2e/github-server.mjs`,
+      url: `http://127.0.0.1:${githubPort}/health`,
       timeout: 30_000,
       reuseExistingServer: false,
       stdout: 'pipe',
