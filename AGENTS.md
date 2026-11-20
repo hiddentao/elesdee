@@ -12,6 +12,7 @@ This file carries the rules that bind every prompt. Detail and decisions live in
 | `.dev/api.md` | The core service API contract: types and endpoints. |
 | `.dev/hooks.md` | Agent hook integration and the permission answer flow. |
 | `.dev/phone-shell.md` | The phone shell, pairing and remote connection design. |
+| `.dev/providers-configs.md` | The provider credential and AI config model, models and effort. |
 | `.dev/mockups/round-1.html` | The clickable Mac and phone mockups. A is dark, B is light. The visual reference for the app. |
 | `.dev/research/` | Research notes behind the spec. |
 | `docs/` | Public product documentation. The website build starts from this folder at release. |
