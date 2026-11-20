@@ -1,5 +1,6 @@
 import { useRef, type KeyboardEvent } from 'react';
 import type { Project, Session } from '../api/types';
+import { useLanguage } from '../i18n/LanguageProvider';
 import { statusText, statusTone } from '../state/sessionStatus';
 import { FolderIcon, PlusIcon } from './icons';
 
@@ -24,6 +25,7 @@ export function TabStrip({
   onSessionMenu,
   onNewSession,
 }: TabStripProps) {
+  const { t } = useLanguage();
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
   function activateAt(index: number) {
@@ -71,9 +73,13 @@ export function TabStrip({
       </div>
 
       {sessions.length === 0 ? (
-        <p className="tabs-empty">Open a session from the sidebar.</p>
+        <p className="tabs-empty">{t('session.openFromSidebar')}</p>
       ) : (
-        <div className="tabs" role="tablist" aria-label={`${project.name} sessions`}>
+        <div
+          className="tabs"
+          role="tablist"
+          aria-label={t('session.projectSessions', { name: project.name })}
+        >
           {sessions.map((session, index) => {
             const isActive = session.id === activeSessionId;
             const isTabStop = isActive || (activeSessionId === null && index === 0);
@@ -89,7 +95,10 @@ export function TabStrip({
                 id={`tab-${session.id}`}
                 aria-selected={isActive}
                 aria-controls="session-panel"
-                aria-label={`${session.name}, ${statusText(session)}`}
+                aria-label={t('session.tabLabel', {
+                  name: session.name,
+                  status: statusText(session, t),
+                })}
                 tabIndex={isTabStop ? 0 : -1}
                 className={isActive ? 'tab is-active' : 'tab'}
                 title={session.name}
@@ -119,8 +128,8 @@ export function TabStrip({
       <button
         type="button"
         className="tab-add"
-        aria-label="New session"
-        title="New session"
+        aria-label={t('session.newSession')}
+        title={t('session.newSession')}
         onClick={onNewSession}
       >
         <PlusIcon />

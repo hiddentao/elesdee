@@ -1,6 +1,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
+import { LanguageProvider } from './i18n/LanguageProvider';
 import '@xterm/xterm/css/xterm.css';
 import './styles/tokens.css';
 import './styles/app.css';
@@ -13,6 +14,8 @@ if (!root) {
 
 createRoot(root).render(
   <StrictMode>
-    <App />
+    <LanguageProvider>
+      <App />
+    </LanguageProvider>
   </StrictMode>,
 );

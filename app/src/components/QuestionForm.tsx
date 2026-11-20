@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { Question } from '../api/types';
+import { useLanguage } from '../i18n/LanguageProvider';
 
 interface QuestionFormProps {
   question: Question;
@@ -12,6 +13,7 @@ export function QuestionForm({
   onAnswer,
   compact = false,
 }: QuestionFormProps) {
+  const { t } = useLanguage();
   const [answer, setAnswer] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -19,7 +21,7 @@ export function QuestionForm({
   async function submit(value: string) {
     const trimmed = value.trim();
     if (!trimmed) {
-      setError('Enter an answer.');
+      setError(t('question.errorEmpty'));
       return;
     }
     setSubmitting(true);
@@ -28,7 +30,7 @@ export function QuestionForm({
       await onAnswer(trimmed);
     } catch {
       setSubmitting(false);
-      setError('The answer was not sent. Try again.');
+      setError(t('question.errorSend'));
     }
   }
 
@@ -60,8 +62,8 @@ export function QuestionForm({
           <input
             className="text-input"
             value={answer}
-            aria-label="Answer"
-            placeholder="Type an answer"
+            aria-label={t('question.answerLabel')}
+            placeholder={t('question.answerPlaceholder')}
             disabled={submitting}
             onChange={(event) => {
               setAnswer(event.target.value);
@@ -73,7 +75,7 @@ export function QuestionForm({
             className="btn btn-primary"
             disabled={submitting}
           >
-            {submitting ? 'Sending…' : 'Answer'}
+            {submitting ? t('question.sending') : t('question.answer')}
           </button>
         </form>
       )}

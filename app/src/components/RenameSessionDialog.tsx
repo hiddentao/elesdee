@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { ApiError } from '../api/client';
 import type { Session } from '../api/types';
+import { useLanguage } from '../i18n/LanguageProvider';
 import { Dialog } from './Dialog';
 
 interface RenameSessionDialogProps {
@@ -14,6 +15,7 @@ export function RenameSessionDialog({
   onRename,
   onClose,
 }: RenameSessionDialogProps) {
+  const { t } = useLanguage();
   const [name, setName] = useState(session.name);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -23,11 +25,11 @@ export function RenameSessionDialog({
 
     const trimmed = name.trim();
     if (trimmed.length === 0) {
-      setError('Enter a name.');
+      setError(t('rename.errorEmpty'));
       return;
     }
     if (trimmed.length > 64) {
-      setError('Use 64 characters or fewer.');
+      setError(t('rename.errorLong'));
       return;
     }
 
@@ -40,7 +42,7 @@ export function RenameSessionDialog({
       setError(
         reason instanceof ApiError
           ? reason.message
-          : 'The session was not renamed. Try again.',
+          : t('rename.error'),
       );
       setSubmitting(false);
     }
@@ -50,23 +52,23 @@ export function RenameSessionDialog({
     <Dialog
       titleId="rename-session-title"
       descriptionId="rename-session-description"
-      busyLabel="Renaming session…"
+      busyLabel={t('rename.busyLabel')}
       onClose={onClose}
       busy={submitting}
     >
       <div className="dialog-head">
         <h2 className="dialog-title" id="rename-session-title">
-          Rename session
+          {t('rename.title')}
         </h2>
         <p className="dialog-sub" id="rename-session-description">
-          The session and its tab take the new name. The branch keeps its name.
+          {t('rename.subtitle')}
         </p>
       </div>
 
       <form className="dialog-form" onSubmit={handleSubmit} noValidate>
         <div className="dialog-body">
           <div className="field">
-            <label htmlFor="rename-session-name">Name</label>
+            <label htmlFor="rename-session-name">{t('rename.name')}</label>
             <input
               id="rename-session-name"
               className="text-input"
@@ -86,7 +88,7 @@ export function RenameSessionDialog({
                 {error}
               </p>
             ) : (
-              <p className="field-hint">1–64 characters.</p>
+              <p className="field-hint">{t('rename.hint')}</p>
             )}
           </div>
         </div>
@@ -98,10 +100,10 @@ export function RenameSessionDialog({
             onClick={onClose}
             disabled={submitting}
           >
-            Cancel
+            {t('common.cancel')}
           </button>
           <button type="submit" className="btn btn-primary" disabled={submitting}>
-            {submitting ? 'Renaming…' : 'Rename'}
+            {submitting ? t('rename.submitting') : t('rename.submit')}
           </button>
         </div>
       </form>

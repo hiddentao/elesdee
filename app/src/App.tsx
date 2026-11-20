@@ -68,6 +68,8 @@ import { Sidebar } from './components/Sidebar';
 import { SwitchAccountDialog } from './components/SwitchAccountDialog';
 import { TabStrip } from './components/TabStrip';
 import { PlusIcon, SparkIcon, TerminalIcon } from './components/icons';
+import { useLanguage } from './i18n/LanguageProvider';
+import type { Translate } from './i18n';
 import {
   closeSessionTab,
   openSessionTab,
@@ -94,13 +96,16 @@ interface BranchMenuState {
   trigger: HTMLElement;
 }
 
-function messageFor(error: unknown): string {
+function messageFor(error: unknown, t: Translate): string {
   return error instanceof Error && error.message
     ? error.message
-    : 'The request failed.';
+    : t('app.requestFailed');
 }
 
 export default function App() {
+  const { t } = useLanguage();
+  const tRef = useRef(t);
+  tRef.current = t;
   const [loadState, setLoadState] = useState<LoadState>('loading');
   const [loadError, setLoadError] = useState('');
   const [projects, setProjects] = useState<Project[]>([]);
@@ -178,7 +183,7 @@ export default function App() {
       );
       setLoadState('ready');
     } catch (error) {
-      setLoadError(messageFor(error));
+      setLoadError(messageFor(error, tRef.current));
       setLoadState('error');
     }
   }, []);
@@ -281,13 +286,17 @@ export default function App() {
 
         if (previous) {
           if (previous.status === 'active' && session.status === 'closed') {
-            setAnnouncement(`${session.name} closed.`);
+            setAnnouncement(
+              tRef.current('app.announcementClosed', { name: session.name }),
+            );
           } else if (
             !previous.waitingFor &&
             session.waitingFor &&
             session.id !== activeSessionIdRef.current
           ) {
-            setAnnouncement(`${session.name} is waiting for you.`);
+            setAnnouncement(
+              tRef.current('app.announcementWaiting', { name: session.name }),
+            );
           }
         }
 
@@ -501,7 +510,7 @@ export default function App() {
         project.id === updated.id ? updated : project,
       ),
     );
-    setToast({ message: 'Project defaults saved.', error: false });
+    setToast({ message: t('app.projectDefaultsSaved'), error: false });
   }
 
   async function confirmClose() {
@@ -564,7 +573,7 @@ export default function App() {
           ? error
           : error instanceof Error && error.message
             ? error.message
-            : 'The action failed.';
+            : tRef.current('app.actionFailed');
       setToast({ message, error: true });
     }
   }
@@ -573,12 +582,12 @@ export default function App() {
     switch (action) {
       case 'copy-branch':
         if (session.branch) {
-          void copyText(session.branch, 'Branch name copied.');
+          void copyText(session.branch, t('app.branchCopied'));
         }
         break;
       case 'copy-folder':
         if (session.folder) {
-          void copyText(session.folder, 'Folder path copied.');
+          void copyText(session.folder, t('app.folderCopied'));
         }
         break;
       case 'open-folder':
@@ -595,7 +604,7 @@ export default function App() {
       await navigator.clipboard.writeText(value);
       setToast({ message, error: false });
     } catch {
-      setToast({ message: 'The clipboard is not available.', error: true });
+      setToast({ message: t('app.clipboardUnavailable'), error: true });
     }
   }
 
@@ -607,13 +616,13 @@ export default function App() {
       );
       openSession(reopened);
       setFocusSessionChangeTick((tick) => tick + 1);
-      setToast({ message: 'Session reopened.', error: false });
+      setToast({ message: t('app.sessionReopened'), error: false });
     } catch (error) {
       setToast({
         message:
           error instanceof ApiError
             ? error.message
-            : 'The session was not reopened.',
+            : t('app.sessionNotReopened'),
         error: true,
       });
     }
@@ -625,13 +634,13 @@ export default function App() {
       setSessions((current) =>
         current.map((item) => (item.id === resumed.id ? resumed : item)),
       );
-      setToast({ message: 'Session resumed.', error: false });
+      setToast({ message: t('app.sessionResumed'), error: false });
     } catch (error) {
       setToast({
         message:
           error instanceof ApiError
             ? error.message
-            : 'The session was not resumed.',
+            : t('app.sessionNotResumed'),
         error: true,
       });
     }
@@ -648,11 +657,11 @@ export default function App() {
         setSwitchSessionId(session.id);
         break;
       case 'copy-folder':
-        void copyText(session.folder, 'Folder path copied.');
+        void copyText(session.folder, t('app.folderCopied'));
         break;
       case 'copy-branch':
         if (session.branch) {
-          void copyText(session.branch, 'Branch name copied.');
+          void copyText(session.branch, t('app.branchCopied'));
         }
         break;
       case 'close':
@@ -691,7 +700,7 @@ export default function App() {
     setSessions((current) =>
       current.map((item) => (item.id === updated.id ? updated : item)),
     );
-    setToast({ message: 'Account switched.', error: false });
+    setToast({ message: t('app.accountSwitched'), error: false });
   }
 
   async function answerPermission(
@@ -720,7 +729,7 @@ export default function App() {
           ),
         );
         setToast({
-          message: 'That permission request was already resolved.',
+          message: t('app.permissionResolved'),
           error: false,
         });
         return;
@@ -735,7 +744,7 @@ export default function App() {
     setQuestions((current) =>
       current.filter((question) => question.id !== id),
     );
-    setToast({ message: 'Answer sent.', error: false });
+    setToast({ message: t('app.answerSent'), error: false });
   }
 
   async function approveRequest(id: string, allowFurther: boolean) {
@@ -751,7 +760,7 @@ export default function App() {
       );
       openSession(result.session);
     }
-    setToast({ message: 'Session approved and started.', error: false });
+    setToast({ message: t('app.sessionApproved'), error: false });
   }
 
   async function denyRequest(id: string) {
@@ -759,7 +768,7 @@ export default function App() {
     setSessionRequests((current) =>
       current.filter((request) => request.id !== id),
     );
-    setToast({ message: 'Session request denied.', error: false });
+    setToast({ message: t('app.requestDenied'), error: false });
   }
 
   async function confirmDelete() {
@@ -792,16 +801,18 @@ export default function App() {
               <SparkIcon />
             </div>
             <h1 className="empty-title">
-              {loadState === 'loading' ? 'Starting elesdee' : 'Cannot reach the core service'}
+              {loadState === 'loading'
+                ? t('app.starting')
+                : t('app.cannotReach')}
             </h1>
             <p className="empty-text">
               {loadState === 'loading'
-                ? 'Connecting to the local service.'
+                ? t('app.connecting')
                 : loadError}
             </p>
             {loadState === 'error' ? (
               <button type="button" className="btn btn-primary boot-retry" onClick={() => void load()}>
-                Retry
+                {t('common.retry')}
               </button>
             ) : null}
           </div>
@@ -814,7 +825,7 @@ export default function App() {
     <div className="app">
       <div className="app-frame" inert={anyDialogOpen}>
         <a className="skip-link" href="#session-content">
-          Skip to session
+          {t('app.skipToSession')}
         </a>
 
         <header
@@ -839,20 +850,20 @@ export default function App() {
               onClick={() => openNewSession()}
             >
               <PlusIcon />
-              New session
+              {t('app.newSession')}
             </button>
           ) : null}
         </header>
 
         {eventsPaused ? (
           <div className="events-note">
-            <span role="status">Live updates paused.</span>
+            <span role="status">{t('app.liveUpdatesPaused')}</span>
             <button
               type="button"
               className="link-button"
               onClick={() => setEventAttempt((attempt) => attempt + 1)}
             >
-              Retry
+              {t('common.retry')}
             </button>
           </div>
         ) : null}
@@ -970,17 +981,16 @@ export default function App() {
                   <div className="empty-mark">
                     <TerminalIcon />
                   </div>
-                  <h1 className="empty-title">Choose a session</h1>
+                  <h1 className="empty-title">{t('app.chooseSession')}</h1>
                   <p className="empty-text">
-                    Open a session from the sidebar to see its terminal, or start a
-                    new one.
+                    {t('app.chooseSessionHint')}
                   </p>
                   <button
                     type="button"
                     className="btn btn-primary"
                     onClick={() => openNewSession()}
                   >
-                    New session
+                    {t('app.newSession')}
                   </button>
                 </div>
               </div>

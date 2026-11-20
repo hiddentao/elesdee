@@ -10,6 +10,8 @@ import type {
   SessionKind,
 } from '../api/types';
 import { CLIENTS } from '../api/types';
+import { type Language } from '../i18n';
+import { useLanguage } from '../i18n/LanguageProvider';
 import { accountUsage } from '../state/usage';
 import { Dialog } from './Dialog';
 import { AlertIcon } from './icons';
@@ -45,12 +47,16 @@ function projectOption(project: Project): ComboboxOption {
   };
 }
 
-function accountOption(account: Account): ComboboxOption {
+function accountOption(
+  account: Account,
+  language: Language,
+  sampleLabel: string,
+): ComboboxOption {
   return {
     id: account.id,
     label: account.name,
-    meta: `${accountUsage(account).summary} · ${account.plan}`,
-    tag: account.sample ? 'Sample' : undefined,
+    meta: `${accountUsage(account, language).summary} · ${account.plan}`,
+    tag: account.sample ? sampleLabel : undefined,
   };
 }
 
@@ -73,6 +79,7 @@ export function NewSessionDialog({
   onCreated,
   onClose,
 }: NewSessionDialogProps) {
+  const { t, language } = useLanguage();
   const initialProject =
     projects.find((project) => project.id === initialProjectId) ?? null;
   const initialAccount = defaultAccount(initialProject, accounts);
@@ -130,9 +137,11 @@ export function NewSessionDialog({
       const list = await listAccounts(query, signal);
       return list
         .filter((account) => account.client === client)
-        .map(accountOption);
+        .map((account) =>
+          accountOption(account, language, t('common.sample')),
+        );
     },
-    [client],
+    [client, language, t],
   );
 
   const loadBranchOptions = useCallback<ComboboxLoader>(
@@ -145,10 +154,10 @@ export function NewSessionDialog({
       return list.map((branch) => ({
         id: branch.name,
         label: branch.name,
-        tag: branch.current ? 'Current' : undefined,
+        tag: branch.current ? t('newSession.currentTag') : undefined,
       }));
     },
-    [folder],
+    [folder, t],
   );
 
   const selectedProject = projectId
@@ -158,7 +167,7 @@ export function NewSessionDialog({
     ? accounts.find((account) => account.id === accountId) ?? null
     : null;
   const selectedUsage = selectedAccount
-    ? accountUsage(selectedAccount)
+    ? accountUsage(selectedAccount, language)
     : null;
   const accountsForClient = client
     ? accounts.filter((account) => account.client === client)
@@ -207,7 +216,7 @@ export function NewSessionDialog({
     } catch {
       setErrors((current) => ({
         ...current,
-        form: 'The folder picker is unavailable.',
+        form: t('newSession.errorPicker'),
       }));
     }
   }
@@ -221,20 +230,20 @@ export function NewSessionDialog({
       : false;
 
     if (!projectIsKnown) {
-      nextErrors.project = 'Choose a project from the list.';
+      nextErrors.project = t('newSession.errorProject');
     }
 
     if (kind === 'agent') {
       if (!client) {
-        nextErrors.client = 'Choose a client.';
-        nextErrors.account = 'Choose a client and an account.';
+        nextErrors.client = t('newSession.errorClient');
+        nextErrors.account = t('newSession.errorClientAccount');
       } else if (!accountId) {
-        nextErrors.account = 'Choose an account.';
+        nextErrors.account = t('newSession.errorAccount');
       }
     }
 
     if (folder.trim() === '') {
-      nextErrors.folder = 'Enter a folder.';
+      nextErrors.folder = t('newSession.errorFolder');
     }
 
     const env: Array<{ name: string; value: string }> = [];
@@ -245,7 +254,7 @@ export function NewSessionDialog({
       }
       const separator = line.indexOf('=');
       if (separator <= 0) {
-        nextErrors.env = 'Use NAME=value on each line.';
+        nextErrors.env = t('newSession.errorEnv');
         break;
       }
       env.push({
@@ -302,7 +311,7 @@ export function NewSessionDialog({
         form:
           error instanceof ApiError
             ? error.message
-            : 'The session was not created. Try again.',
+            : t('newSession.errorCreate'),
       });
       setSubmitting(false);
     }
@@ -312,16 +321,16 @@ export function NewSessionDialog({
     <Dialog
       titleId="new-session-title"
       descriptionId="new-session-description"
-      busyLabel="Starting session…"
+      busyLabel={t('newSession.busyLabel')}
       onClose={onClose}
       busy={submitting}
     >
       <div className="dialog-head">
         <h2 className="dialog-title" id="new-session-title">
-          New session
+          {t('newSession.title')}
         </h2>
         <p className="dialog-sub" id="new-session-description">
-          Run an agent or a terminal in one of your projects.
+          {t('newSession.subtitle')}
         </p>
       </div>
 
@@ -329,21 +338,21 @@ export function NewSessionDialog({
         <div className="dialog-body">
           <Combobox
             id="new-session-project"
-            label="Project"
+            label={t('newSession.project')}
             value={projectId}
             loadOptions={loadProjectOptions}
             selectedOption={
               selectedProject ? projectOption(selectedProject) : null
             }
             onChange={chooseProject}
-            placeholder="Type to find a project"
+            placeholder={t('newSession.projectPlaceholder')}
             error={errors.project}
             required
             autoFocus
           />
 
           <fieldset className="field">
-            <legend>Session type</legend>
+            <legend>{t('newSession.type')}</legend>
             <div className="segmented">
               <label className="segment">
                 <input
@@ -353,7 +362,7 @@ export function NewSessionDialog({
                   checked={kind === 'agent'}
                   onChange={() => setKind('agent')}
                 />
-                <span>Agent</span>
+                <span>{t('status.agent')}</span>
               </label>
               <label className="segment">
                 <input
@@ -363,7 +372,7 @@ export function NewSessionDialog({
                   checked={kind === 'terminal'}
                   onChange={() => setKind('terminal')}
                 />
-                <span>Terminal</span>
+                <span>{t('status.terminal')}</span>
               </label>
             </div>
           </fieldset>
@@ -377,7 +386,7 @@ export function NewSessionDialog({
                   errors.client ? 'new-session-client-error' : undefined
                 }
               >
-                <legend>Client</legend>
+                <legend>{t('newSession.client')}</legend>
                 <div className="segmented">
                   {CLIENTS.map((item) => (
                     <label className="segment" key={item}>
@@ -404,17 +413,27 @@ export function NewSessionDialog({
               <Combobox
                 key={client ?? 'no-client'}
                 id="new-session-account"
-                label="Account"
+                label={t('newSession.account')}
                 value={accountId}
                 loadOptions={loadAccountOptions}
                 selectedOption={
-                  selectedAccount ? accountOption(selectedAccount) : null
+                  selectedAccount
+                    ? accountOption(
+                        selectedAccount,
+                        language,
+                        t('common.sample'),
+                      )
+                    : null
                 }
                 onChange={chooseAccount}
-                placeholder={client ? 'Type to find an account' : 'Choose a client first'}
+                placeholder={
+                  client
+                    ? t('newSession.accountPlaceholder')
+                    : t('newSession.accountPlaceholderNoClient')
+                }
                 hint={
                   client && accountsForClient.length === 0
-                    ? `No account is set up for ${client} yet.`
+                    ? t('newSession.noAccountForClient', { client })
                     : undefined
                 }
                 error={errors.account}
@@ -428,7 +447,7 @@ export function NewSessionDialog({
                     {selectedAccount.name}
                   </span>
                   {selectedAccount.sample ? (
-                    <span className="sample-tag">Sample</span>
+                    <span className="sample-tag">{t('common.sample')}</span>
                   ) : null}
                   <span className="selected-account-plan">
                     {selectedAccount.plan}
@@ -449,14 +468,16 @@ export function NewSessionDialog({
 
           <div className="field">
             <label htmlFor="new-session-folder">
-              {kind === 'agent' ? 'Repository folder' : 'Folder'}
+              {kind === 'agent'
+                ? t('newSession.repositoryFolder')
+                : t('newSession.folder')}
             </label>
             <div className="field-row">
               <input
                 id="new-session-folder"
                 className="text-input"
                 value={folder}
-                placeholder="Type a folder path"
+                placeholder={t('newSession.folderPlaceholder')}
                 spellCheck={false}
                 required
                 aria-invalid={errors.folder ? true : undefined}
@@ -477,13 +498,13 @@ export function NewSessionDialog({
               />
               {isTauri() ? (
                 <button type="button" className="btn btn-ghost" onClick={() => void browse()}>
-                  Browse…
+                  {t('newSession.browse')}
                 </button>
               ) : null}
             </div>
             {kind === 'agent' ? (
               <p className="field-hint" id="new-session-folder-hint">
-                The folder must be inside a Git repository.
+                {t('newSession.gitHint')}
               </p>
             ) : null}
             {errors.folder ? (
@@ -498,7 +519,7 @@ export function NewSessionDialog({
               <Combobox
                 key={folder}
                 id="new-session-branch"
-                label="Source branch (optional)"
+                label={t('newSession.sourceBranch')}
                 value={sourceBranch}
                 loadOptions={loadBranchOptions}
                 selectedOption={
@@ -507,46 +528,44 @@ export function NewSessionDialog({
                     : null
                 }
                 onChange={setSourceBranch}
-                placeholder="Current branch"
-                hint="The new session branch starts from this commit."
+                placeholder={t('newSession.sourceBranchPlaceholder')}
+                hint={t('newSession.sourceBranchHint')}
               />
 
               <div className="field">
                 <label htmlFor="new-session-prompt">
-                  First prompt (optional)
+                  {t('newSession.firstPrompt')}
                 </label>
                 <textarea
                   id="new-session-prompt"
                   className="text-input prompt-input"
                   value={firstPrompt}
-                  placeholder="Tell the agent what to do first"
+                  placeholder={t('newSession.firstPromptPlaceholder')}
                   rows={3}
                   onChange={(event) => setFirstPrompt(event.target.value)}
                 />
                 <p className="field-hint">
-                  Names the session when the name is empty.
+                  {t('newSession.firstPromptHint')}
                 </p>
               </div>
             </>
           ) : null}
 
           <div className="field">
-            <label htmlFor="new-session-name">Session name (optional)</label>
+            <label htmlFor="new-session-name">{t('newSession.name')}</label>
             <input
               id="new-session-name"
               className="text-input"
               value={name}
-              placeholder="Uses the first prompt or folder when empty"
+              placeholder={t('newSession.namePlaceholder')}
               onChange={(event) => setName(event.target.value)}
             />
           </div>
 
           <details className="field additional-settings">
-            <summary>Additional settings</summary>
+            <summary>{t('newSession.additional')}</summary>
             <div className="field">
-              <label htmlFor="new-session-env">
-                Environment variables (optional)
-              </label>
+              <label htmlFor="new-session-env">{t('newSession.env')}</label>
               <textarea
                 id="new-session-env"
                 className="text-input prompt-input"
@@ -573,7 +592,7 @@ export function NewSessionDialog({
                 </p>
               ) : (
                 <p className="field-hint" id="new-session-env-hint">
-                  One NAME=value per line. They apply to this session only.
+                  {t('newSession.envHint')}
                 </p>
               )}
             </div>
@@ -594,10 +613,12 @@ export function NewSessionDialog({
             onClick={onClose}
             disabled={submitting}
           >
-            Cancel
+            {t('common.cancel')}
           </button>
           <button type="submit" className="btn btn-primary" disabled={submitting}>
-            {submitting ? 'Starting…' : 'Start session'}
+            {submitting
+              ? t('newSession.submitting')
+              : t('newSession.submit')}
           </button>
         </div>
       </form>

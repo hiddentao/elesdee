@@ -1,7 +1,10 @@
 import type { UsageRow } from '../api/types';
+import { formatNumber } from '../i18n';
+import { useLanguage } from '../i18n/LanguageProvider';
 import { balanceBelowMin, rowRemaining, rowWarn } from '../state/usage';
 
 export function UsageLimitRow({ row }: { row: UsageRow }) {
+  const { t, language } = useLanguage();
   const remaining = rowRemaining(row);
   const warn = rowWarn(row);
   const lowBalance = balanceBelowMin(row);
@@ -25,14 +28,16 @@ export function UsageLimitRow({ row }: { row: UsageRow }) {
             />
           </span>
           <span className="usage-limit-value">
-            {Math.round(remaining)}% left
+            {t('usage.percentLeft', {
+              percent: formatNumber(language, Math.round(remaining)),
+            })}
           </span>
         </>
       ) : (
         <span className="usage-limit-value">
           {row.value ?? '—'}
           {lowBalance ? (
-            <span className="sr-only"> Below the minimum balance.</span>
+            <span className="sr-only"> {t('usage.belowMinimum')}</span>
           ) : null}
         </span>
       )}

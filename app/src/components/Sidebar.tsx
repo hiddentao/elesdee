@@ -1,5 +1,7 @@
 import { useRef, useState } from 'react';
 import type { Account, Project, Session } from '../api/types';
+import { useLanguage } from '../i18n/LanguageProvider';
+import type { Translate } from '../i18n';
 import {
   sessionKindLabel,
   statusText,
@@ -52,6 +54,7 @@ interface SessionRowProps {
   projectName?: string;
   onSelect: (session: Session) => void;
   onMenu: SidebarProps['onSessionMenu'];
+  t: Translate;
 }
 
 function SessionRow({
@@ -60,6 +63,7 @@ function SessionRow({
   projectName,
   onSelect,
   onMenu,
+  t,
 }: SessionRowProps) {
   const waiting = Boolean(session.waitingFor);
   const classes = [
@@ -75,7 +79,7 @@ function SessionRow({
       type="button"
       className={classes}
       aria-current={isActive ? 'true' : undefined}
-      title={statusText(session)}
+      title={statusText(session, t)}
       onClick={() => onSelect(session)}
       onContextMenu={(event) => {
         event.preventDefault();
@@ -102,24 +106,24 @@ function SessionRow({
           ) : null}
           {session.parentSessionName ? (
             <span className="session-parent">
-              from {session.parentSessionName} ·{' '}
+              {t('sidebar.from', { name: session.parentSessionName })} ·{' '}
             </span>
           ) : null}
           {waiting ? (
             <>
               <AlertIcon className="waiting-icon" />
-              Waiting for you
+              {t('status.waitingForYou')}
             </>
           ) : (
-            session.preview || 'No output yet.'
+            session.preview || t('sidebar.noOutputYet')
           )}
         </span>
         <span className="sr-only">
-          {sessionKindLabel(session)} · {tabStateLabel(session)}
+          {sessionKindLabel(session, t)} · {tabStateLabel(session, t)}
         </span>
       </span>
       <span className="session-status-label">
-        {session.status === 'closed' ? 'Closed' : 'Active'}
+        {session.status === 'closed' ? t('status.closed') : t('status.active')}
       </span>
     </button>
   );
@@ -153,6 +157,7 @@ export function Sidebar({
   requests = 0,
   onOpenRequests,
 }: SidebarProps) {
+  const { t, language } = useLanguage();
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [manualCollapsed, setManualCollapsed] = useState<Set<string>>(new Set());
   const [activeOnly, setActiveOnly] = useState(false);
@@ -232,26 +237,27 @@ export function Sidebar({
   function emptyText(projectId: string): string {
     const all = allByProject.get(projectId) ?? [];
     if (all.length === 0) {
-      return 'No sessions';
+      return t('sidebar.noSessions');
     }
 
-    return 'No active sessions';
+    return t('sidebar.noActiveSessionsShort');
   }
 
   return (
-    <aside className="sidebar" aria-label="Sessions">
+    <aside className="sidebar" aria-label={t('sidebar.sessions')}>
       <div className="sidebar-head">
         <h2 className="sidebar-title">
-          Sessions <span className="count">{visibleSessions.length}</span>
+          {t('sidebar.sessions')}{' '}
+          <span className="count">{visibleSessions.length}</span>
         </h2>
 
         {hasProjects ? (
           <div
             className="seg-mini"
             role="radiogroup"
-            aria-label="Session list view"
+            aria-label={t('sidebar.sessionList')}
           >
-            <label className="seg-option" title="Grouped">
+            <label className="seg-option" title={t('sidebar.grouped')}>
               <input
                 type="radio"
                 name="sidebar-view"
@@ -261,10 +267,10 @@ export function Sidebar({
               />
               <span className="seg-face">
                 <LayersIcon />
-                <span className="sr-only">Grouped</span>
+                <span className="sr-only">{t('sidebar.grouped')}</span>
               </span>
             </label>
-            <label className="seg-option" title="Flat">
+            <label className="seg-option" title={t('sidebar.flat')}>
               <input
                 type="radio"
                 name="sidebar-view"
@@ -274,7 +280,7 @@ export function Sidebar({
               />
               <span className="seg-face">
                 <ListIcon />
-                <span className="sr-only">Flat</span>
+                <span className="sr-only">{t('sidebar.flat')}</span>
               </span>
             </label>
           </div>
@@ -284,8 +290,8 @@ export function Sidebar({
           <button
             type="button"
             className="sidebar-add"
-            aria-label="Add project"
-            title="Add project"
+            aria-label={t('sidebar.addProject')}
+            title={t('sidebar.addProject')}
             onClick={onAddProject}
           >
             <PlusIcon />
@@ -302,7 +308,8 @@ export function Sidebar({
               onClick={onOpenQuestions}
             >
               <ChatIcon />
-              Questions <span className="chip-count">{questions}</span>
+              {t('sidebar.questions')}{' '}
+              <span className="chip-count">{questions}</span>
             </button>
           ) : null}
           {requests > 0 ? (
@@ -312,7 +319,8 @@ export function Sidebar({
               onClick={onOpenRequests}
             >
               <AgentIcon />
-              Requests <span className="chip-count">{requests}</span>
+              {t('sidebar.requests')}{' '}
+              <span className="chip-count">{requests}</span>
             </button>
           ) : null}
         </div>
@@ -322,7 +330,7 @@ export function Sidebar({
         <div
           className="sidebar-filters"
           role="group"
-          aria-label="Session filter"
+          aria-label={t('sidebar.filter')}
         >
           <button
             type="button"
@@ -330,7 +338,8 @@ export function Sidebar({
             aria-pressed={activeOnly}
             onClick={() => toggleFilter('active')}
           >
-            Active <span className="chip-count">{activeCount}</span>
+            {t('sidebar.active')}{' '}
+            <span className="chip-count">{activeCount}</span>
           </button>
           <button
             type="button"
@@ -338,21 +347,19 @@ export function Sidebar({
             aria-pressed={showClosed}
             onClick={() => toggleFilter('closed')}
           >
-            Show closed
+            {t('sidebar.showClosed')}
           </button>
         </div>
       ) : null}
 
       <div className="session-list">
         {!hasProjects ? (
-          <p className="sidebar-empty">No sessions yet.</p>
+          <p className="sidebar-empty">{t('sidebar.noSessionsYet')}</p>
         ) : view === 'flat' ? (
           sessions.length === 0 ? (
-            <p className="sidebar-empty">
-              No sessions yet. Start one from the top of the window.
-            </p>
+            <p className="sidebar-empty">{t('sidebar.noSessionsHint')}</p>
           ) : visibleSessions.length === 0 ? (
-            <p className="sidebar-empty">No active sessions.</p>
+            <p className="sidebar-empty">{t('sidebar.noActiveSessions')}</p>
           ) : (
             visibleSessions.map((session) => (
               <SessionRow
@@ -367,6 +374,7 @@ export function Sidebar({
                 }
                 onSelect={onSelectSession}
                 onMenu={onSessionMenu}
+                t={t}
               />
             ))
           )
@@ -395,7 +403,11 @@ export function Sidebar({
                   <button
                     type="button"
                     className="project-caret-button"
-                    aria-label={`${isCollapsed ? 'Expand' : 'Collapse'} ${project.name}`}
+                    aria-label={
+                      isCollapsed
+                        ? t('sidebar.expand', { name: project.name })
+                        : t('sidebar.collapse', { name: project.name })
+                    }
                     aria-expanded={!isCollapsed}
                     aria-controls={`project-${project.id}-sessions`}
                     onClick={() => toggleProject(project.id)}
@@ -409,10 +421,18 @@ export function Sidebar({
                     type="button"
                     className="project-toggle"
                     aria-current={isActiveProject ? 'true' : undefined}
-                    aria-label={`${project.name}, ${projectSessions.length} ${
-                      projectSessions.length === 1 ? 'session' : 'sessions'
-                    }`}
-                    title={`Show ${project.name} sessions`}
+                    aria-label={t(
+                      projectSessions.length === 1
+                        ? 'sidebar.projectSessionsOne'
+                        : 'sidebar.projectSessionsMany',
+                      {
+                        name: project.name,
+                        count: projectSessions.length,
+                      },
+                    )}
+                    title={t('sidebar.showProjectSessions', {
+                      name: project.name,
+                    })}
                     onClick={() => onSelectProject(project)}
                   >
                     <span className="project-name">{project.name}</span>
@@ -424,8 +444,10 @@ export function Sidebar({
                   <button
                     type="button"
                     className="project-add"
-                    aria-label={`Project settings for ${project.name}`}
-                    title="Project settings"
+                    aria-label={t('sidebar.projectSettingsFor', {
+                      name: project.name,
+                    })}
+                    title={t('sidebar.projectSettings')}
                     onClick={() => onProjectSettings(project)}
                   >
                     <SettingsIcon />
@@ -434,8 +456,10 @@ export function Sidebar({
                   <button
                     type="button"
                     className="project-add"
-                    aria-label={`New session in ${project.name}`}
-                    title="New session"
+                    aria-label={t('sidebar.newSessionIn', {
+                      name: project.name,
+                    })}
+                    title={t('sidebar.newSession')}
                     onClick={() => onNewSession(project.id)}
                   >
                     <PlusIcon />
@@ -446,9 +470,12 @@ export function Sidebar({
                   <div
                     className="project-blots"
                     role="group"
-                    aria-label={`${project.name}, ${blots.length} active ${
-                      blots.length === 1 ? 'session' : 'sessions'
-                    }`}
+                    aria-label={t(
+                      blots.length === 1
+                        ? 'sidebar.activeSessionsOne'
+                        : 'sidebar.activeSessionsMany',
+                      { name: project.name, count: blots.length },
+                    )}
                   >
                     {blots.map((session) => {
                       const waiting = Boolean(session.waitingFor);
@@ -459,7 +486,9 @@ export function Sidebar({
                           className="project-blot"
                           data-status={statusTone(session)}
                           aria-label={`${session.name}, ${
-                            waiting ? 'Waiting for you' : 'No attention needed'
+                            waiting
+                              ? t('status.waitingForYou')
+                              : t('sidebar.noAttentionNeeded')
                           }`}
                           onClick={() => onSelectSession(session)}
                         >
@@ -494,8 +523,8 @@ export function Sidebar({
                               }
                             >
                               {waiting
-                                ? 'Waiting for you'
-                                : 'No attention needed'}
+                                ? t('status.waitingForYou')
+                                : t('sidebar.noAttentionNeeded')}
                             </span>
                           </span>
                         );
@@ -521,6 +550,7 @@ export function Sidebar({
                         }
                         onSelect={onSelectSession}
                         onMenu={onSessionMenu}
+                        t={t}
                       />
                     ))
                   )}
@@ -543,14 +573,16 @@ export function Sidebar({
               onClick={() => setUsageOpen((open) => !open)}
             >
               <span className="usage-summary-head">
-                <span className="usage-summary-title">Usage</span>
+                <span className="usage-summary-title">
+                  {t('sidebar.usage')}
+                </span>
               </span>
 
               {accounts.length === 0 ? (
-                <span className="usage-summary-value">No usage data</span>
+                <span className="usage-summary-value">{t('usage.none')}</span>
               ) : (
                 accounts.slice(0, 3).map((account) => {
-                  const usage = accountUsage(account);
+                  const usage = accountUsage(account, language);
                   return (
                     <span
                       className="usage-summary-row"
@@ -606,7 +638,7 @@ export function Sidebar({
           onClick={onOpenSettings}
         >
           <SettingsIcon />
-          Settings
+          {t('sidebar.settings')}
         </button>
       </div>
     </aside>

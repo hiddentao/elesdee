@@ -1,11 +1,19 @@
 import { useState } from 'react';
 import type { Account, CreateAccountInput } from '../api/types';
+import { LANGUAGES, type Language } from '../i18n';
+import { useLanguage } from '../i18n/LanguageProvider';
 import { accountUsage } from '../state/usage';
 import { AddAccountDialog } from './AddAccountDialog';
 import { Dialog } from './Dialog';
-import { CloseIcon, LayersIcon, PlusIcon, SparkIcon } from './icons';
+import {
+  CloseIcon,
+  GlobeIcon,
+  LayersIcon,
+  PlusIcon,
+  SparkIcon,
+} from './icons';
 
-type SettingsSection = 'providers' | 'about';
+type SettingsSection = 'providers' | 'languages' | 'about';
 
 interface SettingsDialogProps {
   accounts: Account[];
@@ -22,6 +30,7 @@ export function SettingsDialog({
   onAccountCreated,
   onClose,
 }: SettingsDialogProps) {
+  const { t, language, setLanguage } = useLanguage();
   const [section, setSection] = useState<SettingsSection>('providers');
   const [addOpen, setAddOpen] = useState(false);
 
@@ -37,16 +46,16 @@ export function SettingsDialog({
         <div className="settings-head">
           <div>
             <h2 className="settings-page-title" id="settings-title">
-              Settings
+              {t('settings.title')}
             </h2>
             <p className="settings-page-sub" id="settings-description">
-              This computer
+              {t('settings.subtitle')}
             </p>
           </div>
           <button
             type="button"
             className="btn btn-ghost settings-close"
-            aria-label="Close settings"
+            aria-label={t('settings.close')}
             onClick={onClose}
             autoFocus
           >
@@ -55,7 +64,10 @@ export function SettingsDialog({
         </div>
 
         <div className="settings-page-body">
-          <nav className="settings-nav" aria-label="Settings sections">
+          <nav
+            className="settings-nav"
+            aria-label={t('settings.sections')}
+          >
             <button
               type="button"
               className={
@@ -67,7 +79,20 @@ export function SettingsDialog({
               onClick={() => setSection('providers')}
             >
               <LayersIcon />
-              <span>Providers</span>
+              <span>{t('settings.providers')}</span>
+            </button>
+            <button
+              type="button"
+              className={
+                section === 'languages'
+                  ? 'settings-nav-item is-on'
+                  : 'settings-nav-item'
+              }
+              aria-current={section === 'languages' ? 'page' : undefined}
+              onClick={() => setSection('languages')}
+            >
+              <GlobeIcon />
+              <span>{t('settings.languages')}</span>
             </button>
             <button
               type="button"
@@ -80,10 +105,12 @@ export function SettingsDialog({
               onClick={() => setSection('about')}
             >
               <SparkIcon />
-              <span>About</span>
+              <span>{t('settings.about')}</span>
             </button>
             {version ? (
-              <span className="settings-nav-version">elesdee {version}</span>
+              <span className="settings-nav-version">
+                {t('settings.versionLabel', { version })}
+              </span>
             ) : null}
           </nav>
 
@@ -99,10 +126,10 @@ export function SettingsDialog({
                       className="settings-section-title"
                       id="settings-providers-title"
                     >
-                      Providers
+                      {t('settings.providers')}
                     </h3>
                     <p className="settings-section-note">
-                      Accounts on this computer and their usage.
+                      {t('settings.providersNote')}
                     </p>
                   </div>
                   <button
@@ -111,16 +138,16 @@ export function SettingsDialog({
                     onClick={() => setAddOpen(true)}
                   >
                     <PlusIcon />
-                    Add account
+                    {t('settings.addAccount')}
                   </button>
                 </div>
 
                 {accounts.length === 0 ? (
-                  <p className="settings-empty">No accounts yet.</p>
+                  <p className="settings-empty">{t('settings.noAccounts')}</p>
                 ) : (
                   <ul className="settings-accounts">
                     {accounts.map((account) => {
-                      const usage = accountUsage(account);
+                      const usage = accountUsage(account, language);
                       return (
                         <li key={account.id} className="settings-account">
                           <div className="settings-account-main">
@@ -129,7 +156,9 @@ export function SettingsDialog({
                                 {account.name}
                               </span>
                               {account.sample ? (
-                                <span className="sample-tag">Sample</span>
+                                <span className="sample-tag">
+                                  {t('common.sample')}
+                                </span>
                               ) : null}
                             </div>
                             <span className="settings-account-sub">
@@ -151,6 +180,38 @@ export function SettingsDialog({
                   </ul>
                 )}
               </section>
+            ) : section === 'languages' ? (
+              <section
+                className="settings-section"
+                aria-labelledby="settings-languages-title"
+              >
+                <h3
+                  className="settings-section-title"
+                  id="settings-languages-title"
+                >
+                  {t('settings.languages')}
+                </h3>
+                <div className="field settings-language">
+                  <label htmlFor="settings-language">
+                    {t('settings.languageLabel')}
+                  </label>
+                  <select
+                    id="settings-language"
+                    className="text-input"
+                    value={language}
+                    onChange={(event) =>
+                      setLanguage(event.target.value as Language)
+                    }
+                  >
+                    {LANGUAGES.map((item) => (
+                      <option key={item.code} value={item.code}>
+                        {item.label}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="field-hint">{t('settings.languageNote')}</p>
+                </div>
+              </section>
             ) : (
               <section
                 className="settings-section"
@@ -160,13 +221,13 @@ export function SettingsDialog({
                   className="settings-section-title"
                   id="settings-about-title"
                 >
-                  About
+                  {t('settings.about')}
                 </h3>
                 <div className="settings-about-card">
                   <span className="settings-about-name">elesdee</span>
                   {version ? (
                     <span className="settings-about-version">
-                      Version {version}
+                      {t('settings.aboutVersion', { version })}
                     </span>
                   ) : null}
                 </div>

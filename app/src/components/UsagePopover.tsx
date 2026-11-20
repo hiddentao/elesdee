@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import type { Account } from '../api/types';
+import { useLanguage } from '../i18n/LanguageProvider';
 import { UsageLimitRow } from './UsageLimitRow';
 import { CloseIcon } from './icons';
 
@@ -21,6 +22,7 @@ export function UsagePopover({
   trigger,
   onClose,
 }: UsagePopoverProps) {
+  const { t } = useLanguage();
   const panelRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
   const [opener] = useState<HTMLElement | null>(() =>
@@ -97,14 +99,14 @@ export function UsagePopover({
       <div className="usage-popover-head">
         <div>
           <h2 className="usage-popover-title" id={titleId}>
-            Usage
+            {t('usage.title')}
           </h2>
-          <p className="usage-popover-sub">All accounts</p>
+          <p className="usage-popover-sub">{t('usage.allAccounts')}</p>
         </div>
         <button
           type="button"
           className="btn btn-ghost usage-close"
-          aria-label="Close usage"
+          aria-label={t('usage.close')}
           onClick={onClose}
         >
           <CloseIcon />
@@ -113,7 +115,7 @@ export function UsagePopover({
 
       <div className="usage-popover-body usage-panel">
         {accounts.length === 0 ? (
-          <p className="usage-empty">No usage data</p>
+          <p className="usage-empty">{t('usage.none')}</p>
         ) : (
           accounts.map((account) => (
             <section
@@ -125,7 +127,7 @@ export function UsagePopover({
                 <div className="usage-card-main">
                   <span className="usage-name">{account.name}</span>
                   {account.sample ? (
-                    <span className="sample-tag">Sample</span>
+                    <span className="sample-tag">{t('common.sample')}</span>
                   ) : null}
                   <span className="usage-plan">
                     {account.plan} · {account.client}
@@ -134,7 +136,7 @@ export function UsagePopover({
               </div>
 
               {account.rows.length === 0 ? (
-                <p className="usage-empty">No usage data</p>
+                <p className="usage-empty">{t('usage.none')}</p>
               ) : (
                 <div className="usage-card-rows">
                   {account.rows.map((row, index) => (

@@ -21,6 +21,7 @@ The app keeps your sessions, projects and accounts on this computer. It does not
 - Close, reopen, rename and delete sessions.
 - Confirm before quitting while sessions run.
 - Add provider accounts with a subscription, API key or local server, including custom compatible endpoints.
+- Switch the interface language on the Languages page in Settings. See [Settings](settings.md#languages).
 - Switch a session to another account, and let usage limits switch or pause it.
 - Answer agent questions from the session or the Questions list, and let agents notify you.
 - Approve or deny a session that an agent asks to start.

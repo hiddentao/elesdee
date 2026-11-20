@@ -5,6 +5,7 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from 'react';
+import { useLanguage } from '../i18n/LanguageProvider';
 
 interface DialogProps {
   titleId: string;
@@ -30,13 +31,14 @@ function focusableElements(container: HTMLElement): HTMLElement[] {
 export function Dialog({
   titleId,
   descriptionId,
-  busyLabel = 'Working…',
+  busyLabel,
   onClose,
   busy = false,
   inert = false,
   className,
   children,
 }: DialogProps) {
+  const { t } = useLanguage();
   const dialogRef = useRef<HTMLDivElement>(null);
   const statusRef = useRef<HTMLParagraphElement>(null);
   const [opener] = useState<HTMLElement | null>(() =>
@@ -115,7 +117,7 @@ export function Dialog({
         {children}
         {busy ? (
           <p ref={statusRef} className="sr-only" role="status" tabIndex={-1}>
-            {busyLabel}
+            {busyLabel ?? t('dialog.working')}
           </p>
         ) : null}
       </div>

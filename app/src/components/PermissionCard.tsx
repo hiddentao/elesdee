@@ -3,6 +3,7 @@ import type {
   PendingPermission,
   PermissionDecision,
 } from '../api/types';
+import { useLanguage } from '../i18n/LanguageProvider';
 import { AlertIcon } from './icons';
 
 interface PermissionCardProps {
@@ -18,6 +19,7 @@ export function PermissionCard({
   sessionName,
   onRespond,
 }: PermissionCardProps) {
+  const { t } = useLanguage();
   const titleId = useId();
   const [decision, setDecision] = useState<PermissionDecision | null>(null);
   const [error, setError] = useState('');
@@ -34,7 +36,7 @@ export function PermissionCard({
       await onRespond(choice);
     } catch {
       setDecision(null);
-      setError('The answer was not sent. Try again.');
+      setError(t('permission.error'));
     }
   }
 
@@ -50,22 +52,21 @@ export function PermissionCard({
         </span>
         <div className="permission-head-text">
           <h2 className="permission-title" id={titleId}>
-            Permission needed
+            {t('permission.needed')}
           </h2>
           <span className="permission-context">
-            {client ?? 'Agent'} · {sessionName}
+            {client ?? t('status.agent')} · {sessionName}
           </span>
         </div>
       </div>
 
       <div className="permission-copy" role="status">
         <p className="permission-tool">
-          <span className="permission-label">Tool</span> {permission.tool}
+          <span className="permission-label">{t('permission.tool')}</span>{' '}
+          {permission.tool}
         </p>
         <pre className="permission-summary">{permission.summary}</pre>
-        <p className="permission-rationale">
-          The agent is paused until you answer.
-        </p>
+        <p className="permission-rationale">{t('permission.paused')}</p>
       </div>
 
       <div className="permission-actions">
@@ -75,7 +76,9 @@ export function PermissionCard({
           disabled={decision !== null}
           onClick={() => void answer('deny')}
         >
-          {decision === 'deny' ? 'Denying…' : 'Deny'}
+          {decision === 'deny'
+            ? t('permission.denying')
+            : t('permission.deny')}
         </button>
         <button
           type="button"
@@ -83,7 +86,9 @@ export function PermissionCard({
           disabled={decision !== null}
           onClick={() => void answer('allow')}
         >
-          {decision === 'allow' ? 'Allowing…' : 'Allow'}
+          {decision === 'allow'
+            ? t('permission.allowing')
+            : t('permission.allow')}
         </button>
       </div>
 

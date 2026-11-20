@@ -44,8 +44,8 @@ The language list follows hezo.ai's languages and formats ([hezo docs](https://g
 
 - The interface comes in 12 languages: English, Deutsch (German), Français (French), Español (Spanish), Italiano (Italian), Português do Brasil (Brazilian Portuguese), Nederlands (Dutch), Polski (Polish), Svenska (Swedish), 简体中文 (Simplified Chinese), 日本語 (Japanese) and 한국어 (Korean).
 - European Portuguese falls back to Brazilian Portuguese, and Traditional Chinese falls back to Simplified Chinese. There are no right-to-left languages.
-- On first launch, the app uses the computer's system language. A language button on the first screen lets me pick another one.
-- Settings has a "Languages" page with one choice: the interface language. Dates and numbers follow that language. There are no separate format settings.
+- On first launch, the app uses the computer's system language.
+- Settings has a "Languages" page with one choice: the interface language. Dates and numbers follow that language. There are no separate format settings. The page is the one place to change the language.
 - The phone: the UI package holds all languages. The phone uses its own system language, and has its own "Languages" setting, so the phone and the computer can differ.
 - The phone shell's own screens (pairing, the list of computers, "update needed") are translated inside the shell, because they show before any UI package is downloaded.
 - Interface copy does not name the operating system. It says "this computer", not "this Mac". Version 1 runs on macOS; Windows and Linux follow soon after.
@@ -132,7 +132,6 @@ The agents write their conversation to files on disk, and each keeps its own int
 
 - A new install starts with no projects. The first screen checks for Claude Code, Codex, OpenCode 2 and Antigravity and shows their versions.
 - It offers one action: Add a project. The project form asks for a name and a folder.
-- The language button sits in the title bar.
 - Until the Mac starts a session, the phone shows an empty session list.
 
 **Sessions sidebar**

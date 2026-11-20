@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { SessionRequest } from '../api/types';
+import { useLanguage } from '../i18n/LanguageProvider';
 
 interface SessionRequestFormProps {
   request: SessionRequest;
@@ -12,6 +13,7 @@ export function SessionRequestForm({
   onApprove,
   onDeny,
 }: SessionRequestFormProps) {
+  const { t } = useLanguage();
   const [allowFurther, setAllowFurther] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -23,36 +25,47 @@ export function SessionRequestForm({
       await action();
     } catch {
       setBusy(false);
-      setError('The request was not answered. Try again.');
+      setError(t('requests.error'));
     }
   }
+
+  const summaryParts = t('requests.summary').split(
+    /(\{parent\}|\{project\})/,
+  );
 
   return (
     <div className="request-card">
       <p className="request-text">
-        <strong>{request.parentSessionName}</strong> wants to start a session in{' '}
-        <strong>{request.projectName}</strong>.
+        {summaryParts.map((part, index) => {
+          if (part === '{parent}') {
+            return <strong key={index}>{request.parentSessionName}</strong>;
+          }
+          if (part === '{project}') {
+            return <strong key={index}>{request.projectName}</strong>;
+          }
+          return <span key={index}>{part}</span>;
+        })}
       </p>
       <dl className="request-details">
         <div>
-          <dt>Client</dt>
+          <dt>{t('requests.client')}</dt>
           <dd>{request.client}</dd>
         </div>
         {request.name ? (
           <div>
-            <dt>Name</dt>
+            <dt>{t('requests.name')}</dt>
             <dd>{request.name}</dd>
           </div>
         ) : null}
         {request.firstPrompt ? (
           <div>
-            <dt>First prompt</dt>
+            <dt>{t('requests.firstPrompt')}</dt>
             <dd>{request.firstPrompt}</dd>
           </div>
         ) : null}
         {request.sourceBranch ? (
           <div>
-            <dt>Source branch</dt>
+            <dt>{t('requests.sourceBranch')}</dt>
             <dd>{request.sourceBranch}</dd>
           </div>
         ) : null}
@@ -64,7 +77,7 @@ export function SessionRequestForm({
           disabled={busy}
           onChange={(event) => setAllowFurther(event.target.checked)}
         />
-        Allow further sessions from this session
+        {t('requests.allowFurther')}
       </label>
       <div className="request-actions">
         <button
@@ -73,7 +86,7 @@ export function SessionRequestForm({
           disabled={busy}
           onClick={() => void run(onDeny)}
         >
-          Deny
+          {t('permission.deny')}
         </button>
         <button
           type="button"
@@ -81,7 +94,7 @@ export function SessionRequestForm({
           disabled={busy}
           onClick={() => void run(() => onApprove(allowFurther))}
         >
-          {busy ? 'Starting…' : 'Approve'}
+          {busy ? t('requests.starting') : t('requests.approve')}
         </button>
       </div>
       {error ? (

@@ -1,4 +1,5 @@
 import type { Account, Session } from '../api/types';
+import { useLanguage } from '../i18n/LanguageProvider';
 import { accountFor } from '../state/sessionStatus';
 import {
   AgentIcon,
@@ -32,6 +33,7 @@ export function SessionHeader({
   panelOpen,
   onTogglePanel,
 }: SessionHeaderProps) {
+  const { t } = useLanguage();
   const account = accountFor(accounts, session.accountId);
 
   return (
@@ -50,8 +52,8 @@ export function SessionHeader({
               {session.kind === 'terminal' ? <TerminalIcon /> : <AgentIcon />}
               <span className="chip-text">
                 {session.kind === 'terminal'
-                  ? 'Terminal'
-                  : session.client ?? 'Agent'}
+                  ? t('status.terminal')
+                  : session.client ?? t('status.agent')}
               </span>
             </span>
           )}
@@ -83,9 +85,9 @@ export function SessionHeader({
         <button
           type="button"
           className={`btn btn-ghost session-panel-toggle${panelOpen ? ' is-on' : ''}`}
-          aria-label="Session panel"
+          aria-label={t('session.panel')}
           aria-expanded={panelOpen}
-          title="Session panel"
+          title={t('session.panel')}
           onClick={onTogglePanel}
         >
           <PanelIcon />
@@ -93,10 +95,10 @@ export function SessionHeader({
         <button
           type="button"
           className="btn btn-ghost session-actions"
-          aria-label="Session actions"
+          aria-label={t('session.headerActions')}
           aria-haspopup="menu"
           aria-expanded={actionsOpen}
-          title="Session actions"
+          title={t('session.headerActions')}
           onClick={(event) => onOpenMenu(event.currentTarget)}
         >
           <MoreIcon />

@@ -6,6 +6,8 @@ import type {
   CreateAccountInput,
   ProviderInfo,
 } from '../api/types';
+import type { MessageKey } from '../i18n';
+import { useLanguage } from '../i18n/LanguageProvider';
 import { Dialog } from './Dialog';
 import { AlertIcon } from './icons';
 
@@ -22,11 +24,11 @@ interface FormErrors {
   form?: string;
 }
 
-const AUTH_LABELS = {
-  subscription: 'Subscription',
-  key: 'API key',
-  local: 'Local server',
-} as const;
+const AUTH_LABELS: Record<string, MessageKey> = {
+  subscription: 'addAccount.subscription',
+  key: 'addAccount.apiKey',
+  local: 'addAccount.localServer',
+};
 
 const CUSTOM_CLIENTS: Record<string, Client[]> = {
   openai: ['Codex', 'OpenCode 2'],
@@ -50,6 +52,7 @@ export function AddAccountDialog({
   onCreated,
   onClose,
 }: AddAccountDialogProps) {
+  const { t } = useLanguage();
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [providerId, setProviderId] = useState('anthropic');
   const [auth, setAuth] = useState<'subscription' | 'key' | 'local'>(
@@ -82,13 +85,13 @@ export function AddAccountDialog({
       })
       .catch(() => {
         if (active) {
-          setErrors({ form: 'Could not load the provider list.' });
+          setErrors({ form: t('addAccount.errorProviders') });
         }
       });
     return () => {
       active = false;
     };
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     if (!focusTarget) {
@@ -106,7 +109,7 @@ export function AddAccountDialog({
   const showServer = needsServer(provider, auth);
   const subscriptionHint =
     auth === 'subscription'
-      ? `Sign in with ${client} on this computer first. The app uses that sign-in.`
+      ? t('addAccount.subscriptionHint', { client })
       : undefined;
 
   function chooseProvider(id: string) {
@@ -140,13 +143,13 @@ export function AddAccountDialog({
 
     const nextErrors: FormErrors = {};
     if (name.trim() === '') {
-      nextErrors.name = 'Enter an account name.';
+      nextErrors.name = t('addAccount.errorName');
     }
     if (showKey && apiKey.trim() === '') {
-      nextErrors.key = 'Enter an API key.';
+      nextErrors.key = t('addAccount.errorKey');
     }
     if (showServer && server.trim() === '') {
-      nextErrors.server = 'Enter the server URL.';
+      nextErrors.server = t('addAccount.errorServer');
     }
 
     if (Object.keys(nextErrors).length > 0) {
@@ -191,7 +194,7 @@ export function AddAccountDialog({
         form:
           error instanceof ApiError
             ? error.message
-            : 'The account was not added. Try again.',
+            : t('addAccount.errorAdd'),
       });
       setSubmitting(false);
     }
@@ -205,23 +208,25 @@ export function AddAccountDialog({
     <Dialog
       titleId="add-account-title"
       descriptionId="add-account-description"
-      busyLabel="Adding account…"
+      busyLabel={t('addAccount.busyLabel')}
       onClose={onClose}
       busy={submitting}
     >
       <div className="dialog-head">
         <h2 className="dialog-title" id="add-account-title">
-          Add account
+          {t('addAccount.title')}
         </h2>
         <p className="dialog-sub" id="add-account-description">
-          Connect a provider account to one of the supported clients.
+          {t('addAccount.subtitle')}
         </p>
       </div>
 
       <form className="dialog-form" onSubmit={handleSubmit} noValidate>
         <div className="dialog-body">
           <div className="field">
-            <label htmlFor="add-account-provider">Provider</label>
+            <label htmlFor="add-account-provider">
+              {t('addAccount.provider')}
+            </label>
             <select
               id="add-account-provider"
               className="text-input"
@@ -237,7 +242,7 @@ export function AddAccountDialog({
           </div>
 
           <fieldset className="field">
-            <legend>Sign-in</legend>
+            <legend>{t('addAccount.signIn')}</legend>
             <div className="segmented">
               {(provider?.auth ?? ['key']).map((option) => (
                 <label className="segment" key={option}>
@@ -248,7 +253,7 @@ export function AddAccountDialog({
                     checked={auth === option}
                     onChange={() => chooseAuth(option)}
                   />
-                  <span>{AUTH_LABELS[option]}</span>
+                  <span>{t(AUTH_LABELS[option] ?? 'addAccount.apiKey')}</span>
                 </label>
               ))}
             </div>
@@ -260,7 +265,7 @@ export function AddAccountDialog({
           {provider?.custom ? (
             <>
               <fieldset className="field">
-                <legend>API style</legend>
+                <legend>{t('addAccount.apiStyle')}</legend>
                 <div className="segmented">
                   <label className="segment">
                     <input
@@ -270,7 +275,7 @@ export function AddAccountDialog({
                       checked={apiStyle === 'anthropic'}
                       onChange={() => chooseStyle('anthropic')}
                     />
-                    <span>Anthropic-compatible</span>
+                    <span>{t('addAccount.anthropicCompatible')}</span>
                   </label>
                   <label className="segment">
                     <input
@@ -280,13 +285,13 @@ export function AddAccountDialog({
                       checked={apiStyle === 'openai'}
                       onChange={() => chooseStyle('openai')}
                     />
-                    <span>OpenAI-compatible</span>
+                    <span>{t('addAccount.openaiCompatible')}</span>
                   </label>
                 </div>
               </fieldset>
 
               <fieldset className="field">
-                <legend>Client</legend>
+                <legend>{t('addAccount.client')}</legend>
                 <div className="segmented">
                   {customClients.map((item) => (
                     <label className="segment" key={item}>
@@ -306,7 +311,9 @@ export function AddAccountDialog({
           ) : null}
 
           <div className="field">
-            <label htmlFor="add-account-name">Account name</label>
+            <label htmlFor="add-account-name">
+              {t('addAccount.accountName')}
+            </label>
             <input
               id="add-account-name"
               className="text-input"
@@ -329,7 +336,9 @@ export function AddAccountDialog({
 
           {showKey ? (
             <div className="field">
-              <label htmlFor="add-account-key">API key</label>
+              <label htmlFor="add-account-key">
+                {t('addAccount.apiKeyLabel')}
+              </label>
               <input
                 id="add-account-key"
                 className="text-input"
@@ -354,7 +363,9 @@ export function AddAccountDialog({
 
           {showServer ? (
             <div className="field">
-              <label htmlFor="add-account-server">Server URL</label>
+              <label htmlFor="add-account-server">
+                {t('addAccount.serverUrl')}
+              </label>
               <input
                 id="add-account-server"
                 className="text-input"
@@ -382,12 +393,16 @@ export function AddAccountDialog({
           ) : null}
 
           <div className="field">
-            <label htmlFor="add-account-model">Model (optional)</label>
+            <label htmlFor="add-account-model">
+              {t('addAccount.model')}
+            </label>
             <input
               id="add-account-model"
               className="text-input"
               value={model}
-              placeholder={provider?.defaultModel ?? 'Use the provider default'}
+              placeholder={
+                provider?.defaultModel ?? t('addAccount.defaultModel')
+              }
               spellCheck={false}
               onChange={(event) => setModel(event.target.value)}
             />
@@ -408,10 +423,10 @@ export function AddAccountDialog({
             onClick={onClose}
             disabled={submitting}
           >
-            Cancel
+            {t('common.cancel')}
           </button>
           <button type="submit" className="btn btn-primary" disabled={submitting}>
-            {submitting ? 'Adding…' : 'Add account'}
+            {submitting ? t('addAccount.submitting') : t('addAccount.submit')}
           </button>
         </div>
       </form>

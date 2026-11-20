@@ -6,6 +6,8 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import type { Session } from '../api/types';
+import { englishT, type Translate } from '../i18n';
+import { useLanguage } from '../i18n/LanguageProvider';
 import { statusText } from '../state/sessionStatus';
 import {
   AgentIcon,
@@ -50,39 +52,45 @@ interface MenuItem {
 const MENU_WIDTH = 230;
 const MENU_MAX_HEIGHT = 300;
 
-export function menuItems(session: Session): MenuItem[] {
+export function menuItems(
+  session: Session,
+  t: Translate = englishT,
+): MenuItem[] {
   const items: MenuItem[] = [];
   const closed = session.status === 'closed';
 
   if (closed) {
-    items.push({ action: 'reopen', label: 'Reopen' });
+    items.push({ action: 'reopen', label: t('session.reopen') });
   }
 
-  items.push({ action: 'rename', label: 'Rename…' });
+  items.push({ action: 'rename', label: t('session.renameMenu') });
 
   if (!closed && session.kind === 'agent') {
-    items.push({ action: 'switch-account', label: 'Switch account…' });
+    items.push({
+      action: 'switch-account',
+      label: t('session.switchAccountMenu'),
+    });
   }
 
   if (session.folder.trim() !== '') {
-    items.push({ action: 'copy-folder', label: 'Copy folder path' });
+    items.push({ action: 'copy-folder', label: t('session.copyFolder') });
   }
 
   if (session.branch) {
-    items.push({ action: 'copy-branch', label: 'Copy branch name' });
+    items.push({ action: 'copy-branch', label: t('session.copyBranch') });
   }
 
   if (closed) {
     items.push({
       action: 'delete',
-      label: 'Delete…',
+      label: t('session.deleteMenu'),
       danger: true,
       separated: true,
     });
   } else {
     items.push({
       action: 'close',
-      label: 'Close…',
+      label: t('session.closeMenuAction'),
       danger: true,
       separated: true,
     });
@@ -118,7 +126,8 @@ export function SessionActionsMenu({
   onAction,
   onClose,
 }: SessionActionsMenuProps) {
-  const items = menuItems(session);
+  const { t } = useLanguage();
+  const items = menuItems(session, t);
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
   const left = Math.round(
@@ -198,19 +207,19 @@ export function SessionActionsMenu({
       <div
         className="session-menu"
         role="menu"
-        aria-label={`Actions for ${session.name}`}
+        aria-label={t('session.menuLabel', { name: session.name })}
         style={{ left, top }}
         onKeyDown={handleKeyDown}
       >
         <div className="menu-head">
           <div>
             <div className="menu-title">{session.name}</div>
-            <div className="menu-sub">{statusText(session)}</div>
+            <div className="menu-sub">{statusText(session, t)}</div>
           </div>
           <button
             type="button"
             className="menu-close"
-            aria-label="Close menu"
+            aria-label={t('session.closeMenu')}
             tabIndex={-1}
             onClick={close}
           >

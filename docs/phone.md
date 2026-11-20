@@ -6,7 +6,7 @@ order: 10
 
 # Phone layout
 
-The app has a phone-sized layout at `/phone.html`. It uses the same core service and the same sessions as the desktop window. It is a preview of the phone experience; the installable phone app and its pairing flow are not built yet.
+The app has a phone-sized layout at `/phone.html`. It uses the same core service and the same sessions as the desktop window. It is a preview of the phone experience; the installable phone app and its pairing flow are not built yet. The layout uses the language of the phone, so it can differ from the desktop window.
 
 ## Session list
 

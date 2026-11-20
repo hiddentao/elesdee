@@ -7,6 +7,8 @@ import type {
   Session,
   SessionChanges,
 } from '../api/types';
+import type { Translate } from '../i18n';
+import { useLanguage } from '../i18n/LanguageProvider';
 import { FileEditor } from './FileEditor';
 import {
   ChevronDownIcon,
@@ -30,19 +32,27 @@ interface OpenFile {
   content: string;
 }
 
-const STATUS_LABEL: Record<ChangeStatus, string> = {
-  added: 'Added',
-  modified: 'Changed',
-  deleted: 'Deleted',
-  renamed: 'Renamed',
-  untracked: 'New',
-  conflicted: 'Conflict',
-};
+function statusLabel(status: ChangeStatus, t: Translate): string {
+  switch (status) {
+    case 'added':
+      return t('changeStatus.added');
+    case 'modified':
+      return t('changeStatus.modified');
+    case 'deleted':
+      return t('changeStatus.deleted');
+    case 'renamed':
+      return t('changeStatus.renamed');
+    case 'untracked':
+      return t('changeStatus.untracked');
+    case 'conflicted':
+      return t('changeStatus.conflicted');
+  }
+}
 
-function messageFor(error: unknown): string {
+function messageFor(error: unknown, t: Translate): string {
   return error instanceof Error && error.message
     ? error.message
-    : 'The request failed.';
+    : t('panel.requestFailed');
 }
 
 export function SessionSidePanel({
@@ -51,6 +61,7 @@ export function SessionSidePanel({
   onSelectTab,
   onClose,
 }: SessionSidePanelProps) {
+  const { t } = useLanguage();
   const [children, setChildren] = useState<Record<string, FileEntry[]>>({});
   const [truncated, setTruncated] = useState<Record<string, boolean>>({});
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -80,7 +91,7 @@ export function SessionSidePanel({
       setChildren((current) => ({ ...current, [path]: listing.entries }));
       setTruncated((current) => ({ ...current, [path]: listing.truncated }));
     } catch (error) {
-      setFilesError(messageFor(error));
+      setFilesError(messageFor(error, t));
     } finally {
       setLoadingDirs((current) => {
         const next = new Set(current);
@@ -102,7 +113,7 @@ export function SessionSidePanel({
           : next.files[0]?.path ?? null,
       );
     } catch (error) {
-      setChangesError(messageFor(error));
+      setChangesError(messageFor(error, t));
     } finally {
       setChangesLoading(false);
     }
@@ -157,7 +168,7 @@ export function SessionSidePanel({
     } catch (error) {
       if (request.current === token) {
         setFile(null);
-        setFileError(messageFor(error));
+        setFileError(messageFor(error, t));
       }
     } finally {
       if (request.current === token) {
@@ -215,12 +226,12 @@ export function SessionSidePanel({
         delete next[path];
         return next;
       });
-      setNotice('Saved.');
+      setNotice(t('panel.saved'));
       if (tab === 'changes') {
         void loadChanges();
       }
     } catch (error) {
-      setFileError(messageFor(error));
+      setFileError(messageFor(error, t));
     } finally {
       setSaving(false);
     }
@@ -236,14 +247,14 @@ export function SessionSidePanel({
     if (!entries) {
       return loadingDirs.has(path) ? (
         <li className="tree-note" role="none">
-          Loading…
+          {t('panel.loading')}
         </li>
       ) : null;
     }
     if (entries.length === 0) {
       return (
         <li className="tree-note" role="none">
-          Empty folder
+          {t('panel.emptyFolder')}
         </li>
       );
     }
@@ -276,7 +287,11 @@ export function SessionSidePanel({
             {entry.directory ? <FolderIcon /> : <FileIcon />}
             <span className="tree-name">{entry.name}</span>
             {isDirty ? (
-              <span className="tree-dirty" title="Unsaved changes" aria-label="Unsaved changes" />
+              <span
+                className="tree-dirty"
+                title={t('panel.unsavedChanges')}
+                aria-label={t('panel.unsavedChanges')}
+              />
             ) : null}
           </button>
           {isOpen ? (
@@ -284,7 +299,7 @@ export function SessionSidePanel({
           ) : null}
           {isOpen && truncated[entry.path] ? (
             <p className="tree-note" role="note">
-              More entries are not shown.
+              {t('panel.moreEntries')}
             </p>
           ) : null}
         </li>
@@ -293,8 +308,15 @@ export function SessionSidePanel({
   }
 
   return (
-    <aside className="dock" aria-label={`${session.name} side panel`}>
-      <div className="dock-head" role="tablist" aria-label="Session panels">
+    <aside
+      className="dock"
+      aria-label={t('panel.label', { name: session.name })}
+    >
+      <div
+        className="dock-head"
+        role="tablist"
+        aria-label={t('panel.tabsLabel')}
+      >
         <button
           type="button"
           role="tab"
@@ -304,7 +326,7 @@ export function SessionSidePanel({
           className={`dock-tab${tab === 'files' ? ' is-on' : ''}`}
           onClick={() => onSelectTab('files')}
         >
-          Files
+          {t('panel.files')}
         </button>
         <button
           type="button"
@@ -315,7 +337,7 @@ export function SessionSidePanel({
           className={`dock-tab${tab === 'changes' ? ' is-on' : ''}`}
           onClick={() => onSelectTab('changes')}
         >
-          Changes
+          {t('panel.changes')}
           {changes && changes.git && changes.files.length > 0 ? (
             <span className="dock-count">{changes.files.length}</span>
           ) : null}
@@ -323,8 +345,8 @@ export function SessionSidePanel({
         <button
           type="button"
           className="icon-btn dock-close"
-          aria-label="Close side panel"
-          title="Close side panel"
+          aria-label={t('panel.close')}
+          title={t('panel.close')}
           onClick={onClose}
         >
           <CloseIcon />
@@ -361,14 +383,23 @@ export function SessionSidePanel({
               {fileError}
             </p>
           ) : null}
-          <ul className="file-tree" role="tree" aria-label="Session files">
+          <ul
+            className="file-tree"
+            role="tree"
+            aria-label={t('panel.filesLabel')}
+          >
             {renderEntries('', 0)}
           </ul>
 
           {file || loadingFile ? (
             <div className="editor">
               <div className="editor-head">
-                {dirty ? <span className="dirty" title="Unsaved changes" /> : null}
+                {dirty ? (
+                  <span
+                    className="dirty"
+                    title={t('panel.unsavedChanges')}
+                  />
+                ) : null}
                 <span className="editor-path" title={file?.path ?? ''}>
                   {file?.path ?? ''}
                 </span>
@@ -379,11 +410,11 @@ export function SessionSidePanel({
                   disabled={!dirty || saving}
                   onClick={() => void saveFile()}
                 >
-                  {saving ? 'Saving…' : 'Save'}
+                  {saving ? t('panel.saving') : t('panel.save')}
                 </button>
               </div>
               {loadingFile ? (
-                <p className="dock-note">Loading file…</p>
+                <p className="dock-note">{t('panel.loadingFile')}</p>
               ) : file ? (
                 <FileEditor
                   key={`${session.id}:${file.path}`}
@@ -395,9 +426,7 @@ export function SessionSidePanel({
               ) : null}
             </div>
           ) : (
-            <p className="dock-note">
-              Select a file to view and edit it.
-            </p>
+            <p className="dock-note">{t('panel.selectFile')}</p>
           )}
         </section>
 
@@ -409,14 +438,16 @@ export function SessionSidePanel({
           hidden={tab !== 'changes'}
         >
           <div className="dock-toolbar">
-            <span className="dock-toolbar-title">Since the branch point</span>
+            <span className="dock-toolbar-title">
+              {t('panel.sinceBranch')}
+            </span>
             <button
               type="button"
               className="btn btn-ghost dock-action"
               disabled={changesLoading}
               onClick={() => void loadChanges()}
             >
-              {changesLoading ? 'Refreshing…' : 'Refresh'}
+              {changesLoading ? t('panel.refreshing') : t('panel.refresh')}
             </button>
           </div>
 
@@ -433,20 +464,23 @@ export function SessionSidePanel({
           ) : null}
 
           {!changes && changesLoading ? (
-            <p className="dock-note">Loading changes…</p>
+            <p className="dock-note">{t('panel.loadingChanges')}</p>
           ) : null}
 
           {changes && !changes.git ? (
-            <p className="dock-note">This folder is not a Git repository.</p>
+            <p className="dock-note">{t('panel.notGit')}</p>
           ) : null}
 
           {changes?.git && changes.files.length === 0 ? (
-            <p className="dock-note">No changes yet.</p>
+            <p className="dock-note">{t('panel.noChanges')}</p>
           ) : null}
 
           {changes?.git && changes.files.length > 0 ? (
             <div className="diff-list">
-              <ul className="change-list" aria-label="Changed files">
+              <ul
+                className="change-list"
+                aria-label={t('panel.changedFiles')}
+              >
                 {changes.files.map((item) => (
                   <li key={item.path}>
                     <button
@@ -460,7 +494,7 @@ export function SessionSidePanel({
                       <span className="change-main">
                         <code title={item.path}>{item.path}</code>
                         <span className={`change-status is-${item.status}`}>
-                          {STATUS_LABEL[item.status]}
+                          {statusLabel(item.status, t)}
                         </span>
                       </span>
                       <span className="diff-stat">
@@ -474,13 +508,11 @@ export function SessionSidePanel({
               {activeChange ? (
                 <DiffPreview file={activeChange} />
               ) : (
-                <p className="dock-note">Select a file to see its diff.</p>
+                <p className="dock-note">{t('panel.selectDiff')}</p>
               )}
 
               {changes.truncated ? (
-                <p className="dock-note">
-                  The change list is large. Some files or diffs are not shown.
-                </p>
+                <p className="dock-note">{t('panel.largeChanges')}</p>
               ) : null}
             </div>
           ) : null}
@@ -491,19 +523,25 @@ export function SessionSidePanel({
 }
 
 function DiffPreview({ file }: { file: ChangedFile }) {
+  const { t } = useLanguage();
   const lines = file.diff.split('\n');
   return (
     <div className="diff-preview">
       <div className="diff-head">
         <code>{file.path}</code>
-        {file.oldPath ? <span>from {file.oldPath}</span> : null}
+        {file.oldPath ? (
+          <span>{t('panel.from', { path: file.oldPath })}</span>
+        ) : null}
       </div>
       {file.binary ? (
-        <p className="dock-note">Binary file. No text preview.</p>
+        <p className="dock-note">{t('panel.binary')}</p>
       ) : file.diff === '' ? (
-        <p className="dock-note">No text changes to show.</p>
+        <p className="dock-note">{t('panel.noTextChanges')}</p>
       ) : (
-        <pre className="diff-snippet" aria-label={`Diff for ${file.path}`}>
+        <pre
+          className="diff-snippet"
+          aria-label={t('panel.diffLabel', { path: file.path })}
+        >
           {lines.map((line, index) => (
             <span key={index} className={diffClass(line)}>
               {line || ' '}
@@ -512,7 +550,7 @@ function DiffPreview({ file }: { file: ChangedFile }) {
         </pre>
       )}
       {file.diffTruncated ? (
-        <p className="dock-note">The diff is long and was shortened.</p>
+        <p className="dock-note">{t('panel.diffShortened')}</p>
       ) : null}
     </div>
   );

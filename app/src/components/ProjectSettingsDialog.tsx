@@ -5,6 +5,8 @@ import type {
   Project,
   UpdateProjectDefaultsInput,
 } from '../api/types';
+import { type Language } from '../i18n';
+import { useLanguage } from '../i18n/LanguageProvider';
 import { accountUsage } from '../state/usage';
 import { Combobox, type ComboboxLoader, type ComboboxOption } from './Combobox';
 import { Dialog } from './Dialog';
@@ -17,20 +19,27 @@ interface ProjectSettingsDialogProps {
   onClose: () => void;
 }
 
-function accountOption(account: Account): ComboboxOption {
+function accountOption(
+  account: Account,
+  language: Language,
+  sampleLabel: string,
+): ComboboxOption {
   return {
     id: account.id,
     label: account.name,
-    meta: `${account.client} · ${accountUsage(account).summary}`,
-    tag: account.sample ? 'Sample' : undefined,
+    meta: `${account.client} · ${accountUsage(account, language).summary}`,
+    tag: account.sample ? sampleLabel : undefined,
   };
 }
 
-function branchOption(branch: { name: string; current: boolean }): ComboboxOption {
+function branchOption(
+  branch: { name: string; current: boolean },
+  currentLabel: string,
+): ComboboxOption {
   return {
     id: branch.name,
     label: branch.name,
-    tag: branch.current ? 'Current' : undefined,
+    tag: branch.current ? currentLabel : undefined,
   };
 }
 
@@ -40,6 +49,7 @@ export function ProjectSettingsDialog({
   onSave,
   onClose,
 }: ProjectSettingsDialogProps) {
+  const { t, language } = useLanguage();
   const initialAccount = project.defaultAccountId
     ? accounts.find((account) => account.id === project.defaultAccountId) ?? null
     : null;
@@ -59,17 +69,21 @@ export function ProjectSettingsDialog({
   const loadAccountOptions = useCallback<ComboboxLoader>(
     async (query, signal) => {
       const list = await listAccounts(query, signal);
-      return list.map(accountOption);
+      return list.map((account) =>
+        accountOption(account, language, t('common.sample')),
+      );
     },
-    [],
+    [language, t],
   );
 
   const loadBranchOptions = useCallback<ComboboxLoader>(
     async (query, signal) => {
       const list = await listBranches(project.folder, query, signal);
-      return list.map(branchOption);
+      return list.map((branch) =>
+        branchOption(branch, t('newSession.currentTag')),
+      );
     },
-    [project.folder],
+    [project.folder, t],
   );
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -88,7 +102,7 @@ export function ProjectSettingsDialog({
       setError(
         failure instanceof ApiError
           ? failure.message
-          : 'The project defaults were not saved. Try again.',
+          : t('projectSettings.errorSave'),
       );
     }
   }
@@ -97,13 +111,13 @@ export function ProjectSettingsDialog({
     <Dialog
       titleId="project-settings-title"
       descriptionId="project-settings-description"
-      busyLabel="Saving project defaults…"
+      busyLabel={t('projectSettings.busyLabel')}
       onClose={onClose}
       busy={submitting}
     >
       <div className="dialog-head">
         <h2 className="dialog-title" id="project-settings-title">
-          Project settings
+          {t('projectSettings.title')}
         </h2>
         <p className="dialog-sub" id="project-settings-description">
           {project.name} · {project.folder}
@@ -114,15 +128,21 @@ export function ProjectSettingsDialog({
         <div className="dialog-body">
           <Combobox
             id="project-default-account"
-            label="Default account"
+            label={t('projectSettings.defaultAccount')}
             value={accountId}
             loadOptions={loadAccountOptions}
             selectedOption={
-              selectedAccount ? accountOption(selectedAccount) : null
+              selectedAccount
+                ? accountOption(
+                    selectedAccount,
+                    language,
+                    t('common.sample'),
+                  )
+                : null
             }
             onChange={setAccountId}
-            placeholder="No default account"
-            hint="New sessions in this project start with this account."
+            placeholder={t('projectSettings.noDefaultAccount')}
+            hint={t('projectSettings.accountHint')}
             autoFocus
           />
           {accountId ? (
@@ -131,22 +151,22 @@ export function ProjectSettingsDialog({
               className="link-button project-default-clear"
               onClick={() => setAccountId(null)}
             >
-              Clear default account
+              {t('projectSettings.clearAccount')}
             </button>
           ) : null}
 
           <Combobox
             key={project.folder}
             id="project-default-branch"
-            label="Default source branch"
+            label={t('projectSettings.defaultBranch')}
             value={branch}
             loadOptions={loadBranchOptions}
             selectedOption={
               branch ? { id: branch, label: branch } : null
             }
             onChange={setBranch}
-            placeholder="No default branch"
-            hint="New sessions start from this commit. Choose a branch in the project folder."
+            placeholder={t('projectSettings.noDefaultBranch')}
+            hint={t('projectSettings.branchHint')}
           />
           {branch ? (
             <button
@@ -154,7 +174,7 @@ export function ProjectSettingsDialog({
               className="link-button project-default-clear"
               onClick={() => setBranch(null)}
             >
-              Clear default branch
+              {t('projectSettings.clearBranch')}
             </button>
           ) : null}
 
@@ -173,10 +193,12 @@ export function ProjectSettingsDialog({
             onClick={onClose}
             disabled={submitting}
           >
-            Cancel
+            {t('common.cancel')}
           </button>
           <button type="submit" className="btn btn-primary" disabled={submitting}>
-            {submitting ? 'Saving…' : 'Save defaults'}
+            {submitting
+              ? t('projectSettings.submitting')
+              : t('projectSettings.submit')}
           </button>
         </div>
       </form>

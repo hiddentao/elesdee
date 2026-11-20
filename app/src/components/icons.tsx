@@ -210,3 +210,12 @@ export function SparkIcon({ className }: IconProps) {
     </svg>
   );
 }
+
+export function GlobeIcon({ className }: IconProps) {
+  return (
+    <svg {...base} className={className}>
+      <circle cx="8" cy="8" r="5.5" />
+      <path d="M2.5 8h11M8 2.5c1.6 1.7 2.4 3.5 2.4 5.5S9.6 11.8 8 13.5C6.4 11.8 5.6 10 5.6 8S6.4 4.2 8 2.5Z" />
+    </svg>
+  );
+}
