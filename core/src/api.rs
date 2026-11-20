@@ -1121,9 +1121,12 @@ async fn stop_demo_server(
     State(state): State<AppState>,
     UrlPath((id, server_id)): UrlPath<(String, String)>,
 ) -> Result<Json<Session>, ApiError> {
-    let (session, port) = state
-        .stop_demo_server(&id, &server_id)
-        .map_err(demo_error)?;
+    let worker = state.clone();
+    let (session, port) =
+        tokio::task::spawn_blocking(move || worker.stop_demo_server(&id, &server_id))
+            .await
+            .map_err(blocking_error)?
+            .map_err(demo_error)?;
     state.link().close_forward(port);
     state.emit(SessionEvent::updated(session.clone()));
     state.save();
@@ -1142,9 +1145,13 @@ async fn enable_demo_funnel(
     body: Result<Json<FunnelRequest>, JsonRejection>,
 ) -> Result<Json<Session>, ApiError> {
     let Json(request) = body.map_err(invalid_json)?;
-    let (session, _address) = state
-        .enable_funnel(&id, &server_id, request.confirmed.unwrap_or(false))
-        .map_err(funnel_error)?;
+    let worker = state.clone();
+    let confirmed = request.confirmed.unwrap_or(false);
+    let (session, _address) =
+        tokio::task::spawn_blocking(move || worker.enable_funnel(&id, &server_id, confirmed))
+            .await
+            .map_err(blocking_error)?
+            .map_err(funnel_error)?;
     state.emit(SessionEvent::updated(session.clone()));
     state.save();
     Ok(Json(session))
@@ -1154,12 +1161,25 @@ async fn disable_demo_funnel(
     State(state): State<AppState>,
     UrlPath((id, server_id)): UrlPath<(String, String)>,
 ) -> Result<Json<Session>, ApiError> {
-    let session = state
-        .disable_funnel(&id, &server_id)
+    let worker = state.clone();
+    let session = tokio::task::spawn_blocking(move || worker.disable_funnel(&id, &server_id))
+        .await
+        .map_err(blocking_error)?
         .map_err(funnel_error)?;
     state.emit(SessionEvent::updated(session.clone()));
     state.save();
     Ok(Json(session))
+}
+
+/// Turns off a session's public demo addresses without blocking the runtime.
+async fn disable_public_demo_servers(state: &AppState, session_id: &str) {
+    let worker = state.clone();
+    let session_id = session_id.to_owned();
+    let _ = tokio::task::spawn_blocking(move || worker.disable_demo_funnels(&session_id)).await;
+}
+
+fn blocking_error(_: tokio::task::JoinError) -> ApiError {
+    ApiError::internal("The service could not run the request.")
 }
 
 fn funnel_error(error: crate::demo::FunnelFailure) -> ApiError {
@@ -2804,6 +2824,10 @@ async fn close_session(
         CloseFailure::Closing => ApiError::conflict("Session is closing."),
     })?;
 
+    // Turn the public address off before the agent wait and the Git work, so a
+    // stopped server is never reachable while the close sequence runs.
+    disable_public_demo_servers(&state, &id).await;
+
     let agent_stopped = closing.kind != SessionKind::Agent
         || !should_wait
         || wait_for_process_exit(&entry, Duration::from_secs(2)).await;
@@ -2835,7 +2859,6 @@ async fn close_session(
         None
     };
 
-    state.disable_demo_funnels(&closing);
     let session = entry.finish_close(preview.as_deref());
     state.close_demo_tunnels(&session);
     state.withdraw_questions_for_session(&id);
@@ -3697,6 +3720,7 @@ async fn run_pause(state: AppState, entry: Arc<SessionEntry>, reason: String) {
     if current.work_state == Some(WorkState::Paused) {
         // A failed resume reports its reason on a session that is already
         // paused. Keep the reason without repeating the pause sequence.
+        disable_public_demo_servers(&state, &entry.id()).await;
         let session = entry.pause(&reason);
         state.emit(SessionEvent::updated(session.clone()));
         state.save();
@@ -3705,6 +3729,10 @@ async fn run_pause(state: AppState, entry: Arc<SessionEntry>, reason: String) {
     if entry.is_closing() {
         return;
     }
+
+    // Turn the public address off before the grace period, so a stopped
+    // server is not reachable while the pause sequence runs.
+    disable_public_demo_servers(&state, &entry.id()).await;
 
     let mut instruction = PAUSE_INSTRUCTION.as_bytes().to_vec();
     instruction.push(b'\n');
@@ -3723,6 +3751,9 @@ async fn run_pause(state: AppState, entry: Arc<SessionEntry>, reason: String) {
     let Ok(should_wait) = entry.begin_close().map_err(|_| ()) else {
         return;
     };
+    // An enable that slipped in during the grace is refused now that the
+    // session is closing; clear any address it recorded before the Git work.
+    disable_public_demo_servers(&state, &entry.id()).await;
     if should_wait {
         let _ = wait_for_process_exit(&entry, Duration::from_secs(2)).await;
     }
@@ -3750,7 +3781,6 @@ async fn run_pause(state: AppState, entry: Arc<SessionEntry>, reason: String) {
     } else {
         format!("{reason} The agent was not running. {}", outcome.preview())
     };
-    state.disable_demo_funnels(&entry.session());
     let session = entry.pause(&reason);
     state.close_demo_tunnels(&session);
     state.emit(SessionEvent::updated(session.clone()));
@@ -3873,10 +3903,17 @@ async fn delete_session(
         }
     }
 
-    state.delete_session(&id).map_err(|failure| match failure {
-        DeleteSessionFailure::NotFound => ApiError::not_found("Unknown session."),
-        DeleteSessionFailure::Active => ApiError::conflict("Close the session before deleting it."),
-    })?;
+    let worker = state.clone();
+    let delete_id = id.clone();
+    tokio::task::spawn_blocking(move || worker.delete_session(&delete_id))
+        .await
+        .map_err(blocking_error)?
+        .map_err(|failure| match failure {
+            DeleteSessionFailure::NotFound => ApiError::not_found("Unknown session."),
+            DeleteSessionFailure::Active => {
+                ApiError::conflict("Close the session before deleting it.")
+            }
+        })?;
     state.save();
     Ok(StatusCode::NO_CONTENT)
 }

@@ -563,10 +563,12 @@ The IDE changes no Tailscale setting. To share a demo with people outside my Tai
 **Public through Tailscale Funnel**
 
 - The session's Files panel offers a Make public action for an active demo server. The action first asks me to confirm and says that anyone on the internet can open the server. The confirmation is modal: the rest of the window is inert and focus stays in it.
-- On confirmation, the IDE runs `tailscale funnel <port>` for that registered loopback port with the Tailscale client it already found. It never exposes another port and never takes an executable path from the agent.
+- On confirmation, the IDE runs `tailscale funnel --bg <port>` for that registered loopback port with the Tailscale client it already found. The background form lets the command return once the client accepts it. It never exposes another port and never takes an executable path from the agent.
+- The confirmation is the app's dialog. The core treats the `confirmed` boolean in the local request as that confirmation, because it cannot tell a user at the dialog from any other local caller. The dialog is the intended gate, but a local caller that sends the boolean directly bypasses it.
 - The public address is `https://<machine>.<tailnet>.ts.net/`. The Files panel shows it only while the server is active, with one Stop action that turns Funnel off.
 - One demo server is public at a time. Making another server public turns the first one off.
-- Stop, close, pause and an app restart turn Funnel off. If Tailscale is missing, stopped or refuses the command, the server stays local and the panel shows the reason.
+- Stop, close, pause and an app restart turn Funnel off. Close and pause turn it off before the agent wait or the Git work begins. If Tailscale is missing, stopped or refuses the command, the server stays local and the panel shows the reason.
+- A refused turn-off keeps the public address on the record, because the mapping may still be on in the daemon. The panel shows the reason and Stop can be retried. The next app start also retries, and clears the address only after the client accepts the command.
 
 ## Mobile companion app
 

@@ -40,14 +40,30 @@ async function startDemoServer(): Promise<{
 async function demoServerEntry(
   request: APIRequestContext,
   name: string,
-): Promise<{ funnelAddress?: string } | undefined> {
+): Promise<
+  | { id: string; state: 'active' | 'stopped'; funnelAddress?: string }
+  | undefined
+> {
   const response = await request.get(`${CORE_URL}/api/demo-servers`);
   expect(response.ok()).toBeTruthy();
   const entries = (await response.json()) as {
+    id: string;
     name: string;
+    state: 'active' | 'stopped';
     funnelAddress?: string;
   }[];
   return entries.find((entry) => entry.name === name);
+}
+
+function tailscaleCalls(): string[] {
+  const file = path.join(getRunDir(), 'tailscale-calls.txt');
+  if (!fs.existsSync(file)) {
+    return [];
+  }
+  return fs
+    .readFileSync(file, 'utf8')
+    .split('\n')
+    .filter(Boolean);
 }
 
 test('shows a registered demo server and stops it from the session panel', async ({
@@ -166,6 +182,8 @@ test('makes a demo server public after confirmation and stops the public address
   const demo = await startDemoServer();
   await registerDemoServer(request, session.id, 'Funnel', demo.port);
 
+  const callsBefore = tailscaleCalls();
+
   try {
     await openApp(page);
     await sessionRow(page, name).first().click();
@@ -209,6 +227,12 @@ test('makes a demo server public after confirmation and stops the public address
 
     const entry = await demoServerEntry(request, 'Funnel');
     expect(entry?.funnelAddress).toBe(publicAddress);
+    expect(entry?.id).toBeTruthy();
+
+    const enableCall = `funnel --bg ${demo.port}`;
+    await expect
+      .poll(() => tailscaleCalls().slice(callsBefore.length))
+      .toContain(enableCall);
 
     await filesPanel
       .getByRole('button', { name: 'Stop the public address for Funnel' })
@@ -224,8 +248,44 @@ test('makes a demo server public after confirmation and stops the public address
 
     const afterStop = await demoServerEntry(request, 'Funnel');
     expect(afterStop?.funnelAddress).toBeUndefined();
+    const disableCall = `funnel --https=443 localhost:${demo.port} off`;
+    await expect
+      .poll(() => tailscaleCalls().slice(callsBefore.length))
+      .toContain(disableCall);
+
+    // Register the stopped port again, make it public, then close the session.
+    // Close must turn Funnel off without waiting for the agent or the Git work.
+    await registerDemoServer(request, session.id, 'Funnel', demo.port);
+    const repeat = await request.post(
+      `${CORE_URL}/api/sessions/${session.id}/demo-servers/${entry?.id}/funnel`,
+      { data: { confirmed: true } },
+    );
+    expect(repeat.ok()).toBeTruthy();
+    const repeated = await demoServerEntry(request, 'Funnel');
+    expect(repeated?.funnelAddress).toBe(publicAddress);
+
+    const closeResponse = await request.post(
+      `${CORE_URL}/api/sessions/${session.id}/close`,
+      { data: {} },
+    );
+    expect(closeResponse.ok()).toBeTruthy();
+    const closed = (await closeResponse.json()) as {
+      status: string;
+      demoServers?: { funnelAddress?: string }[];
+    };
+    expect(closed.status).toBe('closed');
+    expect(
+      closed.demoServers?.every((server) => server.funnelAddress === undefined),
+    ).toBeTruthy();
+
+    const disableCalls = tailscaleCalls()
+      .slice(callsBefore.length)
+      .filter((call) => call === disableCall);
+    expect(disableCalls).toHaveLength(2);
   } finally {
     await demo.close();
-    await closeSession(request, session.id);
+    await request.post(`${CORE_URL}/api/sessions/${session.id}/close`, {
+      data: {},
+    });
   }
 });

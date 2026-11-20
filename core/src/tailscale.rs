@@ -136,14 +136,20 @@ impl Resolver {
 
     /// Makes a loopback port public through Tailscale Funnel.
     ///
-    /// Returns the public HTTPS address. The status is read fresh so a client
-    /// that started after the last read is used. A missing client, a stopped
-    /// backend or a refused command returns an error and changes nothing.
+    /// The command runs in the background so it returns after the client
+    /// accepts it. Returns the public HTTPS address. The status is read fresh
+    /// so a client that started after the last read is used. A missing client,
+    /// a stopped backend or a refused command returns an error and changes
+    /// nothing.
     pub(crate) fn enable_funnel(&self, port: u16) -> Result<String, FunnelError> {
         let device = self.fresh_device().ok_or(FunnelError::Unavailable)?;
         let name = device.dns_name.ok_or(FunnelError::Unavailable)?;
         let binary = self.binary_path().ok_or(FunnelError::Unavailable)?;
-        run_funnel(&binary, &["funnel", &port.to_string()], self.funnel_timeout)?;
+        run_funnel(
+            &binary,
+            &["funnel", "--bg", &port.to_string()],
+            self.funnel_timeout,
+        )?;
         Ok(format!("https://{name}/"))
     }
 
@@ -586,7 +592,7 @@ mod tests {
         let cli = FakeCli::new(
             "funnel-enable",
             &format!(
-                "case \"$1\" in\nstatus) {RUNNING_STATUS} ;;\nfunnel) printf '%s\\n' \"$@\" >> '{calls_text}' ;;\nesac"
+                "case \"$1\" in\nstatus) {RUNNING_STATUS} ;;\nfunnel) printf '%s\\n' \"$*\" >> '{calls_text}' ;;\nesac"
             ),
         );
         let resolver = Resolver::with_binary(cli.binary.clone());
@@ -594,7 +600,7 @@ mod tests {
         let address = resolver.enable_funnel(3000).expect("public address");
         assert_eq!(address, "https://studio.tailnet.ts.net/");
         let written = fs::read_to_string(&calls).expect("read calls");
-        assert_eq!(written.lines().collect::<Vec<_>>(), ["funnel", "3000"]);
+        assert_eq!(written.lines().collect::<Vec<_>>(), ["funnel --bg 3000"]);
         let _ = fs::remove_file(&calls);
     }
 
@@ -643,7 +649,7 @@ mod tests {
         let cli = FakeCli::new(
             "funnel-disable",
             &format!(
-                "case \"$1\" in\nstatus) {RUNNING_STATUS} ;;\nfunnel) printf '%s\\n' \"$@\" >> '{calls_text}' ;;\nesac"
+                "case \"$1\" in\nstatus) {RUNNING_STATUS} ;;\nfunnel) printf '%s\\n' \"$*\" >> '{calls_text}' ;;\nesac"
             ),
         );
         let resolver = Resolver::with_binary(cli.binary.clone());
@@ -652,7 +658,7 @@ mod tests {
         let written = fs::read_to_string(&calls).expect("read calls");
         assert_eq!(
             written.lines().collect::<Vec<_>>(),
-            ["funnel", "--https=443", "localhost:4000", "off"]
+            ["funnel --https=443 localhost:4000 off"]
         );
         let _ = fs::remove_file(&calls);
     }

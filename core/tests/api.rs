@@ -11463,7 +11463,7 @@ fn fake_funnel_tailscale(folder: &Path, calls: &Path) -> PathBuf {
     write_fake_tailscale(
         folder,
         &format!(
-            "case \"$1\" in\nstatus) printf '{{\"BackendState\":\"Running\",\"Self\":{{\"DNSName\":\"studio.tailnet.ts.net.\",\"TailscaleIPs\":[\"100.101.102.103\"]}}}}' ;;\nfunnel) printf '%s\\n' \"$@\" >> '{calls}' ;;\nesac"
+            "case \"$1\" in\nstatus) printf '{{\"BackendState\":\"Running\",\"Self\":{{\"DNSName\":\"studio.tailnet.ts.net.\",\"TailscaleIPs\":[\"100.101.102.103\"]}}}}' ;;\nfunnel) printf '%s\\n' \"$*\" >> '{calls}' ;;\nesac"
         ),
     )
 }
@@ -11519,7 +11519,11 @@ async fn demo_servers_funnel_needs_confirmation_and_a_registered_server() {
         "https://studio.tailnet.ts.net/"
     );
     let written = fs::read_to_string(&calls).expect("read calls");
-    assert_eq!(written.lines().collect::<Vec<_>>(), ["funnel", "3000"]);
+    assert_eq!(
+        written.lines().collect::<Vec<_>>(),
+        ["funnel --bg 3000"],
+        "the enable runs in the background"
+    );
 
     let (status, stopped) = call(
         &app,
@@ -11531,10 +11535,9 @@ async fn demo_servers_funnel_needs_confirmation_and_a_registered_server() {
     assert_eq!(status, StatusCode::OK, "{stopped}");
     assert!(demo_servers(&stopped)[0].get("funnelAddress").is_none());
     let written = fs::read_to_string(&calls).expect("read calls");
-    assert!(
-        written
-            .lines()
-            .any(|line| line == "--https=443" || line == "off"),
+    assert_eq!(
+        written.lines().collect::<Vec<_>>(),
+        ["funnel --bg 3000", "funnel --https=443 localhost:3000 off"],
         "{written}"
     );
 
@@ -11595,8 +11598,11 @@ async fn demo_servers_funnel_turns_off_when_the_session_closes() {
 
     let written = fs::read_to_string(&calls).expect("read calls");
     let lines = written.lines().collect::<Vec<_>>();
-    assert!(lines.contains(&"localhost:4000"), "{written}");
-    assert!(lines.contains(&"off"), "{written}");
+    assert_eq!(lines[0], "funnel --bg 4000", "{written}");
+    assert!(
+        lines.contains(&"funnel --https=443 localhost:4000 off"),
+        "{written}"
+    );
 
     let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
     let listed = bootstrap["sessions"]
@@ -11606,6 +11612,206 @@ async fn demo_servers_funnel_turns_off_when_the_session_closes() {
         .find(|session| session["id"] == id)
         .expect("session");
     assert_eq!(demo_servers(listed)[0]["state"], "stopped");
+    assert!(demo_servers(listed)[0].get("funnelAddress").is_none());
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn demo_servers_funnel_stop_keeps_the_address_when_tailscale_refuses() {
+    let data_dir = TempDirectory::new("demo-funnel-refused-data");
+    let repo = TempDirectory::new("demo-funnel-refused-repo");
+    let calls = data_dir.path.join("funnel-calls.txt");
+    let allowed = data_dir.path.join("off-allowed.txt");
+    let calls_text = calls.to_string_lossy().into_owned();
+    let allowed_text = allowed.to_string_lossy().into_owned();
+    let binary = write_fake_tailscale(
+        &data_dir.path,
+        &format!(
+            "case \"$1\" in\nstatus) printf '{{\"BackendState\":\"Running\",\"Self\":{{\"DNSName\":\"studio.tailnet.ts.net.\",\"TailscaleIPs\":[\"100.101.102.103\"]}}}}' ;;\nfunnel) printf '%s\\n' \"$*\" >> '{calls_text}'\nif [ \"$2\" = \"--bg\" ]; then exit 0; fi\nif [ -e '{allowed_text}' ]; then exit 0; fi\necho 'Tailscale is stopping.' >&2\nexit 1 ;;\nesac"
+        ),
+    );
+    let state = AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    )
+    .with_test_tailscale_binary(binary);
+    let app = router(state);
+    let session = create_terminal(&app, &repo.path).await;
+    let id = session["id"].as_str().expect("session id").to_owned();
+
+    let (failed, text) = mcp_text(
+        &app,
+        &id,
+        "register_demo_server",
+        json!({ "name": "Preview", "port": 6100 }),
+    )
+    .await;
+    assert!(!failed, "{text}");
+    let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    let listed = bootstrap["sessions"]
+        .as_array()
+        .expect("sessions")
+        .iter()
+        .find(|session| session["id"] == id)
+        .expect("session");
+    let server_id = demo_servers(listed)[0]["id"]
+        .as_str()
+        .expect("server id")
+        .to_owned();
+    let enable_route = format!("/api/sessions/{id}/demo-servers/{server_id}/funnel");
+    let stop_route = format!("/api/sessions/{id}/demo-servers/{server_id}/stop");
+
+    let (status, body) = call(
+        &app,
+        "POST",
+        &enable_route,
+        Some(json!({ "confirmed": true })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    let (status, body) = call(&app, "POST", &stop_route, Some(json!({}))).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert!(
+        body["error"]
+            .as_str()
+            .is_some_and(|error| error.contains("could not turn off")),
+        "{body}"
+    );
+
+    let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    let listed = bootstrap["sessions"]
+        .as_array()
+        .expect("sessions")
+        .iter()
+        .find(|session| session["id"] == id)
+        .expect("session");
+    let server = &demo_servers(listed)[0];
+    assert_eq!(server["state"], "active", "{server}");
+    assert_eq!(
+        server["funnelAddress"], "https://studio.tailnet.ts.net/",
+        "{server}"
+    );
+
+    fs::write(&allowed, "retry\n").expect("allow the next stop");
+    let (status, stopped) = call(&app, "POST", &stop_route, Some(json!({}))).await;
+    assert_eq!(status, StatusCode::OK, "{stopped}");
+    assert_eq!(demo_servers(&stopped)[0]["state"], "stopped");
+    assert!(demo_servers(&stopped)[0].get("funnelAddress").is_none());
+
+    let written = fs::read_to_string(&calls).expect("read calls");
+    let lines = written.lines().collect::<Vec<_>>();
+    assert_eq!(
+        lines,
+        [
+            "funnel --bg 6100",
+            "funnel --https=443 localhost:6100 off",
+            "funnel --https=443 localhost:6100 off",
+        ],
+        "{written}"
+    );
+
+    let (status, _) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn demo_servers_funnel_enable_race_with_close_leaves_nothing_public() {
+    let data_dir = TempDirectory::new("demo-funnel-race-data");
+    let repo = TempDirectory::new("demo-funnel-race-repo");
+    let calls = data_dir.path.join("funnel-calls.txt");
+    let started = data_dir.path.join("enable-started.txt");
+    let calls_text = calls.to_string_lossy().into_owned();
+    let started_text = started.to_string_lossy().into_owned();
+    let binary = write_fake_tailscale(
+        &data_dir.path,
+        &format!(
+            "case \"$1\" in\nstatus) printf '{{\"BackendState\":\"Running\",\"Self\":{{\"DNSName\":\"studio.tailnet.ts.net.\",\"TailscaleIPs\":[\"100.101.102.103\"]}}}}' ;;\nfunnel) printf '%s\\n' \"$*\" >> '{calls_text}'\nif [ \"$2\" = \"--bg\" ]; then : > '{started_text}'\nsleep 1\nexit 0; fi\nexit 0 ;;\nesac"
+        ),
+    );
+    let state = AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    )
+    .with_test_tailscale_binary(binary);
+    let app = router(state);
+    let session = create_terminal(&app, &repo.path).await;
+    let id = session["id"].as_str().expect("session id").to_owned();
+
+    let (failed, text) = mcp_text(
+        &app,
+        &id,
+        "register_demo_server",
+        json!({ "name": "Preview", "port": 6200 }),
+    )
+    .await;
+    assert!(!failed, "{text}");
+    let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    let listed = bootstrap["sessions"]
+        .as_array()
+        .expect("sessions")
+        .iter()
+        .find(|session| session["id"] == id)
+        .expect("session");
+    let server_id = demo_servers(listed)[0]["id"]
+        .as_str()
+        .expect("server id")
+        .to_owned();
+    let enable_route = format!("/api/sessions/{id}/demo-servers/{server_id}/funnel");
+
+    let enable_app = app.clone();
+    let enable = tokio::spawn(async move {
+        call(
+            &enable_app,
+            "POST",
+            &enable_route,
+            Some(json!({ "confirmed": true })),
+        )
+        .await
+    });
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    while !started.exists() {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the enable never started"
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+
+    let (status, closed) = call(
+        &app,
+        "POST",
+        &format!("/api/sessions/{id}/close"),
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+    let (enable_status, enable_body) = enable.await.expect("enable task");
+    assert_eq!(
+        enable_status,
+        StatusCode::CONFLICT,
+        "the enable should be refused: {enable_body}"
+    );
+
+    assert_eq!(demo_servers(&closed)[0]["state"], "stopped");
+    assert!(demo_servers(&closed)[0].get("funnelAddress").is_none());
+    let written = fs::read_to_string(&calls).expect("read calls");
+    let lines = written.lines().collect::<Vec<_>>();
+    assert_eq!(lines[0], "funnel --bg 6200", "{written}");
+    assert_eq!(
+        lines.last().copied(),
+        Some("funnel --https=443 localhost:6200 off"),
+        "{written}"
+    );
+
+    let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    let listed = bootstrap["sessions"]
+        .as_array()
+        .expect("sessions")
+        .iter()
+        .find(|session| session["id"] == id)
+        .expect("session");
     assert!(demo_servers(listed)[0].get("funnelAddress").is_none());
 }
 
