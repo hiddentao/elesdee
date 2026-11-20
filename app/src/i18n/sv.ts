@@ -671,4 +671,45 @@ export const sv = {
   'projectSettings.noDefaultConfig': 'Ingen standard-AI-konfiguration',
   'projectSettings.configHint': 'Nya sessioner i det här projektet startar med den här AI-konfigurationen.',
   'projectSettings.clearConfig': 'Rensa standard-AI-konfiguration',
+
+  'providers.signInHint':
+    'Logga in via {client}. Klienten behåller inloggningsuppgifterna; elesdee kontrollerar dem och sparar ingen token.',
+  'providers.signInThrough': 'Loggar in via {client}',
+  'providers.signInUnavailable':
+    'Den här leverantören har ingen prenumerationsinloggning.',
+  'providers.signInNow': 'Logga in',
+  'providers.signInAgain': 'Logga in igen',
+  'providers.signInAndAdd': 'Logga in och lägg till',
+  'providers.signInStarting': 'Loggar in…',
+  'providers.signInWaiting':
+    'Slutför inloggningen via {client}. Webbläsaren återgår till appen av sig själv.',
+  'providers.signInOpen': 'Öppna inloggningssidan',
+  'providers.signInCode': 'Engångskod',
+  'providers.signInCodeHint':
+    'Om inloggningssidan visar en kod, klistra in den här.',
+  'providers.signInCodeIssued':
+    'Ange den här koden på inloggningssidan: {code}',
+  'providers.signInCodeSubmit': 'Skicka kod',
+  'providers.signInCodeChecking': 'Kontrollerar…',
+  'providers.signInCodeInstead': 'Använd en engångskod i stället',
+  'providers.signInCodeInvalid': 'Ange engångskoden.',
+  'providers.signInVerifying': 'Kontrollerar inloggningsuppgifterna…',
+  'providers.signInConnected': 'Ansluten',
+  'providers.signInNotConnected': 'Inte ansluten',
+  'providers.signInRetry': 'Försök igen',
+  'providers.signInCancel': 'Avbryt inloggningen',
+  'providers.signInReasonClientNotFound':
+    'Inloggningsklienten är inte installerad.',
+  'providers.signInReasonClientError':
+    'Inloggningen slutfördes inte. Försök igen.',
+  'providers.signInReasonNotSignedIn': 'Klienten är inte inloggad.',
+  'providers.signInReasonNotSubscription':
+    'Klienten är inloggad med en API-nyckel. Använd API-nyckelalternativet i stället.',
+  'providers.signInReasonTimeout':
+    'Inloggningen tog för lång tid. Försök igen.',
+  'providers.signInReasonCancelled': 'Inloggningen avbröts.',
+  'providers.signInReasonVerification':
+    'Inloggningsuppgifterna kunde inte kontrolleras.',
+  'providers.signInReasonInternal':
+    'Inloggningen kunde inte startas. Försök igen.',
 } satisfies Record<MessageKey, string>;

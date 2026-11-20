@@ -7,6 +7,8 @@ import type {
   CreateProviderInput,
   Provider,
   ProviderOption,
+  ProviderSignIn,
+  StartProviderSignInInput,
   UpdateConfigInput,
 } from '../api/types';
 import { useLanguage } from '../i18n/LanguageProvider';
@@ -26,6 +28,15 @@ interface AiConfigDialogProps {
     input: CreateConfigInput | UpdateConfigInput,
   ) => Promise<AiConfig>;
   onCreateProvider: (input: CreateProviderInput) => Promise<Provider>;
+  onStartProviderSignIn: (
+    input: StartProviderSignInInput,
+  ) => Promise<ProviderSignIn>;
+  onGetProviderSignIn: (id: string) => Promise<ProviderSignIn>;
+  onSubmitProviderSignInCode: (
+    id: string,
+    code: string,
+  ) => Promise<ProviderSignIn>;
+  onCancelProviderSignIn: (id: string) => Promise<void>;
   onProviderSaved: (provider: Provider) => void;
   onSaved: (config: AiConfig) => void;
   onClose: () => void;
@@ -92,6 +103,10 @@ export function AiConfigDialog({
   initialProviderId = null,
   onSaveConfig,
   onCreateProvider,
+  onStartProviderSignIn,
+  onGetProviderSignIn,
+  onSubmitProviderSignInCode,
+  onCancelProviderSignIn,
   onProviderSaved,
   onSaved,
   onClose,
@@ -486,6 +501,10 @@ export function AiConfigDialog({
         <ProviderDialog
           options={options}
           onSubmit={onCreateProvider}
+          onStartSignIn={onStartProviderSignIn}
+          onGetSignIn={onGetProviderSignIn}
+          onSubmitSignInCode={onSubmitProviderSignInCode}
+          onCancelSignIn={onCancelProviderSignIn}
           onSaved={(saved) => {
             onProviderSaved(saved);
             setProviderId(saved.id);

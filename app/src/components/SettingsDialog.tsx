@@ -6,6 +6,8 @@ import type {
   CreateProviderInput,
   Provider,
   ProviderOption,
+  ProviderSignIn,
+  StartProviderSignInInput,
   UpdateConfigInput,
   UpdateProviderInput,
 } from '../api/types';
@@ -39,6 +41,15 @@ interface SettingsDialogProps {
     input: UpdateProviderInput,
   ) => Promise<Provider>;
   onRemoveProvider: (id: string) => Promise<void>;
+  onStartProviderSignIn: (
+    input: StartProviderSignInInput,
+  ) => Promise<ProviderSignIn>;
+  onGetProviderSignIn: (id: string) => Promise<ProviderSignIn>;
+  onSubmitProviderSignInCode: (
+    id: string,
+    code: string,
+  ) => Promise<ProviderSignIn>;
+  onCancelProviderSignIn: (id: string) => Promise<void>;
   onCreateConfig: (input: CreateConfigInput) => Promise<AiConfig>;
   onUpdateConfig: (
     id: string,
@@ -58,6 +69,10 @@ export function SettingsDialog({
   onCreateProvider,
   onUpdateProvider,
   onRemoveProvider,
+  onStartProviderSignIn,
+  onGetProviderSignIn,
+  onSubmitProviderSignInCode,
+  onCancelProviderSignIn,
   onCreateConfig,
   onUpdateConfig,
   onDeleteConfig,
@@ -268,6 +283,20 @@ export function SettingsDialog({
                               {provider.sample ? (
                                 <span className="sample-tag">
                                   {t('common.sample')}
+                                </span>
+                              ) : null}
+                              {!provider.sample &&
+                              provider.auth === 'subscription' ? (
+                                <span
+                                  className={
+                                    provider.connected
+                                      ? 'connection-tag is-connected'
+                                      : 'connection-tag'
+                                  }
+                                >
+                                  {provider.connected
+                                    ? t('providers.signInConnected')
+                                    : t('providers.signInNotConnected')}
                                 </span>
                               ) : null}
                             </div>
@@ -500,6 +529,10 @@ export function SettingsDialog({
         <ProviderDialog
           options={options}
           onSubmit={onCreateProvider}
+          onStartSignIn={onStartProviderSignIn}
+          onGetSignIn={onGetProviderSignIn}
+          onSubmitSignInCode={onSubmitProviderSignInCode}
+          onCancelSignIn={onCancelProviderSignIn}
           onSaved={(provider) => {
             onProviderSaved(provider);
             setAddProviderOpen(false);
@@ -515,6 +548,10 @@ export function SettingsDialog({
           onSubmit={(input) =>
             onUpdateProvider(editProvider.id, input as UpdateProviderInput)
           }
+          onStartSignIn={onStartProviderSignIn}
+          onGetSignIn={onGetProviderSignIn}
+          onSubmitSignInCode={onSubmitProviderSignInCode}
+          onCancelSignIn={onCancelProviderSignIn}
           onSaved={(provider) => {
             onProviderSaved(provider);
             setEditProvider(null);
@@ -581,6 +618,10 @@ export function SettingsDialog({
               : onCreateConfig(input as CreateConfigInput)
           }
           onCreateProvider={onCreateProvider}
+          onStartProviderSignIn={onStartProviderSignIn}
+          onGetProviderSignIn={onGetProviderSignIn}
+          onSubmitProviderSignInCode={onSubmitProviderSignInCode}
+          onCancelProviderSignIn={onCancelProviderSignIn}
           onProviderSaved={onProviderSaved}
           onSaved={(config) => {
             onConfigSaved(config);

@@ -12,13 +12,13 @@ Open **Settings** from the bottom of the sidebar. Settings opens over the sessio
 
 A provider holds a credential and the address it connects to. One provider can serve several AI configs, so you enter a subscription or key once.
 
-The Providers page lists the providers on this computer. Each row shows the provider name, the clients it can run, its plan and its usage summary. Sample providers carry a **Sample** tag.
+The Providers page lists the providers on this computer. Each row shows the provider name, the clients it can run, its plan and its usage summary. Sample providers carry a **Sample** tag. A subscription provider also shows **Connected** or **Not connected**.
 
 The app reads usage from official sources. Claude Code reports its plan limits while a session runs, Codex reports them from its app server, and DeepSeek reports the provider balance. The usage panel shows the 5-hour and weekly limits or the balance, with the time of the last read. If a read fails, the last numbers stay and the provider says the reading is stale. Providers without an official source show **No usage data**.
 
-Choose **Add provider** to connect one. Choose the vendor and the sign-in method, then enter the fields it needs: an API key, a server URL or an API style. See [Agents and providers](agents.md) for the vendor list and the clients each vendor supports.
+Choose **Add provider** to connect one. Choose the vendor and the sign-in method, then enter the fields it needs: an API key, a server URL or an API style. A subscription sign-in starts the installed client's own login and adds the provider after the client confirms the credential. See [Agents and providers](agents.md) for the vendor list, the clients each vendor supports and the subscription steps.
 
-Each provider row has **Edit** and **Remove**. Edit changes the name, sign-in method, server address or custom provider. The key field starts blank: leave it blank to keep the saved key, or type a new key to replace it. A provider that starts as a sample stops being a sample when you edit it.
+Each provider row has **Edit** and **Remove**. Edit changes the name, sign-in method, server address or custom provider. The key field starts blank: leave it blank to keep the saved key, or type a new key to replace it. A subscription provider has **Sign in** or **Sign in again** in the same form. A provider that starts as a sample stops being a sample when you edit it.
 
 The app refuses to remove a provider while an AI config uses it. Remove those configs first. Removing a provider deletes its saved key and usage.
 

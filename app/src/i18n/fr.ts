@@ -672,4 +672,47 @@ export const fr = {
   'projectSettings.noDefaultConfig': 'Aucune configuration IA par défaut',
   'projectSettings.configHint': 'Les nouvelles sessions de ce projet démarrent avec cette configuration IA.',
   'projectSettings.clearConfig': 'Effacer la configuration IA par défaut',
+
+  'providers.signInHint':
+    'Connectez-vous via {client}. Le client conserve les identifiants ; elesdee les vérifie et ne stocke aucun jeton.',
+  'providers.signInThrough': 'Connexion via {client}',
+  'providers.signInUnavailable':
+    "Ce fournisseur n'a pas de connexion par abonnement.",
+  'providers.signInNow': 'Se connecter',
+  'providers.signInAgain': 'Se reconnecter',
+  'providers.signInAndAdd': 'Se connecter et ajouter',
+  'providers.signInStarting': 'Démarrage de la connexion…',
+  'providers.signInWaiting':
+    "Terminez la connexion via {client}. Le navigateur revient à l'application automatiquement.",
+  'providers.signInOpen': 'Ouvrir la page de connexion',
+  'providers.signInCode': 'Code à usage unique',
+  'providers.signInCodeHint':
+    'Si la page de connexion affiche un code, collez-le ici.',
+  'providers.signInCodeIssued':
+    'Saisissez ce code sur la page de connexion : {code}',
+  'providers.signInCodeSubmit': 'Envoyer le code',
+  'providers.signInCodeChecking': 'Vérification…',
+  'providers.signInCodeInstead':
+    'Utiliser un code à usage unique à la place',
+  'providers.signInCodeInvalid': 'Saisissez le code à usage unique.',
+  'providers.signInVerifying': 'Vérification des identifiants…',
+  'providers.signInConnected': 'Connecté',
+  'providers.signInNotConnected': 'Non connecté',
+  'providers.signInRetry': 'Réessayer',
+  'providers.signInCancel': 'Annuler la connexion',
+  'providers.signInReasonClientNotFound':
+    "Le client de connexion n'est pas installé.",
+  'providers.signInReasonClientError':
+    "La connexion n'a pas abouti. Réessayez.",
+  'providers.signInReasonNotSignedIn':
+    "Le client n'est pas connecté.",
+  'providers.signInReasonNotSubscription':
+    'Le client est connecté avec une clé API. Utilisez plutôt l’option clé API.',
+  'providers.signInReasonTimeout':
+    'La connexion a expiré. Réessayez.',
+  'providers.signInReasonCancelled': 'La connexion a été annulée.',
+  'providers.signInReasonVerification':
+    "Les identifiants n'ont pas pu être vérifiés.",
+  'providers.signInReasonInternal':
+    "La connexion n'a pas pu démarrer. Réessayez.",
 } satisfies Record<MessageKey, string>;

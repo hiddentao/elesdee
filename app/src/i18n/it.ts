@@ -672,4 +672,45 @@ export const it = {
   'projectSettings.noDefaultConfig': 'Nessuna configurazione IA predefinita',
   'projectSettings.configHint': 'Le nuove sessioni di questo progetto iniziano con questa configurazione IA.',
   'projectSettings.clearConfig': 'Cancella la configurazione IA predefinita',
+
+  'providers.signInHint':
+    'Accedi tramite {client}. Il client conserva le credenziali; elesdee le verifica e non memorizza alcun token.',
+  'providers.signInThrough': 'Accesso tramite {client}',
+  'providers.signInUnavailable':
+    "Questo fornitore non supporta l'accesso tramite abbonamento.",
+  'providers.signInNow': 'Accedi',
+  'providers.signInAgain': 'Accedi di nuovo',
+  'providers.signInAndAdd': 'Accedi e aggiungi',
+  'providers.signInStarting': "Avvio dell'accesso…",
+  'providers.signInWaiting':
+    "Completa l'accesso tramite {client}. Il browser torna all'app da solo.",
+  'providers.signInOpen': 'Apri la pagina di accesso',
+  'providers.signInCode': 'Codice monouso',
+  'providers.signInCodeHint':
+    'Se la pagina di accesso mostra un codice, incollalo qui.',
+  'providers.signInCodeIssued':
+    'Inserisci questo codice nella pagina di accesso: {code}',
+  'providers.signInCodeSubmit': 'Invia codice',
+  'providers.signInCodeChecking': 'Verifica…',
+  'providers.signInCodeInstead': 'Usa un codice monouso',
+  'providers.signInCodeInvalid': 'Inserisci il codice monouso.',
+  'providers.signInVerifying': 'Verifica delle credenziali…',
+  'providers.signInConnected': 'Connesso',
+  'providers.signInNotConnected': 'Non connesso',
+  'providers.signInRetry': 'Riprova',
+  'providers.signInCancel': 'Annulla accesso',
+  'providers.signInReasonClientNotFound':
+    'Il client di accesso non è installato.',
+  'providers.signInReasonClientError':
+    "L'accesso non è stato completato. Riprova.",
+  'providers.signInReasonNotSignedIn':
+    'Il client non ha effettuato l’accesso.',
+  'providers.signInReasonNotSubscription':
+    'Il client ha effettuato l’accesso con una chiave API. Usa l’opzione chiave API.',
+  'providers.signInReasonTimeout': "L'accesso è scaduto. Riprova.",
+  'providers.signInReasonCancelled': "L'accesso è stato annullato.",
+  'providers.signInReasonVerification':
+    'Non è stato possibile verificare le credenziali.',
+  'providers.signInReasonInternal':
+    "Non è stato possibile avviare l'accesso. Riprova.",
 } satisfies Record<MessageKey, string>;

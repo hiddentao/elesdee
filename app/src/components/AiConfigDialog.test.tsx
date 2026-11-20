@@ -18,6 +18,7 @@ const provider: Provider = {
   auth: 'key',
   server: null,
   sample: false,
+  connected: true,
   plan: 'pay as you go',
   rows: [],
   foot: '',
@@ -36,6 +37,7 @@ const option: ProviderOption = {
   },
   defaultModel: null,
   custom: false,
+  signInClient: null,
 };
 
 function jsonResponse(body: unknown): Response {
@@ -63,6 +65,10 @@ function renderDialog(
         options={[option]}
         onSaveConfig={onSaveConfig}
         onCreateProvider={vi.fn()}
+        onStartProviderSignIn={vi.fn()}
+        onGetProviderSignIn={vi.fn()}
+        onSubmitProviderSignInCode={vi.fn()}
+        onCancelProviderSignIn={vi.fn()}
         onProviderSaved={vi.fn()}
         onSaved={vi.fn()}
         onClose={vi.fn()}

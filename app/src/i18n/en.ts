@@ -656,6 +656,45 @@ export const en = {
   'projectSettings.configHint':
     'New sessions in this project start with this AI config.',
   'projectSettings.clearConfig': 'Clear default AI config',
+
+  'providers.signInHint':
+    'Sign in through {client}. The client keeps the credential; elesdee checks it and stores no token.',
+  'providers.signInThrough': 'Signs in through {client}',
+  'providers.signInUnavailable': 'This provider has no subscription sign-in.',
+  'providers.signInNow': 'Sign in',
+  'providers.signInAgain': 'Sign in again',
+  'providers.signInAndAdd': 'Sign in and add',
+  'providers.signInStarting': 'Starting the sign-in…',
+  'providers.signInWaiting':
+    'Finish signing in through {client}. The browser returns to the app by itself.',
+  'providers.signInOpen': 'Open the sign-in page',
+  'providers.signInCode': 'One-time code',
+  'providers.signInCodeHint':
+    'If the sign-in page shows a code, paste it here.',
+  'providers.signInCodeIssued':
+    'Enter this code on the sign-in page: {code}',
+  'providers.signInCodeSubmit': 'Submit code',
+  'providers.signInCodeChecking': 'Checking…',
+  'providers.signInCodeInstead': 'Use a one-time code instead',
+  'providers.signInCodeInvalid': 'Enter the one-time code.',
+  'providers.signInVerifying': 'Checking the credential…',
+  'providers.signInConnected': 'Connected',
+  'providers.signInNotConnected': 'Not connected',
+  'providers.signInRetry': 'Try again',
+  'providers.signInCancel': 'Cancel sign-in',
+  'providers.signInReasonClientNotFound':
+    'The sign-in client is not installed.',
+  'providers.signInReasonClientError':
+    'The sign-in did not complete. Try again.',
+  'providers.signInReasonNotSignedIn': 'The client is not signed in.',
+  'providers.signInReasonNotSubscription':
+    'The client is signed in with an API key. Use the API key option instead.',
+  'providers.signInReasonTimeout': 'The sign-in timed out. Try again.',
+  'providers.signInReasonCancelled': 'The sign-in was cancelled.',
+  'providers.signInReasonVerification':
+    'The credential could not be checked.',
+  'providers.signInReasonInternal':
+    'The sign-in could not start. Try again.',
  } as const;
 
 export type MessageKey = keyof typeof en;

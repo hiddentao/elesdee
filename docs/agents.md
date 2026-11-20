@@ -57,7 +57,16 @@ The key goes to the system keychain. The app writes only provider metadata to it
 
 **Subscriptions**
 
-Choose **Subscription** as the sign-in. Sign in with the client itself on this computer first, for example with `claude auth login` or the Codex login command. The app uses that sign-in and does not ask for a provider password.
+1. Choose **Subscription** as the sign-in.
+2. Enter a name, then choose **Sign in and add**.
+3. The app starts the sign-in of the installed client: Claude Code for Anthropic, Codex for OpenAI. The client opens its own sign-in page in your browser.
+4. When the browser returns by itself, the app asks the client to confirm the credential and then adds the provider.
+
+The app never asks for a provider password and never shows its own sign-in page. The client keeps the token; the provider records only that the sign-in is connected.
+
+For a computer without a browser, use a one-time code. For OpenAI, choose **Use a one-time code instead** before you start; the app shows the code and the address, and you open the address on any device. For Anthropic, open the shown address on another device, then paste the code that the page gives you into the provider form.
+
+If the sign-in fails or you close the form, the app adds no provider and says why. To connect a subscription provider later, edit it and choose **Sign in** or **Sign in again**. The Providers page shows **Connected** or **Not connected** for each subscription provider. Do not use the same Codex login on the Mac and in elesdee at the same time.
 
 **Local servers**
 

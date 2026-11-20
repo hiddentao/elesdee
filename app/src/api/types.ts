@@ -107,6 +107,7 @@ export interface Provider {
   server: string | null;
   apiStyle?: string | null;
   sample: boolean;
+  connected: boolean;
   plan: string;
   rows: UsageRow[];
   foot: string;
@@ -131,6 +132,7 @@ export interface ProviderOption {
   efforts: Record<string, string[]>;
   defaultModel: string | null;
   custom: boolean;
+  signInClient: Client | null;
 }
 
 export interface ModelChoice {
@@ -171,6 +173,43 @@ export interface CreateProviderInput {
   key?: string;
   server?: string;
   apiStyle?: 'openai' | 'anthropic';
+}
+
+export type ProviderSignInMode = 'browser' | 'code';
+export type ProviderSignInState =
+  | 'starting'
+  | 'waiting'
+  | 'verifying'
+  | 'success'
+  | 'failed'
+  | 'cancelled';
+export type ProviderSignInReason =
+  | 'clientNotFound'
+  | 'clientError'
+  | 'notSignedIn'
+  | 'notSubscription'
+  | 'timeout'
+  | 'cancelled'
+  | 'verificationFailed'
+  | 'internal';
+
+export interface ProviderSignIn {
+  id: string;
+  vendor: string;
+  client: Client;
+  mode: ProviderSignInMode;
+  state: ProviderSignInState;
+  url: string | null;
+  code: string | null;
+  reason: ProviderSignInReason | null;
+  provider: Provider | null;
+}
+
+export interface StartProviderSignInInput {
+  vendor: string;
+  name?: string;
+  providerId?: string;
+  mode?: ProviderSignInMode;
 }
 
 export interface UpdateProviderInput {

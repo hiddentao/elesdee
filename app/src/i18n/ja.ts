@@ -670,4 +670,45 @@ export const ja = {
   'projectSettings.noDefaultConfig': '既定の AI 構成なし',
   'projectSettings.configHint': 'このプロジェクトの新しいセッションはこの AI 構成で始まります。',
   'projectSettings.clearConfig': '既定の AI 構成をクリア',
+
+  'providers.signInHint':
+    '{client} でサインインします。認証情報はクライアントが保持し、elesdee は確認のみ行い、トークンは保存しません。',
+  'providers.signInThrough': '{client} でサインイン',
+  'providers.signInUnavailable':
+    'このプロバイダーにはサブスクリプションのサインインがありません。',
+  'providers.signInNow': 'サインイン',
+  'providers.signInAgain': '再サインイン',
+  'providers.signInAndAdd': 'サインインして追加',
+  'providers.signInStarting': 'サインインを開始しています…',
+  'providers.signInWaiting':
+    '{client} でのサインインを完了してください。ブラウザーは自動的にアプリへ戻ります。',
+  'providers.signInOpen': 'サインインページを開く',
+  'providers.signInCode': 'ワンタイムコード',
+  'providers.signInCodeHint':
+    'サインインページにコードが表示されたら、ここに貼り付けてください。',
+  'providers.signInCodeIssued':
+    'サインインページでこのコードを入力してください: {code}',
+  'providers.signInCodeSubmit': 'コードを送信',
+  'providers.signInCodeChecking': '確認中…',
+  'providers.signInCodeInstead': '代わりにワンタイムコードを使う',
+  'providers.signInCodeInvalid': 'ワンタイムコードを入力してください。',
+  'providers.signInVerifying': '認証情報を確認しています…',
+  'providers.signInConnected': '接続済み',
+  'providers.signInNotConnected': '未接続',
+  'providers.signInRetry': '再試行',
+  'providers.signInCancel': 'サインインをキャンセル',
+  'providers.signInReasonClientNotFound':
+    'サインイン用クライアントがインストールされていません。',
+  'providers.signInReasonClientError':
+    'サインインが完了しませんでした。もう一度お試しください。',
+  'providers.signInReasonNotSignedIn':
+    'クライアントがサインインしていません。',
+  'providers.signInReasonNotSubscription':
+    'クライアントは API キーでサインインしています。API キーのオプションを使ってください。',
+  'providers.signInReasonTimeout':
+    'サインインがタイムアウトしました。もう一度お試しください。',
+  'providers.signInReasonCancelled': 'サインインはキャンセルされました。',
+  'providers.signInReasonVerification': '認証情報を確認できませんでした。',
+  'providers.signInReasonInternal':
+    'サインインを開始できませんでした。もう一度お試しください。',
 } satisfies Record<MessageKey, string>;

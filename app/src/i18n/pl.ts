@@ -672,4 +672,45 @@ export const pl = {
   'projectSettings.noDefaultConfig': 'Brak domyślnej konfiguracji AI',
   'projectSettings.configHint': 'Nowe sesje w tym projekcie startują z tą konfiguracją AI.',
   'projectSettings.clearConfig': 'Wyczyść domyślną konfigurację AI',
+
+  'providers.signInHint':
+    'Zaloguj się przez {client}. Klient przechowuje dane logowania; elesdee je sprawdza i nie zapisuje tokenu.',
+  'providers.signInThrough': 'Logowanie przez {client}',
+  'providers.signInUnavailable':
+    'Ten dostawca nie obsługuje logowania przez subskrypcję.',
+  'providers.signInNow': 'Zaloguj się',
+  'providers.signInAgain': 'Zaloguj się ponownie',
+  'providers.signInAndAdd': 'Zaloguj się i dodaj',
+  'providers.signInStarting': 'Rozpoczynanie logowania…',
+  'providers.signInWaiting':
+    'Dokończ logowanie przez {client}. Przeglądarka sama wróci do aplikacji.',
+  'providers.signInOpen': 'Otwórz stronę logowania',
+  'providers.signInCode': 'Kod jednorazowy',
+  'providers.signInCodeHint':
+    'Jeśli strona logowania pokaże kod, wklej go tutaj.',
+  'providers.signInCodeIssued':
+    'Wpisz ten kod na stronie logowania: {code}',
+  'providers.signInCodeSubmit': 'Wyślij kod',
+  'providers.signInCodeChecking': 'Sprawdzanie…',
+  'providers.signInCodeInstead': 'Użyj kodu jednorazowego',
+  'providers.signInCodeInvalid': 'Wpisz kod jednorazowy.',
+  'providers.signInVerifying': 'Sprawdzanie danych logowania…',
+  'providers.signInConnected': 'Połączono',
+  'providers.signInNotConnected': 'Nie połączono',
+  'providers.signInRetry': 'Spróbuj ponownie',
+  'providers.signInCancel': 'Anuluj logowanie',
+  'providers.signInReasonClientNotFound':
+    'Klient logowania nie jest zainstalowany.',
+  'providers.signInReasonClientError':
+    'Logowanie nie zostało ukończone. Spróbuj ponownie.',
+  'providers.signInReasonNotSignedIn': 'Klient nie jest zalogowany.',
+  'providers.signInReasonNotSubscription':
+    'Klient jest zalogowany kluczem API. Użyj opcji klucza API.',
+  'providers.signInReasonTimeout':
+    'Logowanie przekroczyło limit czasu. Spróbuj ponownie.',
+  'providers.signInReasonCancelled': 'Logowanie zostało anulowane.',
+  'providers.signInReasonVerification':
+    'Nie udało się sprawdzić danych logowania.',
+  'providers.signInReasonInternal':
+    'Nie udało się rozpocząć logowania. Spróbuj ponownie.',
 } satisfies Record<MessageKey, string>;
