@@ -140,6 +140,8 @@ export const sv = {
   'settings.languageNote':
     'Appens språk. Datum och tal följer det också.',
   'settings.general': 'Allmänt',
+  'settings.devices': 'Enheter',
+  'settings.diagnostics': 'Diagnostik',
   'settings.generalNote': 'De här alternativen gäller den här datorn.',
 
   'general.startAtLogin': 'Starta elesdee när systemet startar',
@@ -159,6 +161,36 @@ export const sv = {
   'general.keepAwakeActive':
     'Datorn förblir vaken medan agenter arbetar.',
   'general.saveError': 'Det gick inte att spara inställningen.',
+
+  'devices.note':
+    'Telefoner som är parkopplade med den här datorn. Ta bort en telefon för att återkalla åtkomsten direkt.',
+  'devices.empty': 'Ingen telefon är parkopplad.',
+  'devices.emptyHint':
+    'Öppna telefonappen och skanna parkopplingskoden som skrivbordsappen visar. Telefonen visas sedan här.',
+  'devices.loading': 'Läser in telefoner…',
+  'devices.loadError':
+    'Det gick inte att läsa in de parkopplade telefonerna.',
+  'devices.connected': 'Ansluten',
+  'devices.disconnected': 'Inte ansluten',
+  'devices.lastSeen': 'Senast sedd {time}',
+  'devices.neverSeen': 'Aldrig ansluten',
+  'devices.remove': 'Ta bort {name}',
+  'devices.removeTitle': 'Ta bort telefon',
+  'devices.removeText':
+    'Ta bort {name}? Telefonen förlorar åtkomsten till den här datorn direkt.',
+  'devices.removeConfirm': 'Ta bort telefon',
+  'devices.removing': 'Tar bort…',
+  'devices.removeError': 'Det gick inte att ta bort telefonen.',
+
+  'diagnostics.note':
+    'Paketet innehåller appversionen, systeminformation för den här datorn och de senaste loggraderna.',
+  'diagnostics.redaction':
+    'Nycklar, parkopplingshemligheter, biljetter, agentuppgifter och sessionsinnehåll tas bort.',
+  'diagnostics.export': 'Exportera diagnostik',
+  'diagnostics.exporting': 'Exporterar…',
+  'diagnostics.exported': 'Sparad i {path}',
+  'diagnostics.exportError':
+    'Det gick inte att exportera diagnostiken.',
 
   'addAccount.title': 'Lägg till konto',
   'addAccount.subtitle':

@@ -12,11 +12,13 @@ import type {
   CreateProjectInput,
   CreateProviderInput,
   CreateSessionInput,
+  DiagnosticsExport,
   FileContent,
   FileList,
   GitStatus,
   HealthResponse,
   ModelList,
+  PairedDevice,
   PermissionDecision,
   Project,
   Provider,
@@ -541,3 +543,17 @@ export function updateSettings(input: SettingsPatch): Promise<AppSettings> {
   });
 }
 
+export function listDevices(): Promise<PairedDevice[]> {
+  return request<PairedDevice[]>('/api/devices');
+}
+
+export function removeDevice(endpointId: string): Promise<void> {
+  return request<void>(
+    `/api/devices/${encodeURIComponent(endpointId)}`,
+    { method: 'DELETE' },
+  );
+}
+
+export function exportDiagnostics(folder: string): Promise<DiagnosticsExport> {
+  return request<DiagnosticsExport>('/api/diagnostics/export', post({ folder }));
+}

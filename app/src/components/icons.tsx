@@ -237,3 +237,20 @@ export function PowerIcon({ className }: IconProps) {
     </svg>
   );
 }
+
+export function DeviceIcon({ className }: IconProps) {
+  return (
+    <svg {...base} className={className}>
+      <rect x="4.5" y="2.5" width="7" height="11" rx="1.5" />
+      <path d="M7 11.5h2" />
+    </svg>
+  );
+}
+
+export function WrenchIcon({ className }: IconProps) {
+  return (
+    <svg {...base} className={className}>
+      <path d="M10.5 2.8a3 3 0 0 0-3.8 3.8L3 10.3a1.4 1.4 0 0 0 2 2l3.7-3.7a3 3 0 0 0 3.8-3.8l-1.6 1.6-1.9-.5-.5-1.9 1.6-1.2Z" />
+    </svg>
+  );
+}

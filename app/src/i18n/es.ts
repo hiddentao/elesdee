@@ -140,6 +140,8 @@ export const es = {
   'settings.languageNote':
     'El idioma de la aplicación. Las fechas y los números también lo siguen.',
   'settings.general': 'General',
+  'settings.devices': 'Dispositivos',
+  'settings.diagnostics': 'Diagnóstico',
   'settings.generalNote': 'Estas opciones se aplican a este equipo.',
 
   'general.startAtLogin': 'Iniciar elesdee al iniciar el sistema',
@@ -159,6 +161,34 @@ export const es = {
   'general.keepAwakeActive':
     'El equipo permanece despierto mientras los agentes trabajan.',
   'general.saveError': 'No se pudo guardar la opción.',
+
+  'devices.note':
+    'Teléfonos emparejados con este equipo. Quita un teléfono para revocar su acceso de inmediato.',
+  'devices.empty': 'No hay ningún teléfono emparejado.',
+  'devices.emptyHint':
+    'Abre la aplicación del teléfono y escanea el código de emparejamiento que muestra la aplicación de escritorio. El teléfono aparecerá aquí.',
+  'devices.loading': 'Cargando teléfonos…',
+  'devices.loadError': 'No se pudieron cargar los teléfonos emparejados.',
+  'devices.connected': 'Conectado',
+  'devices.disconnected': 'No conectado',
+  'devices.lastSeen': 'Visto por última vez {time}',
+  'devices.neverSeen': 'Nunca conectado',
+  'devices.remove': 'Quitar {name}',
+  'devices.removeTitle': 'Quitar teléfono',
+  'devices.removeText':
+    '¿Quitar {name}? El teléfono pierde el acceso a este equipo de inmediato.',
+  'devices.removeConfirm': 'Quitar teléfono',
+  'devices.removing': 'Quitando…',
+  'devices.removeError': 'No se pudo quitar el teléfono.',
+
+  'diagnostics.note':
+    'El paquete contiene la versión de la aplicación, los detalles del sistema de este equipo y las últimas líneas del registro.',
+  'diagnostics.redaction':
+    'Se eliminan las claves, los secretos de emparejamiento, los tickets, las credenciales de los agentes y el contenido de las sesiones.',
+  'diagnostics.export': 'Exportar diagnóstico',
+  'diagnostics.exporting': 'Exportando…',
+  'diagnostics.exported': 'Guardado en {path}',
+  'diagnostics.exportError': 'No se pudo exportar el diagnóstico.',
 
   'addAccount.title': 'Añadir cuenta',
   'addAccount.subtitle':

@@ -22,9 +22,12 @@ import {
   deleteConfig,
   deleteSession,
   denySessionRequest,
+  exportDiagnostics,
   getProviderSignIn,
   health,
+  listDevices,
   listProviderOptions,
+  removeDevice,
   removeProvider,
   renameSession,
   reopenSession,
@@ -50,6 +53,7 @@ import {
   isTauri,
   openFolder,
   openTerminal,
+  pickFolder,
   setKeepAwake,
   setStartAtLogin,
 } from './api/shell';
@@ -350,6 +354,21 @@ export default function App() {
     },
     [tauri, settings.startAtLogin],
   );
+
+  const loadPairedDevices = useCallback(() => listDevices(), []);
+
+  const removePairedDevice = useCallback(async (endpointId: string) => {
+    await removeDevice(endpointId);
+  }, []);
+
+  const exportDiagnosticsBundle = useCallback(async () => {
+    const folder = await pickFolder();
+    if (!folder) {
+      return null;
+    }
+    const result = await exportDiagnostics(folder);
+    return result.path;
+  }, []);
 
   const activeProject =
     projects.find((project) => project.id === activeProjectId) ?? null;
@@ -1357,6 +1376,9 @@ export default function App() {
           keepAwakeActive={keepAwakeActive}
           keepAwakeError={keepAwakeError}
           onChangeSettings={changeSettings}
+          onLoadDevices={loadPairedDevices}
+          onRemoveDevice={removePairedDevice}
+          onExportDiagnostics={exportDiagnosticsBundle}
           onCreateProvider={createProvider}
           onUpdateProvider={(id: string, input: UpdateProviderInput) =>
             updateProvider(id, input)

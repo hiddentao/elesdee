@@ -140,6 +140,8 @@ export const de = {
   'settings.languageNote':
     'Die Sprache der App. Datums- und Zahlenformate folgen ihr.',
   'settings.general': 'Allgemein',
+  'settings.devices': 'Geräte',
+  'settings.diagnostics': 'Diagnose',
   'settings.generalNote': 'Diese Optionen gelten für diesen Computer.',
 
   'general.startAtLogin': 'elesdee beim Systemstart starten',
@@ -159,6 +161,34 @@ export const de = {
   'general.keepAwakeActive':
     'Der Computer bleibt wach, während Agenten arbeiten.',
   'general.saveError': 'Die Einstellung konnte nicht gespeichert werden.',
+
+  'devices.note':
+    'Mit diesem Computer gekoppelte Telefone. Entferne ein Telefon, um seinen Zugriff sofort zu widerrufen.',
+  'devices.empty': 'Kein Telefon ist gekoppelt.',
+  'devices.emptyHint':
+    'Öffne die Telefon-App und scanne den Kopplungscode, den die Desktop-App zeigt. Das Telefon erscheint dann hier.',
+  'devices.loading': 'Telefone werden geladen…',
+  'devices.loadError': 'Die gekoppelten Telefone konnten nicht geladen werden.',
+  'devices.connected': 'Verbunden',
+  'devices.disconnected': 'Nicht verbunden',
+  'devices.lastSeen': 'Zuletzt gesehen {time}',
+  'devices.neverSeen': 'Nie verbunden',
+  'devices.remove': '{name} entfernen',
+  'devices.removeTitle': 'Telefon entfernen',
+  'devices.removeText':
+    '{name} entfernen? Das Telefon verliert sofort den Zugriff auf diesen Computer.',
+  'devices.removeConfirm': 'Telefon entfernen',
+  'devices.removing': 'Wird entfernt…',
+  'devices.removeError': 'Das Telefon konnte nicht entfernt werden.',
+
+  'diagnostics.note':
+    'Das Paket enthält die App-Version, Systemdetails dieses Computers und die letzten Protokollzeilen.',
+  'diagnostics.redaction':
+    'Schlüssel, Kopplungsgeheimnisse, Tickets, Agent-Anmeldedaten und Sitzungsinhalte werden entfernt.',
+  'diagnostics.export': 'Diagnose exportieren',
+  'diagnostics.exporting': 'Wird exportiert…',
+  'diagnostics.exported': 'Gespeichert unter {path}',
+  'diagnostics.exportError': 'Die Diagnose konnte nicht exportiert werden.',
 
   'addAccount.title': 'Konto hinzufügen',
   'addAccount.subtitle':

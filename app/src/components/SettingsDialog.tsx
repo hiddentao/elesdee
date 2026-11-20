@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ApiError } from '../api/client';
 import type {
   AiConfig,
   AppSettings,
   CreateConfigInput,
   CreateProviderInput,
+  PairedDevice,
   Provider,
   ProviderOption,
   ProviderSignIn,
@@ -13,7 +14,7 @@ import type {
   UpdateConfigInput,
   UpdateProviderInput,
 } from '../api/types';
-import { LANGUAGES, type Language } from '../i18n';
+import { formatDateTime, LANGUAGES, type Language } from '../i18n';
 import { useLanguage } from '../i18n/LanguageProvider';
 import { providerUsage } from '../state/usage';
 import { AiConfigDialog } from './AiConfigDialog';
@@ -21,6 +22,7 @@ import { Dialog } from './Dialog';
 import { ProviderDialog } from './ProviderDialog';
 import {
   CloseIcon,
+  DeviceIcon,
   GlobeIcon,
   LayersIcon,
   PencilIcon,
@@ -29,6 +31,7 @@ import {
   PresetIcon,
   SparkIcon,
   TrashIcon,
+  WrenchIcon,
 } from './icons';
 
 type SettingsSection =
@@ -36,6 +39,8 @@ type SettingsSection =
   | 'providers'
   | 'configs'
   | 'languages'
+  | 'devices'
+  | 'diagnostics'
   | 'about';
 
 interface SettingsDialogProps {
@@ -72,6 +77,9 @@ interface SettingsDialogProps {
   onProviderSaved: (provider: Provider) => void;
   onConfigSaved: (config: AiConfig) => void;
   onChangeSettings: (patch: SettingsPatch) => Promise<void>;
+  onLoadDevices: () => Promise<PairedDevice[]>;
+  onRemoveDevice: (endpointId: string) => Promise<void>;
+  onExportDiagnostics: () => Promise<string | null>;
   onClose: () => void;
 }
 
@@ -98,12 +106,29 @@ export function SettingsDialog({
   onProviderSaved,
   onConfigSaved,
   onChangeSettings,
+  onLoadDevices,
+  onRemoveDevice,
+  onExportDiagnostics,
   onClose,
 }: SettingsDialogProps) {
   const { t, language, setLanguage } = useLanguage();
   const [section, setSection] = useState<SettingsSection>('providers');
   const [savingSettings, setSavingSettings] = useState(false);
   const [settingsError, setSettingsError] = useState<string | null>(null);
+  const [devices, setDevices] = useState<PairedDevice[]>([]);
+  const [devicesState, setDevicesState] = useState<
+    'idle' | 'loading' | 'ready' | 'error'
+  >('idle');
+  const [deviceAttempt, setDeviceAttempt] = useState(0);
+  const [removeDeviceTarget, setRemoveDeviceTarget] =
+    useState<PairedDevice | null>(null);
+  const [removingDevice, setRemovingDevice] = useState(false);
+  const [removeDeviceError, setRemoveDeviceError] = useState<string | null>(
+    null,
+  );
+  const [exporting, setExporting] = useState(false);
+  const [exportPath, setExportPath] = useState<string | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
   const [addProviderOpen, setAddProviderOpen] = useState(false);
   const [editProvider, setEditProvider] = useState<Provider | null>(null);
   const [removeProviderTarget, setRemoveProviderTarget] =
@@ -143,6 +168,34 @@ export function SettingsDialog({
     }
   }
 
+  useEffect(() => {
+    if (section !== 'devices') {
+      return;
+    }
+    let cancelled = false;
+    const refresh = async (initial: boolean) => {
+      if (initial) {
+        setDevicesState('loading');
+      }
+      try {
+        const list = await onLoadDevices();
+        if (!cancelled) {
+          setDevices(list);
+          setDevicesState('ready');
+        }
+      } catch {
+        if (!cancelled && initial) {
+          setDevicesState('error');
+        }
+      }
+    };
+    void refresh(true);
+    const timer = window.setInterval(() => void refresh(false), 2000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [section, onLoadDevices, deviceAttempt]);
 
   async function changeSetting(patch: SettingsPatch) {
     setSavingSettings(true);
@@ -155,6 +208,49 @@ export function SettingsDialog({
       );
     } finally {
       setSavingSettings(false);
+    }
+  }
+
+  async function confirmRemoveDevice() {
+    if (!removeDeviceTarget) {
+      return;
+    }
+    setRemovingDevice(true);
+    setRemoveDeviceError(null);
+    try {
+      await onRemoveDevice(removeDeviceTarget.endpointId);
+      setDevices((current) =>
+        current.filter(
+          (device) => device.endpointId !== removeDeviceTarget.endpointId,
+        ),
+      );
+      setRemoveDeviceTarget(null);
+    } catch (error) {
+      setRemoveDeviceError(
+        error instanceof ApiError ? error.message : t('devices.removeError'),
+      );
+    } finally {
+      setRemovingDevice(false);
+    }
+  }
+
+  async function runExport() {
+    setExporting(true);
+    setExportError(null);
+    setExportPath(null);
+    try {
+      const path = await onExportDiagnostics();
+      if (path) {
+        setExportPath(path);
+      }
+    } catch (error) {
+      setExportError(
+        error instanceof ApiError
+          ? error.message
+          : t('diagnostics.exportError'),
+      );
+    } finally {
+      setExporting(false);
     }
   }
 
@@ -181,7 +277,8 @@ export function SettingsDialog({
     editProvider !== null ||
     removeProviderTarget !== null ||
     configEditor !== undefined ||
-    deleteConfigTarget !== null;
+    deleteConfigTarget !== null ||
+    removeDeviceTarget !== null;
 
   return (
     <>
@@ -265,6 +362,32 @@ export function SettingsDialog({
             >
               <GlobeIcon />
               <span>{t('settings.languages')}</span>
+            </button>
+            <button
+              type="button"
+              className={
+                section === 'devices'
+                  ? 'settings-nav-item is-on'
+                  : 'settings-nav-item'
+              }
+              aria-current={section === 'devices' ? 'page' : undefined}
+              onClick={() => setSection('devices')}
+            >
+              <DeviceIcon />
+              <span>{t('settings.devices')}</span>
+            </button>
+            <button
+              type="button"
+              className={
+                section === 'diagnostics'
+                  ? 'settings-nav-item is-on'
+                  : 'settings-nav-item'
+              }
+              aria-current={section === 'diagnostics' ? 'page' : undefined}
+              onClick={() => setSection('diagnostics')}
+            >
+              <WrenchIcon />
+              <span>{t('settings.diagnostics')}</span>
             </button>
             <button
               type="button"
@@ -667,6 +790,132 @@ export function SettingsDialog({
                   <p className="field-hint">{t('settings.languageNote')}</p>
                 </div>
               </section>
+            ) : section === 'devices' ? (
+              <section
+                className="settings-section"
+                aria-labelledby="settings-devices-title"
+              >
+                <h3
+                  className="settings-section-title"
+                  id="settings-devices-title"
+                >
+                  {t('settings.devices')}
+                </h3>
+                <p className="settings-section-note">{t('devices.note')}</p>
+
+                {devicesState === 'loading' ? (
+                  <p className="settings-empty">{t('devices.loading')}</p>
+                ) : devicesState === 'error' ? (
+                  <div className="settings-empty">
+                    <p className="form-error" role="alert">
+                      {t('devices.loadError')}
+                    </p>
+                    <button
+                      type="button"
+                      className="btn btn-ghost"
+                      onClick={() => setDeviceAttempt((count) => count + 1)}
+                    >
+                      {t('common.retry')}
+                    </button>
+                  </div>
+                ) : devices.length === 0 ? (
+                  <div className="settings-empty">
+                    <p>{t('devices.empty')}</p>
+                    <p className="settings-empty-hint">
+                      {t('devices.emptyHint')}
+                    </p>
+                  </div>
+                ) : (
+                  <ul className="settings-accounts">
+                    {devices.map((device) => {
+                      const seen = formatDateTime(language, device.lastSeen);
+                      return (
+                        <li key={device.endpointId} className="settings-account">
+                          <div className="settings-account-main">
+                            <div className="settings-account-title">
+                              <span className="settings-account-name">
+                                {device.name}
+                              </span>
+                              <span
+                                className={
+                                  device.connected
+                                    ? 'device-state is-on'
+                                    : 'device-state'
+                                }
+                              >
+                                {device.connected
+                                  ? t('devices.connected')
+                                  : t('devices.disconnected')}
+                              </span>
+                            </div>
+                            <span className="settings-account-sub">
+                              {device.platform} ·{' '}
+                              {seen
+                                ? t('devices.lastSeen', { time: seen })
+                                : t('devices.neverSeen')}
+                            </span>
+                          </div>
+                          <div className="settings-account-actions">
+                            <button
+                              type="button"
+                              className="btn btn-ghost"
+                              aria-label={t('devices.remove', {
+                                name: device.name,
+                              })}
+                              onClick={() => {
+                                setRemoveDeviceError(null);
+                                setRemoveDeviceTarget(device);
+                              }}
+                            >
+                              <TrashIcon />
+                            </button>
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </section>
+            ) : section === 'diagnostics' ? (
+              <section
+                className="settings-section"
+                aria-labelledby="settings-diagnostics-title"
+              >
+                <h3
+                  className="settings-section-title"
+                  id="settings-diagnostics-title"
+                >
+                  {t('settings.diagnostics')}
+                </h3>
+                <p className="settings-section-note">
+                  {t('diagnostics.note')}
+                </p>
+                <p className="settings-section-note">
+                  {t('diagnostics.redaction')}
+                </p>
+                <div className="settings-actions">
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={() => void runExport()}
+                    disabled={exporting}
+                  >
+                    {exporting
+                      ? t('diagnostics.exporting')
+                      : t('diagnostics.export')}
+                  </button>
+                </div>
+                {exportPath ? (
+                  <p className="settings-status" role="status">
+                    {t('diagnostics.exported', { path: exportPath })}
+                  </p>
+                ) : null}
+                {exportError ? (
+                  <p className="form-error" role="alert">
+                    {exportError}
+                  </p>
+                ) : null}
+              </section>
             ) : (
               <section
                 className="settings-section"
@@ -768,6 +1017,52 @@ export function SettingsDialog({
               {removingProvider
                 ? t('removeAccount.removing')
                 : t('removeAccount.confirm')}
+            </button>
+          </div>
+        </Dialog>
+      ) : null}
+
+      {removeDeviceTarget ? (
+        <Dialog
+          titleId="remove-device-title"
+          descriptionId="remove-device-description"
+          busyLabel={t('devices.removing')}
+          onClose={() => setRemoveDeviceTarget(null)}
+          busy={removingDevice}
+        >
+          <div className="dialog-head">
+            <h2 className="dialog-title" id="remove-device-title">
+              {t('devices.removeTitle')}
+            </h2>
+            <p className="dialog-sub" id="remove-device-description">
+              {t('devices.removeText', { name: removeDeviceTarget.name })}
+            </p>
+          </div>
+          <div className="dialog-body">
+            {removeDeviceError ? (
+              <p className="form-error" role="alert">
+                {removeDeviceError}
+              </p>
+            ) : null}
+          </div>
+          <div className="dialog-foot">
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={() => setRemoveDeviceTarget(null)}
+              disabled={removingDevice}
+            >
+              {t('common.cancel')}
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => void confirmRemoveDevice()}
+              disabled={removingDevice}
+            >
+              {removingDevice
+                ? t('devices.removing')
+                : t('devices.removeConfirm')}
             </button>
           </div>
         </Dialog>

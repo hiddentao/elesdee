@@ -1,9 +1,18 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { LanguageProvider } from '../i18n/LanguageProvider';
+import type { PairedDevice } from '../api/types';
 import { SettingsDialog } from './SettingsDialog';
 
+const device: PairedDevice = {
+  endpointId: 'phone-1',
+  name: 'Pixel',
+  platform: 'Android',
+  pairedAt: '2026-11-18T09:00:00Z',
+  lastSeen: '2026-11-19T10:00:00Z',
+  connected: true,
+};
 
 function renderSettings(overrides: Partial<Parameters<typeof SettingsDialog>[0]> = {}) {
   const props = {
@@ -19,6 +28,10 @@ function renderSettings(overrides: Partial<Parameters<typeof SettingsDialog>[0]>
     onCreateProvider: vi.fn(),
     onUpdateProvider: vi.fn(),
     onRemoveProvider: vi.fn(),
+    onStartProviderSignIn: vi.fn(),
+    onGetProviderSignIn: vi.fn(),
+    onSubmitProviderSignInCode: vi.fn(),
+    onCancelProviderSignIn: vi.fn(),
     onCreateConfig: vi.fn(),
     onUpdateConfig: vi.fn(),
     onDeleteConfig: vi.fn(),
@@ -91,3 +104,97 @@ describe('SettingsDialog General', () => {
   });
 });
 
+describe('SettingsDialog Devices', () => {
+  it('lists a paired phone and removes it after confirmation', async () => {
+    const user = userEvent.setup();
+    const props = renderSettings({
+      onLoadDevices: vi.fn().mockResolvedValue([device]),
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Devices' }));
+
+    expect(await screen.findByText('Pixel')).toBeVisible();
+    expect(screen.getByText('Connected')).toBeVisible();
+    expect(screen.getByText(/Last seen/)).toBeVisible();
+
+    await user.click(screen.getByRole('button', { name: 'Remove Pixel' }));
+    const confirm = screen.getByRole('dialog', { name: 'Remove phone' });
+    expect(within(confirm).getByText(/Pixel/)).toBeVisible();
+    await user.click(
+      within(confirm).getByRole('button', { name: 'Remove phone' }),
+    );
+
+    await waitFor(() =>
+      expect(props.onRemoveDevice).toHaveBeenCalledWith('phone-1'),
+    );
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('dialog', { name: 'Remove phone' }),
+      ).not.toBeInTheDocument(),
+    );
+  });
+
+  it('keeps the phone when removal is cancelled', async () => {
+    const user = userEvent.setup();
+    const props = renderSettings({
+      onLoadDevices: vi.fn().mockResolvedValue([device]),
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Devices' }));
+    expect(await screen.findByText('Pixel')).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Remove Pixel' }));
+    const confirm = screen.getByRole('dialog', { name: 'Remove phone' });
+    await user.click(within(confirm).getByRole('button', { name: 'Cancel' }));
+
+    expect(props.onRemoveDevice).not.toHaveBeenCalled();
+    expect(screen.getByText('Pixel')).toBeVisible();
+  });
+
+  it('explains how to pair when no phone exists', async () => {
+    const user = userEvent.setup();
+    renderSettings();
+
+    await user.click(screen.getByRole('button', { name: 'Devices' }));
+
+    expect(await screen.findByText('No phone is paired.')).toBeVisible();
+    expect(
+      screen.getByText(/scan the pairing code/),
+    ).toBeVisible();
+  });
+});
+
+describe('SettingsDialog Diagnostics', () => {
+  it('exports a bundle and shows the saved path', async () => {
+    const user = userEvent.setup();
+    const props = renderSettings({
+      onExportDiagnostics: vi
+        .fn()
+        .mockResolvedValue('/tmp/elesdee-diagnostics.json'),
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Diagnostics' }));
+    expect(
+      screen.getByText(/Keys, pairing secrets, tickets/),
+    ).toBeVisible();
+    await user.click(
+      screen.getByRole('button', { name: 'Export diagnostics' }),
+    );
+
+    expect(props.onExportDiagnostics).toHaveBeenCalledOnce();
+    expect(
+      await screen.findByText('Saved to /tmp/elesdee-diagnostics.json'),
+    ).toBeVisible();
+  });
+
+  it('stays quiet when the folder picker is cancelled', async () => {
+    const user = userEvent.setup();
+    const props = renderSettings();
+    await user.click(screen.getByRole('button', { name: 'Diagnostics' }));
+    await user.click(
+      screen.getByRole('button', { name: 'Export diagnostics' }),
+    );
+
+    expect(props.onExportDiagnostics).toHaveBeenCalledOnce();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+});

@@ -6,6 +6,7 @@ mod claude;
 mod clients;
 mod codex;
 pub mod demo;
+pub mod diagnostics;
 pub mod files;
 mod git;
 pub mod link;

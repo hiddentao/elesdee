@@ -140,6 +140,8 @@ export const fr = {
   'settings.languageNote':
     'La langue de l’application. Les dates et les nombres la suivent aussi.',
   'settings.general': 'Général',
+  'settings.devices': 'Appareils',
+  'settings.diagnostics': 'Diagnostics',
   'settings.generalNote': 'Ces options s’appliquent à cet ordinateur.',
 
   'general.startAtLogin': 'Démarrer elesdee au démarrage du système',
@@ -160,6 +162,34 @@ export const fr = {
   'general.keepAwakeActive':
     'L’ordinateur reste éveillé pendant que les agents travaillent.',
   'general.saveError': 'Impossible d’enregistrer le réglage.',
+
+  'devices.note':
+    'Téléphones appairés à cet ordinateur. Retirez un téléphone pour révoquer son accès immédiatement.',
+  'devices.empty': 'Aucun téléphone n’est appairé.',
+  'devices.emptyHint':
+    'Ouvrez l’application du téléphone et scannez le code d’appairage affiché par l’application de bureau. Le téléphone apparaîtra ensuite ici.',
+  'devices.loading': 'Chargement des téléphones…',
+  'devices.loadError': 'Impossible de charger les téléphones appairés.',
+  'devices.connected': 'Connecté',
+  'devices.disconnected': 'Non connecté',
+  'devices.lastSeen': 'Vu pour la dernière fois {time}',
+  'devices.neverSeen': 'Jamais connecté',
+  'devices.remove': 'Retirer {name}',
+  'devices.removeTitle': 'Retirer le téléphone',
+  'devices.removeText':
+    'Retirer {name} ? Le téléphone perd immédiatement l’accès à cet ordinateur.',
+  'devices.removeConfirm': 'Retirer le téléphone',
+  'devices.removing': 'Retrait…',
+  'devices.removeError': 'Impossible de retirer le téléphone.',
+
+  'diagnostics.note':
+    'Le paquet contient la version de l’application, les détails système de cet ordinateur et les dernières lignes du journal.',
+  'diagnostics.redaction':
+    'Les clés, secrets d’appairage, tickets, identifiants d’agent et contenus de session sont supprimés.',
+  'diagnostics.export': 'Exporter les diagnostics',
+  'diagnostics.exporting': 'Exportation…',
+  'diagnostics.exported': 'Enregistré dans {path}',
+  'diagnostics.exportError': 'Impossible d’exporter les diagnostics.',
 
   'addAccount.title': 'Ajouter un compte',
   'addAccount.subtitle':

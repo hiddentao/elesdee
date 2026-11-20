@@ -253,6 +253,18 @@ export interface SettingsPatch {
   keepAwake?: boolean;
 }
 
+export interface PairedDevice {
+  endpointId: string;
+  name: string;
+  platform: string;
+  pairedAt: string;
+  lastSeen?: string | null;
+  connected: boolean;
+}
+
+export interface DiagnosticsExport {
+  path: string;
+}
 
 export interface BootstrapResponse {
   projects: Project[];

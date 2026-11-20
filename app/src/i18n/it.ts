@@ -140,6 +140,8 @@ export const it = {
   'settings.languageNote':
     'La lingua dell’app. Anche date e numeri la seguono.',
   'settings.general': 'Generale',
+  'settings.devices': 'Dispositivi',
+  'settings.diagnostics': 'Diagnostica',
   'settings.generalNote': 'Queste opzioni si applicano a questo computer.',
 
   'general.startAtLogin': 'Avvia elesdee all’avvio del sistema',
@@ -160,6 +162,34 @@ export const it = {
   'general.keepAwakeActive':
     'Il computer resta sveglio mentre gli agenti lavorano.',
   'general.saveError': 'Impossibile salvare l’impostazione.',
+
+  'devices.note':
+    'Telefoni associati a questo computer. Rimuovi un telefono per revocarne subito l’accesso.',
+  'devices.empty': 'Nessun telefono è associato.',
+  'devices.emptyHint':
+    'Apri l’app del telefono e scansiona il codice di associazione mostrato dall’app desktop. Il telefono apparirà qui.',
+  'devices.loading': 'Caricamento dei telefoni…',
+  'devices.loadError': 'Impossibile caricare i telefoni associati.',
+  'devices.connected': 'Connesso',
+  'devices.disconnected': 'Non connesso',
+  'devices.lastSeen': 'Ultimo accesso {time}',
+  'devices.neverSeen': 'Mai connesso',
+  'devices.remove': 'Rimuovi {name}',
+  'devices.removeTitle': 'Rimuovi telefono',
+  'devices.removeText':
+    'Rimuovere {name}? Il telefono perde subito l’accesso a questo computer.',
+  'devices.removeConfirm': 'Rimuovi telefono',
+  'devices.removing': 'Rimozione…',
+  'devices.removeError': 'Impossibile rimuovere il telefono.',
+
+  'diagnostics.note':
+    'Il pacchetto contiene la versione dell’app, i dettagli di sistema di questo computer e le ultime righe del registro.',
+  'diagnostics.redaction':
+    'Chiavi, segreti di associazione, ticket, credenziali degli agenti e contenuti delle sessioni vengono rimossi.',
+  'diagnostics.export': 'Esporta diagnostica',
+  'diagnostics.exporting': 'Esportazione…',
+  'diagnostics.exported': 'Salvato in {path}',
+  'diagnostics.exportError': 'Impossibile esportare la diagnostica.',
 
   'addAccount.title': 'Aggiungi account',
   'addAccount.subtitle':

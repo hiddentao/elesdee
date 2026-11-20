@@ -46,6 +46,14 @@ A build without a Developer ID signature is blocked by macOS. The release notes 
 
 Open Settings, remove the provider and add it again with a valid key. The key is stored in the system keychain. The app does not show the saved key again.
 
+## Report a bug with diagnostics
+
+Open **Settings**, choose **Diagnostics**, and choose **Export diagnostics**. Pick a folder. The app writes one JSON file there, named `elesdee-diagnostics-<timestamp>.json`. Attach that file to a GitHub issue.
+
+The bundle holds the app version, the operating system, the architecture, record counts, the General settings and the recent log lines. It does not hold provider keys, pairing secrets, pairing tickets, agent credentials, prompts, session output, terminal content or agent conversations.
+
+The same log is at `.elesdee/logs/core.log` under your home folder. The app keeps one older file as `core.log.1` and redacts each line before it writes it. Do not attach the state file: it holds local state, not diagnostics.
+
 ## Where the app keeps its data
 
 The core service stores its state under your home folder in `.elesdee`. The folder is private to your user account. Session logs and the state file live there.

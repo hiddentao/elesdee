@@ -2,9 +2,11 @@ use std::env;
 use std::net::SocketAddr;
 use std::process::ExitCode;
 
-use elesdee_core::{AppState, LinkService, router, start_usage_poller};
+use elesdee_core::{AppState, LinkService, diagnostics, router, start_usage_poller};
 use tokio::net::TcpListener;
 use tracing_subscriber::EnvFilter;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
 
 const DEFAULT_PORT: u16 = 4319;
 
@@ -80,12 +82,29 @@ async fn main() -> ExitCode {
 
 fn init_tracing() {
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
-    tracing_subscriber::fmt()
+    let stderr_layer = tracing_subscriber::fmt::layer()
         .json()
-        .with_env_filter(filter)
         .with_ansi(false)
-        .with_writer(std::io::stderr)
-        .init();
+        .with_writer(std::io::stderr);
+    match diagnostics::writer_from_environment() {
+        Some(writer) => {
+            let file_layer = tracing_subscriber::fmt::layer()
+                .json()
+                .with_ansi(false)
+                .with_writer(writer);
+            tracing_subscriber::registry()
+                .with(filter)
+                .with(stderr_layer)
+                .with(file_layer)
+                .init();
+        }
+        None => {
+            tracing_subscriber::registry()
+                .with(filter)
+                .with(stderr_layer)
+                .init();
+        }
+    }
 }
 
 fn port_from_environment() -> Result<u16, String> {

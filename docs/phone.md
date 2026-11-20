@@ -8,6 +8,12 @@ order: 10
 
 The app has a phone-sized layout at `/phone.html`. It uses the same core service and the same sessions as the desktop window. It is a preview of the phone experience. The core service can hold the phone link identity and pair a phone that speaks the link protocol. A paired phone app can show the live session list, open a session and follow its output. The installable phone app is not released yet.
 
+## Paired phones
+
+**Settings > Devices** lists the phones paired with this computer. Each row shows the phone name, its platform, when it last connected and whether it is connected now. **Remove** ends the phone's access at once and closes its live connection.
+
+The desktop pairing screen that shows the code is not part of this build. The phone shell has its pairing screens, and the core serves the pairing routes.
+
 ## Language
 
 The globe button in the header opens **Languages**. Pick one of the 12 interface languages; the sheet marks the current one. The layout follows the language of the phone on first launch and keeps your choice. The phone language can differ from the desktop window.

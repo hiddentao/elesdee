@@ -140,6 +140,8 @@ export const ja = {
   'settings.languageNote':
     'アプリの言語です。日付と数値もこの言語に従います。',
   'settings.general': '一般',
+  'settings.devices': 'デバイス',
+  'settings.diagnostics': '診断',
   'settings.generalNote': 'これらのオプションはこのコンピューターに適用されます。',
 
   'general.startAtLogin': 'システム起動時に elesdee を開始',
@@ -160,6 +162,34 @@ export const ja = {
   'general.keepAwakeActive':
     'エージェントの作業中はコンピューターがスリープしません。',
   'general.saveError': '設定を保存できませんでした。',
+
+  'devices.note':
+    'このコンピューターとペアリング済みの電話。電話を削除すると、アクセスがすぐに取り消されます。',
+  'devices.empty': 'ペアリング済みの電話はありません。',
+  'devices.emptyHint':
+    '電話アプリを開き、デスクトップアプリに表示されるペアリングコードをスキャンすると、電話がここに表示されます。',
+  'devices.loading': '電話を読み込み中…',
+  'devices.loadError': 'ペアリング済みの電話を読み込めませんでした。',
+  'devices.connected': '接続済み',
+  'devices.disconnected': '未接続',
+  'devices.lastSeen': '最終確認 {time}',
+  'devices.neverSeen': '未接続のまま',
+  'devices.remove': '{name} を削除',
+  'devices.removeTitle': '電話を削除',
+  'devices.removeText':
+    '{name} を削除しますか？この電話はすぐにこのコンピューターへのアクセスを失います。',
+  'devices.removeConfirm': '電話を削除',
+  'devices.removing': '削除中…',
+  'devices.removeError': '電話を削除できませんでした。',
+
+  'diagnostics.note':
+    'パッケージにはアプリのバージョン、このコンピューターのシステム情報、最近のログ行が含まれます。',
+  'diagnostics.redaction':
+    'キー、ペアリングシークレット、チケット、エージェントの資格情報、セッションの内容は削除されます。',
+  'diagnostics.export': '診断をエクスポート',
+  'diagnostics.exporting': 'エクスポート中…',
+  'diagnostics.exported': '{path} に保存しました',
+  'diagnostics.exportError': '診断をエクスポートできませんでした。',
 
   'addAccount.title': 'アカウントを追加',
   'addAccount.subtitle':

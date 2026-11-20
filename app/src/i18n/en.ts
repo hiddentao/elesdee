@@ -139,6 +139,8 @@ export const en = {
   'settings.languageNote':
     'The language of the app. Dates and numbers follow it too.',
   'settings.general': 'General',
+  'settings.devices': 'Devices',
+  'settings.diagnostics': 'Diagnostics',
   'settings.generalNote': 'These options apply to this computer.',
 
   'general.startAtLogin': 'Start elesdee when the system starts',
@@ -157,6 +159,34 @@ export const en = {
   'general.keepAwakeActive':
     'The computer is staying awake while agents work.',
   'general.saveError': 'Could not save the setting.',
+
+  'devices.note':
+    'Phones paired with this computer. Remove a phone to revoke its access at once.',
+  'devices.empty': 'No phone is paired.',
+  'devices.emptyHint':
+    'Open the phone app and scan the pairing code that the desktop app shows. The phone then appears here.',
+  'devices.loading': 'Loading phones…',
+  'devices.loadError': 'Could not load the paired phones.',
+  'devices.connected': 'Connected',
+  'devices.disconnected': 'Not connected',
+  'devices.lastSeen': 'Last seen {time}',
+  'devices.neverSeen': 'Never connected',
+  'devices.remove': 'Remove {name}',
+  'devices.removeTitle': 'Remove phone',
+  'devices.removeText':
+    'Remove {name}? The phone loses access to this computer at once.',
+  'devices.removeConfirm': 'Remove phone',
+  'devices.removing': 'Removing…',
+  'devices.removeError': 'Could not remove the phone.',
+
+  'diagnostics.note':
+    "The bundle holds the app version, this computer's system details and recent log lines.",
+  'diagnostics.redaction':
+    'Keys, pairing secrets, tickets, agent credentials and session content are removed.',
+  'diagnostics.export': 'Export diagnostics',
+  'diagnostics.exporting': 'Exporting…',
+  'diagnostics.exported': 'Saved to {path}',
+  'diagnostics.exportError': 'Could not export diagnostics.',
 
   'addAccount.title': 'Add account',
   'addAccount.subtitle':

@@ -159,6 +159,9 @@ describe('LanguageProvider', () => {
           onProviderSaved={vi.fn()}
           onConfigSaved={vi.fn()}
           onChangeSettings={vi.fn()}
+          onLoadDevices={vi.fn()}
+          onRemoveDevice={vi.fn()}
+          onExportDiagnostics={vi.fn()}
           onClose={vi.fn()}
         />
       </LanguageProvider>,

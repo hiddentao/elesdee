@@ -121,6 +121,7 @@ interface PairedDevice {
   platform: string;
   pairedAt: string;     // RFC 3339
   lastSeen?: string;    // RFC 3339, updated in memory at most once a minute
+  connected: boolean;   // true while the phone holds a live link connection
 }
 ```
 
@@ -142,10 +143,11 @@ interface PairedDevice {
 - Five wrong secrets cancel the session. A used, expired or cancelled ticket is rejected.
 - `POST /api/pairing/approve` stores the device, saves state and returns 409 when no phone is waiting or the 16-device limit is reached. `deny` and `cancel` return 204 in every state.
 - A device list entry holds no key and no secret. A 17th device returns 409.
+- `GET /api/devices` adds `connected` from the live link state. It is not saved: a restart reports every device as disconnected until the phone reconnects.
 - `DELETE /api/devices/{id}` returns 404 for an unknown id. It saves state and closes the device's live connections with link close code 3.
 - The pairing handshake itself uses the pair ALPN, not these routes. It accepts one request and answers with a confirmation code, then a final `paired`, `denied` or `expired` message.
 
-## Settings
+## Settings and diagnostics
 
 ```ts
 interface AppSettings {
@@ -162,8 +164,12 @@ interface SettingsPatch {
 | Method | Path | Body | Result |
 | --- | --- | --- | --- |
 | PATCH | `/api/settings` | `SettingsPatch` | `AppSettings` |
+| POST | `/api/diagnostics/export` | `{ folder }` | `{ path }` |
 
 - `PATCH /api/settings` applies only the fields in the body and saves `state.json`. The desktop shell applies `startAtLogin` through the autostart plugin and `keepAwake` through the keep-awake plugin; the core stores the preference. `bootstrap` includes the current `settings`.
+- `POST /api/diagnostics/export` writes one JSON bundle into the folder: `elesdee-diagnostics-<timestamp>.json`. The folder must be absolute and must exist; a relative path returns 400 and a missing folder returns 422. The bundle holds the app version, operating system, architecture, CPU count, record counts, the settings and at most the last 500 log lines. It holds no provider key, pairing secret, pairing ticket, agent credential or session output.
+- The core writes a JSON log to `<data dir>/logs/core.log` with mode 0600. Each line is redacted before it is written. The file rotates to `core.log.1` at 4 MiB, and the bundle reads only the current file.
+- Redaction replaces values whose key names a key, token, secret, password, credential, authorization, ticket or private key. It replaces bearer values, known credential prefixes, long hex, base32 and base64 runs, and values marked by `api_key=`, `token:`, `secret=` and similar. It removes session output, input, content, preview, stdout and stderr fields. The bundle applies the same rules again when it reads the log.
 
 ## Link app protocol
 
@@ -315,6 +321,7 @@ interface DemoServerListEntry extends DemoServer {
 
 - State lives in `ELESDEE_DATA_DIR`, default `~/.elesdee`, in `state.json`. The directory is created with mode 0700 and files with mode 0600. Writes use a temporary file, fsync and rename.
 - Projects and their default AI config and source branch, providers, AI configs, sessions, each session's desired columns and rows, its output log, an agent's repository root, an agent's own conversation ID, the session's handoff note and last context-left figure, the session's allowed config ids, the paired device list and the General settings are saved. Provider keys and pairing secrets are not saved. No runtime handles are saved.
+- The log file is `<data dir>/logs/core.log`, with one backup at `core.log.1`. It is not part of `state.json` and holds redacted JSON lines only.
 - The desktop link identity is a separate 32-byte key in `<data dir>/link.key`, with mode 0600, written once and reused. It is never in `state.json` and never logged. A missing key creates a new identity; every paired phone must pair again.
 - The paired device list is written on pair, removal and graceful shutdown. `lastSeen` updates in memory at most once a minute.
 - Shared files live in `<data dir>/shared/<session id>/`, directories 0700 and files 0600. Each copy has a metadata record beside it with the original relative path, name, caption, size and content type. The stored copy stays after the session closes. Provider keys are compared with the content and are never copied.
@@ -556,6 +563,7 @@ interface OutputEvent {
 | GET | `/api/devices` | | `PairedDevice[]` |
 | DELETE | `/api/devices/{id}` | | `204` |
 | PATCH | `/api/settings` | `SettingsPatch` | `AppSettings` |
+| POST | `/api/diagnostics/export` | `{ folder }` | `{ path }` |
 | GET | `/api/configs?q={text}` | | `AiConfig[]` |
 | POST | `/api/configs` | `{ name?, providerId, client, model?, effort?, args?, env?, config? }` | `AiConfig` |
 | PATCH | `/api/configs/{id}` | `{ name?, providerId?, client?, model?, effort?, args?, env?, config? }` | `AiConfig` |

@@ -141,6 +141,8 @@ export const ptBR = {
   'settings.languageNote':
     'O idioma do aplicativo. Datas e números também o seguem.',
   'settings.general': 'Geral',
+  'settings.devices': 'Dispositivos',
+  'settings.diagnostics': 'Diagnóstico',
   'settings.generalNote': 'Estas opções se aplicam a este computador.',
 
   'general.startAtLogin': 'Iniciar o elesdee quando o sistema iniciar',
@@ -161,6 +163,34 @@ export const ptBR = {
   'general.keepAwakeActive':
     'O computador permanece acordado enquanto os agentes trabalham.',
   'general.saveError': 'Não foi possível salvar a configuração.',
+
+  'devices.note':
+    'Telefones pareados com este computador. Remova um telefone para revogar o acesso imediatamente.',
+  'devices.empty': 'Nenhum telefone está pareado.',
+  'devices.emptyHint':
+    'Abra o aplicativo do telefone e escaneie o código de pareamento que o aplicativo de desktop mostra. O telefone aparecerá aqui.',
+  'devices.loading': 'Carregando telefones…',
+  'devices.loadError': 'Não foi possível carregar os telefones pareados.',
+  'devices.connected': 'Conectado',
+  'devices.disconnected': 'Não conectado',
+  'devices.lastSeen': 'Visto por último {time}',
+  'devices.neverSeen': 'Nunca conectado',
+  'devices.remove': 'Remover {name}',
+  'devices.removeTitle': 'Remover telefone',
+  'devices.removeText':
+    'Remover {name}? O telefone perde o acesso a este computador imediatamente.',
+  'devices.removeConfirm': 'Remover telefone',
+  'devices.removing': 'Removendo…',
+  'devices.removeError': 'Não foi possível remover o telefone.',
+
+  'diagnostics.note':
+    'O pacote contém a versão do aplicativo, os detalhes do sistema deste computador e as linhas recentes do registro.',
+  'diagnostics.redaction':
+    'Chaves, segredos de pareamento, tickets, credenciais de agentes e conteúdo de sessões são removidos.',
+  'diagnostics.export': 'Exportar diagnóstico',
+  'diagnostics.exporting': 'Exportando…',
+  'diagnostics.exported': 'Salvo em {path}',
+  'diagnostics.exportError': 'Não foi possível exportar o diagnóstico.',
 
   'addAccount.title': 'Adicionar conta',
   'addAccount.subtitle':

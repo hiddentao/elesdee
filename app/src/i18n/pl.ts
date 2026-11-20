@@ -140,6 +140,8 @@ export const pl = {
   'settings.languageNote':
     'Język aplikacji. Daty i liczby również go używają.',
   'settings.general': 'Ogólne',
+  'settings.devices': 'Urządzenia',
+  'settings.diagnostics': 'Diagnostyka',
   'settings.generalNote': 'Te opcje dotyczą tego komputera.',
 
   'general.startAtLogin': 'Uruchamiaj elesdee przy starcie systemu',
@@ -160,6 +162,35 @@ export const pl = {
   'general.keepAwakeActive':
     'Komputer pozostaje aktywny, gdy agenci pracują.',
   'general.saveError': 'Nie udało się zapisać ustawienia.',
+
+  'devices.note':
+    'Telefony sparowane z tym komputerem. Usuń telefon, aby natychmiast odwołać jego dostęp.',
+  'devices.empty': 'Żaden telefon nie jest sparowany.',
+  'devices.emptyHint':
+    'Otwórz aplikację telefonu i zeskanuj kod parowania wyświetlany w aplikacji komputerowej. Telefon pojawi się tutaj.',
+  'devices.loading': 'Ładowanie telefonów…',
+  'devices.loadError': 'Nie udało się wczytać sparowanych telefonów.',
+  'devices.connected': 'Połączony',
+  'devices.disconnected': 'Nie połączony',
+  'devices.lastSeen': 'Ostatnio widziany {time}',
+  'devices.neverSeen': 'Nigdy nie połączony',
+  'devices.remove': 'Usuń {name}',
+  'devices.removeTitle': 'Usuń telefon',
+  'devices.removeText':
+    'Usunąć {name}? Telefon natychmiast traci dostęp do tego komputera.',
+  'devices.removeConfirm': 'Usuń telefon',
+  'devices.removing': 'Usuwanie…',
+  'devices.removeError': 'Nie udało się usunąć telefonu.',
+
+  'diagnostics.note':
+    'Pakiet zawiera wersję aplikacji, szczegóły systemu tego komputera i ostatnie wiersze dziennika.',
+  'diagnostics.redaction':
+    'Klucze, sekrety parowania, bilety, dane logowania agentów i zawartość sesji są usuwane.',
+  'diagnostics.export': 'Eksportuj diagnostykę',
+  'diagnostics.exporting': 'Eksportowanie…',
+  'diagnostics.exported': 'Zapisano w {path}',
+  'diagnostics.exportError':
+    'Nie udało się wyeksportować diagnostyki.',
 
   'addAccount.title': 'Dodaj konto',
   'addAccount.subtitle':

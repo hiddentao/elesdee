@@ -1,6 +1,6 @@
 ---
 title: Settings
-description: Set startup and sleep behavior, and manage providers and AI configs.
+description: Set startup and sleep behavior, manage providers, AI configs and phones, and export diagnostics.
 order: 8
 ---
 
@@ -53,6 +53,19 @@ On first launch the app uses the language of this computer. If the app does not 
 
 Agent output, prompts, session logs and terminal content stay in the language they were written in. These pages are in English only.
 
+## Devices
+
+The Devices page lists the phones paired with this computer. Each row shows the phone's name, its platform, when it last connected and whether it is connected now. The list refreshes while the page is open.
+
+**Remove** asks first. Removing a phone revokes it at once: its saved key stops working and its live connection closes. Pair the phone again to restore access.
+
+With no paired phone, the page explains pairing. Pairing uses the code that the desktop app shows. The desktop pairing screen is not part of this build yet; the phone shell and the core pairing routes exist.
+
+## Diagnostics
+
+The core service writes a local log to `logs/core.log` in its data folder, by default `~/.elesdee`. The file is private to your user account and keeps the most recent events in one backup file.
+
+**Export diagnostics** asks for a folder, then writes one JSON file there with the app version, this computer's system details, record counts, the General settings and the recent log lines. Attach that file to a GitHub issue. The bundle and the log remove provider keys, pairing secrets, pairing tickets, agent credentials and session output. They do not contain the state file, prompts, terminal content or agent conversations.
 
 ## About
 

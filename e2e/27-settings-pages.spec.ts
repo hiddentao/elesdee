@@ -10,7 +10,7 @@ async function savedSettings(request: APIRequestContext) {
   return body.settings;
 }
 
-test('General settings persist', async ({
+test('General settings persist and the Devices page explains pairing', async ({
   page,
   request,
 }) => {
@@ -60,4 +60,12 @@ test('General settings persist', async ({
     .poll(async () => (await savedSettings(request)).startAtLogin)
     .toBe(false);
 
+  await settings.getByRole('button', { name: 'Devices' }).click();
+  await expect(settings.getByText('No phone is paired.')).toBeVisible();
+  await expect(
+    settings.getByText(/scan the pairing code/),
+  ).toBeVisible();
+  await expect(
+    settings.getByRole('button', { name: /^Remove / }),
+  ).toHaveCount(0);
 });
