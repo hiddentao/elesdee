@@ -102,7 +102,7 @@ export const pl = {
   'session.reopen': 'Otwórz ponownie',
   'session.resume': 'Wznów',
   'session.renameMenu': 'Zmień nazwę…',
-  'session.switchAccountMenu': 'Zmień konto…',
+  'session.switchAccountMenu': 'Zmień konfigurację AI…',
   'session.copyFolder': 'Kopiuj ścieżkę folderu',
   'session.copyBranch': 'Kopiuj nazwę gałęzi',
   'session.deleteMenu': 'Usuń…',
@@ -132,8 +132,8 @@ export const pl = {
   'settings.providersNote':
     'Jeden dostawca może obsługiwać kilka konfiguracji AI.',
   'settings.addAccount': 'Dodaj konto',
-  'settings.editAccount': 'Edytuj konto {name}',
-  'settings.removeAccount': 'Usuń konto {name}',
+  'settings.editAccount': 'Edytuj dostawcę {name}',
+  'settings.removeAccount': 'Usuń dostawcę {name}',
   'settings.noAccounts': 'Brak kont.',
   'settings.aboutVersion': 'Wersja {version}',
   'settings.languageLabel': 'Język interfejsu',
@@ -184,13 +184,13 @@ export const pl = {
   'editAccount.apiKeyHint':
     'Pozostaw to pole puste, aby zachować zapisany klucz.',
 
-  'removeAccount.title': 'Usuń konto',
+  'removeAccount.title': 'Usuń dostawcę',
   'removeAccount.text':
-    'Usunąć „{name}”? Klucz i zapisane użycie zostaną usunięte. Presety i domyślne ustawienia projektów, które go używają, zostaną wyczyszczone.',
-  'removeAccount.confirm': 'Usuń konto',
+    'Usunąć „{name}”? Klucz i zapisane użycie zostaną usunięte. Konfiguracja AI, która go używa, blokuje usunięcie.',
+  'removeAccount.confirm': 'Usuń dostawcę',
   'removeAccount.removing': 'Usuwanie…',
   'removeAccount.error':
-    'Konto nie zostało usunięte. Spróbuj ponownie.',
+    'Nie usunięto dostawcy. Spróbuj ponownie.',
 
   'addProject.title': 'Dodaj projekt',
   'addProject.subtitle': 'Nadaj projektowi nazwę i folder.',

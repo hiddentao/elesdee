@@ -97,7 +97,7 @@ export const en = {
   'session.reopen': 'Reopen',
   'session.resume': 'Resume',
   'session.renameMenu': 'Rename…',
-  'session.switchAccountMenu': 'Switch account…',
+  'session.switchAccountMenu': 'Switch AI config…',
   'session.copyFolder': 'Copy folder path',
   'session.copyBranch': 'Copy branch name',
   'session.deleteMenu': 'Delete…',
@@ -129,8 +129,8 @@ export const en = {
   'settings.presetsNote':
     'What a session runs. One provider can serve several configs.',
   'settings.addAccount': 'Add account',
-  'settings.editAccount': 'Edit account {name}',
-  'settings.removeAccount': 'Remove account {name}',
+  'settings.editAccount': 'Edit provider {name}',
+  'settings.removeAccount': 'Remove provider {name}',
   'settings.addPreset': 'Add AI config',
   'settings.noAccounts': 'No accounts yet.',
   'settings.noPresets': 'No presets yet.',
@@ -179,12 +179,12 @@ export const en = {
   'editAccount.apiKeyHint':
     'Leave this field blank to keep the saved key.',
 
-  'removeAccount.title': 'Remove account',
+  'removeAccount.title': 'Remove provider',
   'removeAccount.text':
-    'Remove “{name}”? Its key and saved usage are deleted. Presets and project defaults that use it are cleared.',
-  'removeAccount.confirm': 'Remove account',
+    'Remove “{name}”? Its key and saved usage are deleted. An AI config that uses it blocks removal.',
+  'removeAccount.confirm': 'Remove provider',
   'removeAccount.removing': 'Removing…',
-  'removeAccount.error': 'The account was not removed. Try again.',
+  'removeAccount.error': 'The provider was not removed. Try again.',
 
   'addProject.title': 'Add project',
   'addProject.subtitle': 'Give the project a name and a folder.',

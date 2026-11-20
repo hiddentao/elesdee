@@ -102,7 +102,7 @@ export const de = {
   'session.reopen': 'Wieder öffnen',
   'session.resume': 'Fortsetzen',
   'session.renameMenu': 'Umbenennen…',
-  'session.switchAccountMenu': 'Konto wechseln…',
+  'session.switchAccountMenu': 'KI-Konfiguration wechseln…',
   'session.copyFolder': 'Ordnerpfad kopieren',
   'session.copyBranch': 'Branchname kopieren',
   'session.deleteMenu': 'Löschen…',
@@ -132,8 +132,8 @@ export const de = {
   'settings.providersNote':
     'Ein Anbieter kann mehrere KI-Konfigurationen bedienen.',
   'settings.addAccount': 'Konto hinzufügen',
-  'settings.editAccount': 'Konto {name} bearbeiten',
-  'settings.removeAccount': 'Konto {name} entfernen',
+  'settings.editAccount': 'Anbieter {name} bearbeiten',
+  'settings.removeAccount': 'Anbieter {name} entfernen',
   'settings.noAccounts': 'Noch keine Konten.',
   'settings.aboutVersion': 'Version {version}',
   'settings.languageLabel': 'Oberflächensprache',
@@ -183,13 +183,13 @@ export const de = {
   'editAccount.apiKeyHint':
     'Lassen Sie dieses Feld leer, um den gespeicherten Schlüssel zu behalten.',
 
-  'removeAccount.title': 'Konto entfernen',
+  'removeAccount.title': 'Anbieter entfernen',
   'removeAccount.text':
-    '„{name}“ entfernen? Der Schlüssel und die gespeicherte Nutzung werden gelöscht. Voreinstellungen und Projektstandards, die es verwenden, werden zurückgesetzt.',
-  'removeAccount.confirm': 'Konto entfernen',
+    '„{name}“ entfernen? Schlüssel und gespeicherte Nutzung werden gelöscht. Eine KI-Konfiguration, die ihn nutzt, blockiert das Entfernen.',
+  'removeAccount.confirm': 'Anbieter entfernen',
   'removeAccount.removing': 'Wird entfernt…',
   'removeAccount.error':
-    'Das Konto wurde nicht entfernt. Versuche es erneut.',
+    'Der Anbieter wurde nicht entfernt. Erneut versuchen.',
 
   'addProject.title': 'Projekt hinzufügen',
   'addProject.subtitle': 'Gib dem Projekt einen Namen und einen Ordner.',

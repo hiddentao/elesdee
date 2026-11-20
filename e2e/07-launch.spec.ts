@@ -27,10 +27,9 @@ test('launches from a chosen branch and names the session from the prompt', asyn
   await projectCombo.fill(label);
   await page.getByRole('option', { name: new RegExp(label) }).click();
 
-  await dialog.getByRole('radio', { name: 'Claude Code' }).click();
-  const accountCombo = dialog.getByRole('combobox', { name: 'Preset' });
-  await accountCombo.click();
-  await accountCombo.fill('Anthropic Max');
+  const configCombo = dialog.getByRole('combobox', { name: 'AI config', exact: true });
+  await configCombo.click();
+  await configCombo.fill('Anthropic Max');
   await page.getByRole('option', { name: /Anthropic Max/ }).click();
 
   await expect(dialog.getByLabel('Repository folder')).toHaveValue(repo);

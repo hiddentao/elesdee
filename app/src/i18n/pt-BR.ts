@@ -103,7 +103,7 @@ export const ptBR = {
   'session.reopen': 'Reabrir',
   'session.resume': 'Retomar',
   'session.renameMenu': 'Renomear…',
-  'session.switchAccountMenu': 'Trocar conta…',
+  'session.switchAccountMenu': 'Alterar configuração de IA…',
   'session.copyFolder': 'Copiar caminho da pasta',
   'session.copyBranch': 'Copiar nome da branch',
   'session.deleteMenu': 'Excluir…',
@@ -133,8 +133,8 @@ export const ptBR = {
   'settings.providersNote':
     'Um provedor pode atender várias configurações de IA.',
   'settings.addAccount': 'Adicionar conta',
-  'settings.editAccount': 'Editar conta {name}',
-  'settings.removeAccount': 'Remover conta {name}',
+  'settings.editAccount': 'Editar provedor {name}',
+  'settings.removeAccount': 'Remover provedor {name}',
   'settings.noAccounts': 'Nenhuma conta ainda.',
   'settings.aboutVersion': 'Versão {version}',
   'settings.languageLabel': 'Idioma da interface',
@@ -184,13 +184,13 @@ export const ptBR = {
   'editAccount.apiKeyHint':
     'Deixe este campo em branco para manter a chave salva.',
 
-  'removeAccount.title': 'Remover conta',
+  'removeAccount.title': 'Remover provedor',
   'removeAccount.text':
-    'Remover “{name}”? A chave e o uso salvo são excluídos. Predefinições e padrões de projeto que usam a conta são limpos.',
-  'removeAccount.confirm': 'Remover conta',
+    'Remover “{name}”? A chave e o uso salvo serão apagados. Uma configuração de IA que o usa bloqueia a remoção.',
+  'removeAccount.confirm': 'Remover provedor',
   'removeAccount.removing': 'Removendo…',
   'removeAccount.error':
-    'A conta não foi removida. Tente novamente.',
+    'O provedor não foi removido. Tente novamente.',
 
   'addProject.title': 'Adicionar projeto',
   'addProject.subtitle': 'Dê ao projeto um nome e uma pasta.',

@@ -31,7 +31,7 @@ test('project defaults prefill the launch form and start the session', async ({
   const settings = page.getByRole('dialog', { name: 'Project settings' });
 
   const accountCombo = settings.getByRole('combobox', {
-    name: 'Default account',
+    name: 'Default AI config',
   });
   await accountCombo.click();
   await accountCombo.fill(account.name);
@@ -52,7 +52,7 @@ test('project defaults prefill the launch form and start the session', async ({
   const stored = (await bootstrap(request)).projects.find(
     (item) => item.id === project.id,
   );
-  expect(stored?.defaultAccountId).toBe(account.id);
+  expect(stored?.defaultConfigId).toBe(account.configId);
   expect(stored?.defaultSourceBranch).toBe('feature');
 
   await page
@@ -67,10 +67,7 @@ test('project defaults prefill the launch form and start the session', async ({
   await page.getByRole('option', { name: new RegExp(label) }).click();
 
   await expect(
-    dialog.getByRole('radio', { name: 'Claude Code' }),
-  ).toBeChecked();
-  await expect(
-    dialog.getByRole('combobox', { name: 'Preset' }),
+    dialog.getByRole('combobox', { name: 'AI config', exact: true }),
   ).toHaveValue(new RegExp(account.name));
   await expect(
     dialog.getByRole('combobox', { name: 'Source branch (optional)' }),
@@ -89,7 +86,7 @@ test('project defaults prefill the launch form and start the session', async ({
     (item) => item.projectId === project.id && item.name === name,
   );
   expect(session).toBeTruthy();
-  expect(session?.accountId).toBe(account.id);
+  expect(session?.configId).toBe(account.configId);
   expect(
     fs.existsSync(path.join(session!.folder, 'feature.txt')),
     'the session started from the default source branch',

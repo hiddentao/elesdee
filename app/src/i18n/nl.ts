@@ -102,7 +102,7 @@ export const nl = {
   'session.reopen': 'Heropenen',
   'session.resume': 'Hervatten',
   'session.renameMenu': 'Naam wijzigen…',
-  'session.switchAccountMenu': 'Account wisselen…',
+  'session.switchAccountMenu': 'AI-configuratie wisselen…',
   'session.copyFolder': 'Mappad kopiëren',
   'session.copyBranch': 'Branchnaam kopiëren',
   'session.deleteMenu': 'Verwijderen…',
@@ -132,8 +132,8 @@ export const nl = {
   'settings.providersNote':
     'Eén provider kan meerdere AI-configuraties bedienen.',
   'settings.addAccount': 'Account toevoegen',
-  'settings.editAccount': 'Account {name} bewerken',
-  'settings.removeAccount': 'Account {name} verwijderen',
+  'settings.editAccount': 'Provider {name} bewerken',
+  'settings.removeAccount': 'Provider {name} verwijderen',
   'settings.noAccounts': 'Nog geen accounts.',
   'settings.aboutVersion': 'Versie {version}',
   'settings.languageLabel': 'Interfacetaal',
@@ -183,13 +183,13 @@ export const nl = {
   'editAccount.apiKeyHint':
     'Laat dit veld leeg om de opgeslagen sleutel te behouden.',
 
-  'removeAccount.title': 'Account verwijderen',
+  'removeAccount.title': 'Provider verwijderen',
   'removeAccount.text':
-    '“{name}” verwijderen? De sleutel en het opgeslagen gebruik worden gewist. Presets en projectstandaarden die het account gebruiken, worden gewist.',
-  'removeAccount.confirm': 'Account verwijderen',
+    '“{name}” verwijderen? De sleutel en opgeslagen gebruik worden gewist. Een AI-configuratie die hem gebruikt blokkeert verwijderen.',
+  'removeAccount.confirm': 'Provider verwijderen',
   'removeAccount.removing': 'Verwijderen…',
   'removeAccount.error':
-    'Het account is niet verwijderd. Probeer het opnieuw.',
+    'De provider is niet verwijderd. Probeer het opnieuw.',
 
   'addProject.title': 'Project toevoegen',
   'addProject.subtitle': 'Geef het project een naam en een map.',

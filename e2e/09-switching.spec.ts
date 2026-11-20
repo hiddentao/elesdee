@@ -28,7 +28,7 @@ test('switches the account of a running session', async ({ page, request }) => {
     projectId: project.id,
     name: uniqueName('Switch session'),
     folder: repo,
-    accountId: first.id,
+    configId: first.configId,
   });
 
   await openApp(page);
@@ -39,19 +39,19 @@ test('switches the account of a running session', async ({ page, request }) => {
   );
 
   await page.getByRole('button', { name: 'Session actions' }).click();
-  await page.getByRole('menuitem', { name: 'Switch account…' }).click();
-  const dialog = page.getByRole('dialog', { name: 'Switch account' });
-  const combo = dialog.getByRole('combobox', { name: 'Account', exact: true });
+  await page.getByRole('menuitem', { name: 'Switch AI config…' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Switch AI config' });
+  const combo = dialog.getByRole('combobox', { name: 'AI config', exact: true });
   await combo.click();
   await combo.fill(second.name);
   await page.getByRole('option', { name: new RegExp(second.name) }).click();
-  await dialog.getByRole('button', { name: 'Switch account' }).click();
+  await dialog.getByRole('button', { name: 'Switch AI config' }).click();
 
   await expect(dialog).not.toBeVisible();
-  await expect(page.getByText('Account switched.')).toBeVisible();
+  await expect(page.getByText('AI config switched.')).toBeVisible();
   await expect
-    .poll(async () => (await getSession(request, session.id))?.accountId)
-    .toBe(second.id);
+    .poll(async () => (await getSession(request, session.id))?.configId)
+    .toBe(second.configId);
 
   await closeSession(request, session.id);
 });
@@ -77,7 +77,7 @@ test('auto-switches near the limit and pauses when no account has room', async (
     projectId: project.id,
     name: uniqueName('Auto session'),
     folder: repo,
-    accountId: first.id,
+    configId: first.configId,
   });
 
   await openApp(page);
@@ -85,8 +85,8 @@ test('auto-switches near the limit and pauses when no account has room', async (
 
   await setUsage(request, first.id, [{ label: 'Weekly', used: 95 }]);
   await expect
-    .poll(async () => (await getSession(request, session.id))?.accountId)
-    .toBe(second.id);
+    .poll(async () => (await getSession(request, session.id))?.configId)
+    .toBe(second.configId);
   await expect(page.locator('.provider-account')).toContainText(second.name);
 
   await setUsage(request, second.id, [{ label: 'Weekly', used: 95 }]);
@@ -125,7 +125,7 @@ test('switches from the usage pill and shows the context left', async ({
     projectId: project.id,
     name: uniqueName('Pill session'),
     folder: repo,
-    accountId: first.id,
+    configId: first.configId,
   });
 
   const statusLineUrl = await readClaudeStatusLineUrl(session.id);
@@ -151,22 +151,22 @@ test('switches from the usage pill and shows the context left', async ({
   await expect(tip).toContainText('63% left');
 
   await pill.click();
-  const dialog = page.getByRole('dialog', { name: 'Switch account' });
+  const dialog = page.getByRole('dialog', { name: 'Switch AI config' });
   await expect(dialog).toBeVisible();
-  const combo = dialog.getByRole('combobox', { name: 'Account', exact: true });
+  const combo = dialog.getByRole('combobox', { name: 'AI config', exact: true });
   await combo.click();
   await combo.fill(second.name);
   const option = page.getByRole('option', { name: new RegExp(second.name) });
   await expect(option).toContainText('95% left');
   await expect(option).toContainText('Next auto-switch');
   await option.click();
-  await dialog.getByRole('button', { name: 'Switch account' }).click();
+  await dialog.getByRole('button', { name: 'Switch AI config' }).click();
 
   await expect(dialog).not.toBeVisible();
-  await expect(page.getByText('Account switched.')).toBeVisible();
+  await expect(page.getByText('AI config switched.')).toBeVisible();
   await expect
-    .poll(async () => (await getSession(request, session.id))?.accountId)
-    .toBe(second.id);
+    .poll(async () => (await getSession(request, session.id))?.configId)
+    .toBe(second.configId);
   await expect
     .poll(async () => (await getSession(request, session.id))?.contextLeft)
     .toBeNull();

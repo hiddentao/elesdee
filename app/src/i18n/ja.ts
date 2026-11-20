@@ -102,7 +102,7 @@ export const ja = {
   'session.reopen': '再度開く',
   'session.resume': '再開',
   'session.renameMenu': '名前を変更…',
-  'session.switchAccountMenu': 'アカウントを切り替え…',
+  'session.switchAccountMenu': 'AI 構成を切り替え…',
   'session.copyFolder': 'フォルダーのパスをコピー',
   'session.copyBranch': 'ブランチ名をコピー',
   'session.deleteMenu': '削除…',
@@ -132,8 +132,8 @@ export const ja = {
   'settings.providersNote':
     '1 つのプロバイダーで複数の AI 構成を使えます。',
   'settings.addAccount': 'アカウントを追加',
-  'settings.editAccount': 'アカウント {name} を編集',
-  'settings.removeAccount': 'アカウント {name} を削除',
+  'settings.editAccount': 'プロバイダー {name} を編集',
+  'settings.removeAccount': 'プロバイダー {name} を削除',
   'settings.noAccounts': 'アカウントはまだありません。',
   'settings.aboutVersion': 'バージョン {version}',
   'settings.languageLabel': '表示言語',
@@ -183,13 +183,13 @@ export const ja = {
   'editAccount.apiKeyHint':
     '保存済みのキーを使うには、この欄を空にしてください。',
 
-  'removeAccount.title': 'アカウントを削除',
+  'removeAccount.title': 'プロバイダーを削除',
   'removeAccount.text':
-    '「{name}」を削除しますか？キーと保存済みの使用量が削除されます。このアカウントを使うプリセットとプロジェクトの既定値は消去されます。',
-  'removeAccount.confirm': 'アカウントを削除',
-  'removeAccount.removing': '削除中…',
+    '「{name}」を削除しますか？キーと保存済みの使用状況が削除されます。使用中の AI 構成があると削除できません。',
+  'removeAccount.confirm': 'プロバイダーを削除',
+  'removeAccount.removing': '削除しています…',
   'removeAccount.error':
-    'アカウントを削除できませんでした。もう一度お試しください。',
+    'プロバイダーを削除できませんでした。もう一度お試しください。',
 
   'addProject.title': 'プロジェクトを追加',
   'addProject.subtitle': 'プロジェクトに名前とフォルダーを付けます。',

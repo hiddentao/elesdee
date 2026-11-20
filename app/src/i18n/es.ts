@@ -102,7 +102,7 @@ export const es = {
   'session.reopen': 'Reabrir',
   'session.resume': 'Reanudar',
   'session.renameMenu': 'Cambiar nombre…',
-  'session.switchAccountMenu': 'Cambiar de cuenta…',
+  'session.switchAccountMenu': 'Cambiar configuración de IA…',
   'session.copyFolder': 'Copiar ruta de carpeta',
   'session.copyBranch': 'Copiar nombre de rama',
   'session.deleteMenu': 'Eliminar…',
@@ -132,8 +132,8 @@ export const es = {
   'settings.providersNote':
     'Un proveedor puede servir varias configuraciones de IA.',
   'settings.addAccount': 'Añadir cuenta',
-  'settings.editAccount': 'Editar cuenta {name}',
-  'settings.removeAccount': 'Eliminar cuenta {name}',
+  'settings.editAccount': 'Editar proveedor {name}',
+  'settings.removeAccount': 'Eliminar proveedor {name}',
   'settings.noAccounts': 'Aún no hay cuentas.',
   'settings.aboutVersion': 'Versión {version}',
   'settings.languageLabel': 'Idioma de la interfaz',
@@ -184,13 +184,13 @@ export const es = {
   'editAccount.apiKeyHint':
     'Deja este campo en blanco para conservar la clave guardada.',
 
-  'removeAccount.title': 'Eliminar cuenta',
+  'removeAccount.title': 'Eliminar proveedor',
   'removeAccount.text':
-    '¿Eliminar «{name}»? Se borran su clave y su uso guardado. Se limpian los preajustes y los valores predeterminados de proyecto que la usan.',
-  'removeAccount.confirm': 'Eliminar cuenta',
+    '¿Eliminar «{name}»? Se borrarán su clave y su uso guardado. Una configuración de IA que lo use bloquea la eliminación.',
+  'removeAccount.confirm': 'Eliminar proveedor',
   'removeAccount.removing': 'Eliminando…',
   'removeAccount.error':
-    'No se eliminó la cuenta. Inténtalo de nuevo.',
+    'No se eliminó el proveedor. Inténtalo de nuevo.',
 
   'addProject.title': 'Añadir proyecto',
   'addProject.subtitle': 'Dale al proyecto un nombre y una carpeta.',

@@ -102,7 +102,7 @@ export const sv = {
   'session.reopen': 'Öppna igen',
   'session.resume': 'Återuppta',
   'session.renameMenu': 'Byt namn…',
-  'session.switchAccountMenu': 'Byt konto…',
+  'session.switchAccountMenu': 'Byt AI-konfiguration…',
   'session.copyFolder': 'Kopiera mappsökväg',
   'session.copyBranch': 'Kopiera grennamn',
   'session.deleteMenu': 'Ta bort…',
@@ -132,8 +132,8 @@ export const sv = {
   'settings.providersNote':
     'En leverantör kan betjäna flera AI-konfigurationer.',
   'settings.addAccount': 'Lägg till konto',
-  'settings.editAccount': 'Redigera kontot {name}',
-  'settings.removeAccount': 'Ta bort kontot {name}',
+  'settings.editAccount': 'Redigera leverantör {name}',
+  'settings.removeAccount': 'Ta bort leverantör {name}',
   'settings.noAccounts': 'Inga konton ännu.',
   'settings.aboutVersion': 'Version {version}',
   'settings.languageLabel': 'Gränssnittsspråk',
@@ -183,13 +183,13 @@ export const sv = {
   'editAccount.apiKeyHint':
     'Lämna det här fältet tomt för att behålla den sparade nyckeln.',
 
-  'removeAccount.title': 'Ta bort konto',
+  'removeAccount.title': 'Ta bort leverantör',
   'removeAccount.text':
-    'Ta bort ”{name}”? Nyckeln och den sparade användningen raderas. Förval och projektstandarder som använder kontot rensas.',
-  'removeAccount.confirm': 'Ta bort konto',
+    'Ta bort ”{name}”? Nyckeln och sparad användning raderas. En AI-konfiguration som använder den blockerar borttagningen.',
+  'removeAccount.confirm': 'Ta bort leverantör',
   'removeAccount.removing': 'Tar bort…',
   'removeAccount.error':
-    'Kontot togs inte bort. Försök igen.',
+    'Leverantören togs inte bort. Försök igen.',
 
   'addProject.title': 'Lägg till projekt',
   'addProject.subtitle': 'Ge projektet ett namn och en mapp.',

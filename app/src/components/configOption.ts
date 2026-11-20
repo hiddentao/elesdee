@@ -16,9 +16,11 @@ export function configOption(
     config.model,
     provider ? providerUsage(provider, language).summary : '',
   ].filter(Boolean);
+  const usage = provider ? providerUsage(provider, language).summary : '';
   return {
     id: config.id,
     label: config.name,
+    closedLabel: usage ? `${config.name} · ${usage}` : config.name,
     meta: details.join(' · '),
   };
 }

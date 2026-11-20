@@ -102,7 +102,7 @@ export const it = {
   'session.reopen': 'Riapri',
   'session.resume': 'Riprendi',
   'session.renameMenu': 'Rinomina…',
-  'session.switchAccountMenu': 'Cambia account…',
+  'session.switchAccountMenu': 'Cambia configurazione IA…',
   'session.copyFolder': 'Copia percorso cartella',
   'session.copyBranch': 'Copia nome branch',
   'session.deleteMenu': 'Elimina…',
@@ -132,8 +132,8 @@ export const it = {
   'settings.providersNote':
     'Un provider può servire più configurazioni IA.',
   'settings.addAccount': 'Aggiungi account',
-  'settings.editAccount': 'Modifica account {name}',
-  'settings.removeAccount': 'Rimuovi account {name}',
+  'settings.editAccount': 'Modifica provider {name}',
+  'settings.removeAccount': 'Rimuovi provider {name}',
   'settings.noAccounts': 'Nessun account per ora.',
   'settings.aboutVersion': 'Versione {version}',
   'settings.languageLabel': 'Lingua dell’interfaccia',
@@ -184,13 +184,13 @@ export const it = {
   'editAccount.apiKeyHint':
     'Lascia vuoto questo campo per mantenere la chiave salvata.',
 
-  'removeAccount.title': 'Rimuovi account',
+  'removeAccount.title': 'Rimuovi provider',
   'removeAccount.text':
-    'Rimuovere «{name}»? La chiave e l’utilizzo salvato vengono eliminati. Le preimpostazioni e i valori predefiniti dei progetti che lo usano vengono cancellati.',
-  'removeAccount.confirm': 'Rimuovi account',
+    'Rimuovere «{name}»? La chiave e l’uso salvato saranno eliminati. Una configurazione IA che lo usa blocca la rimozione.',
+  'removeAccount.confirm': 'Rimuovi provider',
   'removeAccount.removing': 'Rimozione…',
   'removeAccount.error':
-    'L’account non è stato rimosso. Riprova.',
+    'Il provider non è stato rimosso. Riprova.',
 
   'addProject.title': 'Aggiungi progetto',
   'addProject.subtitle': 'Dai al progetto un nome e una cartella.',

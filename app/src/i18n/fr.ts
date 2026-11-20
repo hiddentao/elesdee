@@ -102,7 +102,7 @@ export const fr = {
   'session.reopen': 'Rouvrir',
   'session.resume': 'Reprendre',
   'session.renameMenu': 'Renommer…',
-  'session.switchAccountMenu': 'Changer de compte…',
+  'session.switchAccountMenu': 'Changer de configuration IA…',
   'session.copyFolder': 'Copier le chemin du dossier',
   'session.copyBranch': 'Copier le nom de la branche',
   'session.deleteMenu': 'Supprimer…',
@@ -132,8 +132,8 @@ export const fr = {
   'settings.providersNote':
     'Un fournisseur peut servir plusieurs configurations IA.',
   'settings.addAccount': 'Ajouter un compte',
-  'settings.editAccount': 'Modifier le compte {name}',
-  'settings.removeAccount': 'Supprimer le compte {name}',
+  'settings.editAccount': 'Modifier le fournisseur {name}',
+  'settings.removeAccount': 'Supprimer le fournisseur {name}',
   'settings.noAccounts': 'Aucun compte pour l’instant.',
   'settings.aboutVersion': 'Version {version}',
   'settings.languageLabel': 'Langue de l’interface',
@@ -184,13 +184,13 @@ export const fr = {
   'editAccount.apiKeyHint':
     'Laissez ce champ vide pour conserver la clé enregistrée.',
 
-  'removeAccount.title': 'Supprimer le compte',
+  'removeAccount.title': 'Supprimer le fournisseur',
   'removeAccount.text':
-    'Supprimer « {name} » ? Sa clé et son utilisation enregistrée sont supprimées. Les préréglages et les valeurs par défaut de projet qui l’utilisent sont effacés.',
-  'removeAccount.confirm': 'Supprimer le compte',
+    'Supprimer « {name} » ? Sa clé et son usage enregistré seront supprimés. Une configuration IA qui l’utilise bloque la suppression.',
+  'removeAccount.confirm': 'Supprimer le fournisseur',
   'removeAccount.removing': 'Suppression…',
   'removeAccount.error':
-    'Le compte n’a pas été supprimé. Réessayez.',
+    'Le fournisseur n’a pas été supprimé. Réessayez.',
 
   'addProject.title': 'Ajouter un projet',
   'addProject.subtitle': 'Donnez un nom et un dossier au projet.',

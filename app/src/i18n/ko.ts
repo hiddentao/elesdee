@@ -101,7 +101,7 @@ export const ko = {
   'session.reopen': '다시 열기',
   'session.resume': '재개',
   'session.renameMenu': '이름 변경…',
-  'session.switchAccountMenu': '계정 전환…',
+  'session.switchAccountMenu': 'AI 구성 전환…',
   'session.copyFolder': '폴더 경로 복사',
   'session.copyBranch': '브랜치 이름 복사',
   'session.deleteMenu': '삭제…',
@@ -131,8 +131,8 @@ export const ko = {
   'settings.providersNote':
     '공급자 하나로 여러 AI 구성을 사용할 수 있습니다.',
   'settings.addAccount': '계정 추가',
-  'settings.editAccount': '계정 {name} 편집',
-  'settings.removeAccount': '계정 {name} 제거',
+  'settings.editAccount': '공급자 {name} 편집',
+  'settings.removeAccount': '공급자 {name} 제거',
   'settings.noAccounts': '아직 계정이 없습니다.',
   'settings.aboutVersion': '버전 {version}',
   'settings.languageLabel': '인터페이스 언어',
@@ -182,13 +182,13 @@ export const ko = {
   'editAccount.apiKeyHint':
     '저장된 키를 유지하려면 이 필드를 비워 두세요.',
 
-  'removeAccount.title': '계정 제거',
+  'removeAccount.title': '공급자 제거',
   'removeAccount.text':
-    '“{name}” 계정을 제거할까요? 키와 저장된 사용량이 삭제됩니다. 이 계정을 사용하는 프리셋과 프로젝트 기본값이 지워집니다.',
-  'removeAccount.confirm': '계정 제거',
+    '"{name}"을(를) 제거할까요? 키와 저장된 사용량이 삭제됩니다. 사용 중인 AI 구성이 있으면 제거할 수 없습니다.',
+  'removeAccount.confirm': '공급자 제거',
   'removeAccount.removing': '제거 중…',
   'removeAccount.error':
-    '계정을 제거하지 못했습니다. 다시 시도하세요.',
+    '공급자를 제거하지 못했습니다. 다시 시도하세요.',
 
   'addProject.title': '프로젝트 추가',
   'addProject.subtitle': '프로젝트에 이름과 폴더를 지정하세요.',
