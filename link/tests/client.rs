@@ -142,6 +142,11 @@ async fn write_stream_event(send: &mut SendStream, value: Value) {
     send.finish().expect("event stream finishes");
 }
 
+async fn write_stream_value(send: &mut SendStream, value: Value) {
+    let frame = StreamEvent::new(value).encode().expect("event encodes");
+    send.write_all(&frame).await.expect("event writes");
+}
+
 async fn write_stream_start(send: &mut SendStream) {
     let frame = Response::stream_start().encode().expect("start encodes");
     send.write_all(&frame).await.expect("start writes");
@@ -496,6 +501,108 @@ async fn an_event_and_output_stream_cross_loopback() {
     })
     .await
     .expect("loopback stream test timed out");
+}
+
+#[tokio::test]
+async fn a_history_stream_replays_and_follows_versions() {
+    tokio::time::timeout(TIMEOUT, async {
+        let server = server_endpoint().await;
+        let ticket = PairTicket::new(server.addr(), [0x52; 32], "Studio computer", u64::MAX)
+            .expect("ticket")
+            .encode_string();
+
+        let server_task = tokio::spawn(async move {
+            let incoming = server.accept().await.expect("pair connection");
+            let connection = incoming.await.expect("pair completes");
+            let (mut send, mut recv) = connection.accept_bi().await.expect("pair stream");
+            let _: Value = read_pair(&mut recv).await;
+            write_pair(&mut send, &confirm(&server, "246810")).await;
+            write_pair(&mut send, &paired()).await;
+            send.finish().expect("pair finishes");
+            let _ = connection.closed().await;
+
+            let incoming = server.accept().await.expect("app connection");
+            let connection = incoming.await.expect("app completes");
+            handshake(&connection, &server).await;
+
+            let (mut send, mut recv) = connection.accept_bi().await.expect("history stream");
+            let request = read_request(&mut recv).await;
+            assert_eq!(request.method(), Method::HistorySubscribe);
+            assert_eq!(request.params().expect("params")["sessionId"], "s1");
+            assert_eq!(request.params().expect("params")["after"], 3);
+            write_stream_start(&mut send).await;
+            write_stream_value(
+                &mut send,
+                json!({
+                    "type": "history.state",
+                    "structured": true,
+                    "client": "Claude Code",
+                }),
+            )
+            .await;
+            write_stream_value(
+                &mut send,
+                json!({
+                    "seq": 4,
+                    "id": "item-1",
+                    "kind": "reply",
+                    "text": "hel",
+                    "state": "streaming",
+                }),
+            )
+            .await;
+            write_stream_value(
+                &mut send,
+                json!({
+                    "seq": 5,
+                    "id": "item-1",
+                    "kind": "reply",
+                    "text": "hello",
+                    "state": "done",
+                }),
+            )
+            .await;
+            send.finish().expect("history stream finishes");
+
+            let _ = connection.closed().await;
+            server.close().await;
+        });
+
+        let store = Arc::new(MemoryStore::default());
+        let store_trait: Arc<dyn PhoneStore> = Arc::clone(&store) as Arc<dyn PhoneStore>;
+        let identity = DeviceIdentity::generate();
+        let endpoint = client_endpoint(&identity).await;
+        let client = LinkClient::from_endpoint(store_trait, identity, endpoint);
+        let pairing = client
+            .pair(&ticket, "Phone", "test")
+            .await
+            .expect("pairing");
+        let computer = pairing.finish().await.expect("paired");
+
+        let app = client.connect(&computer).await.expect("app connects");
+        let mut history = app.history("s1", 3).await.expect("history stream opens");
+        let status = history.next().await.expect("status").expect("status value");
+        assert_eq!(status["type"], "history.state");
+        assert_eq!(status["structured"], true);
+        let first = history.next().await.expect("item").expect("item value");
+        assert_eq!(first["seq"], 4);
+        assert_eq!(first["state"], "streaming");
+        let second = history
+            .next()
+            .await
+            .expect("version")
+            .expect("version value");
+        assert_eq!(second["id"], "item-1");
+        assert_eq!(second["seq"], 5);
+        assert_eq!(second["text"], "hello");
+        assert_eq!(second["state"], "done");
+        assert!(history.next().await.expect("history end").is_none());
+
+        app.close();
+        server_task.await.expect("server task");
+    })
+    .await
+    .expect("loopback history test timed out");
 }
 
 #[tokio::test]
