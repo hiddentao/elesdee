@@ -668,4 +668,47 @@ export const nl = {
   'projectSettings.noDefaultConfig': 'Geen standaard AI-configuratie',
   'projectSettings.configHint': 'Nieuwe sessies in dit project starten met deze AI-configuratie.',
   'projectSettings.clearConfig': 'Standaard AI-configuratie wissen',
+
+  'providers.signInHint':
+    'Meld u aan via {client}. De client bewaart de inloggegevens; elesdee controleert ze en bewaart geen token.',
+  'providers.signInThrough': 'Meldt aan via {client}',
+  'providers.signInUnavailable':
+    'Deze provider heeft geen abonnementsaanmelding.',
+  'providers.signInNow': 'Aanmelden',
+  'providers.signInAgain': 'Opnieuw aanmelden',
+  'providers.signInAndAdd': 'Aanmelden en toevoegen',
+  'providers.signInStarting': 'Aanmelding wordt gestart…',
+  'providers.signInWaiting':
+    'Rond de aanmelding af via {client}. De browser keert vanzelf terug naar de app.',
+  'providers.signInOpen': 'Open de aanmeldingspagina',
+  'providers.signInCode': 'Eenmalige code',
+  'providers.signInCodeHint':
+    'Als de aanmeldingspagina een code toont, plak die hier.',
+  'providers.signInCodeIssued':
+    'Voer deze code in op de aanmeldingspagina: {code}',
+  'providers.signInCodeSubmit': 'Code versturen',
+  'providers.signInCodeChecking': 'Controleren…',
+  'providers.signInCodeInstead':
+    'Gebruik in plaats daarvan een eenmalige code',
+  'providers.signInCodeInvalid': 'Voer de eenmalige code in.',
+  'providers.signInVerifying': 'Inloggegevens worden gecontroleerd…',
+  'providers.signInConnected': 'Verbonden',
+  'providers.signInNotConnected': 'Niet verbonden',
+  'providers.signInRetry': 'Opnieuw proberen',
+  'providers.signInCancel': 'Aanmelding annuleren',
+  'providers.signInReasonClientNotFound':
+    'De aanmeldingsclient is niet geïnstalleerd.',
+  'providers.signInReasonClientError':
+    'De aanmelding is niet voltooid. Probeer het opnieuw.',
+  'providers.signInReasonNotSignedIn':
+    'De client is niet aangemeld.',
+  'providers.signInReasonNotSubscription':
+    'De client is aangemeld met een API-sleutel. Gebruik in plaats daarvan de API-sleuteloptie.',
+  'providers.signInReasonTimeout':
+    'De aanmelding is verlopen. Probeer het opnieuw.',
+  'providers.signInReasonCancelled': 'De aanmelding is geannuleerd.',
+  'providers.signInReasonVerification':
+    'De inloggegevens konden niet worden gecontroleerd.',
+  'providers.signInReasonInternal':
+    'De aanmelding kon niet worden gestart. Probeer het opnieuw.',
 } satisfies Record<MessageKey, string>;

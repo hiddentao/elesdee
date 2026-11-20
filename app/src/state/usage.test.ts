@@ -21,6 +21,7 @@ function makeProvider(overrides: Partial<Provider> = {}): Provider {
     vendor: 'anthropic',
     auth: 'subscription',
     sample: true,
+    connected: false,
     rows: [],
     foot: '',
     server: null,

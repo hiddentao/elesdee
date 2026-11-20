@@ -675,4 +675,44 @@ export const ptBR = {
   'projectSettings.noDefaultConfig': 'Nenhuma configuração de IA padrão',
   'projectSettings.configHint': 'As novas sessões deste projeto começam com esta configuração de IA.',
   'projectSettings.clearConfig': 'Limpar a configuração de IA padrão',
+
+  'providers.signInHint':
+    'Entre com {client}. O cliente guarda as credenciais; o elesdee as verifica e não armazena nenhum token.',
+  'providers.signInThrough': 'Entra com {client}',
+  'providers.signInUnavailable':
+    'Este provedor não tem entrada por assinatura.',
+  'providers.signInNow': 'Entrar',
+  'providers.signInAgain': 'Entrar de novo',
+  'providers.signInAndAdd': 'Entrar e adicionar',
+  'providers.signInStarting': 'Iniciando a entrada…',
+  'providers.signInWaiting':
+    'Conclua a entrada com {client}. O navegador volta ao aplicativo sozinho.',
+  'providers.signInOpen': 'Abrir a página de entrada',
+  'providers.signInCode': 'Código de uso único',
+  'providers.signInCodeHint':
+    'Se a página de entrada mostrar um código, cole-o aqui.',
+  'providers.signInCodeIssued':
+    'Digite este código na página de entrada: {code}',
+  'providers.signInCodeSubmit': 'Enviar código',
+  'providers.signInCodeChecking': 'Verificando…',
+  'providers.signInCodeInstead': 'Usar um código de uso único',
+  'providers.signInCodeInvalid': 'Digite o código de uso único.',
+  'providers.signInVerifying': 'Verificando as credenciais…',
+  'providers.signInConnected': 'Conectado',
+  'providers.signInNotConnected': 'Não conectado',
+  'providers.signInRetry': 'Tentar de novo',
+  'providers.signInCancel': 'Cancelar entrada',
+  'providers.signInReasonClientNotFound':
+    'O cliente de entrada não está instalado.',
+  'providers.signInReasonClientError':
+    'A entrada não foi concluída. Tente de novo.',
+  'providers.signInReasonNotSignedIn': 'O cliente não está conectado.',
+  'providers.signInReasonNotSubscription':
+    'O cliente está conectado com uma chave de API. Use a opção de chave de API.',
+  'providers.signInReasonTimeout': 'A entrada expirou. Tente de novo.',
+  'providers.signInReasonCancelled': 'A entrada foi cancelada.',
+  'providers.signInReasonVerification':
+    'Não foi possível verificar as credenciais.',
+  'providers.signInReasonInternal':
+    'Não foi possível iniciar a entrada. Tente de novo.',
 } satisfies Record<MessageKey, string>;

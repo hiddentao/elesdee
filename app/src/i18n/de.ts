@@ -663,4 +663,48 @@ export const de = {
   'projectSettings.noDefaultConfig': 'Keine Standard-KI-Konfiguration',
   'projectSettings.configHint': 'Neue Sitzungen in diesem Projekt starten mit dieser KI-Konfiguration.',
   'projectSettings.clearConfig': 'Standard-KI-Konfiguration löschen',
+
+  'providers.signInHint':
+    'Melden Sie sich über {client} an. Der Client speichert die Anmeldedaten; elesdee prüft sie und speichert kein Token.',
+  'providers.signInThrough': 'Anmeldung über {client}',
+  'providers.signInUnavailable':
+    'Dieser Anbieter hat keine Abonnement-Anmeldung.',
+  'providers.signInNow': 'Anmelden',
+  'providers.signInAgain': 'Erneut anmelden',
+  'providers.signInAndAdd': 'Anmelden und hinzufügen',
+  'providers.signInStarting': 'Anmeldung wird gestartet…',
+  'providers.signInWaiting':
+    'Schließen Sie die Anmeldung über {client} ab. Der Browser kehrt von selbst zur App zurück.',
+  'providers.signInOpen': 'Anmeldeseite öffnen',
+  'providers.signInCode': 'Einmalcode',
+  'providers.signInCodeHint':
+    'Wenn die Anmeldeseite einen Code zeigt, fügen Sie ihn hier ein.',
+  'providers.signInCodeIssued':
+    'Geben Sie diesen Code auf der Anmeldeseite ein: {code}',
+  'providers.signInCodeSubmit': 'Code senden',
+  'providers.signInCodeChecking': 'Wird geprüft…',
+  'providers.signInCodeInstead':
+    'Stattdessen einen Einmalcode verwenden',
+  'providers.signInCodeInvalid': 'Geben Sie den Einmalcode ein.',
+  'providers.signInVerifying': 'Anmeldedaten werden geprüft…',
+  'providers.signInConnected': 'Verbunden',
+  'providers.signInNotConnected': 'Nicht verbunden',
+  'providers.signInRetry': 'Erneut versuchen',
+  'providers.signInCancel': 'Anmeldung abbrechen',
+  'providers.signInReasonClientNotFound':
+    'Der Anmelde-Client ist nicht installiert.',
+  'providers.signInReasonClientError':
+    'Die Anmeldung wurde nicht abgeschlossen. Versuchen Sie es erneut.',
+  'providers.signInReasonNotSignedIn':
+    'Der Client ist nicht angemeldet.',
+  'providers.signInReasonNotSubscription':
+    'Der Client ist mit einem API-Schlüssel angemeldet. Verwenden Sie stattdessen die API-Schlüssel-Option.',
+  'providers.signInReasonTimeout':
+    'Die Anmeldung ist abgelaufen. Versuchen Sie es erneut.',
+  'providers.signInReasonCancelled':
+    'Die Anmeldung wurde abgebrochen.',
+  'providers.signInReasonVerification':
+    'Die Anmeldedaten konnten nicht geprüft werden.',
+  'providers.signInReasonInternal':
+    'Die Anmeldung konnte nicht gestartet werden. Versuchen Sie es erneut.',
 } satisfies Record<MessageKey, string>;

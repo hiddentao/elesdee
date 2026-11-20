@@ -667,4 +667,45 @@ export const ko = {
   'projectSettings.noDefaultConfig': '기본 AI 구성 없음',
   'projectSettings.configHint': '이 프로젝트의 새 세션은 이 AI 구성으로 시작합니다.',
   'projectSettings.clearConfig': '기본 AI 구성 지우기',
+
+  'providers.signInHint':
+    '{client}로 로그인합니다. 클라이언트가 자격 증명을 보관하며 elesdee는 확인만 하고 토큰을 저장하지 않습니다.',
+  'providers.signInThrough': '{client}로 로그인',
+  'providers.signInUnavailable':
+    '이 공급자는 구독 로그인을 지원하지 않습니다.',
+  'providers.signInNow': '로그인',
+  'providers.signInAgain': '다시 로그인',
+  'providers.signInAndAdd': '로그인하고 추가',
+  'providers.signInStarting': '로그인을 시작하는 중…',
+  'providers.signInWaiting':
+    '{client}로 로그인을 마치세요. 브라우저가 자동으로 앱으로 돌아옵니다.',
+  'providers.signInOpen': '로그인 페이지 열기',
+  'providers.signInCode': '일회용 코드',
+  'providers.signInCodeHint':
+    '로그인 페이지에 코드가 표시되면 여기에 붙여넣으세요.',
+  'providers.signInCodeIssued':
+    '로그인 페이지에서 이 코드를 입력하세요: {code}',
+  'providers.signInCodeSubmit': '코드 제출',
+  'providers.signInCodeChecking': '확인 중…',
+  'providers.signInCodeInstead': '대신 일회용 코드 사용',
+  'providers.signInCodeInvalid': '일회용 코드를 입력하세요.',
+  'providers.signInVerifying': '자격 증명을 확인하는 중…',
+  'providers.signInConnected': '연결됨',
+  'providers.signInNotConnected': '연결되지 않음',
+  'providers.signInRetry': '다시 시도',
+  'providers.signInCancel': '로그인 취소',
+  'providers.signInReasonClientNotFound':
+    '로그인 클라이언트가 설치되어 있지 않습니다.',
+  'providers.signInReasonClientError':
+    '로그인이 완료되지 않았습니다. 다시 시도하세요.',
+  'providers.signInReasonNotSignedIn':
+    '클라이언트가 로그인되어 있지 않습니다.',
+  'providers.signInReasonNotSubscription':
+    '클라이언트가 API 키로 로그인되어 있습니다. API 키 옵션을 사용하세요.',
+  'providers.signInReasonTimeout':
+    '로그인 시간이 초과되었습니다. 다시 시도하세요.',
+  'providers.signInReasonCancelled': '로그인이 취소되었습니다.',
+  'providers.signInReasonVerification': '자격 증명을 확인할 수 없습니다.',
+  'providers.signInReasonInternal':
+    '로그인을 시작할 수 없습니다. 다시 시도하세요.',
 } satisfies Record<MessageKey, string>;

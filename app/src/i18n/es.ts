@@ -671,4 +671,46 @@ export const es = {
   'projectSettings.noDefaultConfig': 'Sin configuración de IA predeterminada',
   'projectSettings.configHint': 'Las sesiones nuevas de este proyecto empiezan con esta configuración de IA.',
   'projectSettings.clearConfig': 'Borrar la configuración de IA predeterminada',
+
+  'providers.signInHint':
+    'Inicia sesión con {client}. El cliente guarda las credenciales; elesdee las comprueba y no almacena ningún token.',
+  'providers.signInThrough': 'Inicia sesión con {client}',
+  'providers.signInUnavailable':
+    'Este proveedor no admite inicio de sesión por suscripción.',
+  'providers.signInNow': 'Iniciar sesión',
+  'providers.signInAgain': 'Volver a iniciar sesión',
+  'providers.signInAndAdd': 'Iniciar sesión y añadir',
+  'providers.signInStarting': 'Iniciando el inicio de sesión…',
+  'providers.signInWaiting':
+    'Termina el inicio de sesión con {client}. El navegador vuelve a la aplicación por sí solo.',
+  'providers.signInOpen': 'Abrir la página de inicio de sesión',
+  'providers.signInCode': 'Código de un solo uso',
+  'providers.signInCodeHint':
+    'Si la página de inicio de sesión muestra un código, pégalo aquí.',
+  'providers.signInCodeIssued':
+    'Introduce este código en la página de inicio de sesión: {code}',
+  'providers.signInCodeSubmit': 'Enviar código',
+  'providers.signInCodeChecking': 'Comprobando…',
+  'providers.signInCodeInstead': 'Usar un código de un solo uso',
+  'providers.signInCodeInvalid': 'Introduce el código de un solo uso.',
+  'providers.signInVerifying': 'Comprobando las credenciales…',
+  'providers.signInConnected': 'Conectado',
+  'providers.signInNotConnected': 'No conectado',
+  'providers.signInRetry': 'Reintentar',
+  'providers.signInCancel': 'Cancelar inicio de sesión',
+  'providers.signInReasonClientNotFound':
+    'El cliente de inicio de sesión no está instalado.',
+  'providers.signInReasonClientError':
+    'El inicio de sesión no se completó. Inténtalo de nuevo.',
+  'providers.signInReasonNotSignedIn':
+    'El cliente no tiene sesión iniciada.',
+  'providers.signInReasonNotSubscription':
+    'El cliente tiene sesión iniciada con una clave API. Usa la opción de clave API.',
+  'providers.signInReasonTimeout':
+    'El inicio de sesión agotó el tiempo. Inténtalo de nuevo.',
+  'providers.signInReasonCancelled': 'Se canceló el inicio de sesión.',
+  'providers.signInReasonVerification':
+    'No se pudieron comprobar las credenciales.',
+  'providers.signInReasonInternal':
+    'No se pudo iniciar el inicio de sesión. Inténtalo de nuevo.',
 } satisfies Record<MessageKey, string>;

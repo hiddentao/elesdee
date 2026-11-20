@@ -536,6 +536,12 @@ pub fn router(state: AppState) -> Router {
             "/api/providers/{id}/usage/refresh",
             post(refresh_provider_usage),
         )
+        .route("/api/sign-in", post(start_sign_in))
+        .route(
+            "/api/sign-in/{id}",
+            get(sign_in_status).delete(cancel_sign_in),
+        )
+        .route("/api/sign-in/{id}/code", post(submit_sign_in_code))
         .route("/api/accounts", get(list_legacy_accounts))
         .route("/internal/statusline/claude/{id}", post(claude_statusline))
         .route("/api/configs", get(list_configs).post(create_config))
@@ -994,6 +1000,7 @@ async fn provider_options() -> Json<Vec<ProviderOption>> {
                     .collect(),
                 default_model: provider.default_model.map(str::to_owned),
                 custom: provider.custom,
+                sign_in_client: crate::providers::sign_in_client(provider.id),
             })
             .collect(),
     )
@@ -1009,6 +1016,8 @@ struct ProviderOption {
     efforts: BTreeMap<String, Vec<String>>,
     default_model: Option<String>,
     custom: bool,
+    /// The client that owns this vendor's subscription login.
+    sign_in_client: Option<Client>,
 }
 
 async fn list_providers(
@@ -1164,6 +1173,7 @@ async fn create_provider(
         server: fields.server,
         api_style: fields.api_style,
         sample: false,
+        connected: fields.auth != Auth::Subscription,
         plan: fields.plan.to_owned(),
         rows: Vec::new(),
         foot: "No official usage source.".to_owned(),
@@ -1172,7 +1182,8 @@ async fn create_provider(
         usage_status: None,
         usage_source: None,
     });
-    if let Some(key) = key
+    if fields.auth == Auth::Key
+        && let Some(key) = key
         && let Err(error) = store_account_key(&state, &provider.id, key).await
     {
         state.remove_provider(&provider.id);
@@ -1209,11 +1220,15 @@ async fn update_provider(
             .unwrap_or(existing.api_style.as_deref()),
     )?;
 
-    let replacement_key = request
-        .key
-        .as_deref()
-        .map(str::trim)
-        .filter(|key| !key.is_empty());
+    let replacement_key = if fields.auth == Auth::Key {
+        request
+            .key
+            .as_deref()
+            .map(str::trim)
+            .filter(|key| !key.is_empty())
+    } else {
+        None
+    };
     if fields.auth == Auth::Key
         && replacement_key.is_none()
         && !account_key_available(&state, &id).await?
@@ -1229,6 +1244,11 @@ async fn update_provider(
         server: fields.server,
         api_style: fields.api_style,
         sample: false,
+        connected: if fields.auth == Auth::Subscription {
+            existing.connected
+        } else {
+            true
+        },
         plan: fields.plan.to_owned(),
         rows: existing.rows.clone(),
         foot: existing.foot.clone(),
@@ -1415,6 +1435,76 @@ async fn refresh_provider_usage(
         Err(crate::usage::RefreshError::Read) => {
             Err(ApiError::bad_gateway("The usage read failed."))
         }
+    }
+}
+
+async fn start_sign_in(
+    State(state): State<AppState>,
+    body: Result<Json<crate::auth::SignInRequest>, JsonRejection>,
+) -> Result<Json<crate::auth::SignInView>, ApiError> {
+    let Json(request) = body.map_err(invalid_json)?;
+    crate::auth::start(&state, request)
+        .await
+        .map(Json)
+        .map_err(sign_in_error)
+}
+
+async fn sign_in_status(
+    State(state): State<AppState>,
+    UrlPath(id): UrlPath<String>,
+) -> Result<Json<crate::auth::SignInView>, ApiError> {
+    crate::auth::view(&state, &id)
+        .map(Json)
+        .ok_or_else(|| ApiError::not_found("Unknown sign-in."))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SubmitCodeRequest {
+    code: String,
+}
+
+async fn submit_sign_in_code(
+    State(state): State<AppState>,
+    UrlPath(id): UrlPath<String>,
+    body: Result<Json<SubmitCodeRequest>, JsonRejection>,
+) -> Result<Json<crate::auth::SignInView>, ApiError> {
+    let Json(request) = body.map_err(invalid_json)?;
+    crate::auth::submit_code(&state, &id, &request.code)
+        .await
+        .map(Json)
+        .map_err(sign_in_error)
+}
+
+async fn cancel_sign_in(
+    State(state): State<AppState>,
+    UrlPath(id): UrlPath<String>,
+) -> Result<StatusCode, ApiError> {
+    crate::auth::cancel(&state, &id)
+        .map(|_| StatusCode::NO_CONTENT)
+        .ok_or_else(|| ApiError::not_found("Unknown sign-in."))
+}
+
+fn sign_in_error(error: crate::auth::SignInError) -> ApiError {
+    match error {
+        crate::auth::SignInError::UnsupportedVendor => {
+            ApiError::unprocessable("This provider does not support subscription sign-in.")
+        }
+        crate::auth::SignInError::InvalidName => {
+            ApiError::bad_request("A provider name must be 1 to 80 characters.")
+        }
+        crate::auth::SignInError::UnknownProvider => ApiError::not_found("Unknown provider."),
+        crate::auth::SignInError::AlreadyRunning => {
+            ApiError::conflict("A sign-in is already running.")
+        }
+        crate::auth::SignInError::UnknownAttempt => ApiError::not_found("Unknown sign-in."),
+        crate::auth::SignInError::InvalidCode => {
+            ApiError::bad_request("The one-time code is not valid.")
+        }
+        crate::auth::SignInError::NotWaiting => {
+            ApiError::conflict("The sign-in is not waiting for a code.")
+        }
+        crate::auth::SignInError::Internal => ApiError::internal("The sign-in could not start."),
     }
 }
 

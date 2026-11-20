@@ -347,10 +347,10 @@ Supported vendors and clients:
 **Subscription sign-in**
 
 - Anthropic and OpenAI accept a subscription sign-in. It is the first option in the add form; an API key is one click away.
-- The app signs in through the agent it runs. It starts the login command of the installed Claude Code or Codex. That command opens the system browser. I sign in there, the browser returns to the app by itself, and the agent stores the credential. The app reads the credential and checks it before it adds the provider.
+- The app signs in through the agent it runs. It starts the login command of the installed Claude Code or Codex. That command opens the system browser. I sign in there, the browser returns to the app by itself, and the agent stores the credential. The app asks the client to confirm the stored credential before it adds the provider. The client keeps the token; the provider record says whether the sign-in is connected, not the secret.
 - The app never asks for a provider password and never shows a provider sign-in page of its own. Anthropic does not allow third-party apps to run the claude.ai sign-in, so the installed agent owns that login.
 - A one-time code is the fallback for a computer with no browser, such as a remote session. The app shows the code and a link. I open the link on any device and enter the code.
-- If the sign-in expires or fails, the app says why and offers a new attempt.
+- If the sign-in expires or fails, the app says why and offers a new attempt. A failed or abandoned attempt adds no provider. A subscription provider that is not connected shows that state and offers the sign-in again.
 - Codex refreshes its token as it runs. Do not use the same Codex login on the Mac and in elesdee at the same time.
 
 **Manual switch**

@@ -13,6 +13,7 @@ import {
   answerQuestion,
   approveSessionRequest,
   bootstrap,
+  cancelProviderSignIn,
   closeSession,
   createConfig,
   createProject,
@@ -21,6 +22,7 @@ import {
   deleteConfig,
   deleteSession,
   denySessionRequest,
+  getProviderSignIn,
   health,
   listProviderOptions,
   removeProvider,
@@ -28,6 +30,8 @@ import {
   reopenSession,
   respondPermission,
   resumeSession,
+  startProviderSignIn,
+  submitProviderSignInCode,
   switchSessionConfig,
   updateConfig,
   updateProjectDefaults,
@@ -1252,6 +1256,10 @@ export default function App() {
             updateProvider(id, input)
           }
           onRemoveProvider={handleProviderRemoved}
+          onStartProviderSignIn={startProviderSignIn}
+          onGetProviderSignIn={getProviderSignIn}
+          onSubmitProviderSignInCode={submitProviderSignInCode}
+          onCancelProviderSignIn={cancelProviderSignIn}
           onCreateConfig={createConfig}
           onUpdateConfig={(id: string, input: UpdateConfigInput) =>
             updateConfig(id, input)

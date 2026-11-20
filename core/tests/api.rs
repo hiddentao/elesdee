@@ -16,6 +16,7 @@ use serde_json::{Value, json};
 use tower::ServiceExt;
 
 use elesdee_core::api::router;
+use elesdee_core::auth::SignInOverrides;
 use elesdee_core::files::MAX_FILE_BYTES;
 use elesdee_core::state::{AiConfig, Auth, Client, Provider};
 use elesdee_core::{AppState, MemorySecretStore, SecretStore};
@@ -3046,6 +3047,7 @@ async fn opencode_sessions_get_the_full_skill_set() {
         server: None,
         api_style: None,
         sample: false,
+        connected: true,
         plan: "team".to_owned(),
         rows: Vec::new(),
         foot: String::new(),
@@ -10744,4 +10746,476 @@ async fn a_state_with_accounts_and_presets_migrates_to_providers_and_configs() {
     assert_eq!(reloaded["version"], 2);
     assert!(reloaded.get("accounts").is_none());
     assert!(reloaded.get("presets").is_none());
+}
+
+const SIGN_IN_STUB: &str = r#"#!/bin/sh
+case "$1 $2" in
+  "auth status"|"login status")
+    case "${FAKE_STATUS:-subscription}" in
+      subscription) printf '{"loggedIn":true,"authMethod":"claude.ai"}'; exit 0 ;;
+      oauth) printf '{"loggedIn":true,"authMethod":"oauth_token"}'; exit 0 ;;
+      api_key) printf '{"loggedIn":true,"authMethod":"api_key"}'; exit 0 ;;
+      slow) sleep 60; printf '{"loggedIn":true,"authMethod":"claude.ai"}'; exit 0 ;;
+      *) printf '{"loggedIn":false,"authMethod":"none"}'; exit 1 ;;
+    esac
+    ;;
+esac
+printf 'Open the sign-in page: https://example.com/signin?state=test\n'
+case "${FAKE_SIGNIN:-success}" in
+  success) exit 0 ;;
+  refuse) exit 1 ;;
+  code)
+    printf 'Enter this code: ABCD-EFGH\n'
+    IFS= read -r line
+    [ "$line" = "ABCD-EFGH" ] && exit 0
+    exit 1
+    ;;
+  wait) sleep 60; exit 0 ;;
+esac
+exit 1
+"#;
+
+fn write_sign_in_stub(directory: &Path) -> PathBuf {
+    let path = directory.join("fake-sign-in.sh");
+    fs::write(&path, SIGN_IN_STUB).expect("write sign-in stub");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o755))
+            .expect("make the sign-in stub executable");
+    }
+    path
+}
+
+fn sign_in_app(
+    directory: &Path,
+    stub: &Path,
+    env: &[(&str, &str)],
+    timeout: Option<Duration>,
+) -> Router {
+    let state = AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        directory.to_path_buf(),
+    )
+    .with_test_sign_in(SignInOverrides {
+        binary: Some(stub.to_path_buf()),
+        env: env
+            .iter()
+            .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
+            .collect(),
+        timeout,
+    });
+    router(state)
+}
+
+async fn wait_for_sign_in(app: &Router, id: &str, expected: &[&str]) -> Value {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        let (status, view) = call(app, "GET", &format!("/api/sign-in/{id}"), None).await;
+        assert_eq!(status, StatusCode::OK, "{view}");
+        let state = view["state"].as_str().unwrap_or_default();
+        if expected.contains(&state) {
+            return view;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the sign-in did not reach {expected:?}: {view}"
+        );
+        tokio::time::sleep(Duration::from_millis(30)).await;
+    }
+}
+
+async fn connected_provider_count(app: &Router, vendor: &str) -> usize {
+    let (_, providers) = call(app, "GET", "/api/providers?q=", None).await;
+    providers
+        .as_array()
+        .expect("providers")
+        .iter()
+        .filter(|provider| {
+            provider["vendor"] == vendor
+                && provider["sample"] == false
+                && provider["connected"] == true
+        })
+        .count()
+}
+
+#[tokio::test]
+async fn subscription_sign_in_connects_a_claude_provider() {
+    let data_dir = TempDirectory::new("signin-claude-data");
+    let stub = write_sign_in_stub(&data_dir.path);
+    let app = sign_in_app(&data_dir.path, &stub, &[("FAKE_SIGNIN", "success")], None);
+
+    let (status, started) = call(
+        &app,
+        "POST",
+        "/api/sign-in",
+        Some(json!({ "vendor": "anthropic" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{started}");
+    assert_eq!(started["client"], "Claude Code");
+    let id = started["id"].as_str().expect("sign-in id").to_owned();
+
+    let view = wait_for_sign_in(&app, &id, &["success"]).await;
+    assert_eq!(
+        view["url"].as_str(),
+        Some("https://example.com/signin?state=test")
+    );
+    let provider = view["provider"].as_object().expect("provider");
+    assert_eq!(provider["vendor"], "anthropic");
+    assert_eq!(provider["auth"], "subscription");
+    assert_eq!(provider["connected"], true);
+    assert_eq!(provider["sample"], false);
+    assert_eq!(provider["name"], "Anthropic");
+    assert!(
+        provider["supportedClients"]
+            .as_array()
+            .is_some_and(|clients| !clients.is_empty())
+    );
+    let provider_id = provider["id"].as_str().expect("provider id");
+
+    let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    let listed = bootstrap["providers"]
+        .as_array()
+        .expect("providers")
+        .iter()
+        .find(|provider| provider["id"] == provider_id)
+        .expect("listed provider");
+    assert_eq!(listed["connected"], true);
+    assert_eq!(connected_provider_count(&app, "anthropic").await, 1);
+
+    let state_text = fs::read_to_string(data_dir.path.join("state.json")).expect("state file");
+    assert!(!state_text.contains("state=test"));
+    assert!(!state_text.contains("ABCD-EFGH"));
+}
+
+#[tokio::test]
+async fn subscription_sign_in_refusal_leaves_no_connected_provider() {
+    let data_dir = TempDirectory::new("signin-refuse-data");
+    let stub = write_sign_in_stub(&data_dir.path);
+    let app = sign_in_app(&data_dir.path, &stub, &[("FAKE_SIGNIN", "refuse")], None);
+
+    let (status, started) = call(
+        &app,
+        "POST",
+        "/api/sign-in",
+        Some(json!({ "vendor": "anthropic", "name": "Refused" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{started}");
+    let id = started["id"].as_str().expect("sign-in id").to_owned();
+
+    let view = wait_for_sign_in(&app, &id, &["failed"]).await;
+    assert_eq!(view["reason"], "clientError");
+    assert!(view["provider"].is_null());
+    assert_eq!(connected_provider_count(&app, "anthropic").await, 0);
+}
+
+#[tokio::test]
+async fn subscription_sign_in_times_out_with_a_clear_reason() {
+    let data_dir = TempDirectory::new("signin-timeout-data");
+    let stub = write_sign_in_stub(&data_dir.path);
+    let app = sign_in_app(
+        &data_dir.path,
+        &stub,
+        &[("FAKE_SIGNIN", "wait")],
+        Some(Duration::from_secs(1)),
+    );
+
+    let (status, started) = call(
+        &app,
+        "POST",
+        "/api/sign-in",
+        Some(json!({ "vendor": "openai" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{started}");
+    let id = started["id"].as_str().expect("sign-in id").to_owned();
+
+    let view = wait_for_sign_in(&app, &id, &["failed"]).await;
+    assert_eq!(view["reason"], "timeout");
+    assert!(view["provider"].is_null());
+    assert_eq!(connected_provider_count(&app, "openai").await, 0);
+}
+
+#[tokio::test]
+async fn subscription_sign_in_can_be_abandoned() {
+    let data_dir = TempDirectory::new("signin-cancel-data");
+    let stub = write_sign_in_stub(&data_dir.path);
+    let app = sign_in_app(&data_dir.path, &stub, &[("FAKE_SIGNIN", "wait")], None);
+
+    let (status, started) = call(
+        &app,
+        "POST",
+        "/api/sign-in",
+        Some(json!({ "vendor": "anthropic" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{started}");
+    let id = started["id"].as_str().expect("sign-in id").to_owned();
+    wait_for_sign_in(&app, &id, &["waiting"]).await;
+
+    let (status, _) = call(&app, "DELETE", &format!("/api/sign-in/{id}"), None).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let (status, view) = call(&app, "GET", &format!("/api/sign-in/{id}"), None).await;
+    assert_eq!(status, StatusCode::OK, "{view}");
+    assert_eq!(view["state"], "cancelled");
+    assert!(view["provider"].is_null());
+    assert_eq!(connected_provider_count(&app, "anthropic").await, 0);
+}
+
+#[tokio::test]
+async fn a_one_time_code_completes_the_codex_device_sign_in() {
+    let data_dir = TempDirectory::new("signin-code-data");
+    let stub = write_sign_in_stub(&data_dir.path);
+    let app = sign_in_app(&data_dir.path, &stub, &[("FAKE_SIGNIN", "code")], None);
+
+    let (status, started) = call(
+        &app,
+        "POST",
+        "/api/sign-in",
+        Some(json!({ "vendor": "openai", "mode": "code" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{started}");
+    assert_eq!(started["client"], "Codex");
+    assert_eq!(started["mode"], "code");
+    let id = started["id"].as_str().expect("sign-in id").to_owned();
+
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    let waiting = loop {
+        let (_, view) = call(&app, "GET", &format!("/api/sign-in/{id}"), None).await;
+        if view["state"] == "waiting" && view["code"].is_string() {
+            break view;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the device code was not shown: {view}"
+        );
+        tokio::time::sleep(Duration::from_millis(30)).await;
+    };
+    assert_eq!(waiting["code"], "ABCD-EFGH");
+
+    let (status, submitted) = call(
+        &app,
+        "POST",
+        &format!("/api/sign-in/{id}/code"),
+        Some(json!({ "code": "ABCD-EFGH" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{submitted}");
+
+    let view = wait_for_sign_in(&app, &id, &["success"]).await;
+    assert_eq!(view["provider"]["vendor"], "openai");
+    assert_eq!(view["provider"]["connected"], true);
+    assert_eq!(connected_provider_count(&app, "openai").await, 1);
+}
+
+#[tokio::test]
+async fn a_key_login_is_not_accepted_as_a_subscription() {
+    let data_dir = TempDirectory::new("signin-key-data");
+    let stub = write_sign_in_stub(&data_dir.path);
+    let app = sign_in_app(
+        &data_dir.path,
+        &stub,
+        &[("FAKE_SIGNIN", "success"), ("FAKE_STATUS", "api_key")],
+        None,
+    );
+
+    let (status, started) = call(
+        &app,
+        "POST",
+        "/api/sign-in",
+        Some(json!({ "vendor": "anthropic" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{started}");
+    let id = started["id"].as_str().expect("sign-in id").to_owned();
+
+    let view = wait_for_sign_in(&app, &id, &["failed"]).await;
+    assert_eq!(view["reason"], "notSubscription");
+    assert!(view["provider"].is_null());
+    assert_eq!(connected_provider_count(&app, "anthropic").await, 0);
+}
+
+#[tokio::test]
+async fn signing_in_again_connects_an_existing_subscription_provider() {
+    let data_dir = TempDirectory::new("signin-reconnect-data");
+    let stub = write_sign_in_stub(&data_dir.path);
+    let app = sign_in_app(&data_dir.path, &stub, &[("FAKE_SIGNIN", "success")], None);
+
+    let (status, provider) = call(
+        &app,
+        "POST",
+        "/api/providers",
+        Some(json!({
+            "name": "Work Claude",
+            "vendor": "anthropic",
+            "auth": "subscription"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{provider}");
+    assert_eq!(provider["connected"], false);
+    let provider_id = provider["id"].as_str().expect("provider id").to_owned();
+
+    let (status, started) = call(
+        &app,
+        "POST",
+        "/api/sign-in",
+        Some(json!({ "vendor": "anthropic", "providerId": provider_id })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{started}");
+    let id = started["id"].as_str().expect("sign-in id").to_owned();
+    let view = wait_for_sign_in(&app, &id, &["success"]).await;
+
+    assert_eq!(view["provider"]["id"], provider_id);
+    assert_eq!(view["provider"]["connected"], true);
+    let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    let listed = bootstrap["providers"]
+        .as_array()
+        .expect("providers")
+        .iter()
+        .find(|provider| provider["id"] == provider_id)
+        .expect("listed provider");
+    assert_eq!(listed["connected"], true);
+}
+
+#[tokio::test]
+async fn abandoning_while_the_credential_is_checked_connects_nothing() {
+    let data_dir = TempDirectory::new("signin-verify-cancel-data");
+    let stub = write_sign_in_stub(&data_dir.path);
+    let app = sign_in_app(
+        &data_dir.path,
+        &stub,
+        &[("FAKE_SIGNIN", "success"), ("FAKE_STATUS", "slow")],
+        None,
+    );
+
+    let (status, started) = call(
+        &app,
+        "POST",
+        "/api/sign-in",
+        Some(json!({ "vendor": "anthropic" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{started}");
+    let id = started["id"].as_str().expect("sign-in id").to_owned();
+    wait_for_sign_in(&app, &id, &["verifying"]).await;
+
+    let (status, _) = call(&app, "DELETE", &format!("/api/sign-in/{id}"), None).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let (_, view) = call(&app, "GET", &format!("/api/sign-in/{id}"), None).await;
+    assert_eq!(view["state"], "cancelled");
+    assert!(view["provider"].is_null());
+    assert_eq!(connected_provider_count(&app, "anthropic").await, 0);
+}
+
+#[tokio::test]
+async fn a_subscription_provider_never_stores_a_key() {
+    let secrets = Arc::new(MemorySecretStore::default());
+    let app = router(AppState::ephemeral().with_test_secret_store(secrets.clone()));
+
+    let (status, provider) = call(
+        &app,
+        "POST",
+        "/api/providers",
+        Some(json!({
+            "name": "Sign-in only",
+            "vendor": "anthropic",
+            "auth": "subscription",
+            "key": "sk-should-not-be-stored"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{provider}");
+    assert_eq!(provider["connected"], false);
+    let provider_id = provider["id"].as_str().expect("provider id");
+    assert_eq!(
+        secrets.get_key(provider_id).expect("read key").as_deref(),
+        None
+    );
+}
+
+#[tokio::test]
+async fn a_signed_in_provider_receives_status_line_usage() {
+    let data_dir = TempDirectory::new("signin-usage-data");
+    let repo = TempDirectory::new("signin-usage-repo");
+    init_git_repo(&repo.path);
+    let stub = write_sign_in_stub(&data_dir.path);
+    let app = sign_in_app(&data_dir.path, &stub, &[("FAKE_SIGNIN", "success")], None);
+
+    let (_, started) = call(
+        &app,
+        "POST",
+        "/api/sign-in",
+        Some(json!({ "vendor": "anthropic" })),
+    )
+    .await;
+    let id = started["id"].as_str().expect("sign-in id").to_owned();
+    let view = wait_for_sign_in(&app, &id, &["success"]).await;
+    let provider_id = view["provider"]["id"]
+        .as_str()
+        .expect("provider id")
+        .to_owned();
+
+    let (status, config) = call(
+        &app,
+        "POST",
+        "/api/configs",
+        Some(json!({ "providerId": provider_id, "client": "Claude Code" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{config}");
+    ensure_test_project(&app, &repo.path).await;
+    let (status, session) = call(
+        &app,
+        "POST",
+        "/api/sessions",
+        Some(json!({
+            "projectId": "web",
+            "kind": "agent",
+            "configId": config["id"],
+            "name": "Signed in",
+            "folder": repo.path.to_string_lossy()
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    assert_eq!(session["providerId"], provider_id);
+    let session_id = session["id"].as_str().expect("session id");
+
+    let (_, settings) = claude_settings(&data_dir.path, session_id);
+    let token = settings_token(&settings);
+    let (status, body) = send_statusline(
+        &app,
+        session_id,
+        Some(&token),
+        json!({
+            "rate_limits": {
+                "five_hour": { "used_percentage": 12, "resets_at": 1 },
+                "seven_day": { "used_percentage": 34, "resets_at": 2 }
+            }
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+
+    let (status, provider) = call(
+        &app,
+        "GET",
+        &format!("/api/providers/{provider_id}/usage"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{provider}");
+    assert_eq!(provider["usageSource"], "statusline");
+    let rows = provider["rows"].as_array().expect("usage rows");
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0]["used"], 12);
+    assert_eq!(rows[1]["used"], 34);
+
+    let (status, _) = close_session(&app, session_id).await;
+    assert_eq!(status, StatusCode::OK);
 }

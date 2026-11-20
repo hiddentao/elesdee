@@ -20,11 +20,13 @@ import type {
   Project,
   Provider,
   ProviderOption,
+  ProviderSignIn,
   Question,
   Session,
   SessionChanges,
   SessionRequest,
   SharedFile,
+  StartProviderSignInInput,
   SwitchOptions,
   UpdateConfigInput,
   UpdateProjectDefaultsInput,
@@ -113,6 +115,32 @@ export function updateProvider(
 
 export function removeProvider(id: string): Promise<void> {
   return request<void>(`/api/providers/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
+}
+
+export function startProviderSignIn(
+  input: StartProviderSignInInput,
+): Promise<ProviderSignIn> {
+  return request<ProviderSignIn>('/api/sign-in', post(input));
+}
+
+export function getProviderSignIn(id: string): Promise<ProviderSignIn> {
+  return request<ProviderSignIn>(`/api/sign-in/${encodeURIComponent(id)}`);
+}
+
+export function submitProviderSignInCode(
+  id: string,
+  code: string,
+): Promise<ProviderSignIn> {
+  return request<ProviderSignIn>(
+    `/api/sign-in/${encodeURIComponent(id)}/code`,
+    post({ code }),
+  );
+}
+
+export function cancelProviderSignIn(id: string): Promise<void> {
+  return request<void>(`/api/sign-in/${encodeURIComponent(id)}`, {
     method: 'DELETE',
   });
 }

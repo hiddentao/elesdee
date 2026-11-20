@@ -353,6 +353,10 @@ pub struct Provider {
     pub api_style: Option<String>,
     #[serde(default)]
     pub sample: bool,
+    /// Whether a subscription provider has a checked client sign-in. Key and
+    /// local providers are connected when they hold their credential.
+    #[serde(default)]
+    pub connected: bool,
     pub plan: String,
     pub rows: Vec<UsageRow>,
     pub foot: String,
@@ -489,6 +493,7 @@ pub fn migrate_legacy(accounts: Vec<LegacyAccount>, presets: Vec<LegacyPreset>) 
             server: account.server,
             api_style: account.api_style,
             sample: account.sample,
+            connected: account.auth != Auth::Subscription,
             plan: account.plan,
             rows: account.rows,
             foot: account.foot,
@@ -796,6 +801,8 @@ struct Inner {
     usage_base_override: Option<String>,
     model_cache: Mutex<HashMap<String, CachedModels>>,
     model_gates: Mutex<HashMap<String, Arc<AsyncMutex<()>>>>,
+    sign_in: Option<crate::auth::SignInOverrides>,
+    sign_ins: crate::auth::SignInRegistry,
     link: crate::link::LinkHub,
     browser: BrowserManager,
 }
@@ -1151,6 +1158,8 @@ impl AppState {
                 usage_base_override: None,
                 model_cache: Mutex::new(HashMap::new()),
                 model_gates: Mutex::new(HashMap::new()),
+                sign_in: None,
+                sign_ins: crate::auth::SignInRegistry::default(),
                 link: crate::link::LinkHub::new(),
                 browser: BrowserManager::new(browser_profiles, fake_browser),
             }),
@@ -1448,6 +1457,22 @@ impl AppState {
         self.emit_aux(AuxEvent::Provider {
             provider: ProviderView::new(provider),
         });
+    }
+
+    #[doc(hidden)]
+    pub fn with_test_sign_in(mut self, overrides: crate::auth::SignInOverrides) -> Self {
+        if let Some(inner) = Arc::get_mut(&mut self.inner) {
+            inner.sign_in = Some(overrides);
+        }
+        self
+    }
+
+    pub(crate) fn sign_in_overrides(&self) -> Option<crate::auth::SignInOverrides> {
+        self.inner.sign_in.clone()
+    }
+
+    pub(crate) fn sign_ins(&self) -> crate::auth::SignInRegistry {
+        self.inner.sign_ins.clone()
     }
 
     #[doc(hidden)]

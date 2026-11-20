@@ -28,6 +28,7 @@ const provider: Provider = {
   vendor: 'anthropic',
   auth: 'subscription',
   sample: true,
+  connected: false,
   plan: 'Max',
   rows: [{ label: '5-hour', used: 58 }],
   foot: '',
@@ -143,6 +144,10 @@ describe('LanguageProvider', () => {
           onCreateProvider={vi.fn()}
           onUpdateProvider={vi.fn()}
           onRemoveProvider={vi.fn()}
+          onStartProviderSignIn={vi.fn()}
+          onGetProviderSignIn={vi.fn()}
+          onSubmitProviderSignInCode={vi.fn()}
+          onCancelProviderSignIn={vi.fn()}
           onCreateConfig={vi.fn()}
           onUpdateConfig={vi.fn()}
           onDeleteConfig={vi.fn()}
