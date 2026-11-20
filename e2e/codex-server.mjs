@@ -12,6 +12,9 @@ const server = http.createServer((request, response) => {
   }
   if (request.url === '/reset') {
     replied = null;
+    for (const client of sockets.clients) {
+      client.close();
+    }
     response.end('{"ok":true}');
     return;
   }

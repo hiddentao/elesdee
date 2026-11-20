@@ -30,15 +30,19 @@ test('shows one session tab at a time and lists all tabs in a sheet', async ({
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`/phone.html#session=${encodeURIComponent(sessions[0].id)}`);
 
+  const data = await bootstrap(request);
+  const open = data.sessions.filter((item) => item.status === 'active');
+  const startIndex = open.findIndex((item) => item.id === sessions[0].id);
+
   await expect(page.locator('.phone-title')).toHaveText('Phone session 1');
   const count = page.getByRole('button', { name: /All tabs/ });
   const countText = await count.getAttribute('aria-label');
   const total = Number(countText?.split(',').pop()?.trim() ?? '0');
   expect(total).toBeGreaterThanOrEqual(4);
 
-  await page.locator('.phone-tabs').evaluate((element) => {
-    element.scrollTo({ left: element.clientWidth, behavior: 'instant' });
-  });
+  await page.locator('.phone-tabs').evaluate((element, index) => {
+    element.scrollTo({ left: element.clientWidth * index, behavior: 'instant' });
+  }, startIndex + 1);
   await expect(page.locator('.phone-title')).toHaveText('Phone session 2');
 
   await count.click();
@@ -59,9 +63,9 @@ test('shows one session tab at a time and lists all tabs in a sheet', async ({
     timeout: 60_000,
   });
 
-  await page.locator('.phone-tabs').evaluate((element) => {
-    element.scrollTo({ left: 0, behavior: 'instant' });
-  });
+  await page.locator('.phone-tabs').evaluate((element, index) => {
+    element.scrollTo({ left: element.clientWidth * index, behavior: 'instant' });
+  }, startIndex);
   await expect(page.locator('.phone-title')).toHaveText('Phone session 1');
   await expect(page.locator('.phone-card')).toContainText('echo phone-hook', {
     timeout: 20_000,
@@ -70,7 +74,6 @@ test('shows one session tab at a time and lists all tabs in a sheet', async ({
   const hookResponse = await hookPromise;
   expect(hookResponse.ok()).toBeTruthy();
 
-  const data = await bootstrap(request);
   for (const session of data.sessions.filter(
     (item) => item.projectId === project.id,
   )) {

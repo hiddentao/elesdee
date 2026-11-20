@@ -183,6 +183,19 @@ export default function App() {
     }
   }, []);
 
+  const refresh = useCallback(async () => {
+    try {
+      const data = await bootstrap();
+      setProjects(data.projects);
+      setAccounts(data.accounts);
+      setSessions(data.sessions);
+      setQuestions(data.questions ?? []);
+      setSessionRequests(data.sessionRequests ?? []);
+    } catch {
+      // The event stream reports a broken connection.
+    }
+  }, []);
+
   const activeProject =
     projects.find((project) => project.id === activeProjectId) ?? null;
   const projectTabs = activeProjectId
@@ -289,9 +302,12 @@ export default function App() {
         });
       },
       () => setEventsPaused(true),
-      () => setEventsPaused(false),
+      () => {
+        setEventsPaused(false);
+        void refresh();
+      },
     );
-  }, [loadState, eventAttempt]);
+  }, [loadState, eventAttempt, refresh]);
 
   useEffect(() => {
     if (loadState !== 'ready') {
@@ -325,8 +341,8 @@ export default function App() {
         message: `${event.notification.sessionName}: ${event.notification.message}`,
         error: false,
       });
-    });
-  }, [loadState, eventAttempt]);
+    }, undefined, () => void refresh());
+  }, [loadState, eventAttempt, refresh]);
 
   const quitNow = useCallback(async () => {
     allowCloseRef.current = true;
