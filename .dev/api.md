@@ -14,17 +14,16 @@ The service binds `127.0.0.1` only. It accepts requests only for loopback hostna
 - Every POST and PATCH request must send `Content-Type: application/json`. The media type may carry parameters such as `charset`. A missing or different content type returns 415.
 - A project name must not be empty. Its folder must exist and be a directory. The folder is canonicalized, and two projects cannot use the same canonical folder.
 - A project id is a unique slug of its name. A repeated name gets a numeric suffix.
-- A project stores an optional default account and an optional default source branch. `PATCH /api/projects/{id}` sets a field by sending its value and clears it by sending `null`; an absent field keeps its current value. The default account must exist. A default branch must be a safe branch name and must exist as a local or remote branch in the project folder's Git repository; tags, other revisions and reflog expressions are rejected.
-- A launch preset names an account and adds an optional model, environment overrides and config overrides. A preset with no stored record is derived from its account with the id `account:<account id>` and `stored: false`. Accounts with a stored preset do not get a second derived entry.
-- Preset names are 1–64 characters. Up to 32 environment variables and 32 config keys are accepted. Config keys use letters, digits, `_`, `-` and dots; each dotted segment is non-empty and the key is at most 120 characters. Config values are at most 2000 characters.
-- An environment variable or config key that names a secret, such as an API key, auth token, password or private key, returns 422. Keys belong in an account, not in a preset or a launch value.
-- A preset model must fit the account's client. Antigravity uses lowercase slugs of letters, digits, `.`, `_` and `-`; other clients also accept uppercase letters and `:`, `/`, `@` and `+`. A model that does not fit returns 422. An unknown account returns 422. An invalid name, environment variable, config key or config value returns 400.
-- `POST /api/presets` uses the account name when `name` is absent or empty. `PATCH` keeps a field when it is absent and replaces `env` or `config` when it is present. Sending `model: null` clears the model. An unknown stored preset returns 404.
-- A session with `presetId` resolves a stored preset or an `account:<id>` entry. If `accountId` is absent, the preset's account is used; if both are present and differ, the request returns 422. An unknown preset returns 422. A terminal session with a preset returns 400.
-- An agent launch may send `allowedAccountIds`. An absent list allows every non-sample account of the starting client plus the starting account. A terminal session with a list returns 400. The list must hold existing accounts and include the starting account.
-- Preset environment variables apply first, then the session's `env` values. A per-launch value wins. The effective environment is stored on the session and applied again on reopen, account switch and restart. The model and config overrides are also applied again on restart.
-- Config overrides apply to one launch. Claude Code writes them into its private settings file, Codex passes `-c key=value` arguments, OpenCode merges them into its launch config file, and Antigravity writes them into its private settings file. The model uses the same mechanism for each client. Values parse as JSON when possible, otherwise as text. Dotted keys create nested objects. Claude hooks and the OpenCode MCP and skill entries are added after the overrides and cannot be replaced. Nothing is written into the repository.
-- Presets are saved in `state.json`. Account keys are never part of a preset.
+- A project stores an optional default AI config and an optional default source branch. `PATCH /api/projects/{id}` sets a field by sending its value and clears it by sending `null`; an absent field keeps its current value. The default config must exist. A default branch must be a safe branch name and must exist as a local or remote branch in the project folder's Git repository; tags, other revisions and reflog expressions are rejected.
+- A provider holds a credential and an endpoint. Its id is a unique slug of its name. The name is 1–80 characters. The vendor comes from the provider catalog. The auth method must be one the vendor offers. A custom provider needs an API style (`openai` or `anthropic`) and a server URL. A local auth and the Ollama and LM Studio vendors need a server URL. Other vendors take an optional server override.
+- An AI config names a provider and one client that the provider supports. Its id is a unique slug of its name. The name is 1–64 characters and defaults to `<provider> (<client>)`. The model is optional and at most 120 characters; Antigravity accepts lowercase slugs of letters, digits, `.`, `_` and `-`, and other clients also accept `:`, `/`, `@` and `+`. The effort must be one of the levels the client offers. Up to 64 extra arguments are accepted, each at most 2000 characters with no NUL. Up to 32 environment variables and 32 config keys are accepted. Config keys use letters, digits, `_`, `-` and dots; each dotted segment is non-empty and the key is at most 120 characters. Config values are at most 2000 characters.
+- An environment variable or config key that names a secret, such as an API key, auth token, password or private key, returns 422. Keys belong in a provider, not in a config or a launch value.
+- A session with `configId` resolves a stored config. The older `accountId` or a `providerId` resolves that provider's first config, so an older client or the phone keeps working. An unknown config returns 404. A terminal session with a config returns 400.
+- An agent launch may send `allowedConfigIds`. An absent list allows every non-sample config of the starting client plus the starting config. A terminal session with a list returns 400. The list must hold existing configs, has no duplicates, and includes the starting config.
+- A config's environment variables apply first, then the session's `env` values. A per-launch value wins. The config's environment is applied again on reopen and switch. The model, effort and config overrides are applied again on restart.
+- Config overrides apply to one launch. Claude Code writes them into its private settings file, Codex passes `-c key=value` arguments, OpenCode merges them into its launch config file, and Antigravity writes them into its private settings file. Values parse as JSON when possible, otherwise as text. Dotted keys create nested objects. Claude hooks and the OpenCode MCP and skill entries are added after the overrides and cannot be replaced. Nothing is written into the repository.
+- Model and effort use the client's own form. Claude Code gets `--model <model>` and `--effort <level>`. Codex gets `-c model="<model>"` and `-c model_reasoning_effort="<level>"`. OpenCode 2 gets `model` and `reasoningEffort` in its generated config. Antigravity gets `model` and `effort` in its private settings file. Extra command-line arguments are appended after the generated model, effort and tool arguments.
+- Configs and providers are saved in `state.json`. Keys are never part of either record.
 - At most 64 sessions may be active at one time. This is a safety cap for memory and process limits. A new session above the cap returns 429. Closing a session frees its slot.
 - At most 32 output streams and 32 event streams may be open at once. More returns 429.
 - The optional `folder` is canonicalized. When it is absent, the project folder is used. A terminal session runs in that folder. For an agent, the folder must be inside a Git repository; the session runs in a new worktree under `<data dir>/worktrees/<session id>`.
@@ -40,48 +39,48 @@ The service binds `127.0.0.1` only. It accepts requests only for loopback hostna
 - When a session process exits, the session stays `active`, its `workState` becomes `done`, and a `session.updated` event is sent. Input then returns 409.
 - Renaming trims the name, requires 1–64 characters, and does not change `short` or `branch`.
 - While a session runs, `preview` follows its latest non-empty output line. Terminal escape and control sequences are removed, whitespace is collapsed, and the text is capped at about 80 characters. It changes at most once every two seconds and sends `session.updated` only when the text changes. Closed sessions and close notes are never overwritten by output.
-- Reopening requires a closed session. It re-checks the folder and, for an agent, the account, installed client, repository and branch. A missing agent worktree is recreated from the branch; a stale or unregistered path is replaced. It keeps the log and sequence numbers.
+- Reopening requires a closed session. It re-checks the folder and, for an agent, the AI config, installed client, repository and branch. A missing agent worktree is recreated from the branch; a stale or unregistered path is replaced. It keeps the log and sequence numbers.
 - Deleting requires a closed session and removes the session and its log. An agent branch is kept. If a failed close left a worktree, delete attempts to remove it.
 - The client version check is cached for 10 seconds.
 
 ## List endpoints
 
-- `GET /api/projects?q=` and `GET /api/accounts?q=` return a plain array for the pickers.
+- `GET /api/projects?q=`, `GET /api/providers?q=` and `GET /api/configs?q=` return a plain array for the pickers.
 - `q` is optional and case-insensitive. A missing or empty value returns every item.
-- Projects match on name or folder. Accounts match on name, client, provider or plan.
-- Results are sorted by name, then id. Account responses never include a key. The Host and Origin rules apply.
+- Projects match on name or folder. Providers match on name, vendor or plan. Configs match on name, client, model, provider name or vendor.
+- Results are sorted by name, then id. Provider responses never include a key. The Host and Origin rules apply.
 
-## Accounts and Antigravity
+## Providers, AI configs and Antigravity
 
-- `POST /api/accounts` adds an API-key account. The body is `{ name, providerId, client, auth: "key", key, model? }`.
-- This version accepts `providerId: "google"` with `client: "Antigravity"`. Any other provider and client pair, or another auth mode, returns 422. An empty name, an empty key or a model over 120 characters returns 400.
-- The account id is a unique slug of the name. A repeated name gets a numeric suffix. The model defaults to `gemini-3.8-flash-medium`; model names use Antigravity's own slugs.
-- The key is stored in the system keychain through the secret store. It is not written to `state.json`, returned by the API or written to logs. Account metadata is saved and returned in bootstrap.
-- Seed accounts have `sample: true`. Accounts created through this endpoint have `sample: false`. Samples have no usage rows and exist only to show the interface.
-- Antigravity runs `agy`. The core finds it on `PATH` and in common install paths.
-- A launch reads the key, creates `<data dir>/homes/<session id>/.gemini/antigravity-cli/settings.json` with mode 0600 and `{"modelProvider":"gemini"}`, sets `HOME` to the session home and `GEMINI_API_KEY` to the key in the child environment, and runs the client in the worktree.
-- The home is removed on close, agent exit, delete and shutdown. Reopen creates it again and reads the key again.
+- `GET /api/provider-options` returns the vendor catalog: `{ id, label, auth, supportedClients, efforts, defaultModel, custom }`. `efforts` maps a client name to its allowed levels.
+- `POST /api/providers` adds a provider. The body is `{ name?, vendor, auth, key?, server?, apiStyle? }`. The name defaults to the vendor label. A key-mode provider needs a key; a local provider needs none. The key is stored in the system keychain through the secret store. It is not written to `state.json`, returned by the API or written to logs.
+- `GET /api/providers` returns `ProviderView[]`, which adds `supportedClients` to the stored record. Seed providers have `sample: true`. Providers created through the route have `sample: false`.
+- `GET /api/providers/{id}/models?client=` reads the provider's model list in real time. OpenAI-style providers use `GET /models`; Anthropic-style providers use the documented model-list route or the known list; a local server uses its own `/models`. The result is `{ models: [{ id, label }], source, fallback }`. A successful read is cached briefly, concurrent reads for the same provider and client share one request, and a failed read returns the known list with `fallback: true`. The key is used only in the request and never appears in the response or a log. A typed custom model name is always allowed.
+- A Google provider uses an API key. Antigravity runs `agy`. The core finds it on `PATH` and in common install paths. The default model for a new Antigravity config is `gemini-3.8-flash-medium`; model names use Antigravity's own slugs.
+- For Antigravity, the core starts the client with a per-session home under the app's data folder, a private settings file that selects the Gemini provider, and the API key in the child environment. It removes the home when the session closes. Reopen creates it again and reads the key again.
 - Antigravity sessions get no Claude hook settings and no permission card. Their `shortcuts` list is empty; the UI shows the base keys.
+- `POST /api/configs` adds an AI config. The body is `{ name?, providerId, client, model?, effort?, args?, env?, config? }`. The provider must exist and support the client.
+- `GET /api/configs` returns `AiConfig[]`.
 
 ## Usage sources
 
-- Claude Code reports plan limits through a status line command that the core writes into the session's private settings file. The command posts the JSON that Claude Code sends on standard input to `/internal/statusline/claude/{id}` with the session's hook token. The core reads `rate_limits.five_hour` and `rate_limits.seven_day`, each with `used_percentage` and `resets_at`, for the account usage. It also reads `context_window.remaining_percentage` for the session's context-left value and `session_id` for the agent's conversation ID.
+- Claude Code reports plan limits through a status line command that the core writes into the session's private settings file. The command posts the JSON that Claude Code sends on standard input to `/internal/statusline/claude/{id}` with the session's hook token. The core reads `rate_limits.five_hour` and `rate_limits.seven_day`, each with `used_percentage` and `resets_at`, for the provider usage. It also reads `context_window.remaining_percentage` for the session's context-left value and `session_id` for the agent's conversation ID.
 - Codex reports plan limits over the session's app-server websocket. The core sends `initialize`, `initialized` and `account/rateLimits/read`, then applies `account/rateLimits/updated` notifications. Windows are told apart by length: 300 minutes is the 5-hour window and 10,080 minutes is the weekly window.
-- DeepSeek reports a prepaid balance from `GET https://api.deepseek.com/user/balance` with the account key from the keychain. The key is sent only in the request's `Authorization` header. It is never logged, returned or written to `state.json`.
-- Other providers have no official source. The account keeps `foot: "No official usage source."`, has no usage status and is skipped by auto-switch.
-- A reading stores the rows, the window kind, `usageSource`, `usageReadAt`, `usageCheckedAt` and `usageStatus`. `usageStatus` is `fresh` after a successful read, `stale` when the last read failed but earlier values remain, and `unknown` when no value was ever read. A failed read sends an `account.updated` event and leaves every session untouched.
+- DeepSeek reports a prepaid balance from `GET https://api.deepseek.com/user/balance` with the provider key from the keychain. The key is sent only in the request's `Authorization` header. It is never logged, returned or written to `state.json`.
+- Other providers have no official source. The provider keeps `foot: "No official usage source."`, has no usage status and is skipped by auto-switch.
+- A reading stores the rows, the window kind, `usageSource`, `usageReadAt`, `usageCheckedAt` and `usageStatus`. `usageStatus` is `fresh` after a successful read, `stale` when the last read failed but earlier values remain, and `unknown` when no value was ever read. A failed read sends a `provider.updated` event and leaves every session untouched.
 - A fresh reading runs auto-switch immediately. A failed read never switches or pauses a session.
-- DeepSeek balances are read in the background at most once a minute per account and only for non-sample accounts with a key. `POST /api/accounts/{id}/usage/refresh` reads at once, but two concurrent reads for the same account share one request, and a forced refresh within two seconds of the last attempt reuses the stored values.
-- The manual route `POST /api/accounts/{id}/usage` remains for a caller that supplies rows itself. It sets `usageSource: "manual"` and a fresh status.
+- DeepSeek balances are read in the background at most once a minute per provider and only for non-sample providers with a key. `POST /api/providers/{id}/usage/refresh` reads at once, but two concurrent reads for the same provider share one request, and a forced refresh within two seconds of the last attempt reuses the stored values.
+- The manual route `POST /api/providers/{id}/usage` remains for a caller that supplies rows itself. It sets `usageSource: "manual"` and a fresh status.
 
-## Edit and remove accounts
+## Edit and remove providers and configs
 
-- `PATCH /api/accounts/{id}` changes an account. The body uses the same fields and validation as `POST /api/accounts`: `{ name, providerId, client?, auth, key?, server?, model?, apiStyle? }`. The name is required and 1–80 characters. The provider, client, auth method, API style, server URL and model are checked against the same provider table, with the same status codes.
-- `key` is absent or blank to keep the saved key. A supplied key replaces the saved key in the system keychain. The key is never returned, logged or written to `state.json`. A key-mode account needs a stored key or a new one; otherwise the route returns 400. A subscription or local account needs no key.
-- The account id does not change. An edited sample account becomes a normal account with `sample: false`, and the mark stays gone after a restart. Usage rows stay when only the name, model, auth method or key change. They are cleared when the provider, server address or API style changes, because the rows belong to another endpoint.
-- `DELETE /api/accounts/{id}` removes an account. It deletes the keychain entry, the account and its saved usage, deletes stored presets that point at it, and clears project default accounts that point at it. It returns `{ clearedProjectDefaults: string[], removedPresets: number }`.
-- Removal refuses with 409 while an active session uses the account, and the message names the session. Closed sessions do not block removal; they keep the account id and cannot reopen on the removed account. An unknown account returns 404.
-- Both routes save the state file. The edit route sends an `account.updated` event.
+- `PATCH /api/providers/{id}` changes a provider. The body is `{ name?, vendor?, auth?, key?, server?, apiStyle? }`. An absent field keeps its value; `server` and `apiStyle` may be `null` to clear them. A supplied key replaces the saved key in the system keychain. A key-mode provider needs a stored key or a new one; otherwise the route returns 400. The route refuses with 409 when a config uses a client the edited provider no longer supports.
+- The provider id does not change. An edited sample provider becomes normal with `sample: false`, and the mark stays gone after a restart. Usage rows stay when only the name, auth method or key change. They are cleared when the vendor, server address or API style changes, because the rows belong to another endpoint.
+- `DELETE /api/providers/{id}` removes a provider. It deletes the keychain entry, the provider and its saved usage. It refuses with 409 while an AI config uses the provider, and the message says so. An unknown provider returns 404.
+- `PATCH /api/configs/{id}` changes a config. The body is `{ name?, providerId?, client?, model?, effort?, args?, env?, config? }`. An absent field keeps its value; `model` and `effort` may be `null` to clear them. The provider and client pair must be supported.
+- `DELETE /api/configs/{id}` removes a config. It refuses with 409 while an active session runs it, and the message names the session. It clears project defaults that use the config and removes it from every session's allowed list. An unknown config returns 404.
+- Both edit routes save the state file. A provider edit sends a `provider.updated` event.
 
 ## Pairing and devices
 
@@ -189,7 +188,7 @@ Every later stream carries one request with the shared four-byte JSON length fra
 
 - The result is the local route's JSON, or the local error message with the matching link code. A method outside the allowlist returns `forbidden` before a handler runs.
 - `sessions.upload`, `files.image`, `ui.manifest` and `ui.download` are allowlisted but return `unsupported` until their steps. `demoServers.list` returns the active registered entries.
-- `events.subscribe` has no parameters. It forwards `session.updated` from the event stream and the question, request, notification, shared-file and account events from the auxiliary stream. A phone that falls behind loses the stream and reconnects; the bootstrap snapshot shows the current state.
+- `events.subscribe` has no parameters. It forwards `session.updated` from the event stream and the question, request, notification, shared-file and provider events from the auxiliary stream. A phone that falls behind loses the stream and reconnects; the bootstrap snapshot shows the current state.
 - `output.subscribe` takes `{ sessionId, after }`. It sends a stream start, replays the retained output with a higher sequence than `after`, and keeps the stream open. A replayed event may carry `gap`. The stream ends when the session closes. A slow reader gets a fresh snapshot from its last sequence, which fills the gap.
 - The link holds the same output stream permit as the local API and applies its own stream cap.
 - A revoked device has its live connections closed with code 3.
@@ -214,7 +213,7 @@ The phone shell reconnects after a drop. It waits 0.5 s, 1 s, 2 s, 4 s, 8 s, 15 
 - Claude Code, Codex and OpenCode 2 sessions get the elesdee MCP server and the skill pack: `elesdee`, `demo-servers`, `handoff`, `ask-and-notify`, `coordinate-sessions`, `frontend-design` and `browser-checks`. Antigravity gets neither.
 - The server exposes `ask_me`, `wait_for_answer`, `withdraw_question`, `notify_me`, `report_done`, `write_handoff_note`, `list_sessions`, `read_session`, `send_message`, `check_usage`, `start_session`, `wait_for_session`, `share_file`, `register_demo_server`, `browser_open`, `browser_read`, `browser_click`, `browser_type`, `browser_wait` and `browser_screenshot`.
 - `wait_for_session` waits on another session's status and work state. `until` is `attention` (default: input, permission, question, pause, done or closed), `waiting`, `done`, `closed` or `change`. `timeoutSeconds` is 1–25. The call returns the session state and `timedOut`; it never blocks past the route timeout. It stops with an error when the calling session closes.
-- `share_file` takes a path relative to the session folder and an optional caption. It copies the file into the shared store and returns the `SharedFile` record. A source that resolves outside the folder, a folder, a hard link, a secret file name, private-key content or a stored account key in the content is refused.
+- `share_file` takes a path relative to the session folder and an optional caption. It copies the file into the shared store and returns the `SharedFile` record. A source that resolves outside the folder, a folder, a hard link, a secret file name, private-key content or a stored provider key in the content is refused.
 - The core writes each session's skill kit under `<data dir>/skills/<session id>`. Directories use mode 0700 and files use mode 0600. The kit is removed on close, agent exit, delete and shutdown, and a startup sweep removes stale kits.
 - The kit holds `.claude-plugin/plugin.json` and `skills/<name>/SKILL.md`. Claude Code gets it as `--plugin-dir <kit>`.
 - OpenCode 2 gets `<data dir>/mcp/opencode-<session id>.json`. Its `skills` array lists `<kit>/skills`, and `OPENCODE_CONFIG` points at the file. The file is removed with the session.
@@ -269,28 +268,29 @@ interface DemoServerListEntry extends DemoServer {
 - Close and pause set every server in the session to `stopped` and close its tunnels. Delete removes the session and its records.
 - The link method `demoServers.list` maps to `GET /api/demo-servers`. The phone receives only active ports. Forwarding itself uses the separate `elesdee/forward/1` ALPN; it is not an RPC method.
 
-## Switching accounts and context
+## Switching AI configs and context
 
-- `GET /api/sessions/{id}/switch-options` returns every account on the computer, the session's allowed account ids and `nextAccountId`: the allowed account the automatic switch would pick next. A terminal session returns 422; an unknown session returns 404. The route does not check whether the session is closed; the UI offers no switch for a closed session.
-- A switch needs an active agent session, a known account and an account in the session's allowed list. An account outside the list returns 422. A switch inside the same client resumes the client's conversation. A switch to a different client starts the new client with the saved handoff note and the end of the output log. A switch clears `contextLeft` because the new process reports its own figure later.
-- Automatic switch runs when an account reaches 90% of a plan limit or falls below its prepaid minimum. It picks only allowed accounts with room and never a sample. Subscription accounts come first, then pay-per-use accounts. Within a group, the account with the most room wins; a tie keeps the session on its current client. A different client gets the handoff note and the end of the log. If no allowed account has room, the session pauses with a note, and it resumes when an allowed account has room again.
-- A new agent session with no `allowedAccountIds` allows every non-sample account of its starting client, plus the starting account. The launch form sends its own list. The list holds existing account ids, has no duplicates, and must include the current account. A terminal session may not send a list. `PATCH /api/sessions/{id}` changes the list on an active agent session; removing the current account returns 422, an empty list returns 400, and an unknown account returns 422.
+- `GET /api/sessions/{id}/switch-options` returns every AI config on the computer, the session's `allowedConfigIds` and `nextConfigId`: the allowed config the automatic switch would pick next. A terminal session returns 422; an unknown session returns 404.
+- `POST /api/sessions/{id}/config` switches the session. The body is `{ configId }`. The session must be an active agent session, the config must exist, and it must be in the session's allowed list. A config outside the list returns 422. `POST /api/sessions/{id}/account` remains as an alias for the phone: it maps a provider id to that provider's config for the session's client.
+- A switch inside the same client resumes the client's conversation. A switch to a different client starts the new client with the saved handoff note and the end of the output log. A switch clears `contextLeft` because the new process reports its own figure later.
+- Automatic switch runs when a provider reaches 90% of a plan limit or falls below its prepaid minimum. It picks only allowed configs whose provider has room and never a sample. Subscription providers come first, then pay-per-use providers. Within a group, the provider with the most room wins; a tie keeps the session on its current client. A different client gets the handoff note and the end of the log. If no allowed config has room, the session pauses with a note, and it resumes when an allowed config has room again.
+- A new agent session with no `allowedConfigIds` allows every non-sample config of its starting client, plus the starting config. The launch form sends its own list. The list holds existing config ids, has no duplicates, and must include the current config. A terminal session may not send a list. `PATCH /api/sessions/{id}` changes the list on an active agent session; removing the current config returns 422, an empty list returns 400, and an unknown config returns 422.
 - `contextLeft` is the percentage of the client's context window that is still free. For Claude Code it comes from the status line JSON, field `context_window.remaining_percentage`, rounded and clamped to 0–100. Other clients report no figure yet, so the value stays `null`.
-- The Claude settings file adds a `statusLine` command that sends the JSON to `POST /internal/statusline/claude/{id}?token=...`. The route uses the same per-session token as the hooks. A wrong token or a non-Claude session returns 403. The route accepts `{ session_id?, context_window? }`, updates the session only when the rounded value changes, sends `session.updated`, and returns 204.
-- A missing or null `remaining_percentage` sets `contextLeft` to `null`. A switch, resume or restart recovery clears the value. The value is saved with the session but the client replaces it after it starts.
+- The Claude settings file adds a `statusLine` command that sends the JSON to `POST /internal/statusline/claude/{id}?token=...`. The route uses the same per-session token as the hooks. A wrong token or a non-Claude session returns 403. It accepts `{ session_id?, context_window? }`, updates the session only when the rounded value changes, sends `session.updated`, and returns 204.
+- A missing or null `remaining_percentage` sets `contextLeft` to `null`. A switch, resume or restart recovery clears the value.
 
 ## Persistence
 
 - State lives in `ELESDEE_DATA_DIR`, default `~/.elesdee`, in `state.json`. The directory is created with mode 0700 and files with mode 0600. Writes use a temporary file, fsync and rename.
-- Projects and their default account and source branch, accounts, launch presets, sessions, each session's desired columns and rows, its output log, an agent's repository root, an agent's own conversation ID, the session's handoff note and last context-left figure, the session's allowed account ids, and the paired device list are saved. Account keys and pairing secrets are not saved. No runtime handles are saved.
+- Projects and their default AI config and source branch, providers, AI configs, sessions, each session's desired columns and rows, its output log, an agent's repository root, an agent's own conversation ID, the session's handoff note and last context-left figure, the session's allowed config ids, and the paired device list are saved. Provider keys and pairing secrets are not saved. No runtime handles are saved.
 - The desktop link identity is a separate 32-byte key in `<data dir>/link.key`, with mode 0600, written once and reused. It is never in `state.json` and never logged. A missing key creates a new identity; every paired phone must pair again.
 - The paired device list is written on pair, removal and graceful shutdown. `lastSeen` updates in memory at most once a minute.
-- Shared files live in `<data dir>/shared/<session id>/`, directories 0700 and files 0600. Each copy has a metadata record beside it with the original relative path, name, caption, size and content type. The stored copy stays after the session closes. Account keys are compared with the content and are never copied.
-- State is saved on project create, account create, account edit, account removal, session create, rename, close, reopen, delete, resize, graceful shutdown, and when an agent reports its conversation ID. It is not written for each output chunk.
+- Shared files live in `<data dir>/shared/<session id>/`, directories 0700 and files 0600. Each copy has a metadata record beside it with the original relative path, name, caption, size and content type. The stored copy stays after the session closes. Provider keys are compared with the content and are never copied.
+- State is saved on project create, provider create, provider edit, provider removal, config create, config edit, config removal, session create, rename, close, reopen, delete, resize, graceful shutdown, and when an agent reports its conversation ID. It is not written for each output chunk.
 - A session that was active on save is restarted when the state loads. It resumes the agent's conversation by its saved `agentSessionId`; without an ID it uses the client's continue-last behavior and the preview says so. A terminal session restarts its shell in the same folder. The log and sequence numbers are kept, so new output continues from the next sequence.
-- If the session folder, account or client is missing, that session is restored as active and paused with a clear reason. The other sessions still restart. A pending permission request is not written to the file and is not restored.
+- If the session folder, AI config or client is missing, that session is restored as active and paused with a clear reason. The other sessions still restart. A pending permission request is not written to the file and is not restored.
 - `agentSessionId` comes from the client. Claude Code gets a generated `--session-id` at launch and also reports it in hook input. Codex reports the app-server thread ID. OpenCode reports the session ID on its local server. Antigravity has no ID and uses its continue-last behavior.
-- A new state starts with no projects. Seed accounts are used only when no state file exists, when the state file is corrupt, or when an older state file has no account list. A corrupt file is moved to `state.bad.json` and the problem is logged.
+- A new state starts with no projects. Seed providers and configs are used only when no state file exists or when the state file is corrupt. An older state file with accounts and presets is migrated: each account becomes a provider and a config, each preset becomes a config, and sessions map their account and preset onto the best config. A corrupt file is moved to `state.bad.json` and the problem is logged.
 
 ## Types
 
@@ -324,8 +324,9 @@ interface Session {
   status: SessionState;
   workState: WorkState | null;   // detail inside active
   client: Client | null;
-  accountId: string | null;
-  allowedAccountIds: string[];   // the accounts the session may use, including the current one
+  configId: string | null;       // the AI config the session runs
+  providerId: string | null;     // the provider of that config
+  allowedConfigIds: string[];    // the configs the session may use, including the current one
   agentSessionId: string | null; // the client's own conversation ID
   handoffNote?: string | null;   // kept for the next agent that works on the session
   contextLeft: number | null;    // percent of the context window free, or null when unknown
@@ -334,10 +335,11 @@ interface Session {
   preview: string;
   waitingFor: WaitingFor | null;
   pendingPermission: PendingPermission | null;
-  envOverrides: EnvOverride[];   // the effective launch environment
-  presetId: string | null;
-  model: string | null;
-  config: Record<string, string>; // config overrides applied at launch
+  envOverrides: EnvOverride[];   // the launch environment
+  model: string | null;          // the config's model at launch
+  effort: string | null;         // the config's effort at launch
+  args: string[];                // the config's extra arguments
+  config: Record<string, string>; // the config's overrides at launch
   firstPrompt?: string | null;
   parentSessionId?: string | null;
   parentSessionName?: string | null;
@@ -350,22 +352,39 @@ interface EnvOverride {
   value: string;
 }
 
-interface Preset {
+interface Provider {
   id: string;                    // unique slug of the name
   name: string;
-  accountId: string;
+  vendor: string;                // anthropic, openai, google, deepseek, custom, ...
+  auth: "subscription" | "key" | "local";
+  server: string | null;         // base URL when the vendor or custom entry needs one
+  apiStyle: "openai" | "anthropic" | null;
+  sample: boolean;               // seed provider, not added by the user
+  plan: string;
+  rows: UsageRow[];
+  foot: string;                  // "No official usage source." when none exists
+  usageReadAt: string | null;    // RFC 3339, last successful read
+  usageCheckedAt: string | null; // RFC 3339, last attempt
+  usageStatus: UsageStatus | null;
+  usageSource: "statusline" | "app-server" | "deepseek" | "manual" | null;
+}
+
+interface ProviderView extends Provider {
+  supportedClients: Client[];    // computed from the vendor and API style
+}
+
+interface AiConfig {
+  id: string;                    // unique slug of the name
+  name: string;                  // defaults to "<Provider> (<Client>)"
+  providerId: string;
+  client: Client;
   model: string | null;
+  effort: string | null;
+  args: string[];                // extra command-line arguments, one per entry
   env: EnvOverride[];
   config: Record<string, string>; // keys may use dots for nested settings
   createdAt: string;
   updatedAt: string;
-}
-
-interface LaunchPreset extends Omit<Preset, 'createdAt' | 'updatedAt'> {
-  id: string;                    // a stored preset id, or "account:<account id>"
-  stored: boolean;
-  createdAt: string | null;      // null for an account-derived preset
-  updatedAt: string | null;
 }
 
 interface SharedFile {
@@ -385,14 +404,14 @@ interface Project {
   id: string;
   name: string;
   folder: string;
-  defaultAccountId: string | null;
+  defaultConfigId: string | null;
   defaultSourceBranch: string | null;
 }
 
 interface SwitchOptions {
-  accounts: Account[];           // every account on this computer
-  allowedAccountIds: string[];   // the accounts the session may use
-  nextAccountId: string | null;  // the allowed account auto-switch would pick next
+  configs: AiConfig[];           // every AI config on this computer
+  allowedConfigIds: string[];    // the configs the session may use
+  nextConfigId: string | null;   // the allowed config auto-switch would pick next
 }
 
 interface FileEntry {
@@ -452,24 +471,6 @@ interface UsageRow {
   resetsAt?: number;             // Unix seconds
 }
 
-interface Account {
-  id: string;
-  name: string;
-  plan: string;
-  client: Client;
-  provider: string;
-  auth: "subscription" | "key" | "local";
-  sample: boolean;              // seed account, not added by the user
-  rows: UsageRow[];
-  foot: string;                 // "No official usage source." when none exists
-  usageReadAt: string | null;   // RFC 3339, last successful read
-  usageCheckedAt: string | null; // RFC 3339, last attempt
-  usageStatus: UsageStatus | null;
-  usageSource: "statusline" | "app-server" | "deepseek" | "manual" | null;
-  server: string | null;
-  model: string | null;
-}
-
 interface AgentCheck {
   name: Client;
   installed: boolean;
@@ -494,15 +495,20 @@ interface OutputEvent {
 | Method | Path | Body | Result |
 | --- | --- | --- | --- |
 | GET | `/api/health` | | `{ ok, version, agents: AgentCheck[] }` |
-| GET | `/api/bootstrap` | | `{ projects, accounts, presets, sessions }` |
+| GET | `/api/bootstrap` | | `{ projects, providers, configs, sessions }` |
 | GET | `/api/projects?q={text}` | | `Project[]` |
 | POST | `/api/projects` | `{ name, folder }` | `Project` |
-| PATCH | `/api/projects/{id}` | `{ defaultAccountId?, defaultSourceBranch? }` | `Project` |
+| PATCH | `/api/projects/{id}` | `{ defaultConfigId?, defaultSourceBranch? }` | `Project` |
 | GET | `/api/git-status?folder={folder}` | | `{ git, dirty }` |
-| GET | `/api/accounts?q={text}` | | `Account[]` |
-| POST | `/api/accounts` | `{ name, providerId, client, auth: "key", key, model? }` | `Account` |
-| POST | `/api/accounts/{id}/usage` | `{ rows: UsageRow[] }` | `Account` |
-| POST | `/api/accounts/{id}/usage/refresh` | `{}` | `Account`; 502 when the read fails |
+| GET | `/api/providers?q={text}` | | `ProviderView[]` |
+| GET | `/api/provider-options` | | `ProviderOption[]` |
+| POST | `/api/providers` | `{ name?, vendor, auth, key?, server?, apiStyle? }` | `ProviderView` |
+| PATCH | `/api/providers/{id}` | `{ name?, vendor?, auth?, key?, server?, apiStyle? }` | `ProviderView` |
+| DELETE | `/api/providers/{id}` | | `204` |
+| GET | `/api/providers/{id}/models?client={client}` | | `{ models, source, fallback }` |
+| GET | `/api/providers/{id}/usage` | | `ProviderView` |
+| POST | `/api/providers/{id}/usage` | `{ rows: UsageRow[] }` | `ProviderView` |
+| POST | `/api/providers/{id}/usage/refresh` | `{}` | `ProviderView`; 502 when the read fails |
 | POST | `/internal/statusline/claude/{id}?token={token}` | the Claude Code status line JSON | `204` |
 | POST | `/api/pairing` | `{}` | `{ expiresAt, relayReady }` |
 | GET | `/api/pairing/qr` | | `image/png` |
@@ -512,15 +518,15 @@ interface OutputEvent {
 | DELETE | `/api/pairing` | | `204` |
 | GET | `/api/devices` | | `PairedDevice[]` |
 | DELETE | `/api/devices/{id}` | | `204` |
-| GET | `/api/presets?q={text}` | | `LaunchPreset[]` |
-| POST | `/api/presets` | `{ name?, accountId, model?, env?, config? }` | `LaunchPreset` |
-| PATCH | `/api/presets/{id}` | `{ name?, accountId?, model?, env?, config? }` | `LaunchPreset` |
-| DELETE | `/api/presets/{id}` | | `204` |
-| POST | `/api/sessions` | `{ projectId, kind, accountId?, allowedAccountIds?, presetId?, name?, folder?, sourceBranch?, copyUncommittedChanges?, env?, cols?, rows? }` | `Session` |
+| GET | `/api/configs?q={text}` | | `AiConfig[]` |
+| POST | `/api/configs` | `{ name?, providerId, client, model?, effort?, args?, env?, config? }` | `AiConfig` |
+| PATCH | `/api/configs/{id}` | `{ name?, providerId?, client?, model?, effort?, args?, env?, config? }` | `AiConfig` |
+| DELETE | `/api/configs/{id}` | | `204` |
+| POST | `/api/sessions` | `{ projectId, kind, configId?, allowedConfigIds?, name?, folder?, sourceBranch?, copyUncommittedChanges?, env?, cols?, rows? }` | `Session` |
 | POST | `/api/sessions/{id}/close` | `{}` | `Session` |
-| PATCH | `/api/sessions/{id}` | `{ name?, allowedAccountIds? }` | `Session` |
+| PATCH | `/api/sessions/{id}` | `{ name?, allowedConfigIds? }` | `Session` |
 | POST | `/api/sessions/{id}/reopen` | `{}` | `Session` |
-| POST | `/api/sessions/{id}/account` | `{ accountId }` | `Session` |
+| POST | `/api/sessions/{id}/config` | `{ configId }` | `Session` |
 | GET | `/api/sessions/{id}/switch-options` | | `SwitchOptions` |
 | DELETE | `/api/sessions/{id}` | | `204` |
 | POST | `/api/sessions/{id}/input` | `{ data }` (UTF-8 text) | `204` |
@@ -546,7 +552,7 @@ interface OutputEvent {
 | GET | `/api/sessions/{id}/output?after={seq}` | | SSE: `data: {"seq":n,"data":"..."}` and an optional `gap` |
 | GET | `/api/events` | | SSE: `data: {"type":"session.updated","session":Session}` |
 
-Errors use `{ "error": "message" }`. Pairing returns 503 when the link endpoint is not running, and 409 when no phone waits for approval or the device limit is reached. Removing an unknown device returns 404. Unknown sessions return 404. A session that is closed, or whose process has exited, returns 409 for input. An invalid session name or terminal size returns 400. An agent session in a non-Git folder returns 422. Reopening an active session, deleting an active session, or reopening or deleting while a close is running returns 409; reopening with a missing folder, repository, branch or client returns 422. A permission answer returns 404 for an unknown session and 409 when the session is closed, there is no pending request, the request id does not match, or the request was already answered. An empty project name returns 400, a bad project folder returns 422, and a duplicate project folder returns 409. An unknown project returns 404. A project change that cannot be written to disk returns 500 and is rolled back in memory. A default account that does not exist, a default branch that does not exist, or a project folder that is not a Git repository returns 422. An unsafe branch name returns 400. An empty account name, empty key or overlong model returns 400; an unsupported provider and client pair or an unsupported auth mode returns 422; a keychain failure returns 500. An unknown preset account or a model that does not fit the client returns 422; an invalid preset name, environment variable or config key returns 400; a secret-like environment variable or config key returns 422; an unknown stored preset returns 404. An allowed account list that is empty returns 400; an unknown account, a list without the current account, or a switch to an account outside the list returns 422; changing the list on a closed session returns 409. A blocked Host or Origin returns 403, a bad POST or PATCH content type returns 415, a full session list or stream list returns 429, a request that exceeds the 30-second timeout returns 408, and a wrong non-OPTIONS method returns 405. A file path outside the session folder returns 400, a binary file returns 422, and content above 1 MiB returns 413. A closed session returns 409 for a browser action, an unknown tab returns 409, an invalid or non-http address returns 400, an unavailable browser returns 503, and a browser action that fails returns 502. A demo-server stop for an unknown session or server returns 404; a registration on a closed session is refused by the tool.
+Errors use `{ "error": "message" }`. Pairing returns 503 when the link endpoint is not running, and 409 when no phone waits for approval or the device limit is reached. Removing an unknown device returns 404. Unknown sessions return 404. A session that is closed, or whose process has exited, returns 409 for input. An invalid session name or terminal size returns 400. An agent session in a non-Git folder returns 422. Reopening an active session, deleting an active session, or reopening or deleting while a close is running returns 409; reopening with a missing folder, repository, branch or client returns 422. A permission answer returns 404 for an unknown session and 409 when the session is closed, there is no pending request, the request id does not match, or the request was already answered. An empty project name returns 400, a bad project folder returns 422, and a duplicate project folder returns 409. An unknown project returns 404. A project change that cannot be written to disk returns 500 and is rolled back in memory. A default AI config that does not exist, a default branch that does not exist, or a project folder that is not a Git repository returns 422. An unsafe branch name returns 400. An empty provider name, empty key or overlong model returns 400; an unsupported vendor, client pair or auth mode returns 422; a keychain failure returns 500. An unknown provider or a model or effort that does not fit the client returns 422; an invalid config name, environment variable or config key returns 400; a secret-like environment variable or config key returns 422; an unknown config returns 404. Removing a provider that a config uses returns 409; removing a config that an active session runs returns 409. An allowed config list that is empty returns 400; an unknown config, a list without the current config, or a switch to a config outside the list returns 422; changing the list on a closed session returns 409. A blocked Host or Origin returns 403, a bad POST or PATCH content type returns 415, a full session list or stream list returns 429, a request that exceeds the 30-second timeout returns 408, and a wrong non-OPTIONS method returns 405. A file path outside the session folder returns 400, a binary file returns 422, and content above 1 MiB returns 413. A closed session returns 409 for a browser action, an unknown tab returns 409, an invalid or non-http address returns 400, an unavailable browser returns 503, and a browser action that fails returns 502. A demo-server stop for an unknown session or server returns 404; a registration on a closed session is refused by the tool.
 
 ## Rules
 
@@ -563,7 +569,7 @@ Errors use `{ "error": "message" }`. Pairing returns 503 when the link endpoint 
 - An agent session runs the chosen client when one is installed. The client command is chosen by the server, never sent by the UI.
 - The server tells the UI the client's key shortcuts. The UI keeps no list of client keys. An Antigravity session gets an empty list, so the UI shows the base keys.
 - Every change to a session sends `session.updated` on `/api/events`.
-- Every usage reading, successful or failed, sends `account.updated` on `/api/questions/events` with the full account. The desktop UI replaces that account in its list; no other account field changes.
+- Every usage reading, successful or failed, sends `provider.updated` on `/api/questions/events` with the full provider view. The desktop UI replaces that provider in its list; no other provider field changes.
 - Output events carry a sequence number. `after=n` replays the output with a higher sequence number.
 - `after` must be at most the newest sequence. A greater value returns 400.
 - The retained log is bounded. When old chunks have been dropped, the first replayed event carries `gap` with the oldest retained and newest known sequence, so the UI can show that text was lost.

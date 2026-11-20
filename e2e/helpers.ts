@@ -11,7 +11,7 @@ export interface Project {
   id: string;
   name: string;
   folder: string;
-  defaultAccountId?: string | null;
+  defaultConfigId?: string | null;
   defaultSourceBranch?: string | null;
 }
 
@@ -22,7 +22,8 @@ export interface Session {
   kind: 'agent' | 'terminal';
   status: 'active' | 'closed';
   workState: string | null;
-  accountId: string | null;
+  configId: string | null;
+  providerId: string | null;
   branch: string | null;
   folder: string;
   preview: string;
@@ -45,7 +46,8 @@ export interface Session {
 
 interface Bootstrap {
   projects: Project[];
-  accounts: { id: string; name: string; rows: unknown[] }[];
+  providers: { id: string; name: string; rows: unknown[] }[];
+  configs: E2eConfig[];
   sessions: Session[];
 }
 
@@ -138,8 +140,39 @@ export async function createProject(
 
 export interface E2eAccount {
   id: string;
+  configId: string;
   name: string;
   client: string;
+}
+
+export interface E2eConfig {
+  id: string;
+  name: string;
+  providerId: string;
+  client: string;
+  model?: string | null;
+}
+
+export async function createConfig(
+  request: APIRequestContext,
+  input: {
+    providerId: string;
+    client: string;
+    name?: string;
+    model?: string;
+    effort?: string;
+    args?: string[];
+    env?: { name: string; value: string }[];
+    config?: Record<string, string>;
+  },
+): Promise<E2eConfig> {
+  const response = await request.post(`${CORE_URL}/api/configs`, {
+    data: input,
+  });
+  if (!response.ok()) {
+    throw new Error(`${response.status()}: ${await response.text()}`);
+  }
+  return (await response.json()) as E2eConfig;
 }
 
 export async function createAccount(
@@ -155,17 +188,36 @@ export async function createAccount(
     client?: string;
   },
 ): Promise<E2eAccount> {
-  const response = await request.post(`${CORE_URL}/api/accounts`, {
+  const response = await request.post(`${CORE_URL}/api/providers`, {
     data: {
-      providerId: 'anthropic',
-      auth: 'key',
-      ...input,
+      name: input.name,
+      vendor: input.providerId ?? 'anthropic',
+      auth: input.auth ?? 'key',
+      key: input.key,
+      server: input.server,
+      apiStyle: input.apiStyle,
     },
   });
   if (!response.ok()) {
     throw new Error(`${response.status()}: ${await response.text()}`);
   }
-  return (await response.json()) as E2eAccount;
+  const provider = (await response.json()) as {
+    id: string;
+    name: string;
+    supportedClients: string[];
+  };
+  const client = input.client ?? provider.supportedClients[0] ?? 'Claude Code';
+  const config = await createConfig(request, {
+    providerId: provider.id,
+    client,
+    model: input.model,
+  });
+  return {
+    id: provider.id,
+    configId: config.id,
+    name: provider.name,
+    client,
+  };
 }
 
 export async function setUsage(
@@ -174,7 +226,7 @@ export async function setUsage(
   rows: Array<{ label: string; used?: number; value?: string; min?: string }>,
 ): Promise<void> {
   const response = await request.post(
-    `${CORE_URL}/api/accounts/${encodeURIComponent(accountId)}/usage`,
+    `${CORE_URL}/api/providers/${encodeURIComponent(accountId)}/usage`,
     { data: { rows } },
   );
   if (!response.ok()) {
@@ -207,7 +259,9 @@ export async function createAgentSession(
     name?: string;
     folder: string;
     accountId?: string;
+    configId?: string;
     allowedAccountIds?: string[];
+    allowedConfigIds?: string[];
     sourceBranch?: string;
     firstPrompt?: string;
   },
@@ -216,8 +270,10 @@ export async function createAgentSession(
     data: {
       projectId: input.projectId,
       kind: 'agent',
-      accountId: input.accountId ?? 'max',
+      configId: input.configId,
+      accountId: input.configId ? undefined : (input.accountId ?? 'max'),
       allowedAccountIds: input.allowedAccountIds,
+      allowedConfigIds: input.allowedConfigIds,
       name: input.name,
       folder: input.folder,
       sourceBranch: input.sourceBranch,

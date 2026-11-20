@@ -4,36 +4,34 @@ import {
   useState,
   type FormEvent,
 } from 'react';
-import {
-  ApiError,
-  getSwitchOptions,
-  listAccounts,
-} from '../api/client';
-import type { Account, Session, SwitchOptions } from '../api/types';
+import { ApiError, getSwitchOptions, listConfigs } from '../api/client';
+import type { AiConfig, Provider, Session, SwitchOptions } from '../api/types';
 import { useLanguage } from '../i18n/LanguageProvider';
-import { AccountMultiSelect } from './AccountMultiSelect';
-import { accountOption } from './accountOption';
+import { configOption } from './configOption';
+import { ConfigMultiSelect } from './ConfigMultiSelect';
 import { Combobox, type ComboboxLoader } from './Combobox';
 import { Dialog } from './Dialog';
 
-interface SwitchAccountDialogProps {
+interface SwitchConfigDialogProps {
   session: Session;
-  onSwitch: (accountId: string) => Promise<void>;
-  onAllowedChange: (accountIds: string[]) => Promise<void>;
+  providers: Provider[];
+  onSwitch: (configId: string) => Promise<void>;
+  onAllowedChange: (configIds: string[]) => Promise<void>;
   onClose: () => void;
 }
 
-export function SwitchAccountDialog({
+export function SwitchConfigDialog({
   session,
+  providers,
   onSwitch,
   onAllowedChange,
   onClose,
-}: SwitchAccountDialogProps) {
+}: SwitchConfigDialogProps) {
   const { t, language } = useLanguage();
   const [options, setOptions] = useState<SwitchOptions | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
-  const [accountId, setAccountId] = useState<string | null>(null);
+  const [configId, setConfigId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [savingAllowed, setSavingAllowed] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -59,69 +57,66 @@ export function SwitchAccountDialog({
     };
   }, [session.id, attempt]);
 
-  const allowed = options?.allowedAccountIds ?? [];
+  const allowed = options?.allowedConfigIds ?? [];
   const allowedSet = new Set(allowed);
-  const switchable = (options?.accounts ?? []).filter(
-    (account) =>
-      allowedSet.has(account.id) && account.id !== session.accountId,
+  const switchable = (options?.configs ?? []).filter(
+    (config) => allowedSet.has(config.id) && config.id !== session.configId,
   );
 
   useEffect(() => {
     if (
-      accountId &&
+      configId &&
       options &&
-      !options.allowedAccountIds.includes(accountId)
+      !options.allowedConfigIds.includes(configId)
     ) {
-      setAccountId(null);
+      setConfigId(null);
     }
-  }, [accountId, options]);
+  }, [configId, options]);
 
-  const loadAccounts = useCallback<ComboboxLoader>(
+  const loadConfigs = useCallback<ComboboxLoader>(
     async (query, signal) => {
       if (!options) {
         return [];
       }
-      const allowedIds = new Set(options.allowedAccountIds);
-      const list = await listAccounts(query, signal);
+      const allowedIds = new Set(options.allowedConfigIds);
+      const list = await listConfigs(query, signal);
       return list
         .filter(
-          (account) =>
-            allowedIds.has(account.id) && account.id !== session.accountId,
+          (config) =>
+            allowedIds.has(config.id) && config.id !== session.configId,
         )
-        .map((account) => ({
-          ...accountOption(account, language),
+        .map((config) => ({
+          ...configOption(config, providers, language),
           tag:
-            account.id === options.nextAccountId
+            config.id === options.nextConfigId
               ? t('switchAccount.nextAuto')
-              : account.sample
-                ? t('common.sample')
-                : undefined,
+              : undefined,
         }));
     },
-    [options, session.accountId, language, t],
+    [options, providers, session.configId, language, t],
   );
 
-  const selectedAccount: Account | null = accountId
-    ? (options?.accounts.find((account) => account.id === accountId) ?? null)
+  const selectedConfig: AiConfig | null = configId
+    ? (options?.configs.find((config) => config.id === configId) ?? null)
     : null;
-  const hint = selectedAccount
-    ? selectedAccount.client === session.client
-      ? t('switchAccount.handoffSame', { client: selectedAccount.client })
-      : t('switchAccount.handoffOther', { client: selectedAccount.client })
+  const hint = selectedConfig
+    ? selectedConfig.client === session.client
+      ? t('switchAccount.handoffSame', { client: selectedConfig.client })
+      : t('switchAccount.handoffOther', { client: selectedConfig.client })
     : t('switchAccount.hint');
 
   async function changeAllowed(ids: string[]) {
     if (!options || savingAllowed) {
       return;
     }
-    const previous = options.allowedAccountIds;
+    const previous = options.allowedConfigIds;
     const nextAllowed = ids.slice();
     setOptions({
       ...options,
-      allowedAccountIds: nextAllowed,
-      nextAccountId:
-        options.nextAccountId && nextAllowed.includes(options.nextAccountId)
-          ? options.nextAccountId
+      allowedConfigIds: nextAllowed,
+      nextConfigId:
+        options.nextConfigId && nextAllowed.includes(options.nextConfigId)
+          ? options.nextConfigId
           : null,
     });
     setAllowedError(null);
@@ -130,7 +125,7 @@ export function SwitchAccountDialog({
       await onAllowedChange(nextAllowed);
     } catch (failure) {
       setOptions((current) =>
-        current ? { ...current, allowedAccountIds: previous } : current,
+        current ? { ...current, allowedConfigIds: previous } : current,
       );
       setAllowedError(
         failure instanceof ApiError
@@ -144,7 +139,7 @@ export function SwitchAccountDialog({
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!accountId) {
+    if (!configId) {
       setError(t('switchAccount.errorChoose'));
       return;
     }
@@ -152,7 +147,7 @@ export function SwitchAccountDialog({
     setSubmitting(true);
     setError(null);
     try {
-      await onSwitch(accountId);
+      await onSwitch(configId);
       onClose();
     } catch (failure) {
       setSubmitting(false);
@@ -210,10 +205,10 @@ export function SwitchAccountDialog({
             <Combobox
               id="switch-account"
               label={t('switchAccount.account')}
-              value={accountId}
-              loadOptions={loadAccounts}
+              value={configId}
+              loadOptions={loadConfigs}
               onChange={(id) => {
-                setAccountId(id);
+                setConfigId(id);
                 setError(null);
               }}
               placeholder={
@@ -228,12 +223,13 @@ export function SwitchAccountDialog({
               disabled={savingAllowed}
             />
 
-            <AccountMultiSelect
+            <ConfigMultiSelect
               id="switch-allowed"
               label={t('allowedAccounts.label')}
-              accounts={options.accounts}
-              value={options.allowedAccountIds}
-              requiredId={session.accountId}
+              configs={options.configs}
+              providers={providers}
+              value={options.allowedConfigIds}
+              requiredId={session.configId}
               onChange={(ids) => void changeAllowed(ids)}
               hint={t('allowedAccounts.hint')}
               error={allowedError ?? undefined}
@@ -256,7 +252,7 @@ export function SwitchAccountDialog({
               disabled={
                 submitting ||
                 savingAllowed ||
-                !accountId ||
+                !configId ||
                 switchable.length === 0
               }
             >

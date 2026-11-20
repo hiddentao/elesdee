@@ -34,7 +34,7 @@ test('the switch chooser offers only the allowed accounts', async ({
     projectId: project.id,
     name: uniqueName('Allowed session'),
     folder: repo,
-    accountId: first.id,
+    configId: first.configId,
     allowedAccountIds: [first.id, second.id],
   });
 
@@ -46,7 +46,7 @@ test('the switch chooser offers only the allowed accounts', async ({
   );
 
   await page.locator('.session-head .provider-pill').click();
-  const dialog = page.getByRole('dialog', { name: 'Switch account' });
+  const dialog = page.getByRole('dialog', { name: 'Switch AI config' });
   await expect(dialog).toBeVisible();
 
   const allowedList = dialog.getByRole('list', {
@@ -57,7 +57,7 @@ test('the switch chooser offers only the allowed accounts', async ({
   await expect(allowedList).not.toContainText(outside.name);
 
   const combo = dialog.getByRole('combobox', {
-    name: 'Account',
+    name: 'AI config',
     exact: true,
   });
   await combo.click();
@@ -69,12 +69,12 @@ test('the switch chooser offers only the allowed accounts', async ({
 
   await combo.fill(second.name);
   await page.getByRole('option', { name: new RegExp(second.name) }).click();
-  await dialog.getByRole('button', { name: 'Switch account' }).click();
+  await dialog.getByRole('button', { name: 'Switch AI config' }).click();
 
   await expect(dialog).not.toBeVisible();
   await expect
-    .poll(async () => (await getSession(request, session.id))?.accountId)
-    .toBe(second.id);
+    .poll(async () => (await getSession(request, session.id))?.configId)
+    .toBe(second.configId);
 
   await closeSession(request, session.id);
 });

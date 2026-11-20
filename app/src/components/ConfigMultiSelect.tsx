@@ -1,15 +1,15 @@
 import { useCallback } from 'react';
-import { listAccounts } from '../api/client';
-import type { Account } from '../api/types';
+import { listConfigs } from '../api/client';
+import type { AiConfig, Provider } from '../api/types';
 import { useLanguage } from '../i18n/LanguageProvider';
-import { accountOption } from './accountOption';
 import { Combobox, type ComboboxLoader } from './Combobox';
 import { CloseIcon } from './icons';
 
-interface AccountMultiSelectProps {
+interface ConfigMultiSelectProps {
   id: string;
   label: string;
-  accounts: Account[];
+  configs: AiConfig[];
+  providers: Provider[];
   value: string[];
   requiredId?: string | null;
   onChange: (ids: string[]) => void;
@@ -18,31 +18,41 @@ interface AccountMultiSelectProps {
   disabled?: boolean;
 }
 
-export function AccountMultiSelect({
+export function ConfigMultiSelect({
   id,
   label,
-  accounts,
+  configs,
+  providers,
   value,
   requiredId,
   onChange,
   hint,
   error,
   disabled = false,
-}: AccountMultiSelectProps) {
-  const { t, language } = useLanguage();
+}: ConfigMultiSelectProps) {
+  const { t } = useLanguage();
 
   const loadOptions = useCallback<ComboboxLoader>(
     async (query, signal) => {
-      const list = await listAccounts(query, signal);
+      const list = await listConfigs(query, signal);
       return list
-        .filter((account) => !value.includes(account.id))
-        .map((account) => accountOption(account, language));
+        .filter((config) => !value.includes(config.id))
+        .map((config) => {
+          const provider = providers.find(
+            (item) => item.id === config.providerId,
+          );
+          return {
+            id: config.id,
+            label: config.name,
+            meta: [config.client, provider?.name].filter(Boolean).join(' · '),
+          };
+        });
     },
-    [value, language],
+    [providers, value],
   );
 
-  function remove(accountId: string) {
-    onChange(value.filter((existing) => existing !== accountId));
+  function remove(configId: string) {
+    onChange(value.filter((existing) => existing !== configId));
   }
 
   return (
@@ -50,16 +60,13 @@ export function AccountMultiSelect({
       <legend>{label}</legend>
       {value.length > 0 ? (
         <ul className="allowed-account-list" aria-label={label}>
-          {value.map((accountId) => {
-            const account =
-              accounts.find((candidate) => candidate.id === accountId) ?? null;
-            const name = account?.name ?? accountId;
-            const required = accountId === requiredId;
+          {value.map((configId) => {
+            const config =
+              configs.find((candidate) => candidate.id === configId) ?? null;
+            const name = config?.name ?? configId;
+            const required = configId === requiredId;
             return (
-              <li
-                key={accountId}
-                className={required ? 'chip is-on' : 'chip'}
-              >
+              <li key={configId} className={required ? 'chip is-on' : 'chip'}>
                 <span>{name}</span>
                 {required ? (
                   <span className="chip-count">
@@ -71,7 +78,7 @@ export function AccountMultiSelect({
                     className="allowed-chip-close"
                     aria-label={t('allowedAccounts.remove', { name })}
                     disabled={disabled}
-                    onClick={() => remove(accountId)}
+                    onClick={() => remove(configId)}
                   >
                     <CloseIcon />
                   </button>
@@ -87,12 +94,12 @@ export function AccountMultiSelect({
         label={t('allowedAccounts.add')}
         value={null}
         loadOptions={loadOptions}
-        onChange={(accountId) => {
-          if (accountId && !value.includes(accountId)) {
-            onChange([...value, accountId]);
+        onChange={(configId) => {
+          if (configId && !value.includes(configId)) {
+            onChange([...value, configId]);
           }
         }}
-        placeholder={t('allowedAccounts.placeholder')}
+        placeholder={t('allowedConfigs.placeholder')}
         hint={hint}
         error={error}
         disabled={disabled}

@@ -45,7 +45,8 @@ async fn main() -> ExitCode {
         version = env!("CARGO_PKG_VERSION"),
         %address,
         projects = bootstrap.projects.len(),
-        accounts = bootstrap.accounts.len(),
+        providers = bootstrap.providers.len(),
+        configs = bootstrap.configs.len(),
         sessions = bootstrap.sessions.len(),
         "core service started"
     );

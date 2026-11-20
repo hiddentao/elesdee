@@ -3,24 +3,22 @@ import {
   ApiError,
   getGitStatus,
   listBranches,
-  listPresets,
+  listConfigs,
   listProjects,
 } from '../api/client';
 import { isTauri, pickFolder } from '../api/shell';
 import type {
-  Account,
-  Client,
+  AiConfig,
   CreateSessionInput,
-  LaunchPreset,
   Project,
+  Provider,
   Session,
   SessionKind,
 } from '../api/types';
-import { CLIENTS } from '../api/types';
-import { type Language } from '../i18n';
 import { useLanguage } from '../i18n/LanguageProvider';
-import { accountUsage } from '../state/usage';
-import { AccountMultiSelect } from './AccountMultiSelect';
+import { providerUsage } from '../state/usage';
+import { ConfigMultiSelect } from './ConfigMultiSelect';
+import { configOption } from './configOption';
 import { Dialog } from './Dialog';
 import { AlertIcon } from './icons';
 import {
@@ -31,7 +29,8 @@ import {
 
 interface NewSessionDialogProps {
   projects: Project[];
-  accounts: Account[];
+  providers: Provider[];
+  configs: AiConfig[];
   initialProjectId?: string | null;
   onCreate: (input: CreateSessionInput) => Promise<Session>;
   onCreated: (session: Session) => void;
@@ -40,8 +39,7 @@ interface NewSessionDialogProps {
 
 interface FormErrors {
   project?: string;
-  client?: string;
-  account?: string;
+  config?: string;
   allowed?: string;
   folder?: string;
   env?: string;
@@ -56,58 +54,50 @@ function projectOption(project: Project): ComboboxOption {
   };
 }
 
-function presetFromAccount(account: Account): LaunchPreset {
-  return {
-    id: `account:${account.id}`,
-    name: account.name,
-    accountId: account.id,
-    model: null,
-    env: [],
-    config: {},
-    stored: false,
-    createdAt: null,
-    updatedAt: null,
-  };
-}
-
-function presetOption(
-  preset: LaunchPreset,
-  account: Account | null,
-  language: Language,
-  sampleLabel: string,
-): ComboboxOption {
-  const usage = account ? accountUsage(account, language).summary : '';
-  const details = [
-    account?.client,
-    account?.provider,
-    usage,
-    preset.model,
-  ].filter(Boolean);
-  return {
-    id: preset.id,
-    label: preset.name,
-    closedLabel: usage ? `${preset.name} · ${usage}` : preset.name,
-    meta: details.join(' · '),
-    tag: account?.sample ? sampleLabel : undefined,
-  };
+function defaultAllowedConfigs(
+  config: AiConfig | null,
+  configs: AiConfig[],
+  providers: Provider[],
+): string[] {
+  if (!config) {
+    return [];
+  }
+  const ids = configs
+    .filter((candidate) => {
+      if (candidate.client !== config.client) {
+        return false;
+      }
+      const provider = providers.find(
+        (provider) => provider.id === candidate.providerId,
+      );
+      return provider ? !provider.sample : false;
+    })
+    .map((candidate) => candidate.id);
+  if (!ids.includes(config.id)) {
+    ids.push(config.id);
+  }
+  return ids;
 }
 
 function overrideSummary(
-  preset: LaunchPreset,
+  config: AiConfig,
   t: ReturnType<typeof useLanguage>['t'],
 ): string {
   const parts: string[] = [];
-  if (preset.env.length > 0) {
+  if (config.env.length > 0) {
     parts.push(
       t(
-        preset.env.length === 1
+        config.env.length === 1
           ? 'newSession.envOverrideOne'
           : 'newSession.envOverrideMany',
-        { count: preset.env.length },
+        { count: config.env.length },
       ),
     );
   }
-  const configCount = Object.keys(preset.config).length;
+  if (config.args.length > 0) {
+    parts.push(t('configs.argsCount', { count: config.args.length }));
+  }
+  const configCount = Object.keys(config.config).length;
   if (configCount > 0) {
     parts.push(
       t(
@@ -121,36 +111,10 @@ function overrideSummary(
   return parts.length > 0 ? parts.join(' · ') : t('newSession.overridesNone');
 }
 
-function defaultAccount(
-  project: Project | null | undefined,
-  accounts: Account[],
-): Account | null {
-  const id = project?.defaultAccountId;
-  if (!id) {
-    return null;
-  }
-  return accounts.find((account) => account.id === id) ?? null;
-}
-
-function defaultAllowedAccounts(
-  account: Account | null,
-  accounts: Account[],
-): string[] {
-  if (!account) {
-    return [];
-  }
-  const ids = accounts
-    .filter((candidate) => !candidate.sample && candidate.client === account.client)
-    .map((candidate) => candidate.id);
-  if (!ids.includes(account.id)) {
-    ids.push(account.id);
-  }
-  return ids;
-}
-
 export function NewSessionDialog({
   projects,
-  accounts,
+  providers,
+  configs,
   initialProjectId,
   onCreate,
   onCreated,
@@ -159,23 +123,20 @@ export function NewSessionDialog({
   const { t, language } = useLanguage();
   const initialProject =
     projects.find((project) => project.id === initialProjectId) ?? null;
-  const initialAccount = defaultAccount(initialProject, accounts);
+  const initialConfig =
+    configs.find((config) => config.id === initialProject?.defaultConfigId) ??
+    configs[0] ??
+    null;
   const [projectId, setProjectId] = useState<string | null>(initialProjectId ?? null);
   const [kind, setKind] = useState<SessionKind>('agent');
-  const [client, setClient] = useState<Client | null>(
-    initialAccount?.client ?? null,
-  );
-  const [accountId, setAccountId] = useState<string | null>(
-    initialAccount?.id ?? null,
-  );
-  const [preset, setPreset] = useState<LaunchPreset | null>(
-    initialAccount ? presetFromAccount(initialAccount) : null,
+  const [configId, setConfigId] = useState<string | null>(
+    initialConfig?.id ?? null,
   );
   const [allowedIds, setAllowedIds] = useState<string[]>(() =>
-    defaultAllowedAccounts(initialAccount, accounts),
+    defaultAllowedConfigs(initialConfig, configs, providers),
   );
   const [allowedTouched, setAllowedTouched] = useState(false);
-  const presetCache = useRef(new Map<string, LaunchPreset>());
+  const configCache = useRef(new Map<string, AiConfig>());
   const [sourceBranch, setSourceBranch] = useState<string | null>(
     initialProject?.defaultSourceBranch ?? null,
   );
@@ -197,14 +158,7 @@ export function NewSessionDialog({
     if (!focusTarget) {
       return;
     }
-
-    const element = document.getElementById(focusTarget);
-    if (element instanceof HTMLFieldSetElement) {
-      element.querySelector<HTMLInputElement>('input')?.focus();
-    } else {
-      element?.focus();
-    }
-
+    document.getElementById(focusTarget)?.focus();
     setFocusTarget(null);
   }, [focusTarget]);
 
@@ -246,28 +200,23 @@ export function NewSessionDialog({
     [],
   );
 
-  const loadPresetOptions = useCallback<ComboboxLoader>(
+  const loadConfigOptions = useCallback<ComboboxLoader>(
     async (query, signal) => {
-      if (!client) {
-        return [];
-      }
-      const list = await listPresets(query, signal);
+      const list = await listConfigs(query, signal);
       const options: ComboboxOption[] = [];
       for (const item of list) {
-        const account =
-          accounts.find((candidate) => candidate.id === item.accountId) ??
+        configCache.current.set(item.id, item);
+        const provider =
+          providers.find((candidate) => candidate.id === item.providerId) ??
           null;
-        if (!account || account.client !== client) {
-          continue;
-        }
-        presetCache.current.set(item.id, item);
-        options.push(
-          presetOption(item, account, language, t('common.sample')),
-        );
+        options.push({
+          ...configOption(item, providers, language),
+          tag: provider?.sample ? t('common.sample') : undefined,
+        });
       }
       return options;
     },
-    [accounts, client, language, t],
+    [providers, language, t],
   );
 
   const loadBranchOptions = useCallback<ComboboxLoader>(
@@ -289,47 +238,49 @@ export function NewSessionDialog({
   const selectedProject = projectId
     ? projects.find((project) => project.id === projectId) ?? null
     : null;
-  const selectedAccount = (preset?.accountId ?? accountId)
-    ? accounts.find(
-        (account) => account.id === (preset?.accountId ?? accountId),
-      ) ?? null
+  const selectedConfig = configId
+    ? configs.find((config) => config.id === configId) ??
+      configCache.current.get(configId) ??
+      null
     : null;
-  const selectedUsage = selectedAccount
-    ? accountUsage(selectedAccount, language)
+  const selectedProvider = selectedConfig
+    ? providers.find((provider) => provider.id === selectedConfig.providerId) ??
+      null
     : null;
-  const accountsForClient = client
-    ? accounts.filter((account) => account.client === client)
+  const selectedUsage = selectedProvider
+    ? providerUsage(selectedProvider, language)
+    : null;
+  const configsForClient = selectedConfig
+    ? configs.filter((config) => config.client === selectedConfig.client)
     : [];
 
-  function applyAllowedForAccount(account: Account | null) {
+  function applyAllowedForConfig(config: AiConfig | null) {
     setAllowedIds((current) => {
       if (!allowedTouched) {
-        return defaultAllowedAccounts(account, accounts);
+        return defaultAllowedConfigs(config, configs, providers);
       }
-      if (!account) {
+      if (!config) {
         return current;
       }
-      return current.includes(account.id)
-        ? current
-        : [...current, account.id];
+      return current.includes(config.id) ? current : [...current, config.id];
     });
   }
 
   function chooseProject(id: string | null) {
     const nextProject = projects.find((project) => project.id === id);
-    const account = defaultAccount(nextProject, accounts);
+    const config =
+      configs.find((item) => item.id === nextProject?.defaultConfigId) ??
+      configs[0] ??
+      null;
 
     setProjectId(id);
-    setClient(account?.client ?? null);
-    setAccountId(account?.id ?? null);
-    setPreset(account ? presetFromAccount(account) : null);
-    applyAllowedForAccount(account);
+    setConfigId(config?.id ?? null);
+    applyAllowedForConfig(config);
     setSourceBranch(nextProject?.defaultSourceBranch ?? null);
     setErrors((current) => ({
       ...current,
       project: undefined,
-      client: undefined,
-      account: undefined,
+      config: undefined,
       allowed: undefined,
     }));
 
@@ -338,42 +289,24 @@ export function NewSessionDialog({
     }
   }
 
-  function chooseClient(nextClient: Client) {
-    setClient(nextClient);
-    setAccountId(null);
-    setPreset(null);
-    applyAllowedForAccount(null);
-    setErrors((current) => ({
-      ...current,
-      client: undefined,
-      account: undefined,
-      allowed: undefined,
-    }));
-  }
-
-  function choosePreset(id: string | null) {
+  function chooseConfig(id: string | null) {
     if (!id) {
-      setAccountId(null);
-      setPreset(null);
-      applyAllowedForAccount(null);
+      setConfigId(null);
+      applyAllowedForConfig(null);
       return;
     }
-    const next = presetCache.current.get(id) ?? null;
+    const next =
+      configs.find((config) => config.id === id) ??
+      configCache.current.get(id) ??
+      null;
     if (!next) {
       return;
     }
-    const account =
-      accounts.find((candidate) => candidate.id === next.accountId) ?? null;
-    setPreset(next);
-    setAccountId(next.accountId);
-    applyAllowedForAccount(account);
-    if (account) {
-      setClient(account.client);
-    }
+    setConfigId(next.id);
+    applyAllowedForConfig(next);
     setErrors((current) => ({
       ...current,
-      client: undefined,
-      account: undefined,
+      config: undefined,
       allowed: undefined,
     }));
   }
@@ -408,11 +341,8 @@ export function NewSessionDialog({
     }
 
     if (kind === 'agent') {
-      if (!client) {
-        nextErrors.client = t('newSession.errorClient');
-        nextErrors.account = t('newSession.errorClientAccount');
-      } else if (!accountId) {
-        nextErrors.account = t('newSession.errorAccount');
+      if (!configId) {
+        nextErrors.config = t('newSession.errorConfig');
       } else if (allowedIds.length === 0) {
         nextErrors.allowed = t('allowedAccounts.errorEmpty');
       }
@@ -442,17 +372,15 @@ export function NewSessionDialog({
     if (Object.keys(nextErrors).length > 0) {
       const firstInvalid = nextErrors.project
         ? 'new-session-project'
-        : nextErrors.client
-          ? 'new-session-client'
-          : nextErrors.account
-            ? 'new-session-preset'
-            : nextErrors.allowed
-              ? 'new-session-allowed'
-              : nextErrors.folder
-                ? 'new-session-folder'
-                : nextErrors.env
-                  ? 'new-session-env'
-                  : null;
+        : nextErrors.config
+          ? 'new-session-config'
+          : nextErrors.allowed
+            ? 'new-session-allowed'
+            : nextErrors.folder
+              ? 'new-session-folder'
+              : nextErrors.env
+                ? 'new-session-env'
+                : null;
 
       setErrors(nextErrors);
       setFocusTarget(firstInvalid);
@@ -467,11 +395,8 @@ export function NewSessionDialog({
     };
 
     if (kind === 'agent') {
-      input.accountId = accountId as string;
-      input.allowedAccountIds = allowedIds;
-      if (preset?.stored) {
-        input.presetId = preset.id;
-      }
+      input.configId = configId as string;
+      input.allowedConfigIds = allowedIds;
       if (sourceBranch) {
         input.sourceBranch = sourceBranch;
       }
@@ -564,79 +489,42 @@ export function NewSessionDialog({
 
           {kind === 'agent' ? (
             <>
-              <fieldset
-                className="field"
-                id="new-session-client"
-                aria-describedby={
-                  errors.client ? 'new-session-client-error' : undefined
-                }
-              >
-                <legend>{t('newSession.client')}</legend>
-                <div className="segmented">
-                  {CLIENTS.map((item) => (
-                    <label className="segment" key={item}>
-                      <input
-                        type="radio"
-                        name="client"
-                        value={item}
-                        checked={client === item}
-                        required
-                        aria-invalid={errors.client ? true : undefined}
-                        onChange={() => chooseClient(item)}
-                      />
-                      <span>{item}</span>
-                    </label>
-                  ))}
-                </div>
-                {errors.client ? (
-                  <p className="field-error" id="new-session-client-error" role="alert">
-                    {errors.client}
-                  </p>
-                ) : null}
-              </fieldset>
-
               <Combobox
-                key={client ?? 'no-client'}
-                id="new-session-preset"
-                label={t('newSession.preset')}
-                value={preset?.id ?? null}
-                loadOptions={loadPresetOptions}
+                id="new-session-config"
+                label={t('newSession.config')}
+                value={configId}
+                loadOptions={loadConfigOptions}
                 selectedOption={
-                  preset
-                    ? presetOption(
-                        preset,
-                        selectedAccount,
-                        language,
-                        t('common.sample'),
-                      )
+                  selectedConfig
+                    ? {
+                        ...configOption(selectedConfig, providers, language),
+                        tag: selectedProvider?.sample
+                          ? t('common.sample')
+                          : undefined,
+                      }
                     : null
                 }
-                onChange={choosePreset}
-                placeholder={
-                  client
-                    ? t('newSession.presetPlaceholder')
-                    : t('newSession.presetPlaceholderNoClient')
-                }
+                onChange={chooseConfig}
+                placeholder={t('newSession.configPlaceholder')}
                 hint={
-                  client && accountsForClient.length === 0
-                    ? t('newSession.noPresetForClient', { client })
+                  configsForClient.length === 0
+                    ? t('newSession.noConfigForClient')
                     : undefined
                 }
-                error={errors.account}
-                required={Boolean(client)}
-                disabled={!client}
+                error={errors.config}
+                required
               />
 
-              {selectedAccount && selectedUsage ? (
+              {selectedConfig && selectedProvider && selectedUsage ? (
                 <div className="selected-account">
                   <span className="selected-account-name">
-                    {selectedAccount.name}
+                    {selectedConfig.name}
                   </span>
-                  {selectedAccount.sample ? (
+                  {selectedProvider.sample ? (
                     <span className="sample-tag">{t('common.sample')}</span>
                   ) : null}
                   <span className="selected-account-plan">
-                    {selectedAccount.plan}
+                    {selectedProvider.plan}
                   </span>
                   <span
                     className={
@@ -647,25 +535,26 @@ export function NewSessionDialog({
                   >
                     {selectedUsage.summary}
                   </span>
-                  {preset?.model ? (
+                  {selectedConfig.model ? (
                     <span className="selected-account-model">
-                      {t('newSession.modelWith', { model: preset.model })}
+                      {t('newSession.modelWith', {
+                        model: selectedConfig.model,
+                      })}
                     </span>
                   ) : null}
-                  {preset ? (
-                    <span className="selected-account-overrides">
-                      {overrideSummary(preset, t)}
-                    </span>
-                  ) : null}
+                  <span className="selected-account-overrides">
+                    {overrideSummary(selectedConfig, t)}
+                  </span>
                 </div>
               ) : null}
 
-              <AccountMultiSelect
+              <ConfigMultiSelect
                 id="new-session-allowed"
                 label={t('allowedAccounts.label')}
-                accounts={accounts}
+                configs={configs}
+                providers={providers}
                 value={allowedIds}
-                requiredId={accountId}
+                requiredId={configId}
                 onChange={(ids) => {
                   setAllowedIds(ids);
                   setAllowedTouched(true);
@@ -676,7 +565,7 @@ export function NewSessionDialog({
                 }}
                 hint={t('allowedAccounts.hint')}
                 error={errors.allowed}
-                disabled={!accountId}
+                disabled={!configId}
               />
             </>
           ) : null}

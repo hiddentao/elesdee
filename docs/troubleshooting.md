@@ -44,7 +44,7 @@ A build without a Developer ID signature is blocked by macOS. The release notes 
 
 ## An API key was rejected
 
-Open Settings, remove the account and add it again with a valid key. The key is stored in the system keychain. The app does not show the saved key again.
+Open Settings, remove the provider and add it again with a valid key. The key is stored in the system keychain. The app does not show the saved key again.
 
 ## Where the app keeps its data
 

@@ -1,25 +1,25 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import type { Account, Session } from '../api/types';
-import { accountUsage, usageStatusText } from '../state/usage';
+import type { Provider, Session } from '../api/types';
+import { providerUsage, usageStatusText } from '../state/usage';
 import { useLanguage } from '../i18n/LanguageProvider';
 import { UsageLimitRow } from './UsageLimitRow';
 
 interface UsagePillProps {
   session: Session;
-  account: Account;
+  provider: Provider;
   canSwitch: boolean;
   onOpenSwitch: () => void;
 }
 
 export function UsagePill({
   session,
-  account,
+  provider,
   canSwitch,
   onOpenSwitch,
 }: UsagePillProps) {
   const { t, language } = useLanguage();
-  const usage = accountUsage(account, language);
-  const status = usageStatusText(account, language, t) ?? account.foot;
+  const usage = providerUsage(provider, language);
+  const status = usageStatusText(provider, language, t) ?? provider.foot;
   const contextLeft =
     typeof session.contextLeft === 'number' ? session.contextLeft : null;
   const tipId = useId();
@@ -88,8 +88,8 @@ export function UsagePill({
           }
         }}
       >
-        <span className="provider-client">{account.client}</span>
-        <span className="provider-account">{account.name}</span>
+        <span className="provider-client">{session.client}</span>
+        <span className="provider-account">{provider.name}</span>
         {usage.remaining !== null ? (
           <span
             className={
@@ -114,13 +114,13 @@ export function UsagePill({
       {open ? (
         <span className="usage-tip" id={tipId} role="tooltip">
           <span className="usage-tip-head">
-            <span className="usage-tip-name">{account.name}</span>
-            <span className="usage-tip-plan">{account.plan}</span>
+            <span className="usage-tip-name">{provider.name}</span>
+            <span className="usage-tip-plan">{provider.plan}</span>
           </span>
-          {account.rows.map((row, index) => (
+          {provider.rows.map((row, index) => (
             <UsageLimitRow key={`${row.label}-${index}`} row={row} />
           ))}
-          {account.rows.length === 0 ? (
+          {provider.rows.length === 0 ? (
             <span className="usage-tip-note">{t('usage.none')}</span>
           ) : null}
           {status ? (

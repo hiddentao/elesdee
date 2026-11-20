@@ -1,39 +1,38 @@
 import { describe, expect, it } from 'vitest';
-import type { Account } from '../api/types';
+import type { Provider } from '../api/types';
 import { translate, type Translate } from '../i18n';
 import {
-  accountUsage,
+  providerUsage,
   balanceBelowMin,
   formatUsageTime,
   rowLabel,
   rowWarn,
-  tightestAccount,
+  tightestProvider,
   usageStatusText,
 } from './usage';
 
 const t: Translate = (key, values) => translate('en', key, values);
 
-function makeAccount(overrides: Partial<Account> = {}): Account {
+function makeProvider(overrides: Partial<Provider> = {}): Provider {
   return {
     id: 'a1',
     name: 'Work',
     plan: 'Max',
-    client: 'Claude Code',
-    provider: 'Anthropic',
+    vendor: 'anthropic',
     auth: 'subscription',
     sample: true,
     rows: [],
     foot: '',
     server: null,
-    model: null,
+    supportedClients: ['Claude Code', 'OpenCode 2'],
     ...overrides,
   };
 }
 
 describe('usage helpers', () => {
   it('reports the remaining percent from the highest used limit', () => {
-    const usage = accountUsage(
-      makeAccount({
+    const usage = providerUsage(
+      makeProvider({
         rows: [
           { label: 'Weekly', used: 20 },
           { label: '5-hour', used: 58 },
@@ -50,8 +49,8 @@ describe('usage helpers', () => {
   });
 
   it('marks a tight percent limit', () => {
-    const usage = accountUsage(
-      makeAccount({ rows: [{ label: '5-hour', used: 92, warn: true }] }),
+    const usage = providerUsage(
+      makeProvider({ rows: [{ label: '5-hour', used: 92, warn: true }] }),
     );
 
     expect(usage.summary).toBe('8% left');
@@ -60,13 +59,13 @@ describe('usage helpers', () => {
   });
 
   it('uses a balance value and warns below the minimum', () => {
-    const normal = accountUsage(
-      makeAccount({
+    const normal = providerUsage(
+      makeProvider({
         rows: [{ label: 'Credit', value: '$12.40', min: '$5.00' }],
       }),
     );
-    const low = accountUsage(
-      makeAccount({
+    const low = providerUsage(
+      makeProvider({
         rows: [{ label: 'Credit', value: '$3.20', min: '$5.00' }],
       }),
     );
@@ -82,7 +81,7 @@ describe('usage helpers', () => {
   });
 
   it('reports no usage data when there are no rows', () => {
-    const usage = accountUsage(makeAccount());
+    const usage = providerUsage(makeProvider());
 
     expect(usage.kind).toBe('none');
     expect(usage.summary).toBe('No usage data');
@@ -114,14 +113,14 @@ describe('usage helpers', () => {
     expect(time).not.toBeNull();
 
     const fresh = usageStatusText(
-      makeAccount({ usageStatus: 'fresh', usageReadAt: readAt }),
+      makeProvider({ usageStatus: 'fresh', usageReadAt: readAt }),
       'en',
       t,
     );
     expect(fresh).toBe(`Read ${time}.`);
 
     const stale = usageStatusText(
-      makeAccount({
+      makeProvider({
         usageStatus: 'stale',
         usageReadAt: readAt,
         usageCheckedAt: '2026-11-20T11:00:00Z',
@@ -133,7 +132,7 @@ describe('usage helpers', () => {
 
     const unknownTime = formatUsageTime('2026-11-20T11:00:00Z', 'en');
     const unknown = usageStatusText(
-      makeAccount({
+      makeProvider({
         usageStatus: 'unknown',
         usageCheckedAt: '2026-11-20T11:00:00Z',
       }),
@@ -141,21 +140,21 @@ describe('usage helpers', () => {
       t,
     );
     expect(unknown).toBe(`No usage data. Checked ${unknownTime}.`);
-    expect(usageStatusText(makeAccount(), 'en', t)).toBeNull();
+    expect(usageStatusText(makeProvider(), 'en', t)).toBeNull();
   });
 
   it('finds the account with the least remaining usage', () => {
-    const roomy = makeAccount({
+    const roomy = makeProvider({
       id: 'a1',
       rows: [{ label: 'Weekly', used: 20 }],
     });
-    const tight = makeAccount({
+    const tight = makeProvider({
       id: 'a2',
       name: 'Personal',
       rows: [{ label: 'Weekly', used: 90 }],
     });
 
-    expect(tightestAccount([roomy, tight])?.id).toBe('a2');
-    expect(tightestAccount([])).toBeNull();
+    expect(tightestProvider([roomy, tight])?.id).toBe('a2');
+    expect(tightestProvider([])).toBeNull();
   });
 });

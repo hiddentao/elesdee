@@ -40,8 +40,8 @@ use crate::shared;
 use crate::shortcuts;
 use crate::slug::slugify;
 use crate::state::{
-    Account, AppState, Auth, Bootstrap, Client, DeleteSessionFailure, EnvOverride, HealthResponse,
-    LaunchPreset, PairedDevice, PendingPermission, PermissionDecision, Project, Question,
+    AiConfig, AppState, Auth, Bootstrap, Client, DeleteSessionFailure, EnvOverride, HealthResponse,
+    PairedDevice, PendingPermission, PermissionDecision, Project, Provider, ProviderView, Question,
     QuestionFailure, Session, SessionEvent, SessionKind, SessionState, WorkState,
 };
 
@@ -178,7 +178,16 @@ impl IntoResponse for ApiError {
 struct CreateSessionRequest {
     project_id: String,
     kind: SessionKind,
+    config_id: Option<String>,
+    /// The old account name for a session. It resolves to the provider's
+    /// first config, so a phone or an older client keeps working.
     account_id: Option<String>,
+    /// A provider and client pair resolves to a config when no config id is
+    /// sent.
+    provider_id: Option<String>,
+    client: Option<Client>,
+    #[serde(default)]
+    allowed_config_ids: Option<Vec<String>>,
     #[serde(default)]
     allowed_account_ids: Option<Vec<String>>,
     name: Option<String>,
@@ -189,7 +198,6 @@ struct CreateSessionRequest {
     first_prompt: Option<String>,
     parent_session_id: Option<String>,
     parent_session_name: Option<String>,
-    preset_id: Option<String>,
     env: Option<Vec<EnvOverride>>,
     cols: Option<u16>,
     rows: Option<u16>,
@@ -197,21 +205,28 @@ struct CreateSessionRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct CreatePresetRequest {
+struct CreateConfigRequest {
     name: Option<String>,
-    account_id: String,
+    provider_id: String,
+    client: Client,
     model: Option<String>,
+    effort: Option<String>,
+    args: Option<Vec<String>>,
     env: Option<Vec<EnvOverride>>,
     config: Option<BTreeMap<String, String>>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct UpdatePresetRequest {
+struct UpdateConfigRequest {
     name: Option<String>,
-    account_id: Option<String>,
+    provider_id: Option<String>,
+    client: Option<Client>,
     #[serde(default, deserialize_with = "optional_field")]
     model: Option<Option<String>>,
+    #[serde(default, deserialize_with = "optional_field")]
+    effort: Option<Option<String>>,
+    args: Option<Vec<String>>,
     env: Option<Vec<EnvOverride>>,
     config: Option<BTreeMap<String, String>>,
 }
@@ -232,7 +247,7 @@ struct CreateProjectRequest {
 #[serde(rename_all = "camelCase")]
 struct UpdateProjectRequest {
     #[serde(default, deserialize_with = "optional_field")]
-    default_account_id: Option<Option<String>>,
+    default_config_id: Option<Option<String>>,
     #[serde(default, deserialize_with = "optional_field")]
     default_source_branch: Option<Option<String>>,
 }
@@ -251,32 +266,55 @@ fn cleaned_optional(value: Option<String>) -> Option<String> {
         .filter(|text| !text.is_empty())
 }
 
-fn validated_allowed_accounts(
+/// Resolves a config id, or an old provider id to that provider's first config.
+fn resolve_config(
+    state: &AppState,
+    id: &str,
+    client: Option<Client>,
+) -> Option<(AiConfig, Provider)> {
+    if let Some(pair) = state.config_with_provider(id) {
+        return Some(pair);
+    }
+    let configs = state.configs();
+    let config = configs
+        .iter()
+        .find(|config| config.provider_id == id && client.is_some_and(|c| c == config.client))
+        .or_else(|| configs.iter().find(|config| config.provider_id == id))
+        .cloned()?;
+    let provider = state.provider(&config.provider_id)?;
+    Some((config, provider))
+}
+
+fn resolve_config_id(state: &AppState, id: &str) -> Option<String> {
+    resolve_config(state, id, None).map(|(config, _)| config.id)
+}
+
+fn validated_allowed_configs(
     state: &AppState,
     raw: &[String],
-    current_account_id: &str,
+    current_config_id: &str,
 ) -> Result<Vec<String>, ApiError> {
     let mut ids: Vec<String> = Vec::new();
     for value in raw {
         let id = value.trim();
         if id.is_empty() {
-            return Err(ApiError::bad_request("An allowed account id is empty."));
+            return Err(ApiError::bad_request("An allowed config id is empty."));
         }
         if !ids.iter().any(|existing| existing == id) {
             ids.push(id.to_owned());
         }
     }
     if ids.is_empty() {
-        return Err(ApiError::bad_request("Allow at least one account."));
+        return Err(ApiError::bad_request("Allow at least one AI config."));
     }
     for id in &ids {
-        if state.account(id).is_none() {
-            return Err(ApiError::unprocessable("Unknown account."));
+        if state.config(id).is_none() {
+            return Err(ApiError::unprocessable("Unknown AI config."));
         }
     }
-    if !ids.iter().any(|id| id == current_account_id) {
+    if !ids.iter().any(|id| id == current_config_id) {
         return Err(ApiError::unprocessable(
-            "The current account must stay allowed.",
+            "The current AI config must stay allowed.",
         ));
     }
     Ok(ids)
@@ -284,29 +322,25 @@ fn validated_allowed_accounts(
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct CreateAccountRequest {
-    name: String,
-    provider_id: String,
-    client: Option<Client>,
+struct CreateProviderRequest {
+    name: Option<String>,
+    vendor: String,
     auth: Auth,
     key: Option<String>,
     server: Option<String>,
-    model: Option<String>,
     api_style: Option<String>,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct UpdateAccountRequest {
-    name: String,
-    provider_id: String,
-    client: Option<Client>,
-    auth: Auth,
+struct UpdateProviderRequest {
+    name: Option<String>,
+    vendor: Option<String>,
+    auth: Option<Auth>,
     /// Absent or blank keeps the key that is already stored.
     key: Option<String>,
-    server: Option<String>,
-    model: Option<String>,
-    api_style: Option<String>,
+    server: Option<Option<String>>,
+    api_style: Option<Option<String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -342,8 +376,8 @@ struct CloseRequest {}
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct SwitchAccountRequest {
-    account_id: String,
+struct SwitchConfigRequest {
+    config_id: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -354,14 +388,14 @@ struct UsageRequest {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SwitchOptions {
-    /// Every account on this computer. The allowed list says which ones the
+    /// Every AI config on this computer. The allowed list says which ones the
     /// session may use.
-    accounts: Vec<Account>,
-    /// The account ids the session may use, including the current one.
-    allowed_account_ids: Vec<String>,
-    /// The allowed account the automatic switch would move to next, if one
-    /// has room.
-    next_account_id: Option<String>,
+    configs: Vec<AiConfig>,
+    /// The config ids the session may use, including the current one.
+    allowed_config_ids: Vec<String>,
+    /// The allowed config the automatic switch would move to next, if one has
+    /// room.
+    next_config_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -386,6 +420,8 @@ struct ApproveResponse {
 #[serde(rename_all = "camelCase")]
 struct RenameRequest {
     name: Option<String>,
+    #[serde(default)]
+    allowed_config_ids: Option<Vec<String>>,
     #[serde(default)]
     allowed_account_ids: Option<Vec<String>>,
 }
@@ -433,7 +469,7 @@ struct PreparedSession {
     folder: PathBuf,
     command: CommandBuilder,
     repo_root: Option<PathBuf>,
-    antigravity_account: Option<String>,
+    antigravity_provider: Option<String>,
     environment: Vec<(String, String)>,
     startup_input: Option<String>,
 }
@@ -485,22 +521,27 @@ pub fn router(state: AppState) -> Router {
         .route("/api/projects/{id}", patch(update_project))
         .route("/api/branches", get(list_branches))
         .route("/api/git-status", get(git_status))
-        .route("/api/providers", get(list_providers))
-        .route("/api/accounts", get(list_accounts).post(create_account))
+        .route("/api/provider-options", get(provider_options))
+        .route("/api/providers", get(list_providers).post(create_provider))
         .route(
-            "/api/accounts/{id}",
-            patch(update_account).delete(remove_account),
+            "/api/providers/{id}",
+            patch(update_provider).delete(delete_provider),
         )
-        .route("/api/accounts/{id}/usage", post(update_account_usage))
+        .route("/api/providers/{id}/models", get(provider_models))
         .route(
-            "/api/accounts/{id}/usage/refresh",
-            post(refresh_account_usage),
+            "/api/providers/{id}/usage",
+            get(provider_usage).post(update_provider_usage),
         )
+        .route(
+            "/api/providers/{id}/usage/refresh",
+            post(refresh_provider_usage),
+        )
+        .route("/api/accounts", get(list_legacy_accounts))
         .route("/internal/statusline/claude/{id}", post(claude_statusline))
-        .route("/api/presets", get(list_presets).post(create_preset))
+        .route("/api/configs", get(list_configs).post(create_config))
         .route(
-            "/api/presets/{id}",
-            patch(update_preset).delete(delete_preset),
+            "/api/configs/{id}",
+            patch(update_config).delete(delete_config),
         )
         .route("/api/questions", get(list_questions))
         .route("/api/questions/{id}/answer", post(answer_question))
@@ -538,7 +579,11 @@ pub fn router(state: AppState) -> Router {
         .route("/api/sessions/{id}/input", post(session_input))
         .route("/api/sessions/{id}/resize", post(resize_session))
         .route("/api/sessions/{id}/reopen", post(reopen_session))
-        .route("/api/sessions/{id}/account", post(switch_session_account))
+        .route("/api/sessions/{id}/config", post(switch_session_config))
+        .route(
+            "/api/sessions/{id}/account",
+            post(switch_session_account_alias),
+        )
         .route("/api/sessions/{id}/switch-options", get(switch_options))
         .route("/api/sessions/{id}/resume", post(resume_session))
         .route("/api/sessions/{id}/permission", post(answer_permission))
@@ -925,15 +970,28 @@ async fn git_status(
     Ok(Json(GitStatusResponse { git: true, dirty }))
 }
 
-async fn list_providers() -> Json<Vec<ProviderInfo>> {
+async fn provider_options() -> Json<Vec<ProviderOption>> {
     Json(
         crate::providers::PROVIDERS
             .iter()
-            .map(|provider| ProviderInfo {
+            .map(|provider| ProviderOption {
                 id: provider.id.to_owned(),
                 label: provider.label.to_owned(),
-                client: provider.client,
                 auth: provider.auth.to_vec(),
+                supported_clients: provider.clients.to_vec(),
+                efforts: provider
+                    .clients
+                    .iter()
+                    .map(|client| {
+                        (
+                            client.display_name().to_owned(),
+                            crate::providers::effort_levels(*client)
+                                .iter()
+                                .map(|level| (*level).to_owned())
+                                .collect(),
+                        )
+                    })
+                    .collect(),
                 default_model: provider.default_model.map(str::to_owned),
                 custom: provider.custom,
             })
@@ -943,31 +1001,41 @@ async fn list_providers() -> Json<Vec<ProviderInfo>> {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct ProviderInfo {
+struct ProviderOption {
     id: String,
     label: String,
-    client: Client,
     auth: Vec<Auth>,
+    supported_clients: Vec<Client>,
+    efforts: BTreeMap<String, Vec<String>>,
     default_model: Option<String>,
     custom: bool,
 }
 
-async fn list_accounts(
+async fn list_providers(
     State(state): State<AppState>,
     query: Result<Query<ListQuery>, QueryRejection>,
-) -> Result<Json<Vec<Account>>, ApiError> {
+) -> Result<Json<Vec<ProviderView>>, ApiError> {
     let filter = list_filter(query)?;
-    let mut accounts = state.accounts();
+    let mut providers = state.provider_views();
     if let Some(filter) = filter.as_deref() {
-        accounts.retain(|account| {
-            matches_filter(&account.name, filter)
-                || matches_filter(account.client.display_name(), filter)
-                || matches_filter(&account.provider, filter)
-                || matches_filter(&account.plan, filter)
+        providers.retain(|provider| {
+            matches_filter(&provider.provider.name, filter)
+                || matches_filter(&provider.provider.vendor, filter)
+                || matches_filter(&provider.provider.plan, filter)
         });
     }
-    accounts.sort_by_cached_key(|account| (account.name.to_lowercase(), account.id.clone()));
-    Ok(Json(accounts))
+    providers.sort_by_cached_key(|provider| {
+        (
+            provider.provider.name.to_lowercase(),
+            provider.provider.id.clone(),
+        )
+    });
+    Ok(Json(providers))
+}
+
+/// The phone app lists accounts by the old name. It gets the providers.
+async fn list_legacy_accounts(State(state): State<AppState>) -> Json<Vec<ProviderView>> {
+    Json(state.provider_views())
 }
 
 fn list_filter(
@@ -986,149 +1054,407 @@ fn matches_filter(value: &str, filter: &str) -> bool {
     value.to_lowercase().contains(filter)
 }
 
-async fn list_presets(
-    State(state): State<AppState>,
-    query: Result<Query<ListQuery>, QueryRejection>,
-) -> Result<Json<Vec<LaunchPreset>>, ApiError> {
-    let filter = list_filter(query)?;
-    let accounts = state.accounts();
-    let mut presets = state.launch_presets();
-    if let Some(filter) = filter.as_deref() {
-        presets.retain(|preset| {
-            let account = accounts
-                .iter()
-                .find(|account| account.id == preset.account_id);
-            matches_filter(&preset.name, filter)
-                || preset
-                    .model
-                    .as_deref()
-                    .is_some_and(|model| matches_filter(model, filter))
-                || account.is_some_and(|account| {
-                    matches_filter(&account.name, filter)
-                        || matches_filter(account.client.display_name(), filter)
-                        || matches_filter(&account.provider, filter)
-                        || matches_filter(&account.plan, filter)
-                })
-        });
-    }
-    Ok(Json(presets))
+struct ProviderFields {
+    name: String,
+    vendor: String,
+    auth: Auth,
+    server: Option<String>,
+    api_style: Option<String>,
+    plan: &'static str,
 }
 
-async fn create_preset(
-    State(state): State<AppState>,
-    body: Result<Json<CreatePresetRequest>, JsonRejection>,
-) -> Result<Json<LaunchPreset>, ApiError> {
-    let Json(request) = body.map_err(invalid_json)?;
-    let account_id = request.account_id.trim();
-    if account_id.is_empty() {
-        return Err(ApiError::bad_request("Choose an account."));
+fn validated_provider_fields(
+    name: Option<&str>,
+    vendor: &str,
+    auth: Auth,
+    server: Option<&str>,
+    api_style: Option<&str>,
+) -> Result<ProviderFields, ApiError> {
+    let vendor = vendor.trim().to_ascii_lowercase();
+    let definition = crate::providers::find(&vendor)
+        .ok_or_else(|| ApiError::unprocessable("This provider is not supported."))?;
+    let name = name
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .unwrap_or(definition.label);
+    if name.chars().count() > 80 {
+        return Err(ApiError::bad_request(
+            "A provider name must be 1 to 80 characters.",
+        ));
     }
-    let account = state
-        .account(account_id)
-        .ok_or_else(|| ApiError::unprocessable("The preset account does not exist."))?;
+    if name.chars().any(char::is_control) {
+        return Err(ApiError::bad_request("The provider name is not valid."));
+    }
+    if !definition.auth.contains(&auth) {
+        return Err(ApiError::unprocessable(
+            "This provider does not support that authentication method.",
+        ));
+    }
 
-    let name = match cleaned_optional(request.name) {
-        Some(name) => validated_preset_name(&name)?,
-        None => {
-            let fallback = account.name.chars().take(64).collect::<String>();
-            validated_preset_name(&fallback)?
+    let api_style = api_style
+        .map(str::trim)
+        .map(str::to_lowercase)
+        .filter(|style| !style.is_empty());
+    if definition.custom && api_style.is_none() {
+        return Err(ApiError::bad_request("Choose an API style."));
+    }
+    if let Some(style) = api_style.as_deref()
+        && !matches!(style, "openai" | "anthropic")
+    {
+        return Err(ApiError::bad_request("The API style is not valid."));
+    }
+
+    let needs_server =
+        definition.custom || auth == Auth::Local || matches!(definition.id, "ollama" | "lmstudio");
+    let server = server
+        .map(str::trim)
+        .filter(|server| !server.is_empty())
+        .map(str::to_owned);
+    if needs_server {
+        let Some(server) = server.as_deref() else {
+            return Err(ApiError::bad_request("Server URL is required."));
+        };
+        if !safe_server_url(server) {
+            return Err(ApiError::bad_request("The server URL is not valid."));
         }
-    };
-    let model = validated_model(account.client, request.model)?;
-    let env = validated_env(request.env)?;
-    let config = validated_config(request.config)?;
-    let preset = state.add_preset(name, account.id.clone(), model, env, config);
-    state.save();
+    }
 
-    Ok(Json(LaunchPreset::from_stored(preset)))
+    let plan = match auth {
+        Auth::Subscription => "subscription",
+        Auth::Local => "local",
+        Auth::Key => "pay as you go",
+    };
+
+    Ok(ProviderFields {
+        name: name.to_owned(),
+        vendor,
+        auth,
+        server: if needs_server { server } else { None },
+        api_style: if definition.custom { api_style } else { None },
+        plan,
+    })
 }
 
-async fn update_preset(
+async fn create_provider(
+    State(state): State<AppState>,
+    body: Result<Json<CreateProviderRequest>, JsonRejection>,
+) -> Result<Json<ProviderView>, ApiError> {
+    let Json(request) = body.map_err(invalid_json)?;
+    let fields = validated_provider_fields(
+        request.name.as_deref(),
+        &request.vendor,
+        request.auth,
+        request.server.as_deref(),
+        request.api_style.as_deref(),
+    )?;
+    let key = request
+        .key
+        .as_deref()
+        .map(str::trim)
+        .filter(|key| !key.is_empty());
+    if fields.auth == Auth::Key && key.is_none() {
+        return Err(ApiError::bad_request("API key is required."));
+    }
+
+    let provider = state.add_provider(Provider {
+        id: String::new(),
+        name: fields.name,
+        vendor: fields.vendor,
+        auth: fields.auth,
+        server: fields.server,
+        api_style: fields.api_style,
+        sample: false,
+        plan: fields.plan.to_owned(),
+        rows: Vec::new(),
+        foot: "No official usage source.".to_owned(),
+        usage_read_at: None,
+        usage_checked_at: None,
+        usage_status: None,
+        usage_source: None,
+    });
+    if let Some(key) = key
+        && let Err(error) = store_account_key(&state, &provider.id, key).await
+    {
+        state.remove_provider(&provider.id);
+        tracing::error!(provider = %provider.id, %error, "could not store provider key");
+        return Err(ApiError::internal("Could not store the provider key."));
+    }
+    state.save();
+    Ok(Json(ProviderView::new(provider)))
+}
+
+async fn update_provider(
     State(state): State<AppState>,
     UrlPath(id): UrlPath<String>,
-    body: Result<Json<UpdatePresetRequest>, JsonRejection>,
-) -> Result<Json<LaunchPreset>, ApiError> {
+    body: Result<Json<UpdateProviderRequest>, JsonRejection>,
+) -> Result<Json<ProviderView>, ApiError> {
     let Json(request) = body.map_err(invalid_json)?;
     let existing = state
-        .preset(&id)
-        .ok_or_else(|| ApiError::not_found("Unknown preset."))?;
+        .provider(&id)
+        .ok_or_else(|| ApiError::not_found("Unknown provider."))?;
 
-    let account_id = match request.account_id {
-        Some(account_id) => {
-            let account_id = account_id.trim().to_owned();
-            if account_id.is_empty() {
-                return Err(ApiError::bad_request("Choose an account."));
-            }
-            account_id
-        }
-        None => existing.account_id.clone(),
-    };
-    let account = state
-        .account(&account_id)
-        .ok_or_else(|| ApiError::unprocessable("The preset account does not exist."))?;
+    let fields = validated_provider_fields(
+        request.name.as_deref().or(Some(&existing.name)),
+        request.vendor.as_deref().unwrap_or(&existing.vendor),
+        request.auth.unwrap_or(existing.auth),
+        request
+            .server
+            .as_ref()
+            .map(|value| value.as_deref())
+            .unwrap_or(existing.server.as_deref()),
+        request
+            .api_style
+            .as_ref()
+            .map(|value| value.as_deref())
+            .unwrap_or(existing.api_style.as_deref()),
+    )?;
 
-    let name = request
-        .name
+    let replacement_key = request
+        .key
         .as_deref()
-        .map(validated_preset_name)
-        .transpose()?;
-    let model = match &request.model {
-        Some(value) => Some(validated_model(account.client, value.clone())?),
-        None => {
-            if let Some(current) = existing.model.clone() {
-                validated_model(account.client, Some(current))?;
-            }
-            None
-        }
+        .map(str::trim)
+        .filter(|key| !key.is_empty());
+    if fields.auth == Auth::Key
+        && replacement_key.is_none()
+        && !account_key_available(&state, &id).await?
+    {
+        return Err(ApiError::bad_request("API key is required."));
+    }
+
+    let candidate = Provider {
+        id: id.clone(),
+        name: fields.name,
+        vendor: fields.vendor,
+        auth: fields.auth,
+        server: fields.server,
+        api_style: fields.api_style,
+        sample: false,
+        plan: fields.plan.to_owned(),
+        rows: existing.rows.clone(),
+        foot: existing.foot.clone(),
+        usage_read_at: existing.usage_read_at.clone(),
+        usage_checked_at: existing.usage_checked_at.clone(),
+        usage_status: existing.usage_status,
+        usage_source: existing.usage_source.clone(),
     };
-    let env = request
-        .env
-        .map(|env| validated_env(Some(env)))
-        .transpose()?;
-    let config = request
-        .config
-        .map(|config| validated_config(Some(config)))
-        .transpose()?;
+    let supported = crate::providers::supported_clients(&candidate);
+    if let Some(config) = state
+        .configs()
+        .into_iter()
+        .find(|config| config.provider_id == id && !supported.contains(&config.client))
+    {
+        return Err(ApiError::conflict(format!(
+            "{} runs on {} through this provider. Remove or change it first.",
+            config.name, config.client
+        )));
+    }
 
+    if let Some(key) = replacement_key
+        && let Err(error) = store_account_key(&state, &id, key).await
+    {
+        tracing::error!(provider = %id, %error, "could not store provider key");
+        return Err(ApiError::internal("Could not store the provider key."));
+    }
+
+    let identity_changed = existing.vendor != candidate.vendor
+        || existing.server != candidate.server
+        || existing.api_style != candidate.api_style;
+    let mut updated = candidate;
+    if identity_changed {
+        updated.rows.clear();
+        updated.foot = "No official usage source.".to_owned();
+        updated.usage_read_at = None;
+        updated.usage_checked_at = None;
+        updated.usage_status = None;
+        updated.usage_source = None;
+    }
     let updated = state
-        .update_preset(
-            &id,
-            name,
-            if account.id == existing.account_id {
-                None
-            } else {
-                Some(account.id.clone())
-            },
-            model,
-            env,
-            config,
-        )
-        .ok_or_else(|| ApiError::not_found("Unknown preset."))?;
+        .replace_provider(updated)
+        .ok_or_else(|| ApiError::not_found("Unknown provider."))?;
     state.save();
-
-    Ok(Json(LaunchPreset::from_stored(updated)))
+    state.publish_provider(updated.clone());
+    Ok(Json(ProviderView::new(updated)))
 }
 
-async fn delete_preset(
+async fn delete_provider(
     State(state): State<AppState>,
     UrlPath(id): UrlPath<String>,
 ) -> Result<StatusCode, ApiError> {
-    if !state.remove_preset(&id) {
-        return Err(ApiError::not_found("Unknown preset."));
+    if state.provider(&id).is_none() {
+        return Err(ApiError::not_found("Unknown provider."));
     }
+    let used = state.config_count_for_provider(&id);
+    if used > 0 {
+        let message = if used == 1 {
+            "An AI config uses this provider. Remove it first.".to_owned()
+        } else {
+            format!("{used} AI configs use this provider. Remove them first.")
+        };
+        return Err(ApiError::conflict(message));
+    }
+    if let Err(error) = delete_account_key(&state, &id).await {
+        tracing::error!(provider = %id, %error, "could not delete provider key");
+        return Err(ApiError::internal("Could not delete the provider key."));
+    }
+    state
+        .remove_provider(&id)
+        .ok_or_else(|| ApiError::not_found("Unknown provider."))?;
     state.save();
     Ok(StatusCode::NO_CONTENT)
 }
 
-fn validated_preset_name(value: &str) -> Result<String, ApiError> {
-    let name = value.trim();
-    if name.is_empty() || name.chars().count() > 64 {
-        return Err(ApiError::bad_request(
-            "A preset name must be 1 to 64 characters.",
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ModelQuery {
+    client: String,
+}
+
+const MODEL_CACHE_TTL: Duration = Duration::from_secs(60);
+
+async fn provider_models(
+    State(state): State<AppState>,
+    UrlPath(id): UrlPath<String>,
+    query: Result<Query<ModelQuery>, QueryRejection>,
+) -> Result<Json<crate::model_list::ModelList>, ApiError> {
+    let Query(query) = query.map_err(|_| ApiError::bad_request("Choose a client."))?;
+    let client: Client = serde_json::from_value(serde_json::Value::String(query.client.clone()))
+        .map_err(|_| ApiError::bad_request("The client is not valid."))?;
+    let provider = state
+        .provider(&id)
+        .ok_or_else(|| ApiError::not_found("Unknown provider."))?;
+    if !crate::providers::supports_client(&provider, client) {
+        return Err(ApiError::unprocessable(
+            "This provider does not support that client.",
         ));
     }
+
+    let cache_key = format!("{}:{}", provider.id, client.display_name());
+    if let Some(models) = state.cached_models(&cache_key, MODEL_CACHE_TTL) {
+        return Ok(Json(crate::model_list::ModelList {
+            models,
+            source: "cache".to_owned(),
+            fallback: false,
+        }));
+    }
+
+    let gate = state.model_gate(&cache_key);
+    let _guard = gate.lock().await;
+    if let Some(models) = state.cached_models(&cache_key, MODEL_CACHE_TTL) {
+        return Ok(Json(crate::model_list::ModelList {
+            models,
+            source: "cache".to_owned(),
+            fallback: false,
+        }));
+    }
+
+    let key = if provider.auth == Auth::Key {
+        account_key(&state, &provider.id).await.ok()
+    } else {
+        None
+    };
+    match crate::model_list::fetch(&provider, client, key.as_deref()).await {
+        Ok(models) => {
+            state.cache_models(&cache_key, models.clone());
+            Ok(Json(crate::model_list::ModelList {
+                models,
+                source: "provider".to_owned(),
+                fallback: false,
+            }))
+        }
+        Err(()) => {
+            tracing::info!(
+                provider = %provider.id,
+                client = %client,
+                "the provider model read failed; using the known list"
+            );
+            Ok(Json(crate::model_list::ModelList::known(&provider.vendor)))
+        }
+    }
+}
+
+async fn provider_usage(
+    State(state): State<AppState>,
+    UrlPath(id): UrlPath<String>,
+) -> Result<Json<ProviderView>, ApiError> {
+    state
+        .provider(&id)
+        .map(ProviderView::new)
+        .map(Json)
+        .ok_or_else(|| ApiError::not_found("Unknown provider."))
+}
+
+async fn update_provider_usage(
+    State(state): State<AppState>,
+    UrlPath(id): UrlPath<String>,
+    body: Result<Json<UsageRequest>, JsonRejection>,
+) -> Result<Json<ProviderView>, ApiError> {
+    let Json(request) = body.map_err(invalid_json)?;
+    if request.rows.len() > 16 {
+        return Err(ApiError::bad_request("Too many usage rows."));
+    }
+    if request
+        .rows
+        .iter()
+        .any(|row| row.label.chars().count() > 80)
+    {
+        return Err(ApiError::bad_request("A usage label is too long."));
+    }
+    let provider = crate::usage::apply_usage(&state, &id, crate::usage::MANUAL, request.rows)
+        .await
+        .ok_or_else(|| ApiError::not_found("Unknown provider."))?;
+    Ok(Json(ProviderView::new(provider)))
+}
+
+async fn refresh_provider_usage(
+    State(state): State<AppState>,
+    UrlPath(id): UrlPath<String>,
+) -> Result<Json<ProviderView>, ApiError> {
+    match crate::usage::refresh_provider(&state, &id, true).await {
+        Ok(provider) => Ok(Json(ProviderView::new(provider))),
+        Err(crate::usage::RefreshError::Unknown) => Err(ApiError::not_found("Unknown provider.")),
+        Err(crate::usage::RefreshError::Read) => {
+            Err(ApiError::bad_gateway("The usage read failed."))
+        }
+    }
+}
+
+async fn list_configs(
+    State(state): State<AppState>,
+    query: Result<Query<ListQuery>, QueryRejection>,
+) -> Result<Json<Vec<AiConfig>>, ApiError> {
+    let filter = list_filter(query)?;
+    let providers = state.providers();
+    let mut configs = state.configs();
+    if let Some(filter) = filter.as_deref() {
+        configs.retain(|config| {
+            let provider = providers
+                .iter()
+                .find(|provider| provider.id == config.provider_id);
+            matches_filter(&config.name, filter)
+                || matches_filter(config.client.display_name(), filter)
+                || config
+                    .model
+                    .as_deref()
+                    .is_some_and(|model| matches_filter(model, filter))
+                || provider.is_some_and(|provider| {
+                    matches_filter(&provider.name, filter)
+                        || matches_filter(&provider.vendor, filter)
+                })
+        });
+    }
+    configs.sort_by_cached_key(|config| (config.name.to_lowercase(), config.id.clone()));
+    Ok(Json(configs))
+}
+
+fn validated_name(value: &str, kind: &str) -> Result<String, ApiError> {
+    let name = value.trim();
+    if name.is_empty() || name.chars().count() > 64 {
+        return Err(ApiError::bad_request(format!(
+            "An AI config name must be 1 to 64 characters ({kind})."
+        )));
+    }
     if name.chars().any(char::is_control) {
-        return Err(ApiError::bad_request("The preset name is not valid."));
+        return Err(ApiError::bad_request("The AI config name is not valid."));
     }
     Ok(name.to_owned())
 }
@@ -1160,6 +1486,192 @@ fn validated_model(client: Client, value: Option<String>) -> Result<Option<Strin
         ));
     }
     Ok(Some(model))
+}
+
+fn validated_effort(client: Client, value: Option<String>) -> Result<Option<String>, ApiError> {
+    let Some(effort) = cleaned_optional(value) else {
+        return Ok(None);
+    };
+    if !crate::providers::valid_effort(client, &effort) {
+        return Err(ApiError::unprocessable(
+            "The effort level is not valid for this client.",
+        ));
+    }
+    Ok(Some(effort))
+}
+
+fn validated_args(args: Option<Vec<String>>) -> Result<Vec<String>, ApiError> {
+    let Some(args) = args else {
+        return Ok(Vec::new());
+    };
+    if args.len() > 64 {
+        return Err(ApiError::bad_request("Too many command-line arguments."));
+    }
+    let mut cleaned = Vec::with_capacity(args.len());
+    for argument in args {
+        if argument.chars().count() > 2000 || argument.contains('\0') {
+            return Err(ApiError::bad_request(
+                "A command-line argument is not valid.",
+            ));
+        }
+        cleaned.push(argument);
+    }
+    Ok(cleaned)
+}
+
+async fn create_config(
+    State(state): State<AppState>,
+    body: Result<Json<CreateConfigRequest>, JsonRejection>,
+) -> Result<Json<AiConfig>, ApiError> {
+    let Json(request) = body.map_err(invalid_json)?;
+    let provider_id = request.provider_id.trim();
+    let provider = state
+        .provider(provider_id)
+        .ok_or_else(|| ApiError::unprocessable("The provider does not exist."))?;
+    if !crate::providers::supports_client(&provider, request.client) {
+        return Err(ApiError::unprocessable(
+            "This provider does not support that client.",
+        ));
+    }
+    let fallback = format!("{} ({})", provider.name, request.client);
+    let name = match cleaned_optional(request.name) {
+        Some(name) => validated_name(&name, "name")?,
+        None => validated_name(&fallback, "default name")?,
+    };
+    let default_model = crate::providers::find(&provider.vendor)
+        .and_then(|definition| definition.default_model)
+        .map(str::to_owned);
+    let model = validated_model(request.client, request.model.or(default_model))?;
+    let effort = validated_effort(request.client, request.effort)?;
+    let args = validated_args(request.args)?;
+    let env = validated_env(request.env)?;
+    let config = validated_config(request.config)?;
+
+    let config = state.add_config(AiConfig {
+        id: String::new(),
+        name,
+        provider_id: provider.id,
+        client: request.client,
+        model,
+        effort,
+        args,
+        env,
+        config,
+        created_at: String::new(),
+        updated_at: String::new(),
+    });
+    state.save();
+    Ok(Json(config))
+}
+
+async fn update_config(
+    State(state): State<AppState>,
+    UrlPath(id): UrlPath<String>,
+    body: Result<Json<UpdateConfigRequest>, JsonRejection>,
+) -> Result<Json<AiConfig>, ApiError> {
+    let Json(request) = body.map_err(invalid_json)?;
+    let existing = state
+        .config(&id)
+        .ok_or_else(|| ApiError::not_found("Unknown AI config."))?;
+    let provider_id = request
+        .provider_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .unwrap_or(&existing.provider_id)
+        .to_owned();
+    let provider = state
+        .provider(&provider_id)
+        .ok_or_else(|| ApiError::unprocessable("The provider does not exist."))?;
+    let client = request.client.unwrap_or(existing.client);
+    if !crate::providers::supports_client(&provider, client) {
+        return Err(ApiError::unprocessable(
+            "This provider does not support that client.",
+        ));
+    }
+
+    let name = request
+        .name
+        .as_deref()
+        .map(|name| validated_name(name, "name"))
+        .transpose()?
+        .unwrap_or(existing.name);
+    let model = match request.model {
+        Some(value) => validated_model(client, value)?,
+        None => validated_model(client, existing.model)?,
+    };
+    let effort = match request.effort {
+        Some(value) => validated_effort(client, value)?,
+        None => existing.effort,
+    };
+    let args = match request.args {
+        Some(args) => validated_args(Some(args))?,
+        None => existing.args,
+    };
+    let env = match request.env {
+        Some(env) => validated_env(Some(env))?,
+        None => existing.env,
+    };
+    let config = match request.config {
+        Some(config) => validated_config(Some(config))?,
+        None => existing.config,
+    };
+
+    let updated = state
+        .replace_config(AiConfig {
+            id,
+            name,
+            provider_id: provider.id,
+            client,
+            model,
+            effort,
+            args,
+            env,
+            config,
+            created_at: existing.created_at,
+            updated_at: existing.updated_at,
+        })
+        .ok_or_else(|| ApiError::not_found("Unknown AI config."))?;
+    state.save();
+    Ok(Json(updated))
+}
+
+async fn delete_config(
+    State(state): State<AppState>,
+    UrlPath(id): UrlPath<String>,
+) -> Result<StatusCode, ApiError> {
+    if state.config(&id).is_none() {
+        return Err(ApiError::not_found("Unknown AI config."));
+    }
+    let blockers = state
+        .sessions()
+        .into_iter()
+        .map(|entry| entry.session())
+        .filter(|session| {
+            session.status == crate::state::SessionState::Active
+                && session.config_id.as_deref() == Some(id.as_str())
+        })
+        .map(|session| session.name)
+        .collect::<Vec<_>>();
+    if !blockers.is_empty() {
+        let message = if blockers.len() == 1 {
+            format!(
+                "{} is using this AI config. Switch or close it first.",
+                blockers[0]
+            )
+        } else {
+            format!(
+                "{} active sessions use this AI config. Switch or close them first.",
+                blockers.len()
+            )
+        };
+        return Err(ApiError::conflict(message));
+    }
+    state
+        .remove_config(&id)
+        .ok_or_else(|| ApiError::not_found("Unknown AI config."))?;
+    state.save();
+    Ok(StatusCode::NO_CONTENT)
 }
 
 fn validated_config(
@@ -1210,49 +1722,63 @@ fn secret_like_name(name: &str) -> bool {
         || compact.ends_with("SECRET")
 }
 
-fn resolve_launch_preset(
-    state: &AppState,
-    id: Option<&str>,
-) -> Result<Option<LaunchPreset>, ApiError> {
-    let Some(id) = id.map(str::trim).filter(|id| !id.is_empty()) else {
-        return Ok(None);
-    };
-    state
-        .launch_preset(id)
-        .map(Some)
-        .ok_or_else(|| ApiError::unprocessable("The preset does not exist."))
-}
-
-fn merged_environment(preset: &[EnvOverride], launch: Vec<EnvOverride>) -> Vec<EnvOverride> {
-    let launch_names = launch
-        .iter()
-        .map(|item| item.name.clone())
-        .collect::<std::collections::HashSet<_>>();
-    let mut merged = preset
-        .iter()
-        .filter(|item| !launch_names.contains(&item.name))
-        .cloned()
-        .collect::<Vec<_>>();
-    merged.extend(launch);
-    merged
-}
-
-pub(crate) fn apply_launch_arguments(
+/// Adds the model, effort and config arguments for a client.
+///
+/// OpenCode 2 and Antigravity read these values from their generated launch
+/// files, so only their extra arguments are added here.
+pub(crate) fn apply_model_arguments(
     client: Client,
     model: Option<&str>,
+    effort: Option<&str>,
     config: &BTreeMap<String, String>,
     command: &mut CommandBuilder,
 ) {
-    if client != Client::Codex {
-        return;
+    match client {
+        Client::ClaudeCode => {
+            if let Some(model) = model {
+                command.arg("--model");
+                command.arg(model);
+            }
+            if let Some(effort) = effort {
+                command.arg("--effort");
+                command.arg(effort);
+            }
+        }
+        Client::Codex => {
+            for argument in overrides::codex_arguments(config) {
+                command.arg(argument);
+            }
+            if let Some(model) = model {
+                command.arg("-c");
+                command.arg(format!("model={}", overrides::codex_value(model)));
+            }
+        }
+        Client::OpenCode2 | Client::Antigravity => {}
     }
-    for argument in overrides::codex_arguments(config) {
+}
+
+/// Appends the user's extra command-line arguments after every generated one.
+pub(crate) fn apply_extra_arguments(args: &[String], command: &mut CommandBuilder) {
+    for argument in args {
         command.arg(argument);
     }
-    if let Some(model) = model {
-        command.arg("-c");
-        command.arg(format!("model={}", overrides::codex_value(model)));
+}
+
+/// Copies an AI config into a session launch snapshot.
+pub(crate) fn launch_config_map(config: &AiConfig) -> BTreeMap<String, String> {
+    let mut map = config.config.clone();
+    if let Some(effort) = config.effort.as_deref() {
+        let key = match config.client {
+            Client::Codex => Some("model_reasoning_effort"),
+            Client::OpenCode2 => Some("reasoningEffort"),
+            Client::Antigravity => Some("effort"),
+            Client::ClaudeCode => None,
+        };
+        if let Some(key) = key {
+            map.insert(key.to_owned(), effort.to_owned());
+        }
     }
+    map
 }
 
 async fn create_project(
@@ -1287,14 +1813,14 @@ async fn update_project(
         .project(&id)
         .ok_or_else(|| ApiError::not_found("Unknown project."))?;
 
-    let account_update = request.default_account_id.map(cleaned_optional);
+    let config_update = request.default_config_id.map(cleaned_optional);
     let branch_update = request.default_source_branch.map(cleaned_optional);
 
-    if let Some(Some(account_id)) = account_update.as_ref()
-        && state.account(account_id).is_none()
+    if let Some(Some(config_id)) = config_update.as_ref()
+        && state.config(config_id).is_none()
     {
         return Err(ApiError::unprocessable(
-            "The default account does not exist.",
+            "The default AI config does not exist.",
         ));
     }
 
@@ -1316,321 +1842,18 @@ async fn update_project(
     }
 
     let updated = state
-        .update_project_defaults(&id, account_update, branch_update)
+        .update_project_defaults(&id, config_update, branch_update)
         .ok_or_else(|| ApiError::not_found("Unknown project."))?;
     if state.try_save().is_err() {
         state.update_project_defaults(
             &id,
-            Some(project.default_account_id.clone()),
+            Some(project.default_config_id.clone()),
             Some(project.default_source_branch.clone()),
         );
         return Err(ApiError::internal("The project could not be saved."));
     }
 
     Ok(Json(updated))
-}
-
-/// The account metadata that the add and edit routes check and store.
-struct AccountFields {
-    name: String,
-    provider_id: String,
-    client: Client,
-    auth: Auth,
-    server: Option<String>,
-    model: Option<String>,
-    api_style: Option<String>,
-    plan: &'static str,
-}
-
-fn validated_account_fields(
-    name: &str,
-    provider_id: &str,
-    client: Option<Client>,
-    auth: Auth,
-    server: Option<&str>,
-    model: Option<&str>,
-    api_style: Option<&str>,
-) -> Result<AccountFields, ApiError> {
-    let name = name.trim();
-    if name.is_empty() || name.chars().count() > 80 {
-        return Err(ApiError::bad_request(
-            "Account name must be between 1 and 80 characters.",
-        ));
-    }
-
-    let provider_id = provider_id.trim().to_ascii_lowercase();
-    let provider = crate::providers::find(&provider_id)
-        .ok_or_else(|| ApiError::unprocessable("This provider is not supported."))?;
-    let api_style = api_style
-        .map(str::trim)
-        .map(str::to_lowercase)
-        .filter(|style| !style.is_empty());
-
-    let client = if provider.custom {
-        let style = api_style
-            .as_deref()
-            .ok_or_else(|| ApiError::bad_request("Choose an API style."))?;
-        let allowed = crate::providers::clients_for_style(style);
-        let client = client.unwrap_or(provider.client);
-        if !allowed.contains(&client) {
-            return Err(ApiError::unprocessable(
-                "This client does not support that API style.",
-            ));
-        }
-        client
-    } else {
-        if let Some(client) = client
-            && client != provider.client
-        {
-            return Err(ApiError::unprocessable(
-                "This provider and client pair is not supported.",
-            ));
-        }
-        provider.client
-    };
-
-    if !provider.auth.contains(&auth) {
-        return Err(ApiError::unprocessable(
-            "This account does not support that authentication method.",
-        ));
-    }
-
-    let needs_server =
-        provider.custom || auth == Auth::Local || matches!(provider.id, "ollama" | "lmstudio");
-    let server = server
-        .map(str::trim)
-        .filter(|server| !server.is_empty())
-        .map(str::to_owned);
-    if needs_server {
-        let Some(server) = server.as_deref() else {
-            return Err(ApiError::bad_request("Server URL is required."));
-        };
-        if !safe_server_url(server) {
-            return Err(ApiError::bad_request("The server URL is not valid."));
-        }
-    }
-
-    let model = model
-        .map(str::trim)
-        .filter(|model| !model.is_empty())
-        .map(str::to_owned)
-        .or_else(|| provider.default_model.map(str::to_owned));
-    if model
-        .as_deref()
-        .is_some_and(|model| model.chars().count() > 120)
-    {
-        return Err(ApiError::bad_request("Model name is too long."));
-    }
-
-    let plan = match auth {
-        Auth::Subscription => "subscription",
-        Auth::Local => "local",
-        Auth::Key => "pay as you go",
-    };
-
-    Ok(AccountFields {
-        name: name.to_owned(),
-        provider_id,
-        client,
-        auth,
-        server: if provider.custom || auth == Auth::Local {
-            server
-        } else {
-            None
-        },
-        model,
-        api_style: if provider.custom { api_style } else { None },
-        plan,
-    })
-}
-
-async fn create_account(
-    State(state): State<AppState>,
-    body: Result<Json<CreateAccountRequest>, JsonRejection>,
-) -> Result<Json<Account>, ApiError> {
-    let Json(request) = body.map_err(invalid_json)?;
-    let fields = validated_account_fields(
-        &request.name,
-        &request.provider_id,
-        request.client,
-        request.auth,
-        request.server.as_deref(),
-        request.model.as_deref(),
-        request.api_style.as_deref(),
-    )?;
-
-    let key = request
-        .key
-        .as_deref()
-        .map(str::trim)
-        .filter(|key| !key.is_empty());
-    if fields.auth == Auth::Key && key.is_none() {
-        return Err(ApiError::bad_request("API key is required."));
-    }
-
-    let account = state.add_account(Account {
-        id: String::new(),
-        name: fields.name,
-        plan: fields.plan.to_owned(),
-        client: fields.client,
-        provider: fields.provider_id,
-        auth: fields.auth,
-        sample: false,
-        rows: Vec::new(),
-        foot: "No official usage source.".to_owned(),
-        usage_read_at: None,
-        usage_checked_at: None,
-        usage_status: None,
-        usage_source: None,
-        server: fields.server,
-        model: fields.model,
-        api_style: fields.api_style,
-    });
-    if let Some(key) = key
-        && let Err(error) = store_account_key(&state, &account.id, key).await
-    {
-        state.remove_account(&account.id);
-        tracing::error!(account = %account.id, %error, "could not store account key");
-        return Err(ApiError::internal("Could not store the account key."));
-    }
-    state.save();
-    Ok(Json(account))
-}
-
-async fn update_account(
-    State(state): State<AppState>,
-    UrlPath(id): UrlPath<String>,
-    body: Result<Json<UpdateAccountRequest>, JsonRejection>,
-) -> Result<Json<Account>, ApiError> {
-    let Json(request) = body.map_err(invalid_json)?;
-    let existing = state
-        .account(&id)
-        .ok_or_else(|| ApiError::not_found("Unknown account."))?;
-
-    let fields = validated_account_fields(
-        &request.name,
-        &request.provider_id,
-        request.client,
-        request.auth,
-        request.server.as_deref(),
-        request.model.as_deref(),
-        request.api_style.as_deref(),
-    )?;
-
-    let replacement_key = request
-        .key
-        .as_deref()
-        .map(str::trim)
-        .filter(|key| !key.is_empty());
-    if fields.auth == Auth::Key
-        && replacement_key.is_none()
-        && !account_key_available(&state, &id).await?
-    {
-        return Err(ApiError::bad_request("API key is required."));
-    }
-
-    if let Some(key) = replacement_key
-        && let Err(error) = store_account_key(&state, &id, key).await
-    {
-        tracing::error!(account = %id, %error, "could not store account key");
-        return Err(ApiError::internal("Could not store the account key."));
-    }
-
-    // Usage belongs to the provider endpoint and its credential. Keep it for
-    // cosmetic edits, and clear it when the account points somewhere else.
-    let identity_changed = existing.provider != fields.provider_id
-        || existing.server != fields.server
-        || existing.api_style != fields.api_style;
-    let (rows, foot, usage_read_at, usage_checked_at, usage_status, usage_source) =
-        if identity_changed {
-            (
-                Vec::new(),
-                "No official usage source.".to_owned(),
-                None,
-                None,
-                None,
-                None,
-            )
-        } else {
-            (
-                existing.rows,
-                existing.foot,
-                existing.usage_read_at,
-                existing.usage_checked_at,
-                existing.usage_status,
-                existing.usage_source,
-            )
-        };
-
-    let updated = state
-        .replace_account(Account {
-            id: id.clone(),
-            name: fields.name,
-            plan: fields.plan.to_owned(),
-            client: fields.client,
-            provider: fields.provider_id,
-            auth: fields.auth,
-            // An edited sample becomes a real account.
-            sample: false,
-            rows,
-            foot,
-            usage_read_at,
-            usage_checked_at,
-            usage_status,
-            usage_source,
-            server: fields.server,
-            model: fields.model,
-            api_style: fields.api_style,
-        })
-        .ok_or_else(|| ApiError::not_found("Unknown account."))?;
-    state.save();
-    state.publish_account(updated.clone());
-    Ok(Json(updated))
-}
-
-async fn remove_account(
-    State(state): State<AppState>,
-    UrlPath(id): UrlPath<String>,
-) -> Result<Json<crate::state::RemovedAccount>, ApiError> {
-    let account = state
-        .account(&id)
-        .ok_or_else(|| ApiError::not_found("Unknown account."))?;
-
-    let blockers = state
-        .sessions()
-        .into_iter()
-        .map(|entry| entry.session())
-        .filter(|session| {
-            session.status == crate::state::SessionState::Active
-                && session.account_id.as_deref() == Some(account.id.as_str())
-        })
-        .map(|session| session.name)
-        .collect::<Vec<_>>();
-    if !blockers.is_empty() {
-        let message = if blockers.len() == 1 {
-            format!(
-                "{} is using this account. Switch or close it first.",
-                blockers[0]
-            )
-        } else {
-            format!(
-                "{} active sessions use this account. Switch or close them first.",
-                blockers.len()
-            )
-        };
-        return Err(ApiError::conflict(message));
-    }
-
-    if let Err(error) = delete_account_key(&state, &id).await {
-        tracing::error!(account = %id, %error, "could not delete account key");
-        return Err(ApiError::internal("Could not delete the account key."));
-    }
-
-    let removed = state
-        .remove_account_with_references(&id)
-        .ok_or_else(|| ApiError::not_found("Unknown account."))?;
-    state.save();
-    Ok(Json(removed))
 }
 
 fn safe_server_url(value: &str) -> bool {
@@ -1698,16 +1921,21 @@ async fn delete_account_key(state: &AppState, account_id: &str) -> Result<(), St
     }
 }
 
-async fn account_environment(
+async fn provider_environment(
     state: &AppState,
-    account: &Account,
+    provider: &Provider,
+    client: Client,
 ) -> Result<Vec<(String, String)>, ApiError> {
-    let key = if account.auth == Auth::Key && account.provider != antigravity::PROVIDER_ID {
-        Some(account_key(state, &account.id).await?)
+    let key = if provider.auth == Auth::Key && provider.vendor != antigravity::PROVIDER_ID {
+        Some(account_key(state, &provider.id).await?)
     } else {
         None
     };
-    Ok(crate::providers::environment(account, key.as_deref()))
+    Ok(crate::providers::environment(
+        provider,
+        client,
+        key.as_deref(),
+    ))
 }
 
 pub(crate) fn secret_environment_values(environment: &[(String, String)]) -> Vec<String> {
@@ -1745,56 +1973,70 @@ async fn create_session(
     let Json(mut request) = body.map_err(invalid_json)?;
     let size = requested_size(request.cols, request.rows)?;
     let launch_env = validated_env(request.env.take())?;
-    let preset = resolve_launch_preset(&state, request.preset_id.as_deref())?;
-    if request.kind == SessionKind::Terminal && preset.is_some() {
+    if request.kind == SessionKind::Terminal && request.config_id.is_some() {
         return Err(ApiError::bad_request(
-            "Presets apply to agent sessions only.",
+            "AI configs apply to agent sessions only.",
         ));
     }
-    if request.kind == SessionKind::Terminal && request.allowed_account_ids.is_some() {
+    if request.kind == SessionKind::Terminal && request.allowed_config_ids.is_some() {
         return Err(ApiError::bad_request(
-            "Allowed accounts apply to agent sessions only.",
+            "Allowed AI configs apply to agent sessions only.",
         ));
     }
-    if let Some(preset) = &preset {
-        match request
-            .account_id
-            .as_deref()
-            .map(str::trim)
-            .filter(|account| !account.is_empty())
-        {
-            Some(account_id) if account_id != preset.account_id => {
-                return Err(ApiError::unprocessable(
-                    "The account does not match the preset.",
-                ));
-            }
-            Some(_) => {}
-            None => request.account_id = Some(preset.account_id.clone()),
-        }
-    }
-    let env_overrides = match &preset {
-        Some(preset) => merged_environment(&preset.env, launch_env),
-        None => launch_env,
-    };
     let project = state
         .project(&request.project_id)
         .ok_or_else(|| ApiError::not_found("Unknown project."))?;
 
+    if request.allowed_config_ids.is_none()
+        && let Some(legacy) = request.allowed_account_ids.take()
+    {
+        request.allowed_config_ids = Some(
+            legacy
+                .iter()
+                .map(|id| {
+                    let id = id.trim();
+                    resolve_config_id(&state, id).unwrap_or_else(|| id.to_owned())
+                })
+                .collect(),
+        );
+    }
+    let config = match request.kind {
+        SessionKind::Agent => {
+            let requested = request
+                .config_id
+                .as_deref()
+                .or(request.account_id.as_deref())
+                .or(request.provider_id.as_deref())
+                .map(str::trim)
+                .filter(|id| !id.is_empty())
+                .ok_or_else(|| ApiError::bad_request("An agent session needs an AI config."))?;
+            let pair = resolve_config(&state, requested, request.client)
+                .ok_or_else(|| ApiError::not_found("Unknown AI config."))?;
+            request.config_id = Some(pair.0.id.clone());
+            Some(pair)
+        }
+        SessionKind::Terminal => None,
+    };
+
     let mut prepared = match request.kind {
         SessionKind::Terminal => prepare_terminal(&state, &request, &project)?,
-        SessionKind::Agent => prepare_agent(&state, &request, &project).await?,
+        SessionKind::Agent => {
+            let (config, provider) = config.as_ref().expect("an agent config");
+            prepare_agent(&state, &request, &project, config, provider).await?
+        }
     };
-    prepared.session.env_overrides = env_overrides.clone();
-    if let Some(preset) = &preset {
-        prepared.session.preset_id = Some(preset.id.clone());
-        prepared.session.model = preset.model.clone();
-        prepared.session.config = preset.config.clone();
-    }
+    prepared.session.env_overrides = launch_env.clone();
     let is_claude_agent = prepared.session.kind == SessionKind::Agent
         && prepared.session.client == Some(Client::ClaudeCode);
     let agent_client = prepared.session.client;
     let launch_model = prepared.session.model.clone();
+    let launch_effort = prepared.session.effort.clone();
+    let launch_args = prepared.session.args.clone();
     let launch_config = prepared.session.config.clone();
+    let config_environment = config
+        .as_ref()
+        .map(|(config, _)| config.env.clone())
+        .unwrap_or_default();
     let identity_guard = if prepared.repo_root.is_some() {
         Some(state.lock_agent_identity().await)
     } else {
@@ -1922,9 +2164,10 @@ async fn create_session(
     drop(identity_guard);
 
     if let Some(client) = agent_client {
-        apply_launch_arguments(
+        apply_model_arguments(
             client,
             launch_model.as_deref(),
+            launch_effort.as_deref(),
             &launch_config,
             &mut prepared.command,
         );
@@ -1945,14 +2188,14 @@ async fn create_session(
     }
 
     let mut environment = session_environment;
-    if let Some(account_id) = prepared.antigravity_account.as_deref() {
+    if let Some(provider_id) = prepared.antigravity_provider.as_deref() {
         let Some(data_dir) = state.data_dir().map(Path::to_path_buf) else {
             rollback_created_session(&state, &entry, &session_id, worktree_cleanup).await;
             return Err(ApiError::unprocessable(
                 "Agent sessions need a data directory.",
             ));
         };
-        let key = match account_key(&state, account_id).await {
+        let key = match account_key(&state, provider_id).await {
             Ok(key) => key,
             Err(error) => {
                 rollback_created_session(&state, &entry, &session_id, worktree_cleanup).await;
@@ -1979,7 +2222,10 @@ async fn create_session(
         }
     }
 
-    for item in &env_overrides {
+    for item in &config_environment {
+        environment.push((item.name.clone(), item.value.clone()));
+    }
+    for item in &launch_env {
         environment.push((item.name.clone(), item.value.clone()));
     }
 
@@ -2013,6 +2259,10 @@ async fn create_session(
             });
             opencode_base = Some(base_url);
         }
+    }
+
+    if agent_client.is_some() {
+        apply_extra_arguments(&launch_args, &mut prepared.command);
     }
 
     entry.set_redactions(secret_environment_values(&environment));
@@ -2132,10 +2382,23 @@ async fn rename_session(
     UrlPath(id): UrlPath<String>,
     body: Result<Json<RenameRequest>, JsonRejection>,
 ) -> Result<Json<Session>, ApiError> {
-    let Json(request) = body.map_err(invalid_json)?;
-    if request.name.is_none() && request.allowed_account_ids.is_none() {
+    let Json(mut request) = body.map_err(invalid_json)?;
+    if request.allowed_config_ids.is_none()
+        && let Some(legacy) = request.allowed_account_ids.take()
+    {
+        request.allowed_config_ids = Some(
+            legacy
+                .iter()
+                .map(|id| {
+                    let id = id.trim();
+                    resolve_config_id(&state, id).unwrap_or_else(|| id.to_owned())
+                })
+                .collect(),
+        );
+    }
+    if request.name.is_none() && request.allowed_config_ids.is_none() {
         return Err(ApiError::bad_request(
-            "Send a session name or allowed accounts.",
+            "Send a session name or allowed AI configs.",
         ));
     }
     let name = match request.name.as_deref() {
@@ -2155,23 +2418,23 @@ async fn rename_session(
         .session(&id)
         .ok_or_else(|| ApiError::not_found("Unknown session."))?;
     let session = entry.session();
-    let allowed = match request.allowed_account_ids.as_ref() {
+    let allowed = match request.allowed_config_ids.as_ref() {
         Some(ids) => {
             if session.kind != SessionKind::Agent {
                 return Err(ApiError::unprocessable(
-                    "Only agent sessions have accounts.",
+                    "Only agent sessions have AI configs.",
                 ));
             }
             if session.status != SessionState::Active {
                 return Err(ApiError::conflict(
-                    "Reopen the session before changing its accounts.",
+                    "Reopen the session before changing its AI configs.",
                 ));
             }
             let current = session
-                .account_id
+                .config_id
                 .as_deref()
-                .ok_or_else(|| ApiError::unprocessable("The session has no account."))?;
-            Some(validated_allowed_accounts(&state, ids, current)?)
+                .ok_or_else(|| ApiError::unprocessable("The session has no AI config."))?;
+            Some(validated_allowed_configs(&state, ids, current)?)
         }
         None => None,
     };
@@ -2188,7 +2451,7 @@ async fn rename_session(
     };
     if let Some(allowed) = allowed {
         updated = entry
-            .set_allowed_accounts(allowed)
+            .set_allowed_configs(allowed)
             .ok_or_else(|| ApiError::conflict("The session is busy."))?;
     }
     state.emit(SessionEvent::updated(updated.clone()));
@@ -2220,21 +2483,21 @@ async fn reopen_session(
     let mut environment = Vec::new();
     let mut opencode_base = None;
     let folder = if suspended.kind == SessionKind::Agent {
-        let account_id = suspended
-            .account_id
+        let config_id = suspended
+            .config_id
             .as_deref()
-            .ok_or_else(|| ApiError::unprocessable("Account is no longer available."))?;
-        let account = state
-            .account(account_id)
-            .ok_or_else(|| ApiError::unprocessable("Account is no longer available."))?;
-        environment = account_environment(&state, &account).await?;
+            .ok_or_else(|| ApiError::unprocessable("The AI config is no longer available."))?;
+        let (config, provider) = state
+            .config_with_provider(config_id)
+            .ok_or_else(|| ApiError::unprocessable("The AI config is no longer available."))?;
+        environment = provider_environment(&state, &provider, config.client).await?;
         if state.command_override().is_none()
             && state.agent_bin().is_none()
-            && clients::find_client(account.client).is_none()
+            && clients::find_client(config.client).is_none()
         {
             return Err(ApiError::unprocessable(format!(
                 "{} is not installed.",
-                account.client
+                config.client
             )));
         }
 
@@ -2282,9 +2545,10 @@ async fn reopen_session(
         for argument in sessions::resume_arguments(client, suspended.agent_session_id.as_deref()) {
             command.arg(argument);
         }
-        apply_launch_arguments(
+        apply_model_arguments(
             client,
             suspended.model.as_deref(),
+            suspended.effort.as_deref(),
             &suspended.config,
             &mut command,
         );
@@ -2298,14 +2562,14 @@ async fn reopen_session(
         }
     }
     if suspended.kind == SessionKind::Agent && suspended.client == Some(Client::Antigravity) {
-        let account_id = suspended
-            .account_id
+        let provider_id = suspended
+            .provider_id
             .as_deref()
-            .ok_or_else(|| ApiError::unprocessable("Account is no longer available."))?;
+            .ok_or_else(|| ApiError::unprocessable("The provider is no longer available."))?;
         let data_dir = state
             .data_dir()
             .ok_or_else(|| ApiError::unprocessable("Agent sessions need a data directory."))?;
-        let key = account_key(&state, account_id).await?;
+        let key = account_key(&state, provider_id).await?;
         let home = antigravity::prepare_home(
             data_dir,
             &id,
@@ -2339,6 +2603,7 @@ async fn reopen_session(
             });
             opencode_base = Some(base_url);
         }
+        apply_extra_arguments(&suspended.args, &mut command);
     }
 
     let handoff_context = (suspended.kind == SessionKind::Agent
@@ -2400,62 +2665,105 @@ async fn switch_options(
     let session = entry.session();
     if session.kind != SessionKind::Agent {
         return Err(ApiError::unprocessable(
-            "Only agent sessions have accounts.",
+            "Only agent sessions have AI configs.",
         ));
     }
-    let accounts = state.accounts();
+    let configs = state.configs();
+    let providers = state.providers();
     let next = crate::providers::auto_switch_target(
-        &accounts,
-        &session.allowed_account_ids,
+        &configs,
+        &providers,
+        &session.allowed_config_ids,
         session.client,
-        session.account_id.as_deref(),
+        session.config_id.as_deref(),
     );
     Ok(Json(SwitchOptions {
-        accounts,
-        allowed_account_ids: session.allowed_account_ids.clone(),
-        next_account_id: next.map(|account| account.id),
+        configs,
+        allowed_config_ids: session.allowed_config_ids.clone(),
+        next_config_id: next.map(|config| config.id),
     }))
 }
 
-async fn switch_session_account(
+async fn switch_session_config(
     State(state): State<AppState>,
     UrlPath(id): UrlPath<String>,
-    body: Result<Json<SwitchAccountRequest>, JsonRejection>,
+    body: Result<Json<SwitchConfigRequest>, JsonRejection>,
 ) -> Result<Json<Session>, ApiError> {
     let Json(request) = body.map_err(invalid_json)?;
+    switch_to_config(&state, &id, &request.config_id).await
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LegacySwitchRequest {
+    account_id: String,
+}
+
+/// The phone app switches by provider id. It gets the provider's config for
+/// the session's client when one exists.
+async fn switch_session_account_alias(
+    State(state): State<AppState>,
+    UrlPath(id): UrlPath<String>,
+    body: Result<Json<LegacySwitchRequest>, JsonRejection>,
+) -> Result<Json<Session>, ApiError> {
+    let Json(request) = body.map_err(invalid_json)?;
+    let account_id = request.account_id.trim();
     let entry = state
         .session(&id)
         .ok_or_else(|| ApiError::not_found("Unknown session."))?;
     let session = entry.session();
+    let config = state
+        .configs()
+        .into_iter()
+        .find(|config| config.provider_id == account_id && Some(config.client) == session.client)
+        .or_else(|| {
+            state
+                .configs()
+                .into_iter()
+                .find(|config| config.provider_id == account_id)
+        })
+        .ok_or_else(|| ApiError::not_found("Unknown provider."))?;
+    switch_to_config(&state, &id, &config.id).await
+}
+
+async fn switch_to_config(
+    state: &AppState,
+    session_id: &str,
+    config_id: &str,
+) -> Result<Json<Session>, ApiError> {
+    let entry = state
+        .session(session_id)
+        .ok_or_else(|| ApiError::not_found("Unknown session."))?;
+    let session = entry.session();
     if session.kind != SessionKind::Agent {
         return Err(ApiError::unprocessable(
-            "Only agent sessions have accounts.",
+            "Only agent sessions have AI configs.",
         ));
     }
     if session.status != SessionState::Active {
         return Err(ApiError::conflict("Reopen the session before switching."));
     }
-    let account_id = request.account_id.trim();
-    if account_id.is_empty() {
-        return Err(ApiError::bad_request("Choose an account."));
+    let config_id = config_id.trim();
+    if config_id.is_empty() {
+        return Err(ApiError::bad_request("Choose an AI config."));
     }
-    let account = state
-        .account(account_id)
-        .ok_or_else(|| ApiError::not_found("Unknown account."))?;
+    let (config, provider) = state
+        .config_with_provider(config_id)
+        .ok_or_else(|| ApiError::not_found("Unknown AI config."))?;
     if !session
-        .allowed_account_ids
+        .allowed_config_ids
         .iter()
-        .any(|allowed| allowed == account_id)
+        .any(|allowed| allowed == config_id)
     {
         return Err(ApiError::unprocessable(
-            "The account is not allowed for this session.",
+            "The AI config is not allowed for this session.",
         ));
     }
-    let same_client = session.client == Some(account.client);
+    let same_client = session.client == Some(config.client);
     let _guard = entry
         .try_lifecycle()
         .ok_or_else(|| ApiError::conflict("The session is busy."))?;
-    relaunch_with_account(&state, &entry, &account, same_client).await
+    relaunch_with_config(state, &entry, &config, &provider, same_client).await
 }
 
 async fn resume_session(
@@ -2480,47 +2788,54 @@ async fn resume_session(
     let Some(client) = session.client else {
         return Err(ApiError::unprocessable("The session has no client."));
     };
-    let account = crate::providers::auto_switch_target(
-        &state.accounts(),
-        &session.allowed_account_ids,
+    let config = crate::providers::auto_switch_target(
+        &state.configs(),
+        &state.providers(),
+        &session.allowed_config_ids,
         Some(client),
         None,
     )
-    .ok_or_else(|| ApiError::unprocessable("No allowed account has usage left."))?;
+    .ok_or_else(|| ApiError::unprocessable("No allowed AI config has usage left."))?;
+    let provider = state
+        .provider(&config.provider_id)
+        .ok_or_else(|| ApiError::unprocessable("The provider is no longer available."))?;
     let _guard = entry
         .try_lifecycle()
         .ok_or_else(|| ApiError::conflict("The session is busy."))?;
-    let same_client = session.client == Some(account.client);
-    relaunch_with_account(&state, &entry, &account, same_client).await
+    let same_client = session.client == Some(config.client);
+    relaunch_with_config(&state, &entry, &config, &provider, same_client).await
 }
 
-async fn relaunch_with_account(
+async fn relaunch_with_config(
     state: &AppState,
     entry: &Arc<SessionEntry>,
-    account: &Account,
+    config: &AiConfig,
+    provider: &Provider,
     resume: bool,
 ) -> Result<Json<Session>, ApiError> {
     let session = entry.session();
     if state.command_override().is_none()
         && state.agent_bin().is_none()
-        && clients::find_client(account.client).is_none()
+        && clients::find_client(config.client).is_none()
     {
         return Err(ApiError::unprocessable(format!(
             "{} is not installed.",
-            account.client
+            config.client
         )));
     }
 
-    let mut command = session_command(state, SessionKind::Agent, Some(account.client))?;
+    let mut command = session_command(state, SessionKind::Agent, Some(config.client))?;
     let saved_agent_session_id = resume.then(|| session.agent_session_id.clone()).flatten();
     if resume {
-        for argument in
-            sessions::resume_arguments(account.client, saved_agent_session_id.as_deref())
+        for argument in sessions::resume_arguments(config.client, saved_agent_session_id.as_deref())
         {
             command.arg(argument);
         }
     }
-    let mut environment = account_environment(state, account).await?;
+    let mut environment = provider_environment(state, provider, config.client).await?;
+    for item in &config.env {
+        environment.push((item.name.clone(), item.value.clone()));
+    }
     let folder = canonical_directory(PathBuf::from(&session.folder))?;
     let mut opencode_base = None;
     let handoff_context = (!resume).then(|| entry.handoff_context()).flatten();
@@ -2533,15 +2848,18 @@ async fn relaunch_with_account(
     }
     entry.remove_session_files();
 
-    let (model, config) = if resume {
-        (session.model.clone(), session.config.clone())
-    } else {
-        entry.set_launch_overrides(None, None, BTreeMap::new());
-        (None, BTreeMap::new())
-    };
-    apply_launch_arguments(account.client, model.as_deref(), &config, &mut command);
+    let launch_config = launch_config_map(config);
+    let launched = entry.set_launch_config(config, launch_config.clone());
+    debug_assert_eq!(launched.id, session.id);
+    apply_model_arguments(
+        config.client,
+        config.model.as_deref(),
+        config.effort.as_deref(),
+        &launch_config,
+        &mut command,
+    );
 
-    if account.client == Client::ClaudeCode {
+    if config.client == Client::ClaudeCode {
         match install_claude_settings(state, entry, &session.id) {
             Ok(settings_path) => {
                 if state.command_override().is_none() {
@@ -2549,26 +2867,31 @@ async fn relaunch_with_account(
                 }
             }
             Err(error) => {
-                let failed = entry.mark_switch_failed("The account switch failed.");
+                let failed = entry.mark_switch_failed("The AI config switch failed.");
                 state.emit(SessionEvent::updated(failed));
                 state.save();
                 return Err(error);
             }
         }
     }
-    if account.client == Client::Antigravity {
-        let key = account_key(state, &account.id).await?;
+    if config.client == Client::Antigravity {
+        let key = account_key(state, &provider.id).await?;
         let data_dir = state
             .data_dir()
             .ok_or_else(|| ApiError::unprocessable("Agent sessions need a data directory."))?;
-        match antigravity::prepare_home(data_dir, &session.id, model.as_deref(), &config) {
+        match antigravity::prepare_home(
+            data_dir,
+            &session.id,
+            config.model.as_deref(),
+            &launch_config,
+        ) {
             Ok(home) => {
                 entry.set_home(home.clone());
                 environment.extend(antigravity::environment(&home, &key));
             }
             Err(error) => {
                 tracing::error!(session = %session.id, %error, "could not prepare the Antigravity home");
-                let failed = entry.mark_switch_failed("The account switch failed.");
+                let failed = entry.mark_switch_failed("The AI config switch failed.");
                 state.emit(SessionEvent::updated(failed));
                 state.save();
                 return Err(ApiError::unprocessable(
@@ -2586,25 +2909,26 @@ async fn relaunch_with_account(
         state,
         entry,
         &session.id,
-        account.client,
+        config.client,
         &mut command,
         &mut environment,
     ) {
-        let failed = entry.mark_switch_failed("The account switch failed.");
+        let failed = entry.mark_switch_failed("The AI config switch failed.");
         state.emit(SessionEvent::updated(failed));
         state.save();
         return Err(error);
     }
-    if account.client == Client::Codex
+    apply_extra_arguments(&config.args, &mut command);
+    if config.client == Client::Codex
         && state.command_override().is_none()
         && let Err(error) = start_codex_runtime(state, entry, &mut command)
     {
-        let failed = entry.mark_switch_failed("The account switch failed.");
+        let failed = entry.mark_switch_failed("The AI config switch failed.");
         state.emit(SessionEvent::updated(failed));
         state.save();
         return Err(error);
     }
-    if account.client == Client::OpenCode2
+    if config.client == Client::OpenCode2
         && let Some(port) = crate::opencode::free_port()
     {
         crate::opencode::launch_args(&mut command, port);
@@ -2618,9 +2942,10 @@ async fn relaunch_with_account(
 
     entry.set_redactions(secret_environment_values(&environment));
     let switched = entry.finish_switch(
-        account.id.clone(),
-        account.client,
-        shortcuts::for_client(account.client),
+        config.id.clone(),
+        provider.id.clone(),
+        config.client,
+        shortcuts::for_client(config.client),
         saved_agent_session_id,
     );
     let size = entry.stored_size();
@@ -2633,10 +2958,10 @@ async fn relaunch_with_account(
         state.event_sender(),
         &environment,
     ) {
-        let failed = entry.mark_switch_failed(&format!("The account switch failed: {error}"));
+        let failed = entry.mark_switch_failed(&format!("The AI config switch failed: {error}"));
         state.emit(SessionEvent::updated(failed));
         state.save();
-        return Err(ApiError::unprocessable("The account switch failed."));
+        return Err(ApiError::unprocessable("The AI config switch failed."));
     }
 
     if let Some(base_url) = opencode_base {
@@ -2696,42 +3021,6 @@ async fn relaunch_terminal(
     Ok(Json(resumed))
 }
 
-async fn update_account_usage(
-    State(state): State<AppState>,
-    UrlPath(id): UrlPath<String>,
-    body: Result<Json<UsageRequest>, JsonRejection>,
-) -> Result<Json<Account>, ApiError> {
-    let Json(request) = body.map_err(invalid_json)?;
-    if request.rows.len() > 16 {
-        return Err(ApiError::bad_request("Too many usage rows."));
-    }
-    if request
-        .rows
-        .iter()
-        .any(|row| row.label.chars().count() > 80)
-    {
-        return Err(ApiError::bad_request("A usage label is too long."));
-    }
-    let account = crate::usage::apply_usage(&state, &id, crate::usage::MANUAL, request.rows)
-        .await
-        .ok_or_else(|| ApiError::not_found("Unknown account."))?;
-    state.save();
-    Ok(Json(account))
-}
-
-async fn refresh_account_usage(
-    State(state): State<AppState>,
-    UrlPath(id): UrlPath<String>,
-) -> Result<Json<Account>, ApiError> {
-    match crate::usage::refresh_account(&state, &id, true).await {
-        Ok(account) => Ok(Json(account)),
-        Err(crate::usage::RefreshError::Unknown) => Err(ApiError::not_found("Unknown account.")),
-        Err(crate::usage::RefreshError::Read) => {
-            Err(ApiError::bad_gateway("The usage read failed."))
-        }
-    }
-}
-
 async fn claude_statusline(
     State(state): State<AppState>,
     UrlPath(id): UrlPath<String>,
@@ -2743,10 +3032,10 @@ async fn claude_statusline(
     let session = entry.session();
     let Json(input) = body.map_err(|_| ApiError::bad_request("Invalid status line input."))?;
 
-    if let Some(account_id) = session.account_id.as_deref() {
+    if let Some(provider_id) = session.provider_id.as_deref() {
         let rows = crate::usage::claude_rows(&input);
         if !rows.is_empty() {
-            crate::usage::apply_usage(&state, account_id, crate::usage::STATUS_LINE, rows).await;
+            crate::usage::apply_usage(&state, provider_id, crate::usage::STATUS_LINE, rows).await;
         }
     }
 
@@ -2763,8 +3052,8 @@ async fn claude_statusline(
     Ok(StatusCode::NO_CONTENT.into_response())
 }
 
-pub(crate) async fn auto_switch_account(state: &AppState, account: &Account) {
-    let usage = crate::providers::usage_state(account);
+pub(crate) async fn auto_switch_provider(state: &AppState, provider: &Provider) {
+    let usage = crate::providers::usage_state(provider);
     if usage == crate::providers::UsageState::Room {
         resume_paused_sessions(state).await;
         return;
@@ -2778,16 +3067,17 @@ pub(crate) async fn auto_switch_account(state: &AppState, account: &Account) {
         let session = entry.session();
         if session.status != SessionState::Active
             || session.kind != SessionKind::Agent
-            || session.account_id.as_deref() != Some(account.id.as_str())
+            || session.provider_id.as_deref() != Some(provider.id.as_str())
         {
             continue;
         }
 
         let target = crate::providers::auto_switch_target(
-            &state.accounts(),
-            &session.allowed_account_ids,
+            &state.configs(),
+            &state.providers(),
+            &session.allowed_config_ids,
             session.client,
-            Some(account.id.as_str()),
+            session.config_id.as_deref(),
         );
 
         let Some(target) = target else {
@@ -2795,13 +3085,20 @@ pub(crate) async fn auto_switch_account(state: &AppState, account: &Account) {
                 continue;
             };
             let current = entry.session();
-            if current.account_id.as_deref() != Some(account.id.as_str())
+            if current.provider_id.as_deref() != Some(provider.id.as_str())
                 || current.work_state == Some(WorkState::Paused)
             {
                 continue;
             }
-            let _ =
-                pause_session(state, &entry, "Paused. No allowed account has usage left.").await;
+            let _ = pause_session(
+                state,
+                &entry,
+                "Paused. No allowed AI config has usage left.",
+            )
+            .await;
+            continue;
+        };
+        let Some(target_provider) = state.provider(&target.provider_id) else {
             continue;
         };
 
@@ -2810,22 +3107,21 @@ pub(crate) async fn auto_switch_account(state: &AppState, account: &Account) {
             continue;
         };
         let current = entry.session();
-        if current.account_id.as_deref() != Some(account.id.as_str())
+        if current.provider_id.as_deref() != Some(provider.id.as_str())
             || current.work_state == Some(WorkState::Paused)
         {
             continue;
         }
-        if relaunch_with_account(state, &entry, &target, same_client)
+        if relaunch_with_config(state, &entry, &target, &target_provider, same_client)
             .await
             .is_err()
         {
-            let _ = pause_session(state, &entry, "Paused. The account switch failed.").await;
+            let _ = pause_session(state, &entry, "Paused. The AI config switch failed.").await;
         }
     }
 }
 
 async fn resume_paused_sessions(state: &AppState) {
-    let accounts = state.accounts();
     for entry in state.sessions() {
         let session = entry.session();
         if session.status != SessionState::Active
@@ -2835,11 +3131,15 @@ async fn resume_paused_sessions(state: &AppState) {
             continue;
         }
         let Some(target) = crate::providers::auto_switch_target(
-            &accounts,
-            &session.allowed_account_ids,
+            &state.configs(),
+            &state.providers(),
+            &session.allowed_config_ids,
             session.client,
             None,
         ) else {
+            continue;
+        };
+        let Some(target_provider) = state.provider(&target.provider_id) else {
             continue;
         };
         let same_client = session.client == Some(target.client);
@@ -2849,11 +3149,11 @@ async fn resume_paused_sessions(state: &AppState) {
         if entry.session().work_state != Some(WorkState::Paused) {
             continue;
         }
-        if relaunch_with_account(state, &entry, &target, same_client)
+        if relaunch_with_config(state, &entry, &target, &target_provider, same_client)
             .await
             .is_err()
         {
-            let _ = pause_session(state, &entry, "Paused. The account switch failed.").await;
+            let _ = pause_session(state, &entry, "Paused. The AI config switch failed.").await;
         }
     }
 }
@@ -3543,7 +3843,7 @@ async fn approve_session_request(
         serde_json::json!({
             "projectId": pending.project_id,
             "kind": "agent",
-            "accountId": pending.account_id,
+            "configId": pending.config_id,
             "name": pending.name,
             "folder": pending.folder,
             "sourceBranch": pending.source_branch,
@@ -4083,8 +4383,12 @@ fn prepare_terminal(
         status: SessionState::Active,
         work_state: Some(WorkState::Working),
         client: None,
-        account_id: None,
-        allowed_account_ids: Vec::new(),
+        config_id: None,
+        allowed_config_ids: Vec::new(),
+        provider_id: None,
+        legacy_account_id: None,
+        legacy_allowed_account_ids: Vec::new(),
+        legacy_preset_id: None,
         branch: None,
         folder: path_string(&folder),
         preview: "Terminal ready.".to_owned(),
@@ -4094,8 +4398,9 @@ fn prepare_terminal(
         parent_session_id: None,
         parent_session_name: None,
         env_overrides: Vec::new(),
-        preset_id: None,
         model: None,
+        effort: None,
+        args: Vec::new(),
         config: BTreeMap::new(),
         agent_session_id: None,
         handoff_note: None,
@@ -4110,7 +4415,7 @@ fn prepare_terminal(
         folder,
         command,
         repo_root: None,
-        antigravity_account: None,
+        antigravity_provider: None,
         environment: Vec::new(),
         startup_input: None,
     })
@@ -4120,27 +4425,21 @@ async fn prepare_agent(
     state: &AppState,
     request: &CreateSessionRequest,
     project: &Project,
+    config: &AiConfig,
+    provider: &Provider,
 ) -> Result<PreparedSession, ApiError> {
-    let account_id = request
-        .account_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|account| !account.is_empty())
-        .ok_or_else(|| ApiError::bad_request("An agent session needs an account."))?;
-    let account = state
-        .account(account_id)
-        .ok_or_else(|| ApiError::not_found("Unknown account."))?;
-    let allowed_account_ids = match request.allowed_account_ids.as_ref() {
-        Some(ids) => validated_allowed_accounts(state, ids, &account.id)?,
-        None => crate::providers::default_allowed_accounts(
-            &state.accounts(),
-            Some(account.client),
-            Some(&account.id),
+    let allowed_config_ids = match request.allowed_config_ids.as_ref() {
+        Some(ids) => validated_allowed_configs(state, ids, &config.id)?,
+        None => crate::providers::default_allowed_configs(
+            &state.configs(),
+            &state.providers(),
+            Some(config.client),
+            Some(&config.id),
         ),
     };
 
-    let command = session_command(state, SessionKind::Agent, Some(account.client))?;
-    let environment = account_environment(state, &account).await?;
+    let command = session_command(state, SessionKind::Agent, Some(config.client))?;
+    let environment = provider_environment(state, provider, config.client).await?;
     let folder = canonical_directory(requested_folder(request, project))?;
     let repo_root = git::repo_root(folder, state.git_timeout())
         .await
@@ -4154,10 +4453,10 @@ async fn prepare_agent(
     let first_prompt = requested_prompt(request.first_prompt.as_deref());
     let name = requested_name(request.name.as_deref())
         .or_else(|| first_prompt.as_deref().map(name_from_prompt))
-        .unwrap_or_else(|| format!("{} session", account.client));
+        .unwrap_or_else(|| format!("{} session", config.client));
     let short = slugify(&name, "session");
     let agent_session_id =
-        (account.client == Client::ClaudeCode).then(|| uuid::Uuid::new_v4().to_string());
+        (config.client == Client::ClaudeCode).then(|| uuid::Uuid::new_v4().to_string());
     let mut command = command;
     if let Some(id) = agent_session_id.as_deref()
         && state.command_override().is_none()
@@ -4167,10 +4466,10 @@ async fn prepare_agent(
     }
     let mut startup_input = None;
     if let Some(prompt) = first_prompt.as_deref() {
-        if sessions::client_needs_prompt_input(account.client) {
+        if sessions::client_needs_prompt_input(config.client) {
             startup_input = Some(prompt.to_owned());
         } else {
-            for argument in sessions::prompt_arguments(account.client, prompt) {
+            for argument in sessions::prompt_arguments(config.client, prompt) {
                 command.arg(argument);
             }
         }
@@ -4183,27 +4482,32 @@ async fn prepare_agent(
         kind: SessionKind::Agent,
         status: SessionState::Active,
         work_state: Some(WorkState::Working),
-        client: Some(account.client),
-        account_id: Some(account.id.clone()),
-        allowed_account_ids,
+        client: Some(config.client),
+        config_id: Some(config.id.clone()),
+        allowed_config_ids,
+        provider_id: Some(provider.id.clone()),
+        legacy_account_id: None,
+        legacy_allowed_account_ids: Vec::new(),
+        legacy_preset_id: None,
         branch: None,
         folder: path_string(&repo_root),
-        preview: format!("{} is starting.", account.client),
+        preview: format!("{} is starting.", config.client),
         waiting_for: None,
         pending_permission: None,
         first_prompt,
         parent_session_id: request.parent_session_id.clone(),
         parent_session_name: request.parent_session_name.clone(),
         env_overrides: request.env.clone().unwrap_or_default(),
-        preset_id: None,
-        model: None,
-        config: BTreeMap::new(),
+        model: config.model.clone(),
+        effort: config.effort.clone(),
+        args: config.args.clone(),
+        config: launch_config_map(config),
         agent_session_id,
         handoff_note: None,
         context_left: None,
         demo_servers: Vec::new(),
         started_at: timestamp(),
-        shortcuts: shortcuts::for_client(account.client),
+        shortcuts: shortcuts::for_client(config.client),
     };
 
     Ok(PreparedSession {
@@ -4211,7 +4515,7 @@ async fn prepare_agent(
         folder: repo_root.clone(),
         command,
         repo_root: Some(repo_root),
-        antigravity_account: (account.client == Client::Antigravity).then(|| account.id.clone()),
+        antigravity_provider: (config.client == Client::Antigravity).then(|| provider.id.clone()),
         environment,
         startup_input,
     })

@@ -1,32 +1,35 @@
 import { API_BASE } from './base';
 import type {
-  Account,
+  AiConfig,
   ApiErrorPayload,
   ApproveSessionResult,
   BootstrapResponse,
   Branch,
   BrowserState,
-  CreateAccountInput,
-  CreatePresetInput,
+  Client,
+  CreateConfigInput,
   CreateProjectInput,
+  CreateProviderInput,
   CreateSessionInput,
   FileContent,
   FileList,
   GitStatus,
   HealthResponse,
-  LaunchPreset,
+  ModelList,
   PermissionDecision,
   Project,
-  ProviderInfo,
+  Provider,
+  ProviderOption,
   Question,
-  RemoveAccountResult,
   Session,
   SessionChanges,
   SessionRequest,
   SharedFile,
   SwitchOptions,
-  UpdatePresetInput,
+  UpdateConfigInput,
   UpdateProjectDefaultsInput,
+  UpdateProviderInput,
+  UsageRow,
 } from './types';
 
 export class ApiError extends Error {
@@ -78,8 +81,105 @@ export function health(): Promise<HealthResponse> {
   return request<HealthResponse>('/api/health');
 }
 
-export function listProviders(): Promise<ProviderInfo[]> {
-  return request<ProviderInfo[]>('/api/providers');
+export function listProviderOptions(): Promise<ProviderOption[]> {
+  return request<ProviderOption[]>('/api/provider-options');
+}
+
+export function listProviders(
+  query: string,
+  signal?: AbortSignal,
+): Promise<Provider[]> {
+  const params = new URLSearchParams({ q: query });
+  return request<Provider[]>(
+    `/api/providers?${params.toString()}`,
+    signal ? { signal } : undefined,
+  );
+}
+
+export function createProvider(input: CreateProviderInput): Promise<Provider> {
+  return request<Provider>('/api/providers', post(input));
+}
+
+export function updateProvider(
+  id: string,
+  input: UpdateProviderInput,
+): Promise<Provider> {
+  return request<Provider>(`/api/providers/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+}
+
+export function removeProvider(id: string): Promise<void> {
+  return request<void>(`/api/providers/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
+}
+
+export function listProviderModels(
+  id: string,
+  client: Client,
+  signal?: AbortSignal,
+): Promise<ModelList> {
+  const params = new URLSearchParams({ client });
+  return request<ModelList>(
+    `/api/providers/${encodeURIComponent(id)}/models?${params.toString()}`,
+    signal ? { signal } : undefined,
+  );
+}
+
+export function getProviderUsage(id: string): Promise<Provider> {
+  return request<Provider>(`/api/providers/${encodeURIComponent(id)}/usage`);
+}
+
+export function updateProviderUsage(
+  id: string,
+  rows: UsageRow[],
+): Promise<Provider> {
+  return request<Provider>(
+    `/api/providers/${encodeURIComponent(id)}/usage`,
+    post({ rows }),
+  );
+}
+
+export function refreshProviderUsage(id: string): Promise<Provider> {
+  return request<Provider>(
+    `/api/providers/${encodeURIComponent(id)}/usage/refresh`,
+    post({}),
+  );
+}
+
+export function listConfigs(
+  query: string,
+  signal?: AbortSignal,
+): Promise<AiConfig[]> {
+  const params = new URLSearchParams({ q: query });
+  return request<AiConfig[]>(
+    `/api/configs?${params.toString()}`,
+    signal ? { signal } : undefined,
+  );
+}
+
+export function createConfig(input: CreateConfigInput): Promise<AiConfig> {
+  return request<AiConfig>('/api/configs', post(input));
+}
+
+export function updateConfig(
+  id: string,
+  input: UpdateConfigInput,
+): Promise<AiConfig> {
+  return request<AiConfig>(`/api/configs/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+}
+
+export function deleteConfig(id: string): Promise<void> {
+  return request<void>(`/api/configs/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
 }
 
 export function listQuestions(): Promise<Question[]> {
@@ -128,49 +228,6 @@ export function listProjects(
   );
 }
 
-export function listAccounts(
-  query: string,
-  signal?: AbortSignal,
-): Promise<Account[]> {
-  const params = new URLSearchParams({ q: query });
-  return request<Account[]>(
-    `/api/accounts?${params.toString()}`,
-    signal ? { signal } : undefined,
-  );
-}
-
-export function listPresets(
-  query: string,
-  signal?: AbortSignal,
-): Promise<LaunchPreset[]> {
-  const params = new URLSearchParams({ q: query });
-  return request<LaunchPreset[]>(
-    `/api/presets?${params.toString()}`,
-    signal ? { signal } : undefined,
-  );
-}
-
-export function createPreset(input: CreatePresetInput): Promise<LaunchPreset> {
-  return request<LaunchPreset>('/api/presets', post(input));
-}
-
-export function updatePreset(
-  id: string,
-  input: UpdatePresetInput,
-): Promise<LaunchPreset> {
-  return request<LaunchPreset>(`/api/presets/${encodeURIComponent(id)}`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(input),
-  });
-}
-
-export function deletePreset(id: string): Promise<void> {
-  return request<void>(`/api/presets/${encodeURIComponent(id)}`, {
-    method: 'DELETE',
-  });
-}
-
 export function listBranches(
   folder: string,
   query: string,
@@ -213,28 +270,6 @@ export function createSession(input: CreateSessionInput): Promise<Session> {
   return request<Session>('/api/sessions', post(input));
 }
 
-export function createAccount(input: CreateAccountInput): Promise<Account> {
-  return request<Account>('/api/accounts', post(input));
-}
-
-export function updateAccount(
-  id: string,
-  input: CreateAccountInput,
-): Promise<Account> {
-  return request<Account>(`/api/accounts/${encodeURIComponent(id)}`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(input),
-  });
-}
-
-export function removeAccount(id: string): Promise<RemoveAccountResult> {
-  return request<RemoveAccountResult>(
-    `/api/accounts/${encodeURIComponent(id)}`,
-    { method: 'DELETE' },
-  );
-}
-
 export function closeSession(id: string): Promise<Session> {
   return request<Session>(`/api/sessions/${encodeURIComponent(id)}/close`, post({}));
 }
@@ -251,12 +286,12 @@ export function reopenSession(id: string): Promise<Session> {
   return request<Session>(`/api/sessions/${encodeURIComponent(id)}/reopen`, post({}));
 }
 
-export function switchSessionAccount(
+export function switchSessionConfig(
   id: string,
-  accountId: string,
+  configId: string,
 ): Promise<Session> {
-  return request<Session>(`/api/sessions/${encodeURIComponent(id)}/account`, post({
-    accountId,
+  return request<Session>(`/api/sessions/${encodeURIComponent(id)}/config`, post({
+    configId,
   }));
 }
 
@@ -266,14 +301,14 @@ export function getSwitchOptions(id: string): Promise<SwitchOptions> {
   );
 }
 
-export function updateSessionAllowedAccounts(
+export function updateSessionAllowedConfigs(
   id: string,
-  accountIds: string[],
+  configIds: string[],
 ): Promise<Session> {
   return request<Session>(`/api/sessions/${encodeURIComponent(id)}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ allowedAccountIds: accountIds }),
+    body: JSON.stringify({ allowedConfigIds: configIds }),
   });
 }
 

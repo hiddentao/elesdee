@@ -9,6 +9,7 @@ pub mod files;
 mod git;
 pub mod link;
 mod mcp;
+mod model_list;
 mod opencode;
 mod overrides;
 mod persist;

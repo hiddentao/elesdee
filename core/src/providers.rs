@@ -1,12 +1,17 @@
-use crate::state::{Account, Auth, Client};
+use crate::state::{AiConfig, Auth, Client, Provider};
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ApiStyle {
+    OpenAi,
+    Anthropic,
+}
 
 #[derive(Clone, Copy, Debug)]
 pub struct ProviderDef {
     pub id: &'static str,
     pub label: &'static str,
-    pub client: Client,
     pub auth: &'static [Auth],
-    pub base_url: Option<&'static str>,
+    pub clients: &'static [Client],
     pub default_model: Option<&'static str>,
     pub custom: bool,
 }
@@ -15,94 +20,91 @@ const KEY_ONLY: &[Auth] = &[Auth::Key];
 const SUBSCRIPTION_OR_KEY: &[Auth] = &[Auth::Subscription, Auth::Key];
 const KEY_OR_LOCAL: &[Auth] = &[Auth::Key, Auth::Local];
 
+const CLAUDE_AND_OPENCODE: &[Client] = &[Client::ClaudeCode, Client::OpenCode2];
+const CODEX_AND_OPENCODE: &[Client] = &[Client::Codex, Client::OpenCode2];
+const OPENCODE_AND_CODEX: &[Client] = &[Client::OpenCode2, Client::Codex];
+const DEEPSEEK_CLIENTS: &[Client] = &[Client::ClaudeCode, Client::Codex, Client::OpenCode2];
+const GOOGLE_CLIENTS: &[Client] = &[Client::Antigravity];
+const LOCAL_CLIENTS: &[Client] = &[Client::ClaudeCode, Client::OpenCode2];
+
 pub const PROVIDERS: &[ProviderDef] = &[
     ProviderDef {
         id: "anthropic",
         label: "Anthropic",
-        client: Client::ClaudeCode,
         auth: SUBSCRIPTION_OR_KEY,
-        base_url: None,
+        clients: CLAUDE_AND_OPENCODE,
         default_model: None,
         custom: false,
     },
     ProviderDef {
         id: "openai",
         label: "OpenAI",
-        client: Client::Codex,
         auth: SUBSCRIPTION_OR_KEY,
-        base_url: None,
+        clients: CODEX_AND_OPENCODE,
         default_model: None,
         custom: false,
     },
     ProviderDef {
         id: "google",
         label: "Google",
-        client: Client::Antigravity,
         auth: KEY_ONLY,
-        base_url: None,
+        clients: GOOGLE_CLIENTS,
         default_model: Some(crate::antigravity::DEFAULT_MODEL),
         custom: false,
     },
     ProviderDef {
         id: "deepseek",
         label: "DeepSeek",
-        client: Client::ClaudeCode,
         auth: KEY_ONLY,
-        base_url: Some("https://api.deepseek.com/anthropic"),
+        clients: DEEPSEEK_CLIENTS,
         default_model: None,
         custom: false,
     },
     ProviderDef {
         id: "kimi",
         label: "Kimi (Moonshot)",
-        client: Client::ClaudeCode,
         auth: KEY_ONLY,
-        base_url: Some("https://api.moonshot.ai/anthropic"),
+        clients: CLAUDE_AND_OPENCODE,
         default_model: None,
         custom: false,
     },
     ProviderDef {
         id: "zai",
         label: "Z.ai",
-        client: Client::ClaudeCode,
         auth: KEY_ONLY,
-        base_url: Some("https://api.z.ai/api/anthropic"),
+        clients: CLAUDE_AND_OPENCODE,
         default_model: None,
         custom: false,
     },
     ProviderDef {
         id: "openrouter",
         label: "OpenRouter",
-        client: Client::OpenCode2,
         auth: KEY_ONLY,
-        base_url: None,
+        clients: OPENCODE_AND_CODEX,
         default_model: None,
         custom: false,
     },
     ProviderDef {
         id: "ollama",
         label: "Ollama",
-        client: Client::ClaudeCode,
         auth: KEY_OR_LOCAL,
-        base_url: None,
+        clients: LOCAL_CLIENTS,
         default_model: None,
         custom: false,
     },
     ProviderDef {
         id: "lmstudio",
         label: "LM Studio",
-        client: Client::ClaudeCode,
         auth: KEY_OR_LOCAL,
-        base_url: None,
+        clients: LOCAL_CLIENTS,
         default_model: None,
         custom: false,
     },
     ProviderDef {
         id: "custom",
         label: "Custom provider",
-        client: Client::OpenCode2,
         auth: KEY_OR_LOCAL,
-        base_url: None,
+        clients: CLAUDE_AND_OPENCODE,
         default_model: None,
         custom: true,
     },
@@ -114,89 +116,219 @@ pub fn find(id: &str) -> Option<&'static ProviderDef> {
 
 pub fn clients_for_style(style: &str) -> &'static [Client] {
     match style {
-        "openai" => &[Client::Codex, Client::OpenCode2],
-        "anthropic" => &[Client::ClaudeCode, Client::OpenCode2],
+        "openai" => CODEX_AND_OPENCODE,
+        "anthropic" => CLAUDE_AND_OPENCODE,
         _ => &[],
     }
 }
 
-pub fn environment(account: &Account, key: Option<&str>) -> Vec<(String, String)> {
-    let mut environment = Vec::new();
-    let base = account.server.clone().or_else(|| {
-        find(&account.provider).and_then(|provider| provider.base_url.map(str::to_owned))
-    });
-    let model = account.model.clone();
+/// The clients a stored provider can run.
+///
+/// A custom provider follows its API style. Every other vendor has a fixed
+/// list, and DeepSeek runs on three clients.
+pub fn supported_clients(provider: &Provider) -> Vec<Client> {
+    if provider.vendor == "custom" {
+        return provider
+            .api_style
+            .as_deref()
+            .map(clients_for_style)
+            .map(<[Client]>::to_vec)
+            .unwrap_or_default();
+    }
+    find(&provider.vendor)
+        .map(|definition| definition.clients.to_vec())
+        .unwrap_or_default()
+}
 
+pub fn supports_client(provider: &Provider, client: Client) -> bool {
+    supported_clients(provider).contains(&client)
+}
+
+/// The effort levels a client accepts, from low to high.
+pub fn effort_levels(client: Client) -> &'static [&'static str] {
+    match client {
+        Client::ClaudeCode => &["low", "medium", "high", "xhigh", "max"],
+        Client::Codex => &["minimal", "low", "medium", "high"],
+        Client::OpenCode2 => &["low", "medium", "high"],
+        Client::Antigravity => &["low", "medium", "high"],
+    }
+}
+
+pub fn valid_effort(client: Client, effort: &str) -> bool {
+    effort_levels(client).contains(&effort)
+}
+
+/// The model list to show when the provider read fails or the vendor has no
+/// documented source.
+pub fn known_models(vendor: &str) -> Vec<(String, String)> {
+    let ids: &[&str] = match vendor {
+        "anthropic" => &["claude-sonnet-4-5", "claude-opus-4-1", "claude-haiku-4-5"],
+        "openai" => &["gpt-5.2", "gpt-5.1", "gpt-5-mini"],
+        "google" => &[crate::antigravity::DEFAULT_MODEL, "gemini-3.8-pro-high"],
+        "deepseek" => &["deepseek-chat", "deepseek-reasoner"],
+        "kimi" => &["kimi-k2", "kimi-k2-turbo"],
+        "zai" => &["glm-4.6", "glm-4.5"],
+        "openrouter" => &["openai/gpt-5.2", "anthropic/claude-sonnet-4-5"],
+        "ollama" => &["llama3.2", "qwen2.5-coder"],
+        "lmstudio" => &["local-model"],
+        _ => &[],
+    };
+    ids.iter()
+        .map(|id| ((*id).to_owned(), label_for(id)))
+        .collect()
+}
+
+fn label_for(id: &str) -> String {
+    id.to_owned()
+}
+
+pub struct Endpoint {
+    pub style: ApiStyle,
+    pub base: String,
+}
+
+fn trimmed(base: &str) -> String {
+    base.trim_end_matches('/').to_owned()
+}
+
+/// The API endpoint for one client, and the style it speaks.
+///
+/// A stored server address overrides the vendor default. The client chooses
+/// between the two styles where a vendor offers both.
+pub fn endpoint(provider: &Provider, client: Client) -> Option<Endpoint> {
+    let server = provider
+        .server
+        .as_deref()
+        .map(str::trim)
+        .filter(|server| !server.is_empty());
+    let custom_style = provider.api_style.as_deref();
+    let style = match provider.vendor.as_str() {
+        "custom" => match custom_style {
+            Some("openai") => ApiStyle::OpenAi,
+            Some("anthropic") => ApiStyle::Anthropic,
+            _ if client == Client::ClaudeCode => ApiStyle::Anthropic,
+            _ => ApiStyle::OpenAi,
+        },
+        "anthropic" | "kimi" | "zai" => {
+            if client == Client::ClaudeCode {
+                ApiStyle::Anthropic
+            } else {
+                ApiStyle::OpenAi
+            }
+        }
+        "deepseek" => {
+            if client == Client::ClaudeCode {
+                ApiStyle::Anthropic
+            } else {
+                ApiStyle::OpenAi
+            }
+        }
+        "ollama" | "lmstudio" => {
+            if client == Client::ClaudeCode {
+                ApiStyle::Anthropic
+            } else {
+                ApiStyle::OpenAi
+            }
+        }
+        _ => ApiStyle::OpenAi,
+    };
+
+    let base = match provider.vendor.as_str() {
+        "anthropic" => server
+            .map(str::to_owned)
+            .unwrap_or_else(|| "https://api.anthropic.com".to_owned()),
+        "openai" => server
+            .map(str::to_owned)
+            .unwrap_or_else(|| "https://api.openai.com/v1".to_owned()),
+        "google" => server.map(str::to_owned).unwrap_or_else(|| {
+            "https://generativelanguage.googleapis.com/v1beta/openai".to_owned()
+        }),
+        "deepseek" => match server {
+            Some(server) => server.to_owned(),
+            None if style == ApiStyle::Anthropic => "https://api.deepseek.com/anthropic".to_owned(),
+            None => "https://api.deepseek.com".to_owned(),
+        },
+        "kimi" => match server {
+            Some(server) => server.to_owned(),
+            None if style == ApiStyle::Anthropic => "https://api.moonshot.ai/anthropic".to_owned(),
+            None => "https://api.moonshot.ai/v1".to_owned(),
+        },
+        "zai" => match server {
+            Some(server) => server.to_owned(),
+            None if style == ApiStyle::Anthropic => "https://api.z.ai/api/anthropic".to_owned(),
+            None => "https://api.z.ai/api/paas/v4".to_owned(),
+        },
+        "openrouter" => server
+            .map(str::to_owned)
+            .unwrap_or_else(|| "https://openrouter.ai/api/v1".to_owned()),
+        "ollama" | "lmstudio" | "custom" => {
+            let server = server?;
+            if style == ApiStyle::OpenAi && !server.ends_with("/v1") {
+                format!("{}/v1", server.trim_end_matches('/'))
+            } else {
+                server.to_owned()
+            }
+        }
+        _ => server.map(str::to_owned)?,
+    };
+
+    Some(Endpoint {
+        style,
+        base: trimmed(&base),
+    })
+}
+
+/// The environment that points a client at the provider.
+///
+/// Subscription providers need no key here, because the installed agent stores
+/// its own credential.
+pub fn environment(
+    provider: &Provider,
+    client: Client,
+    key: Option<&str>,
+) -> Vec<(String, String)> {
+    if provider.vendor == crate::antigravity::PROVIDER_ID {
+        return Vec::new();
+    }
+    let Some(endpoint) = endpoint(provider, client) else {
+        return Vec::new();
+    };
+    let mut environment = Vec::new();
     let mut add = |name: &str, value: String| {
         if !value.is_empty() {
             environment.push((name.to_owned(), value));
         }
     };
 
-    if account.provider == "custom" {
-        match account.api_style.as_deref() {
-            Some("openai") => {
-                if let Some(base) = base {
-                    add("OPENAI_BASE_URL", base);
-                }
+    match endpoint.style {
+        ApiStyle::Anthropic => {
+            let direct = provider.vendor == "anthropic" && provider.server.is_none();
+            if direct {
                 if let Some(key) = key {
-                    add("OPENAI_API_KEY", key.to_owned());
+                    add("ANTHROPIC_API_KEY", key.to_owned());
                 }
-                if let Some(model) = model {
-                    add("OPENAI_MODEL", model);
+            } else {
+                add("ANTHROPIC_BASE_URL", endpoint.base.clone());
+                match key {
+                    Some(key) => add("ANTHROPIC_AUTH_TOKEN", key.to_owned()),
+                    None if provider.auth == Auth::Local => {
+                        add("ANTHROPIC_AUTH_TOKEN", "local".to_owned());
+                    }
+                    None => {}
                 }
-            }
-            Some("anthropic") => {
-                if let Some(base) = base {
-                    add("ANTHROPIC_BASE_URL", base);
-                }
-                if let Some(key) = key {
-                    add("ANTHROPIC_AUTH_TOKEN", key.to_owned());
-                }
-                if let Some(model) = model {
-                    add("ANTHROPIC_MODEL", model);
-                }
-            }
-            _ => {}
-        }
-        return environment;
-    }
-
-    match account.provider.as_str() {
-        "anthropic" => {
-            if let Some(key) = key {
-                add("ANTHROPIC_API_KEY", key.to_owned());
             }
         }
-        "openai" => {
+        ApiStyle::OpenAi => {
+            if !(provider.vendor == "openai" && provider.server.is_none()) {
+                add("OPENAI_BASE_URL", endpoint.base.clone());
+            }
             if let Some(key) = key {
                 add("OPENAI_API_KEY", key.to_owned());
-            }
-        }
-        "deepseek" | "kimi" | "zai" | "ollama" | "lmstudio" => {
-            if let Some(base) = base {
-                add("ANTHROPIC_BASE_URL", base);
-            }
-            match key {
-                Some(key) => add("ANTHROPIC_AUTH_TOKEN", key.to_owned()),
-                None if matches!(account.auth, Auth::Local) => {
-                    add("ANTHROPIC_AUTH_TOKEN", "local".to_owned());
+                if provider.vendor == "openrouter" {
+                    add("OPENROUTER_API_KEY", key.to_owned());
                 }
-                None => {}
-            }
-            if let Some(model) = model {
-                add("ANTHROPIC_MODEL", model);
             }
         }
-        "openrouter" => {
-            if let Some(key) = key {
-                add("OPENROUTER_API_KEY", key.to_owned());
-            }
-            if let Some(model) = model {
-                add("OPENCODE_MODEL", model);
-            }
-        }
-        _ => {}
     }
 
     environment
@@ -209,10 +341,10 @@ pub enum UsageState {
     NearLimit,
 }
 
-pub fn usage_state(account: &Account) -> UsageState {
+pub fn usage_state(provider: &Provider) -> UsageState {
     let mut known = false;
     let mut near = false;
-    for row in &account.rows {
+    for row in &provider.rows {
         if let Some(used) = row.used {
             known = true;
             if used >= 90 {
@@ -250,8 +382,8 @@ fn parse_number(value: &str) -> Option<f64> {
     number.parse().ok()
 }
 
-pub fn remaining_percent(account: &Account) -> Option<u8> {
-    account
+pub fn remaining_percent(provider: &Provider) -> Option<u8> {
+    provider
         .rows
         .iter()
         .filter_map(|row| row.used)
@@ -259,42 +391,47 @@ pub fn remaining_percent(account: &Account) -> Option<u8> {
         .min()
 }
 
-/// The accounts a session may use when the launch does not name a list.
+/// The configs a session may use when the launch does not name a list.
 ///
 /// The default keeps the session on its starting client, so an automatic
-/// switch continues the same conversation. The starting account is always
-/// included, even when it is a sample.
-pub fn default_allowed_accounts(
-    accounts: &[Account],
+/// switch continues the same conversation. The starting config is always
+/// included, even when its provider is a sample.
+pub fn default_allowed_configs(
+    configs: &[AiConfig],
+    providers: &[Provider],
     client: Option<Client>,
-    account_id: Option<&str>,
+    config_id: Option<&str>,
 ) -> Vec<String> {
     let mut ids = Vec::new();
     if let Some(client) = client {
-        for account in accounts {
-            if !account.sample && account.client == client {
-                ids.push(account.id.clone());
+        for config in configs {
+            let sample = providers
+                .iter()
+                .find(|provider| provider.id == config.provider_id)
+                .is_none_or(|provider| provider.sample);
+            if !sample && config.client == client && !ids.iter().any(|id| id == &config.id) {
+                ids.push(config.id.clone());
             }
         }
     }
-    if let Some(account_id) = account_id
-        && !ids.iter().any(|id| id == account_id)
+    if let Some(config_id) = config_id
+        && !ids.iter().any(|id| id == config_id)
     {
-        ids.push(account_id.to_owned());
+        ids.push(config_id.to_owned());
     }
     ids
 }
 
-fn subscription_rank(account: &Account) -> u8 {
-    if account.auth == Auth::Subscription {
+fn subscription_rank(provider: Option<&Provider>) -> u8 {
+    if provider.is_some_and(|provider| provider.auth == Auth::Subscription) {
         1
     } else {
         0
     }
 }
 
-fn balance_above_min(account: &Account) -> Option<i64> {
-    account
+fn balance_above_min(provider: &Provider) -> Option<i64> {
+    provider
         .rows
         .iter()
         .filter_map(|row| {
@@ -305,45 +442,46 @@ fn balance_above_min(account: &Account) -> Option<i64> {
         .min()
 }
 
-/// The room left in an account, for ordering candidates.
-///
-/// Plan limits use the smallest remaining percentage. A prepaid balance uses
-/// the smallest amount above its minimum. The two values never mix for one
-/// account.
-pub fn remaining_room(account: &Account) -> (u8, i64) {
+/// The room left in a provider, for ordering candidates.
+pub fn remaining_room(provider: &Provider) -> (u8, i64) {
     (
-        remaining_percent(account).unwrap_or(0),
-        balance_above_min(account).unwrap_or(0),
+        remaining_percent(provider).unwrap_or(0),
+        balance_above_min(provider).unwrap_or(0),
     )
 }
 
-/// Picks the account the automatic switch moves to next.
+/// Picks the config the automatic switch moves to next.
 ///
-/// It skips samples, the current account and accounts without room, and it
-/// stays inside the session's allowed list. Subscription accounts come first,
-/// then pay-per-use accounts. Within a group the account with the most room
-/// wins. A tie keeps the session on its current client, then falls back to the
-/// account id for a stable result.
+/// It skips samples, the current config and configs without room, and it stays
+/// inside the session's allowed list. Subscription providers come first, then
+/// pay-per-use providers. Within a group the provider with the most room wins.
+/// A tie keeps the session on its current client, then falls back to the config
+/// id for a stable result.
 pub fn auto_switch_target(
-    accounts: &[Account],
+    configs: &[AiConfig],
+    providers: &[Provider],
     allowed: &[String],
     current_client: Option<Client>,
     exclude_id: Option<&str>,
-) -> Option<Account> {
-    let mut candidates = accounts
+) -> Option<AiConfig> {
+    let mut candidates = configs
         .iter()
-        .filter(|account| {
-            !account.sample
-                && usage_state(account) == UsageState::Room
-                && allowed.iter().any(|id| id == &account.id)
-                && exclude_id != Some(account.id.as_str())
+        .filter(|config| {
+            allowed.iter().any(|id| id == &config.id) && exclude_id != Some(config.id.as_str())
+        })
+        .filter_map(|config| {
+            let provider = providers
+                .iter()
+                .find(|provider| provider.id == config.provider_id)?;
+            (!provider.sample && usage_state(provider) == UsageState::Room)
+                .then_some((config, provider))
         })
         .collect::<Vec<_>>();
 
-    candidates.sort_by(|a, b| {
-        subscription_rank(b)
-            .cmp(&subscription_rank(a))
-            .then_with(|| remaining_room(b).cmp(&remaining_room(a)))
+    candidates.sort_by(|(a, a_provider), (b, b_provider)| {
+        subscription_rank(Some(b_provider))
+            .cmp(&subscription_rank(Some(a_provider)))
+            .then_with(|| remaining_room(b_provider).cmp(&remaining_room(a_provider)))
             .then_with(|| {
                 let same_a = current_client == Some(a.client);
                 let same_b = current_client == Some(b.client);
@@ -352,7 +490,7 @@ pub fn auto_switch_target(
             .then_with(|| a.id.cmp(&b.id))
     });
 
-    candidates.first().map(|account| (*account).clone())
+    candidates.first().map(|(config, _)| (*config).clone())
 }
 
 #[cfg(test)]
@@ -360,40 +498,43 @@ mod tests {
     use super::*;
     use crate::state::UsageRow;
 
-    fn account(provider: &str, client: Client, auth: Auth) -> Account {
-        Account {
-            id: "a".to_owned(),
-            name: "Account".to_owned(),
-            plan: "test".to_owned(),
-            client,
-            provider: provider.to_owned(),
+    fn provider(vendor: &str, auth: Auth) -> Provider {
+        Provider {
+            id: "p".to_owned(),
+            name: "Provider".to_owned(),
+            vendor: vendor.to_owned(),
             auth,
+            server: None,
+            api_style: None,
             sample: false,
+            plan: "test".to_owned(),
             rows: Vec::new(),
             foot: String::new(),
             usage_read_at: None,
             usage_checked_at: None,
             usage_status: None,
             usage_source: None,
-            server: None,
+        }
+    }
+
+    fn config_for(provider_id: &str, id: &str, client: Client) -> AiConfig {
+        AiConfig {
+            id: id.to_owned(),
+            name: id.to_owned(),
+            provider_id: provider_id.to_owned(),
+            client,
             model: None,
-            api_style: None,
+            effort: None,
+            args: Vec::new(),
+            env: Vec::new(),
+            config: Default::default(),
+            created_at: String::new(),
+            updated_at: String::new(),
         }
     }
 
     #[test]
-    fn provider_table_matches_the_supported_clients() {
-        assert_eq!(
-            find("anthropic").expect("anthropic").client,
-            Client::ClaudeCode
-        );
-        assert_eq!(find("openai").expect("openai").client, Client::Codex);
-        assert_eq!(find("google").expect("google").client, Client::Antigravity);
-        assert_eq!(
-            find("openrouter").expect("openrouter").client,
-            Client::OpenCode2
-        );
-        assert!(find("unknown").is_none());
+    fn the_supported_clients_follow_the_vendor_table() {
         assert_eq!(
             clients_for_style("anthropic"),
             &[Client::ClaudeCode, Client::OpenCode2]
@@ -402,143 +543,92 @@ mod tests {
             clients_for_style("openai"),
             &[Client::Codex, Client::OpenCode2]
         );
-    }
-
-    #[test]
-    fn auto_switch_target_prefers_a_subscription_over_a_roomier_key_account() {
-        let mut current = account("anthropic", Client::ClaudeCode, Auth::Subscription);
-        current.id = "current".to_owned();
-        let mut roomy = account("deepseek", Client::ClaudeCode, Auth::Key);
-        roomy.id = "roomy".to_owned();
-        roomy.rows = vec![UsageRow {
-            label: "Weekly".to_owned(),
-            used: Some(10),
-            value: None,
-            min: None,
-            warn: None,
-            window: None,
-            resets_at: None,
-        }];
-        let mut tighter = account("anthropic", Client::ClaudeCode, Auth::Subscription);
-        tighter.id = "tighter".to_owned();
-        tighter.rows = vec![UsageRow {
-            label: "Weekly".to_owned(),
-            used: Some(60),
-            value: None,
-            min: None,
-            warn: None,
-            window: None,
-            resets_at: None,
-        }];
-        let mut sample = account("anthropic", Client::ClaudeCode, Auth::Subscription);
-        sample.id = "sample".to_owned();
-        sample.sample = true;
-        sample.rows = vec![UsageRow {
-            label: "Weekly".to_owned(),
-            used: Some(5),
-            value: None,
-            min: None,
-            warn: None,
-            window: None,
-            resets_at: None,
-        }];
-        let mut other_client = account("openai", Client::Codex, Auth::Subscription);
-        other_client.id = "codex".to_owned();
-        other_client.rows = vec![UsageRow {
-            label: "Weekly".to_owned(),
-            used: Some(5),
-            value: None,
-            min: None,
-            warn: None,
-            window: None,
-            resets_at: None,
-        }];
-        let mut unknown = account("deepseek", Client::ClaudeCode, Auth::Key);
-        unknown.id = "unknown".to_owned();
-
-        let accounts = vec![current, roomy, tighter, sample, other_client, unknown];
-        let allowed = vec![
-            "current".to_owned(),
-            "roomy".to_owned(),
-            "tighter".to_owned(),
-        ];
-        let target = auto_switch_target(
-            &accounts,
-            &allowed,
-            Some(Client::ClaudeCode),
-            Some("current"),
-        )
-        .expect("a target account");
-        assert_eq!(target.id, "tighter");
-
-        let all = vec![
-            "current".to_owned(),
-            "roomy".to_owned(),
-            "tighter".to_owned(),
-            "codex".to_owned(),
-        ];
-        let target = auto_switch_target(&accounts, &all, Some(Client::ClaudeCode), Some("current"))
-            .expect("a target account");
         assert_eq!(
-            target.id, "codex",
-            "the subscription with the most room wins"
+            supported_clients(&provider("deepseek", Auth::Key)),
+            vec![Client::ClaudeCode, Client::Codex, Client::OpenCode2]
+        );
+        assert_eq!(
+            supported_clients(&provider("google", Auth::Key)),
+            vec![Client::Antigravity]
         );
 
-        assert!(
-            auto_switch_target(
-                &accounts,
-                &["codex".to_owned()],
-                Some(Client::Codex),
-                Some("codex")
-            )
-            .is_none()
+        let mut custom = provider("custom", Auth::Key);
+        custom.api_style = Some("anthropic".to_owned());
+        assert_eq!(
+            supported_clients(&custom),
+            vec![Client::ClaudeCode, Client::OpenCode2]
         );
     }
 
     #[test]
-    fn key_and_base_url_environment_follows_the_provider() {
-        let deepseek = account("deepseek", Client::ClaudeCode, Auth::Key);
-        let values = environment(&deepseek, Some("sk-test"));
-        assert!(values.contains(&(
+    fn effort_lists_match_each_client() {
+        assert_eq!(
+            effort_levels(Client::ClaudeCode),
+            &["low", "medium", "high", "xhigh", "max"]
+        );
+        assert_eq!(
+            effort_levels(Client::Codex),
+            &["minimal", "low", "medium", "high"]
+        );
+        assert!(!effort_levels(Client::OpenCode2).is_empty());
+        assert!(!effort_levels(Client::Antigravity).is_empty());
+    }
+
+    #[test]
+    fn endpoints_pick_the_client_style() {
+        let deepseek = provider("deepseek", Auth::Key);
+        assert_eq!(
+            endpoint(&deepseek, Client::ClaudeCode)
+                .expect("endpoint")
+                .base,
+            "https://api.deepseek.com/anthropic"
+        );
+        assert_eq!(
+            endpoint(&deepseek, Client::Codex).expect("endpoint").base,
+            "https://api.deepseek.com"
+        );
+
+        let local = provider("ollama", Auth::Local);
+        let mut local = local;
+        local.server = Some("http://127.0.0.1:11434".to_owned());
+        assert_eq!(
+            endpoint(&local, Client::OpenCode2).expect("endpoint").base,
+            "http://127.0.0.1:11434/v1"
+        );
+        assert_eq!(
+            endpoint(&local, Client::ClaudeCode).expect("endpoint").base,
+            "http://127.0.0.1:11434"
+        );
+    }
+
+    #[test]
+    fn environment_points_each_style_at_the_key() {
+        let deepseek = provider("deepseek", Auth::Key);
+        let anthropic = environment(&deepseek, Client::ClaudeCode, Some("sk-test"));
+        assert!(anthropic.contains(&(
             "ANTHROPIC_BASE_URL".to_owned(),
             "https://api.deepseek.com/anthropic".to_owned()
         )));
-        assert!(values.contains(&("ANTHROPIC_AUTH_TOKEN".to_owned(), "sk-test".to_owned())));
+        assert!(anthropic.contains(&("ANTHROPIC_AUTH_TOKEN".to_owned(), "sk-test".to_owned())));
 
-        let openai = account("openai", Client::Codex, Auth::Key);
-        assert_eq!(
-            environment(&openai, Some("sk-openai")),
-            vec![("OPENAI_API_KEY".to_owned(), "sk-openai".to_owned())]
-        );
-
-        let local = account("ollama", Client::ClaudeCode, Auth::Local);
-        let mut local = local;
-        local.server = Some("http://127.0.0.1:11434".to_owned());
-        let values = environment(&local, None);
-        assert!(values.contains(&(
-            "ANTHROPIC_BASE_URL".to_owned(),
-            "http://127.0.0.1:11434".to_owned()
+        let openai = environment(&deepseek, Client::Codex, Some("sk-test"));
+        assert!(openai.contains(&(
+            "OPENAI_BASE_URL".to_owned(),
+            "https://api.deepseek.com".to_owned()
         )));
-        assert!(values.contains(&("ANTHROPIC_AUTH_TOKEN".to_owned(), "local".to_owned())));
+        assert!(openai.contains(&("OPENAI_API_KEY".to_owned(), "sk-test".to_owned())));
     }
 
     #[test]
-    fn custom_provider_uses_its_api_style() {
-        let mut custom = account("custom", Client::Codex, Auth::Key);
-        custom.api_style = Some("openai".to_owned());
-        custom.server = Some("https://gateway.example/v1".to_owned());
-        custom.model = Some("gpt-test".to_owned());
-        let values = environment(&custom, Some("sk-custom"));
-        assert!(values.contains(&(
-            "OPENAI_BASE_URL".to_owned(),
-            "https://gateway.example/v1".to_owned()
-        )));
-        assert!(values.contains(&("OPENAI_API_KEY".to_owned(), "sk-custom".to_owned())));
-        assert!(values.contains(&("OPENAI_MODEL".to_owned(), "gpt-test".to_owned())));
+    fn a_subscription_provider_needs_no_key_environment() {
+        let anthropic = provider("anthropic", Auth::Subscription);
+        assert!(environment(&anthropic, Client::ClaudeCode, None).is_empty());
+        let openai = provider("openai", Auth::Subscription);
+        assert!(environment(&openai, Client::Codex, None).is_empty());
     }
 
-    fn with_used(mut account: Account, used: u8) -> Account {
-        account.rows = vec![crate::state::UsageRow {
+    fn with_used(mut provider: Provider, used: u8) -> Provider {
+        provider.rows = vec![UsageRow {
             label: "Weekly".to_owned(),
             window: None,
             used: Some(used),
@@ -547,164 +637,61 @@ mod tests {
             warn: None,
             resets_at: None,
         }];
-        account
-    }
-
-    fn with_balance(mut account: Account, value: &str, min: &str) -> Account {
-        account.rows = vec![crate::state::UsageRow {
-            label: "Balance".to_owned(),
-            window: None,
-            used: None,
-            value: Some(value.to_owned()),
-            min: Some(min.to_owned()),
-            warn: None,
-            resets_at: None,
-        }];
-        account
+        provider
     }
 
     #[test]
-    fn default_allowed_accounts_keep_the_starting_client() {
-        let mut claude = account("anthropic", Client::ClaudeCode, Auth::Subscription);
+    fn auto_switch_prefers_a_subscription_with_room() {
+        let mut claude = with_used(provider("anthropic", Auth::Subscription), 95);
         claude.id = "claude".to_owned();
-        claude.sample = false;
-        let mut deepseek = account("deepseek", Client::ClaudeCode, Auth::Key);
-        deepseek.id = "deepseek".to_owned();
-        deepseek.sample = false;
-        let mut codex = account("openai", Client::Codex, Auth::Subscription);
+        let mut codex = with_used(provider("openai", Auth::Subscription), 50);
         codex.id = "codex".to_owned();
-        codex.sample = false;
-        let mut sample = account("anthropic", Client::ClaudeCode, Auth::Subscription);
-        sample.id = "sample".to_owned();
-        sample.sample = true;
-        let accounts = vec![claude, deepseek, codex, sample];
-
-        assert_eq!(
-            default_allowed_accounts(&accounts, Some(Client::ClaudeCode), Some("claude")),
-            vec!["claude".to_owned(), "deepseek".to_owned()]
-        );
-        assert_eq!(
-            default_allowed_accounts(&accounts, Some(Client::ClaudeCode), Some("sample")),
-            vec![
-                "claude".to_owned(),
-                "deepseek".to_owned(),
-                "sample".to_owned()
-            ]
-        );
-        assert_eq!(
-            default_allowed_accounts(&accounts, None, None),
-            Vec::<String>::new()
-        );
-    }
-
-    #[test]
-    fn auto_switch_prefers_subscriptions_then_the_most_room() {
-        let mut claude = with_used(
-            account("anthropic", Client::ClaudeCode, Auth::Subscription),
-            95,
-        );
-        claude.id = "claude".to_owned();
-        claude.sample = false;
-        let mut codex = with_used(account("openai", Client::Codex, Auth::Subscription), 50);
-        codex.id = "codex".to_owned();
-        codex.sample = false;
-        let mut deepseek = with_used(account("deepseek", Client::ClaudeCode, Auth::Key), 5);
+        let mut deepseek = with_used(provider("deepseek", Auth::Key), 5);
         deepseek.id = "deepseek".to_owned();
-        deepseek.sample = false;
-        let accounts = vec![claude.clone(), codex, deepseek];
-
+        let providers = vec![claude, codex, deepseek];
+        let configs = vec![
+            config_for("claude", "claude", Client::ClaudeCode),
+            config_for("codex", "codex", Client::Codex),
+            config_for("deepseek", "deepseek", Client::ClaudeCode),
+        ];
         let allowed = vec![
             "claude".to_owned(),
             "codex".to_owned(),
             "deepseek".to_owned(),
         ];
         let target = auto_switch_target(
-            &accounts,
+            &configs,
+            &providers,
             &allowed,
             Some(Client::ClaudeCode),
             Some("claude"),
         )
         .expect("a target");
-        assert_eq!(target.id, "codex", "a subscription account wins");
+        assert_eq!(target.id, "codex");
     }
 
     #[test]
-    fn auto_switch_breaks_a_tie_toward_the_current_client() {
-        let mut claude = with_used(
-            account("anthropic", Client::ClaudeCode, Auth::Subscription),
-            95,
-        );
-        claude.id = "claude".to_owned();
-        claude.sample = false;
-        let mut same = with_used(
-            account("anthropic", Client::ClaudeCode, Auth::Subscription),
-            60,
-        );
-        same.id = "same-client".to_owned();
-        same.sample = false;
-        let mut other = with_used(account("openai", Client::Codex, Auth::Subscription), 60);
-        other.id = "other-client".to_owned();
-        other.sample = false;
-        let accounts = vec![claude, same, other];
-
-        let allowed = vec!["same-client".to_owned(), "other-client".to_owned()];
-        let target = auto_switch_target(&accounts, &allowed, Some(Client::ClaudeCode), None)
-            .expect("a target");
-        assert_eq!(target.id, "same-client");
-    }
-
-    #[test]
-    fn auto_switch_never_leaves_the_allowed_list() {
-        let mut claude = with_used(
-            account("anthropic", Client::ClaudeCode, Auth::Subscription),
-            95,
-        );
-        claude.id = "claude".to_owned();
-        claude.sample = false;
-        let mut backup = with_used(account("anthropic", Client::ClaudeCode, Auth::Key), 10);
-        backup.id = "backup".to_owned();
-        backup.sample = false;
-        let accounts = vec![claude.clone(), backup];
-
-        let allowed = vec!["claude".to_owned()];
-        assert!(
-            auto_switch_target(
-                &accounts,
-                &allowed,
+    fn default_allowed_configs_keep_the_starting_client() {
+        let mut anthropic = provider("anthropic", Auth::Subscription);
+        anthropic.id = "anthropic".to_owned();
+        let mut deepseek = provider("deepseek", Auth::Key);
+        deepseek.id = "deepseek".to_owned();
+        let mut openai = provider("openai", Auth::Subscription);
+        openai.id = "openai".to_owned();
+        let providers = vec![anthropic, deepseek, openai];
+        let configs = vec![
+            config_for("anthropic", "claude", Client::ClaudeCode),
+            config_for("deepseek", "deepseek", Client::ClaudeCode),
+            config_for("openai", "codex", Client::Codex),
+        ];
+        assert_eq!(
+            default_allowed_configs(
+                &configs,
+                &providers,
                 Some(Client::ClaudeCode),
-                Some("claude"),
-            )
-            .is_none()
+                Some("claude")
+            ),
+            vec!["claude".to_owned(), "deepseek".to_owned()]
         );
-    }
-
-    #[test]
-    fn auto_switch_orders_prepaid_balances_by_the_amount_above_the_minimum() {
-        let mut claude = with_used(
-            account("anthropic", Client::ClaudeCode, Auth::Subscription),
-            95,
-        );
-        claude.id = "claude".to_owned();
-        claude.sample = false;
-        let mut low = with_balance(
-            account("deepseek", Client::ClaudeCode, Auth::Key),
-            "7.00",
-            "5.00",
-        );
-        low.id = "low".to_owned();
-        low.sample = false;
-        let mut high = with_balance(
-            account("deepseek", Client::ClaudeCode, Auth::Key),
-            "20.00",
-            "5.00",
-        );
-        high.id = "high".to_owned();
-        high.sample = false;
-        let accounts = vec![claude, low, high];
-
-        let allowed = vec!["low".to_owned(), "high".to_owned()];
-        let target = auto_switch_target(&accounts, &allowed, Some(Client::ClaudeCode), None)
-            .expect("a target");
-        assert_eq!(target.id, "high");
     }
 }

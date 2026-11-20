@@ -3,7 +3,7 @@ use std::time::Duration;
 use chrono::{SecondsFormat, Utc};
 use serde_json::Value;
 
-use crate::state::{Account, AppState, Auth, UsageRow};
+use crate::state::{AppState, Auth, Provider, UsageRow};
 
 pub const FIVE_HOUR: &str = "five_hour";
 pub const SEVEN_DAY: &str = "seven_day";
@@ -211,30 +211,30 @@ fn keep_minimum(rows: Vec<UsageRow>, previous: &[UsageRow]) -> Vec<UsageRow> {
 /// auto-switch against the new values.
 pub async fn apply_usage(
     state: &AppState,
-    account_id: &str,
+    provider_id: &str,
     source: &str,
     rows: Vec<UsageRow>,
-) -> Option<Account> {
-    let previous = state.account(account_id)?;
+) -> Option<Provider> {
+    let previous = state.provider(provider_id)?;
     let rows = keep_minimum(rows, &previous.rows);
     let now = timestamp();
-    let account = state.set_account_usage(account_id, rows, source, &now, &now)?;
-    state.publish_account(account.clone());
-    if state.usage_save_due(account_id, MIN_SAVE_INTERVAL) {
-        state.note_usage_saved(account_id);
+    let provider = state.set_provider_usage(provider_id, rows, source, &now, &now)?;
+    state.publish_provider(provider.clone());
+    if state.usage_save_due(provider_id, MIN_SAVE_INTERVAL) {
+        state.note_usage_saved(provider_id);
         state.save();
     }
-    crate::api::auto_switch_account(state, &account).await;
-    Some(account)
+    crate::api::auto_switch_provider(state, &provider).await;
+    Some(provider)
 }
 
 /// Marks a failed read. The last successful values stay visible and keep
 /// their read time; sessions are not touched.
-pub fn mark_failed(state: &AppState, account_id: &str, source: &str) -> Option<Account> {
-    let account = state.mark_account_usage_failed(account_id, source, &timestamp())?;
-    state.publish_account(account.clone());
+pub fn mark_failed(state: &AppState, provider_id: &str, source: &str) -> Option<Provider> {
+    let provider = state.mark_provider_usage_failed(provider_id, source, &timestamp())?;
+    state.publish_provider(provider.clone());
     state.save();
-    Some(account)
+    Some(provider)
 }
 
 async fn fetch_deepseek(base: &str, key: &str) -> Result<Value, ()> {
@@ -255,70 +255,70 @@ async fn fetch_deepseek(base: &str, key: &str) -> Result<Value, ()> {
     response.json::<Value>().await.map_err(|_| ())
 }
 
-fn deepseek_base(state: &AppState, account: &Account) -> String {
+fn deepseek_base(state: &AppState, provider: &Provider) -> String {
     state
         .usage_base_override()
         .map(str::to_owned)
-        .or_else(|| account.server.clone())
+        .or_else(|| provider.server.clone())
         .unwrap_or_else(|| DEEPSEEK_BASE_URL.to_owned())
 }
 
-fn has_official_source(account: &Account) -> bool {
-    account.provider == "deepseek" && account.auth == Auth::Key
+fn has_official_source(provider: &Provider) -> bool {
+    provider.vendor == "deepseek" && provider.auth == Auth::Key
 }
 
-/// Reads one account from its official source. Concurrent reads for the same
-/// account are serialized, and a recent read is reused.
-pub async fn refresh_account(
+/// Reads one provider from its official source. Concurrent reads for the same
+/// provider are serialized, and a recent read is reused.
+pub async fn refresh_provider(
     state: &AppState,
-    account_id: &str,
+    provider_id: &str,
     force: bool,
-) -> Result<Account, RefreshError> {
-    let account = state.account(account_id).ok_or(RefreshError::Unknown)?;
-    if !has_official_source(&account) {
-        return Ok(account);
+) -> Result<Provider, RefreshError> {
+    let provider = state.provider(provider_id).ok_or(RefreshError::Unknown)?;
+    if !has_official_source(&provider) {
+        return Ok(provider);
     }
 
-    let gate = state.usage_gate(account_id);
+    let gate = state.usage_gate(provider_id);
     let _guard = gate.lock().await;
     let minimum = if force {
         COALESCE_WINDOW
     } else {
         MIN_READ_INTERVAL
     };
-    if !state.usage_read_due(account_id, minimum) {
-        return state.account(account_id).ok_or(RefreshError::Unknown);
+    if !state.usage_read_due(provider_id, minimum) {
+        return state.provider(provider_id).ok_or(RefreshError::Unknown);
     }
-    state.note_usage_attempt(account_id);
+    state.note_usage_attempt(provider_id);
 
-    let key = match crate::api::account_key(state, account_id).await {
+    let key = match crate::api::account_key(state, provider_id).await {
         Ok(key) => key,
         Err(_) => {
-            mark_failed(state, account_id, DEEPSEEK);
+            mark_failed(state, provider_id, DEEPSEEK);
             return Err(RefreshError::Read);
         }
     };
-    let base = deepseek_base(state, &account);
+    let base = deepseek_base(state, &provider);
     let payload = match fetch_deepseek(&base, &key).await {
         Ok(payload) => payload,
         Err(()) => {
-            tracing::warn!(account = %account_id, "the DeepSeek balance read failed");
-            mark_failed(state, account_id, DEEPSEEK);
+            tracing::warn!(provider = %provider_id, "the DeepSeek balance read failed");
+            mark_failed(state, provider_id, DEEPSEEK);
             return Err(RefreshError::Read);
         }
     };
     let rows = deepseek_rows(&payload);
     if rows.is_empty() {
-        tracing::warn!(account = %account_id, "the DeepSeek balance response had no balance");
-        mark_failed(state, account_id, DEEPSEEK);
+        tracing::warn!(provider = %provider_id, "the DeepSeek balance response had no balance");
+        mark_failed(state, provider_id, DEEPSEEK);
         return Err(RefreshError::Read);
     }
-    apply_usage(state, account_id, DEEPSEEK, rows)
+    apply_usage(state, provider_id, DEEPSEEK, rows)
         .await
         .ok_or(RefreshError::Unknown)
 }
 
-/// Reads balances in the background. Each account is read at most once a
+/// Reads balances in the background. Each provider is read at most once a
 /// minute, and only when it has a key and is not a sample.
 pub fn start_poller(state: AppState) {
     tokio::spawn(async move {
@@ -326,9 +326,9 @@ pub fn start_poller(state: AppState) {
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
             interval.tick().await;
-            for account in state.accounts() {
-                if has_official_source(&account) && !account.sample {
-                    let _ = refresh_account(&state, &account.id, false).await;
+            for provider in state.providers() {
+                if has_official_source(&provider) && !provider.sample {
+                    let _ = refresh_provider(&state, &provider.id, false).await;
                 }
             }
         }

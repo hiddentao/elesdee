@@ -1,6 +1,6 @@
 ---
 title: Agents and providers
-description: The coding agents elesdee runs and how accounts work.
+description: The coding agents elesdee runs and how providers and AI configs work.
 order: 5
 ---
 
@@ -21,15 +21,15 @@ The app uses the copy of each agent that is already installed on your computer. 
 
 The welcome screen and the app check for all four agents and show their versions. If an agent is missing, install it and open the app again. A session with a missing agent does not start.
 
-## Accounts
+## Providers
 
-An account connects a client to a provider. The Settings page lists the accounts on this computer.
+A provider holds a credential and the address it connects to. An AI config connects a provider to one client and adds the model, effort and launch settings. The Settings page lists both.
 
-**Sample accounts**
+**Sample providers and configs**
 
-A new install includes sample accounts. They are marked **Sample**. They have no usage data and exist to show how the account list works. Add your own account for real provider setup. Auto-switch skips sample accounts.
+A new install includes sample providers and configs. They are marked **Sample**. They have no usage data and exist to show how the lists work. Add your own provider for real setup. Auto-switch skips sample providers.
 
-**Supported providers**
+**Supported vendors**
 
 | Provider | Client | Sign-in |
 | --- | --- | --- |
@@ -48,12 +48,12 @@ A new install includes sample accounts. They are marked **Sample**. They have no
 
 1. Open **Settings**.
 2. Open **Providers**.
-3. Choose **Add account**.
-4. Choose the provider.
+3. Choose **Add provider**.
+4. Choose the vendor.
 5. Enter a name and the API key.
 6. Save.
 
-The key goes to the system keychain. The app writes only account metadata to its state file. It removes the key from session output before the output is stored or shown.
+The key goes to the system keychain. The app writes only provider metadata to its state file. It removes the key from session output before the output is stored or shown.
 
 **Subscriptions**
 
@@ -74,9 +74,9 @@ Choose **Custom provider** for any server that speaks the OpenAI or Anthropic AP
 
 The client follows the style. OpenCode 2 is the default client.
 
-## How a session uses an account
+## How a session uses an AI config
 
-The session starts the client executable and gives it the account's environment. For Claude Code and Codex subscriptions, the client uses its own sign-in. For API-key accounts, the app passes the key in the child process environment and redacts it from session output. For Google, the app creates a private home folder for the session, writes a settings file that selects Gemini, and removes the private home when the session closes.
+The session starts the client from its AI config and gives it the provider's environment. For Claude Code and Codex subscriptions, the client uses its own sign-in. For API-key providers, the app passes the key in the child process environment and redacts it from session output. For Google, the app creates a private home folder for the session, writes a settings file that selects Gemini, and removes the private home when the session closes.
 
 ## Skills
 
@@ -101,11 +101,11 @@ Claude Code, Codex and OpenCode 2 send permission requests to the app, so those 
 
 ## Usage
 
-Account usage appears where the provider reports a number. A Google account has no official usage source, so it shows **No usage data**. Usage belongs to the computer and is not part of a session.
+Provider usage appears where the provider reports a number. A Google provider has no official usage source, so it shows **No usage data**. Usage belongs to the computer and is not part of a session.
 
-When a usage report shows 90% or more used, or a prepaid balance falls below its minimum, the app moves the session to an allowed account that has room. Subscription accounts come first, then pay-per-use accounts; within each group it takes the account with the most room, and a tie keeps the current client. It skips sample accounts and accounts without usage data. If no allowed account has room, the session pauses and keeps its worktree. It resumes by itself when an allowed account has room again. You can also choose **Resume** in the session.
+When a usage report shows 90% or more used, or a prepaid balance falls below its minimum, the app moves the session to an allowed AI config whose provider has room. Subscription providers come first, then pay-per-use providers; within each group it takes the provider with the most room, and a tie keeps the current client. It skips sample providers and providers without usage data. If no allowed config has room, the session pauses and keeps its worktree. It resumes by itself when an allowed config has room again. You can also choose **Resume** in the session.
 
-Set the accounts a session may use in the launch form, or edit them in the switch chooser while it runs. A new session allows the accounts of its starting client. The account in use always stays allowed.
+Set the AI configs a session may use in the launch form, or edit them in the switch chooser while it runs. A new session allows the configs of its starting client. The config in use always stays allowed.
 
 ## Next steps
 

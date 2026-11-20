@@ -1,4 +1,4 @@
-import type { Account, Session, WaitingFor } from '../api/types';
+import type { Provider, Session, WaitingFor } from '../api/types';
 import { englishT, type Translate } from '../i18n';
 
 export type StatusTone = 'running' | 'waiting' | 'input' | 'paused' | 'done' | 'closed';
@@ -122,12 +122,12 @@ export function sessionKindLabel(
     : t('status.agent');
 }
 
-export function accountFor(
-  accounts: Account[],
-  accountId: string | null,
-): Account | null {
-  if (!accountId) {
+export function providerFor(
+  providers: Provider[],
+  providerId: string | null,
+): Provider | null {
+  if (!providerId) {
     return null;
   }
-  return accounts.find((account) => account.id === accountId) ?? null;
+  return providers.find((provider) => provider.id === providerId) ?? null;
 }

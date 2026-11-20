@@ -30,7 +30,7 @@ The app also sends a desktop notification when a session waits for your input, a
 
 ## Session coordination
 
-- **Start session** asks you to start another session with a project, account, name, source branch and first prompt. The request appears in the parent session and in the sidebar **Requests** list. Approve or deny it there. Approve with **Allow further sessions from this session** to let later requests from that session start without asking.
+- **Start session** asks you to start another session with a project, AI config, name, source branch and first prompt. The request appears in the parent session and in the sidebar **Requests** list. Approve or deny it there. Approve with **Allow further sessions from this session** to let later requests from that session start without asking.
 - **List sessions** shows the sessions on this computer with their project, status and branch.
 - **Read session** shows another session's status and recent output.
 - **Send message** sends a line of input to another session.
@@ -48,7 +48,7 @@ A session started this way shows the session it came from in the sidebar.
 **Share file** takes a file or screenshot from the session's folder and adds it to the session. It shows in the **Shared** list at the top of the session's Files panel. Select it to read a text preview, see an image, or download the copy. The copy is kept in the app's data folder, so you can open it after the session closes.
 
 - The path must stay inside the session folder. A path outside it, a folder, a link that leaves the folder, or a file above 10 MiB is refused.
-- Secret files such as `.env` and private keys are refused. A file that contains a stored account key is refused too.
+- Secret files such as `.env` and private keys are refused. A file that contains a stored provider key is refused too.
 - The original file is not changed and the app stores no key in the copy.
 
 ## Demo servers
@@ -88,7 +88,7 @@ The browser uses an installed Chrome or Chromium. See [Sessions](sessions.md) fo
 
 ## Usage
 
-**Check usage** shows the usage rows for the session's account.
+**Check usage** shows the usage rows for the session's provider.
 
 ## Where the tools come from
 

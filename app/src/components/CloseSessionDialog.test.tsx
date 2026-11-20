@@ -12,7 +12,8 @@ function makeSession(overrides: Partial<Session> = {}) {
     short: 'check-close',
     kind: 'terminal',
     client: null,
-    accountId: null,
+    configId: null,
+        providerId: null,
     ...overrides,
   });
 }
@@ -53,7 +54,8 @@ describe('CloseSessionDialog', () => {
         session={makeSession({
           kind: 'agent',
           client: 'Claude Code',
-          accountId: 'a1',
+          configId: 'c1',
+          providerId: 'p1',
           branch: 'elesdee/web/fix-login',
         })}
         onConfirm={vi.fn()}

@@ -77,7 +77,8 @@ describe('SessionView permission card', () => {
       makeSession({
         kind: 'terminal',
         client: null,
-        accountId: null,
+        configId: null,
+        providerId: null,
         pendingPermission: permission,
       }),
     );

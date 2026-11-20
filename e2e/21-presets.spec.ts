@@ -13,7 +13,7 @@ import {
 } from './helpers';
 import { dataDir } from './env';
 
-test('creates a preset in settings and starts a session from it', async ({
+test('creates an AI config in settings and starts a session from it', async ({
   page,
   request,
 }) => {
@@ -25,34 +25,39 @@ test('creates a preset in settings and starts a session from it', async ({
     key: 'sk-e2e-preset',
   });
   await setUsage(request, account.id, [{ label: '5-hour', used: 58 }]);
-  const presetName = uniqueName('preset');
+  const configName = uniqueName('config');
 
   await openApp(page);
 
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   const settings = page.getByRole('dialog', { name: 'Settings' });
-  await settings.getByRole('button', { name: 'Presets' }).click();
-  await settings.getByRole('button', { name: 'Add preset' }).click();
+  await settings.getByRole('button', { name: 'AI configs' }).click();
+  await settings.getByRole('button', { name: 'Add AI config' }).click();
 
-  const editor = page.getByRole('dialog', { name: 'Add preset' });
-  await editor.getByLabel('Preset name').fill(presetName);
-  const accountCombo = editor.getByRole('combobox', { name: 'Account' });
-  await accountCombo.click();
-  await accountCombo.fill(account.name);
+  const editor = page.getByRole('dialog', { name: 'Add AI config' });
+  const providerCombo = editor.getByRole('combobox', {
+    name: 'Provider',
+    exact: true,
+  });
+  await providerCombo.click();
+  await providerCombo.fill(account.name);
   await page.getByRole('option', { name: new RegExp(account.name) }).click();
-  await editor.getByLabel('Model (optional)').fill('claude-sonnet-4-5');
+  await editor.getByRole('radio', { name: 'Claude Code' }).click();
+  await editor.getByLabel('Name (optional)').fill(configName);
+  const modelCombo = editor.getByRole('combobox', { name: 'Model' });
+  await modelCombo.click();
+  await modelCombo.fill('claude-sonnet-4-5');
+  await modelCombo.press('Enter');
 
-  await editor.getByRole('button', { name: 'Add variable' }).click();
-  await editor.getByLabel(/Variable name/).fill('E2E_VALUE');
-  await editor.getByLabel(/Variable value/).fill('from-preset');
+  await editor.getByText('Additional settings').click();
+  await editor.getByLabel('Environment').fill('E2E_VALUE=from-config');
+  await editor
+    .getByLabel('Agent config')
+    .fill('permissions.defaultMode=acceptEdits');
 
-  await editor.getByRole('button', { name: 'Add setting' }).click();
-  await editor.getByLabel(/Config key/).fill('permissions.defaultMode');
-  await editor.getByLabel(/Config value/).fill('acceptEdits');
-
-  await editor.getByRole('button', { name: 'Save preset' }).click();
+  await editor.getByRole('button', { name: 'Add AI config' }).click();
   await expect(editor).not.toBeVisible();
-  await expect(settings.getByText(presetName)).toBeVisible();
+  await expect(settings.getByText(configName)).toBeVisible();
 
   await settings.getByRole('button', { name: 'Close settings' }).click();
 
@@ -65,26 +70,28 @@ test('creates a preset in settings and starts a session from it', async ({
   await projectCombo.click();
   await projectCombo.fill(label);
   await page.getByRole('option', { name: new RegExp(label) }).click();
-  await dialog.getByRole('radio', { name: 'Claude Code' }).click();
 
-  const presetCombo = dialog.getByRole('combobox', { name: 'Preset' });
-  await presetCombo.click();
-  await presetCombo.fill(presetName);
-  await page.getByRole('option', { name: new RegExp(presetName) }).click();
+  const configCombo = dialog.getByRole('combobox', {
+    name: 'AI config',
+    exact: true,
+  });
+  await configCombo.click();
+  await configCombo.fill(configName);
+  await page.getByRole('option', { name: new RegExp(configName) }).click();
 
-  await expect(presetCombo).toHaveValue(new RegExp('42% left'));
+  await expect(configCombo).toHaveValue(new RegExp('42% left'));
   await expect(dialog.getByText('Model claude-sonnet-4-5')).toBeVisible();
   await expect(
     dialog.getByText('1 environment variable · 1 config override'),
   ).toBeVisible();
 
-  const name = uniqueName('preset-session');
+  const name = uniqueName('config-session');
   await dialog.getByLabel('Session name (optional)').fill(name);
   await dialog.getByRole('button', { name: 'Start session' }).click();
 
   await expect(dialog).not.toBeVisible();
   await expect(page.locator('.xterm-accessibility')).toContainText(
-    'env-e2e-value:from-preset',
+    'env-e2e-value:from-config',
     { timeout: 15_000 },
   );
 
@@ -93,7 +100,10 @@ test('creates a preset in settings and starts a session from it', async ({
     (item) => item.projectId === project.id && item.name === name,
   );
   expect(session).toBeTruthy();
-  expect(session?.accountId).toBe(account.id);
+  const savedConfig = (await bootstrap(request)).configs?.find(
+    (item) => item.name === configName,
+  );
+  expect(session?.configId).toBe(savedConfig?.id);
 
   const settingsPath = path.join(
     dataDir(),
@@ -106,7 +116,7 @@ test('creates a preset in settings and starts a session from it', async ({
     permissions: { defaultMode: string };
     hooks: { PreToolUse: unknown };
   };
-  expect(saved.model, 'the preset model reached the launch settings').toBe(
+  expect(saved.model, 'the config model reached the launch settings').toBe(
     'claude-sonnet-4-5',
   );
   expect(saved.permissions.defaultMode).toBe('acceptEdits');

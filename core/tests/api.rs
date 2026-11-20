@@ -17,7 +17,7 @@ use tower::ServiceExt;
 
 use elesdee_core::api::router;
 use elesdee_core::files::MAX_FILE_BYTES;
-use elesdee_core::state::{Account, Auth, Client};
+use elesdee_core::state::{AiConfig, Auth, Client, Provider};
 use elesdee_core::{AppState, MemorySecretStore, SecretStore};
 
 const TEST_HOST: &str = "127.0.0.1:4319";
@@ -330,34 +330,47 @@ async fn bootstrap_has_sample_accounts_and_no_projects() {
         "a fresh state must have no projects"
     );
 
-    let accounts = body["accounts"].as_array().expect("accounts array");
+    let accounts = body["providers"].as_array().expect("providers array");
     assert_eq!(accounts.len(), 4);
+    let configs = body["configs"].as_array().expect("configs array");
+    assert_eq!(configs.len(), 4);
 
     let max = accounts
         .iter()
         .find(|account| account["name"] == "Anthropic Max 20×")
-        .expect("Anthropic Max account");
-    assert_eq!(max["client"], "Claude Code");
+        .expect("Anthropic Max provider");
+    assert_eq!(
+        max["supportedClients"],
+        json!(["Claude Code", "OpenCode 2"])
+    );
     assert_eq!(max["auth"], "subscription");
 
     let codex = accounts
         .iter()
         .find(|account| account["name"] == "ChatGPT Pro")
-        .expect("ChatGPT Pro account");
-    assert_eq!(codex["client"], "Codex");
+        .expect("ChatGPT Pro provider");
+    assert_eq!(codex["supportedClients"], json!(["Codex", "OpenCode 2"]));
 
     let deepseek = accounts
         .iter()
         .find(|account| account["name"] == "DeepSeek API")
-        .expect("DeepSeek account");
-    assert_eq!(deepseek["client"], "Claude Code");
+        .expect("DeepSeek provider");
+    assert_eq!(
+        deepseek["supportedClients"],
+        json!(["Claude Code", "Codex", "OpenCode 2"])
+    );
 
     let litellm = accounts
         .iter()
         .find(|account| account["name"] == "LiteLLM gateway")
-        .expect("LiteLLM account");
+        .expect("LiteLLM provider");
     assert_eq!(litellm["server"], "http://localhost:4000/v1");
-    assert_eq!(litellm["model"], "gpt-5.2");
+    let litellm_config = configs
+        .iter()
+        .find(|config| config["name"] == "LiteLLM gateway (Codex)")
+        .expect("LiteLLM config");
+    assert_eq!(litellm_config["model"], "gpt-5.2");
+    assert_eq!(litellm_config["client"], "Codex");
 
     for account in accounts {
         assert_eq!(
@@ -366,8 +379,14 @@ async fn bootstrap_has_sample_accounts_and_no_projects() {
             "seed usage rows are invented"
         );
         assert_eq!(account["foot"], "No official usage source.");
-        assert_eq!(account["sample"], true, "seed accounts are samples");
+        assert_eq!(account["sample"], true, "seed providers are samples");
     }
+    assert!(
+        configs
+            .iter()
+            .all(|config| config["name"].as_str().unwrap_or_default().contains('(')),
+        "seed configs are named after the provider and client"
+    );
 
     assert_eq!(
         body["sessions"].as_array().expect("sessions array").len(),
@@ -383,7 +402,8 @@ async fn fresh_data_dir_starts_with_no_projects() {
 
     assert_eq!(status, StatusCode::OK, "{body}");
     assert!(body["projects"].as_array().expect("projects").is_empty());
-    assert_eq!(body["accounts"].as_array().expect("accounts").len(), 4);
+    assert_eq!(body["providers"].as_array().expect("providers").len(), 4);
+    assert_eq!(body["configs"].as_array().expect("configs").len(), 4);
     assert!(body["sessions"].as_array().expect("sessions").is_empty());
 }
 
@@ -458,7 +478,7 @@ async fn host_and_origin_are_validated() {
 async fn list_endpoints_keep_the_host_and_origin_rules() {
     let app = router(AppState::ephemeral());
 
-    for path in ["/api/projects?q=", "/api/accounts?q="] {
+    for path in ["/api/projects?q=", "/api/providers?q="] {
         let request = Request::builder()
             .method("GET")
             .uri(path)
@@ -1108,7 +1128,8 @@ async fn agent_sessions_use_the_supplied_folder_and_unique_short_names() {
     let body = json!({
         "projectId": "web",
         "kind": "agent",
-        "accountId": "max",
+        "providerId": "max",
+            "client": "Claude Code",
         "name": "Fix login",
         "folder": repo.path.to_string_lossy()
     });
@@ -1209,7 +1230,8 @@ async fn session_name_comes_from_the_first_prompt() {
         Some(json!({
             "projectId": "web",
             "kind": "agent",
-            "accountId": "max",
+            "providerId": "max",
+            "client": "Claude Code",
             "folder": repo.path.to_string_lossy(),
             "firstPrompt": "Fix the login redirect\nand add a test"
         })),
@@ -1270,7 +1292,8 @@ async fn source_branch_sets_the_worktree_base() {
         Some(json!({
             "projectId": "web",
             "kind": "agent",
-            "accountId": "max",
+            "providerId": "max",
+            "client": "Claude Code",
             "name": "From feature",
             "folder": repo.path.to_string_lossy(),
             "sourceBranch": "feature"
@@ -1307,7 +1330,8 @@ async fn unknown_source_branch_is_rejected() {
         Some(json!({
             "projectId": "web",
             "kind": "agent",
-            "accountId": "max",
+            "providerId": "max",
+            "client": "Claude Code",
             "name": "Missing base",
             "folder": repo.path.to_string_lossy(),
             "sourceBranch": "no-such-branch"
@@ -1392,7 +1416,8 @@ async fn launch_agent(
     let mut body = json!({
         "projectId": "web",
         "kind": "agent",
-        "accountId": "max",
+        "providerId": "max",
+            "client": "Claude Code",
         "name": name,
         "folder": repo.to_string_lossy(),
         "copyUncommittedChanges": copy
@@ -1837,7 +1862,7 @@ async fn account_switch_relaunches_the_session_and_keeps_it_active() {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{switched}");
-    assert_eq!(switched["accountId"], second);
+    assert_eq!(switched["providerId"], second);
     assert_eq!(switched["status"], "active");
     assert_eq!(switched["client"], "Claude Code");
     assert_eq!(switched["contextLeft"], Value::Null);
@@ -1948,7 +1973,7 @@ async fn switch_options_list_every_account_and_the_next_automatic_target() {
     let (status, _) = call(
         &app,
         "POST",
-        &format!("/api/accounts/{second}/usage"),
+        &format!("/api/providers/{second}/usage"),
         Some(json!({ "rows": [{ "label": "Weekly", "used": 20 }] })),
     )
     .await;
@@ -1963,26 +1988,33 @@ async fn switch_options_list_every_account_and_the_next_automatic_target() {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{options}");
-    assert_eq!(options["nextAccountId"], second);
+    let first_config = config_for_account(&app, &first).await;
+    let second_config = config_for_account(&app, &second).await;
+    let codex_config = config_for_account(&app, &codex).await;
+    assert_eq!(options["nextConfigId"], second_config);
     assert_eq!(
-        options["allowedAccountIds"],
-        json!([&first, &second]),
+        options["allowedConfigIds"],
+        json!([&first_config, &second_config]),
         "the default allows the starting client"
     );
-    let ids = options["accounts"]
+    let ids = options["configs"]
         .as_array()
-        .expect("accounts")
+        .expect("configs")
         .iter()
-        .filter_map(|account| account["id"].as_str())
+        .filter_map(|config| config["id"].as_str())
         .collect::<Vec<_>>();
-    for expected in [first.as_str(), second.as_str(), codex.as_str()] {
+    for expected in [
+        first_config.as_str(),
+        second_config.as_str(),
+        codex_config.as_str(),
+    ] {
         assert!(ids.contains(&expected), "missing {expected} in {ids:?}");
     }
 
     let (status, _) = call(
         &app,
         "POST",
-        &format!("/api/accounts/{second}/usage"),
+        &format!("/api/providers/{second}/usage"),
         Some(json!({ "rows": [{ "label": "Weekly", "used": 95 }] })),
     )
     .await;
@@ -1995,7 +2027,7 @@ async fn switch_options_list_every_account_and_the_next_automatic_target() {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{options}");
-    assert_eq!(options["nextAccountId"], Value::Null);
+    assert_eq!(options["nextConfigId"], Value::Null);
 
     let terminal = create_terminal(&app, &repo.path).await;
     let terminal_id = terminal["id"].as_str().expect("terminal id");
@@ -2031,7 +2063,7 @@ async fn usage_near_the_limit_switches_then_pauses_without_room() {
     let (status, _) = call(
         &app,
         "POST",
-        &format!("/api/accounts/{second}/usage"),
+        &format!("/api/providers/{second}/usage"),
         Some(json!({ "rows": [{ "label": "Weekly", "used": 20 }] })),
     )
     .await;
@@ -2056,20 +2088,20 @@ async fn usage_near_the_limit_switches_then_pauses_without_room() {
     let (status, _) = call(
         &app,
         "POST",
-        &format!("/api/accounts/{first}/usage"),
+        &format!("/api/providers/{first}/usage"),
         Some(json!({ "rows": [{ "label": "Weekly", "used": 95 }] })),
     )
     .await;
     assert_eq!(status, StatusCode::OK);
 
-    let switched = wait_for_session(&app, id, |session| session["accountId"] == second).await;
+    let switched = wait_for_session(&app, id, |session| session["providerId"] == second).await;
     assert_eq!(switched["status"], "active");
     assert_eq!(switched["workState"], "working");
 
     let (status, _) = call(
         &app,
         "POST",
-        &format!("/api/accounts/{second}/usage"),
+        &format!("/api/providers/{second}/usage"),
         Some(json!({ "rows": [{ "label": "Weekly", "used": 95 }] })),
     )
     .await;
@@ -2080,19 +2112,19 @@ async fn usage_near_the_limit_switches_then_pauses_without_room() {
     assert!(
         paused["preview"]
             .as_str()
-            .is_some_and(|preview| preview.contains("No allowed account"))
+            .is_some_and(|preview| preview.contains("No allowed AI config"))
     );
 
     let (status, _) = call(
         &app,
         "POST",
-        &format!("/api/accounts/{first}/usage"),
+        &format!("/api/providers/{first}/usage"),
         Some(json!({ "rows": [{ "label": "Weekly", "used": 30 }] })),
     )
     .await;
     assert_eq!(status, StatusCode::OK);
     let resumed = wait_for_session(&app, id, |session| session["workState"] == "working").await;
-    assert_eq!(resumed["accountId"], first);
+    assert_eq!(resumed["providerId"], first);
 
     let (status, _) = close_session(&app, id).await;
     assert_eq!(status, StatusCode::OK);
@@ -2110,6 +2142,8 @@ async fn allowed_accounts_are_saved_and_guard_the_switch() {
     ensure_test_project(&app, &repo.path).await;
     let first = create_test_account(&app, "Allowed A", "sk-allowed-a").await;
     let second = create_test_account(&app, "Allowed B", "sk-allowed-b").await;
+    let first_config = config_for_account(&app, &first).await;
+    let second_config = config_for_account(&app, &second).await;
 
     let (status, session) = call(
         &app,
@@ -2127,7 +2161,7 @@ async fn allowed_accounts_are_saved_and_guard_the_switch() {
     .await;
     assert_eq!(status, StatusCode::OK, "{session}");
     let id = session["id"].as_str().expect("session id").to_owned();
-    assert_eq!(session["allowedAccountIds"], json!([&first]));
+    assert_eq!(session["allowedConfigIds"], json!([&first_config]));
 
     let (status, body) = call(
         &app,
@@ -2164,7 +2198,10 @@ async fn allowed_accounts_are_saved_and_guard_the_switch() {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{updated}");
-    assert_eq!(updated["allowedAccountIds"], json!([&first, &second]));
+    assert_eq!(
+        updated["allowedConfigIds"],
+        json!([&first_config, &second_config])
+    );
 
     let (status, switched) = call(
         &app,
@@ -2174,7 +2211,7 @@ async fn allowed_accounts_are_saved_and_guard_the_switch() {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{switched}");
-    assert_eq!(switched["accountId"], second);
+    assert_eq!(switched["providerId"], second);
 
     let (status, updated) = call(
         &app,
@@ -2209,7 +2246,10 @@ async fn allowed_accounts_are_saved_and_guard_the_switch() {
                 .find(|session| session["session"]["id"] == id)
         })
         .expect("stored session");
-    assert_eq!(stored["session"]["allowedAccountIds"], json!([&second]));
+    assert_eq!(
+        stored["session"]["allowedConfigIds"],
+        json!([&second_config])
+    );
 
     let (status, _) = close_session(&app, &id).await;
     assert_eq!(status, StatusCode::OK);
@@ -2233,7 +2273,7 @@ async fn auto_switch_prefers_subscriptions_then_crosses_to_pay_per_use() {
         let (status, _) = call(
             &app,
             "POST",
-            &format!("/api/accounts/{account}/usage"),
+            &format!("/api/providers/{account}/usage"),
             Some(json!({ "rows": [{ "label": "Weekly", "used": used }] })),
         )
         .await;
@@ -2260,13 +2300,13 @@ async fn auto_switch_prefers_subscriptions_then_crosses_to_pay_per_use() {
     let (status, _) = call(
         &app,
         "POST",
-        &format!("/api/accounts/{claude}/usage"),
+        &format!("/api/providers/{claude}/usage"),
         Some(json!({ "rows": [{ "label": "Weekly", "used": 95 }] })),
     )
     .await;
     assert_eq!(status, StatusCode::OK);
 
-    let switched = wait_for_session(&app, &id, |session| session["accountId"] == codex).await;
+    let switched = wait_for_session(&app, &id, |session| session["providerId"] == codex).await;
     assert_eq!(
         switched["client"], "Codex",
         "a subscription account beats a pay-per-use account"
@@ -2275,13 +2315,13 @@ async fn auto_switch_prefers_subscriptions_then_crosses_to_pay_per_use() {
     let (status, _) = call(
         &app,
         "POST",
-        &format!("/api/accounts/{codex}/usage"),
+        &format!("/api/providers/{codex}/usage"),
         Some(json!({ "rows": [{ "label": "Weekly", "used": 95 }] })),
     )
     .await;
     assert_eq!(status, StatusCode::OK);
 
-    let switched = wait_for_session(&app, &id, |session| session["accountId"] == deepseek).await;
+    let switched = wait_for_session(&app, &id, |session| session["providerId"] == deepseek).await;
     assert_eq!(switched["client"], "Claude Code");
 
     let (status, _) = close_session(&app, &id).await;
@@ -2306,7 +2346,7 @@ async fn auto_switch_keeps_the_current_client_when_subscriptions_tie() {
         let (status, _) = call(
             &app,
             "POST",
-            &format!("/api/accounts/{account}/usage"),
+            &format!("/api/providers/{account}/usage"),
             Some(json!({ "rows": [{ "label": "Weekly", "used": 60 }] })),
         )
         .await;
@@ -2333,13 +2373,13 @@ async fn auto_switch_keeps_the_current_client_when_subscriptions_tie() {
     let (status, _) = call(
         &app,
         "POST",
-        &format!("/api/accounts/{starter}/usage"),
+        &format!("/api/providers/{starter}/usage"),
         Some(json!({ "rows": [{ "label": "Weekly", "used": 95 }] })),
     )
     .await;
     assert_eq!(status, StatusCode::OK);
 
-    let switched = wait_for_session(&app, &id, |session| session["accountId"] == same).await;
+    let switched = wait_for_session(&app, &id, |session| session["providerId"] == same).await;
     assert_eq!(switched["client"], "Claude Code");
 
     let (status, _) = close_session(&app, &id).await;
@@ -2365,7 +2405,7 @@ async fn auto_switch_to_another_client_delivers_the_handoff_note() {
     let (status, _) = call(
         &app,
         "POST",
-        &format!("/api/accounts/{codex}/usage"),
+        &format!("/api/providers/{codex}/usage"),
         Some(json!({ "rows": [{ "label": "Weekly", "used": 20 }] })),
     )
     .await;
@@ -2395,13 +2435,13 @@ async fn auto_switch_to_another_client_delivers_the_handoff_note() {
     let (status, _) = call(
         &app,
         "POST",
-        &format!("/api/accounts/{claude}/usage"),
+        &format!("/api/providers/{claude}/usage"),
         Some(json!({ "rows": [{ "label": "Weekly", "used": 95 }] })),
     )
     .await;
     assert_eq!(status, StatusCode::OK);
 
-    let switched = wait_for_session(&app, &id, |session| session["accountId"] == codex).await;
+    let switched = wait_for_session(&app, &id, |session| session["providerId"] == codex).await;
     assert_eq!(switched["client"], "Codex");
     let text = wait_for_file_contains(&input_file, "Handoff from the previous agent").await;
     assert!(text.contains(note), "{text}");
@@ -2425,7 +2465,7 @@ async fn auto_switch_pauses_when_only_disallowed_accounts_have_room() {
     let (status, _) = call(
         &app,
         "POST",
-        &format!("/api/accounts/{second}/usage"),
+        &format!("/api/providers/{second}/usage"),
         Some(json!({ "rows": [{ "label": "Weekly", "used": 20 }] })),
     )
     .await;
@@ -2451,30 +2491,30 @@ async fn auto_switch_pauses_when_only_disallowed_accounts_have_room() {
     let (status, _) = call(
         &app,
         "POST",
-        &format!("/api/accounts/{first}/usage"),
+        &format!("/api/providers/{first}/usage"),
         Some(json!({ "rows": [{ "label": "Weekly", "used": 95 }] })),
     )
     .await;
     assert_eq!(status, StatusCode::OK);
 
     let paused = wait_for_session(&app, &id, |session| session["workState"] == "paused").await;
-    assert_eq!(paused["accountId"], first);
+    assert_eq!(paused["providerId"], first);
     assert!(
         paused["preview"]
             .as_str()
-            .is_some_and(|preview| preview.contains("No allowed account"))
+            .is_some_and(|preview| preview.contains("No allowed AI config"))
     );
 
     let (status, _) = call(
         &app,
         "POST",
-        &format!("/api/accounts/{first}/usage"),
+        &format!("/api/providers/{first}/usage"),
         Some(json!({ "rows": [{ "label": "Weekly", "used": 30 }] })),
     )
     .await;
     assert_eq!(status, StatusCode::OK);
     let resumed = wait_for_session(&app, &id, |session| session["workState"] == "working").await;
-    assert_eq!(resumed["accountId"], first);
+    assert_eq!(resumed["providerId"], first);
 
     let (status, _) = close_session(&app, &id).await;
     assert_eq!(status, StatusCode::OK);
@@ -2625,7 +2665,7 @@ async fn pause_keeps_the_handoff_note_and_resume_keeps_it() {
     let (status, _) = call(
         &app,
         "POST",
-        &format!("/api/accounts/{second}/usage"),
+        &format!("/api/providers/{second}/usage"),
         Some(json!({ "rows": [{ "label": "Weekly", "used": 20 }] })),
     )
     .await;
@@ -2652,19 +2692,19 @@ async fn pause_keeps_the_handoff_note_and_resume_keeps_it() {
     let (status, _) = call(
         &app,
         "POST",
-        &format!("/api/accounts/{first}/usage"),
+        &format!("/api/providers/{first}/usage"),
         Some(json!({ "rows": [{ "label": "Weekly", "used": 95 }] })),
     )
     .await;
     assert_eq!(status, StatusCode::OK);
     let switched =
-        wait_for_session(&app, id.as_str(), |session| session["accountId"] == second).await;
+        wait_for_session(&app, id.as_str(), |session| session["providerId"] == second).await;
     assert_eq!(switched["handoffNote"], note);
 
     let (status, _) = call(
         &app,
         "POST",
-        &format!("/api/accounts/{second}/usage"),
+        &format!("/api/providers/{second}/usage"),
         Some(json!({ "rows": [{ "label": "Weekly", "used": 95 }] })),
     )
     .await;
@@ -2678,7 +2718,7 @@ async fn pause_keeps_the_handoff_note_and_resume_keeps_it() {
     let (status, _) = call(
         &app,
         "POST",
-        &format!("/api/accounts/{first}/usage"),
+        &format!("/api/providers/{first}/usage"),
         Some(json!({ "rows": [{ "label": "Weekly", "used": 30 }] })),
     )
     .await;
@@ -2712,7 +2752,8 @@ async fn handoff_note_survives_a_reload() {
         Some(json!({
             "projectId": "web",
             "kind": "agent",
-            "accountId": "max",
+            "providerId": "max",
+            "client": "Claude Code",
             "name": "Reload note",
             "folder": repo.path.to_string_lossy()
         })),
@@ -2740,37 +2781,70 @@ async fn create_test_account(app: &Router, name: &str, key: &str) -> String {
     create_test_account_for(app, name, "anthropic", key).await
 }
 
-async fn create_test_subscription_account(app: &Router, name: &str, provider: &str) -> String {
-    let (status, account) = call(
-        app,
-        "POST",
-        "/api/accounts",
-        Some(json!({
-            "name": name,
-            "providerId": provider,
-            "auth": "subscription"
-        })),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK, "{account}");
-    account["id"].as_str().expect("account id").to_owned()
+async fn create_test_subscription_account(app: &Router, name: &str, vendor: &str) -> String {
+    create_account_with_auth(app, name, vendor, "subscription", None).await
 }
 
-async fn create_test_account_for(app: &Router, name: &str, provider: &str, key: &str) -> String {
-    let (status, account) = call(
+async fn create_test_account_for(app: &Router, name: &str, vendor: &str, key: &str) -> String {
+    create_account_with_auth(app, name, vendor, "key", Some(key)).await
+}
+
+async fn create_account_with_auth(
+    app: &Router,
+    name: &str,
+    vendor: &str,
+    auth: &str,
+    key: Option<&str>,
+) -> String {
+    let (status, provider) = call(
         app,
         "POST",
-        "/api/accounts",
+        "/api/providers",
         Some(json!({
             "name": name,
-            "providerId": provider,
-            "auth": "key",
+            "vendor": vendor,
+            "auth": auth,
             "key": key
         })),
     )
     .await;
-    assert_eq!(status, StatusCode::OK, "{account}");
-    account["id"].as_str().expect("account id").to_owned()
+    assert_eq!(status, StatusCode::OK, "{provider}");
+    let provider_id = provider["id"].as_str().expect("provider id").to_owned();
+    let clients = provider["supportedClients"]
+        .as_array()
+        .expect("supported clients");
+    let client = clients
+        .iter()
+        .find(|client| client.as_str() != Some("Antigravity"))
+        .or_else(|| clients.first())
+        .expect("a supported client");
+    let (status, config) = call(
+        app,
+        "POST",
+        "/api/configs",
+        Some(json!({
+            "providerId": provider_id,
+            "client": client
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{config}");
+    provider_id
+}
+
+/// Finds the AI config for a provider, or returns the id when it is a config.
+async fn config_for_account(app: &Router, id: &str) -> String {
+    let (_, configs) = call(app, "GET", "/api/configs", None).await;
+    let configs = configs.as_array().expect("configs");
+    if configs.iter().any(|config| config["id"] == id) {
+        return id.to_owned();
+    }
+    configs
+        .iter()
+        .find(|config| config["providerId"] == id)
+        .and_then(|config| config["id"].as_str())
+        .expect("a config for the provider")
+        .to_owned()
 }
 
 async fn wait_for_session(app: &Router, id: &str, ready: impl Fn(&Value) -> bool) -> Value {
@@ -2850,6 +2924,7 @@ async fn wait_for_file(path: &Path) -> String {
 }
 
 async fn create_agent_session(app: &Router, repo: &Path, account_id: &str, name: &str) -> String {
+    let config_id = config_for_account(app, account_id).await;
     let (status, session) = call(
         app,
         "POST",
@@ -2857,7 +2932,7 @@ async fn create_agent_session(app: &Router, repo: &Path, account_id: &str, name:
         Some(json!({
             "projectId": "web",
             "kind": "agent",
-            "accountId": account_id,
+            "configId": config_id,
             "name": name,
             "folder": repo.to_string_lossy()
         })),
@@ -2963,27 +3038,38 @@ async fn opencode_sessions_get_the_full_skill_set() {
         vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
         data_dir.path.clone(),
     );
-    let account = state.add_account(Account {
+    let provider = state.add_provider(Provider {
         id: String::new(),
         name: "OpenCode test".to_owned(),
-        plan: "team".to_owned(),
-        client: Client::OpenCode2,
-        provider: "openrouter".to_owned(),
+        vendor: "openrouter".to_owned(),
         auth: Auth::Subscription,
+        server: None,
+        api_style: None,
         sample: false,
+        plan: "team".to_owned(),
         rows: Vec::new(),
         foot: String::new(),
         usage_read_at: None,
         usage_checked_at: None,
         usage_status: None,
         usage_source: None,
-        server: None,
+    });
+    let config = state.add_config(AiConfig {
+        id: String::new(),
+        name: "OpenCode test (OpenCode 2)".to_owned(),
+        provider_id: provider.id,
+        client: Client::OpenCode2,
         model: None,
-        api_style: None,
+        effort: None,
+        args: Vec::new(),
+        env: Vec::new(),
+        config: std::collections::BTreeMap::new(),
+        created_at: String::new(),
+        updated_at: String::new(),
     });
     let app = router(state);
     ensure_test_project(&app, &repo.path).await;
-    let id = create_agent_session(&app, &repo.path, &account.id, "OpenCode skills").await;
+    let id = create_agent_session(&app, &repo.path, &config.id, "OpenCode skills").await;
 
     let kit = skill_kit(&data_dir.path, &id);
     assert_skill_set(&kit.join("skills"));
@@ -3025,7 +3111,8 @@ async fn start_session_tool_creates_a_pending_request_that_can_be_denied() {
         Some(json!({
             "projectId": "web",
             "kind": "agent",
-            "accountId": "max",
+            "providerId": "max",
+            "client": "Claude Code",
             "name": "Coordinator",
             "folder": repo.path.to_string_lossy()
         })),
@@ -3112,7 +3199,8 @@ async fn mcp_session_tools_ask_answer_notify_and_report_done() {
         Some(json!({
             "projectId": "web",
             "kind": "agent",
-            "accountId": "max",
+            "providerId": "max",
+            "client": "Claude Code",
             "name": "MCP session",
             "folder": repo.path.to_string_lossy()
         })),
@@ -3695,7 +3783,8 @@ async fn closing_a_session_withdraws_its_questions() {
         Some(json!({
             "projectId": "web",
             "kind": "agent",
-            "accountId": "max",
+            "providerId": "max",
+            "client": "Claude Code",
             "name": "MCP close",
             "folder": repo.path.to_string_lossy()
         })),
@@ -3746,7 +3835,8 @@ async fn session_environment_overrides_reach_the_process() {
         Some(json!({
             "projectId": "web",
             "kind": "agent",
-            "accountId": "max",
+            "providerId": "max",
+            "client": "Claude Code",
             "name": "Env overrides",
             "folder": repo.path.to_string_lossy(),
             "env": [{ "name": "E2E_VALUE", "value": "hello" }]
@@ -3767,53 +3857,58 @@ async fn session_environment_overrides_reach_the_process() {
 }
 
 #[tokio::test]
-async fn presets_can_be_created_listed_updated_and_deleted() {
+async fn configs_can_be_created_listed_updated_and_deleted() {
     let app = router(AppState::ephemeral());
     let (status, created) = call(
         &app,
         "POST",
-        "/api/presets",
+        "/api/configs",
         Some(json!({
             "name": "Fast Claude",
-            "accountId": "max",
+            "providerId": "max",
+            "client": "Claude Code",
             "model": "claude-sonnet-4-5",
-            "env": [{ "name": "E2E_VALUE", "value": "preset" }],
+            "effort": "high",
+            "args": ["--verbose"],
+            "env": [{ "name": "E2E_VALUE", "value": "config" }],
             "config": { "permissions.defaultMode": "acceptEdits" }
         })),
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{created}");
     assert_eq!(created["name"], "Fast Claude");
-    assert_eq!(created["accountId"], "max");
+    assert_eq!(created["providerId"], "max");
+    assert_eq!(created["client"], "Claude Code");
     assert_eq!(created["model"], "claude-sonnet-4-5");
+    assert_eq!(created["effort"], "high");
+    assert_eq!(created["args"], json!(["--verbose"]));
     assert_eq!(created["env"][0]["name"], "E2E_VALUE");
     assert_eq!(created["config"]["permissions.defaultMode"], "acceptEdits");
-    assert_eq!(created["stored"], true);
-    let id = created["id"].as_str().expect("preset id").to_owned();
+    let id = created["id"].as_str().expect("config id").to_owned();
 
-    let (status, filtered) = call(&app, "GET", "/api/presets?q=fast", None).await;
+    let (status, filtered) = call(&app, "GET", "/api/configs?q=fast", None).await;
     assert_eq!(status, StatusCode::OK);
-    let filtered = filtered.as_array().expect("presets");
-    assert!(filtered.iter().any(|preset| preset["id"] == id.as_str()));
+    let filtered = filtered.as_array().expect("configs");
+    assert!(filtered.iter().any(|config| config["id"] == id.as_str()));
 
-    let (_, all) = call(&app, "GET", "/api/presets", None).await;
-    let derived = all
+    let (_, all) = call(&app, "GET", "/api/configs", None).await;
+    let codex = all
         .as_array()
-        .expect("presets")
+        .expect("configs")
         .iter()
-        .find(|preset| preset["id"] == "account:codex")
-        .expect("an account without a stored preset still appears");
-    assert_eq!(derived["stored"], false);
-    assert_eq!(derived["name"], "ChatGPT Pro");
-    assert_eq!(derived["accountId"], "codex");
+        .find(|config| config["id"] == "codex-codex")
+        .expect("the seeded Codex config");
+    assert_eq!(codex["name"], "ChatGPT Pro (Codex)");
+    assert_eq!(codex["providerId"], "codex");
 
     let (status, updated) = call(
         &app,
         "PATCH",
-        &format!("/api/presets/{id}"),
+        &format!("/api/configs/{id}"),
         Some(json!({
             "name": "Faster Claude",
             "model": "claude-opus-4-1",
+            "effort": "max",
             "env": [],
             "config": { "model": "from-config" }
         })),
@@ -3822,24 +3917,42 @@ async fn presets_can_be_created_listed_updated_and_deleted() {
     assert_eq!(status, StatusCode::OK, "{updated}");
     assert_eq!(updated["name"], "Faster Claude");
     assert_eq!(updated["model"], "claude-opus-4-1");
+    assert_eq!(updated["effort"], "max");
     assert!(updated["env"].as_array().expect("env").is_empty());
     assert_eq!(updated["config"]["model"], "from-config");
 
-    let (status, _) = call(&app, "DELETE", &format!("/api/presets/{id}"), None).await;
+    let (status, _) = call(&app, "DELETE", &format!("/api/configs/{id}"), None).await;
     assert_eq!(status, StatusCode::NO_CONTENT);
-    let (status, _) = call(&app, "DELETE", &format!("/api/presets/{id}"), None).await;
+    let (status, _) = call(&app, "DELETE", &format!("/api/configs/{id}"), None).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]
-async fn preset_accounts_and_models_are_validated() {
+async fn config_providers_clients_and_values_are_validated() {
     let app = router(AppState::ephemeral());
 
     let (status, body) = call(
         &app,
         "POST",
-        "/api/presets",
-        Some(json!({ "name": "Orphan", "accountId": "missing" })),
+        "/api/configs",
+        Some(json!({
+            "name": "Orphan",
+            "providerId": "missing",
+            "client": "Claude Code"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+
+    let (status, body) = call(
+        &app,
+        "POST",
+        "/api/configs",
+        Some(json!({
+            "name": "Wrong client",
+            "providerId": "google",
+            "client": "Claude Code"
+        })),
     )
     .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
@@ -3847,28 +3960,32 @@ async fn preset_accounts_and_models_are_validated() {
     let (status, created) = call(
         &app,
         "POST",
-        "/api/presets",
-        Some(json!({ "name": "Valid", "accountId": "max" })),
+        "/api/configs",
+        Some(json!({
+            "name": "Valid",
+            "providerId": "max",
+            "client": "Claude Code"
+        })),
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{created}");
-    let id = created["id"].as_str().expect("preset id");
+    let id = created["id"].as_str().expect("config id");
 
     let (status, unnamed) = call(
         &app,
         "POST",
-        "/api/presets",
-        Some(json!({ "accountId": "codex" })),
+        "/api/configs",
+        Some(json!({ "providerId": "codex", "client": "Codex" })),
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{unnamed}");
-    assert_eq!(unnamed["name"], "ChatGPT Pro");
+    assert_eq!(unnamed["name"], "ChatGPT Pro (Codex)");
 
     let (status, body) = call(
         &app,
         "PATCH",
-        &format!("/api/presets/{id}"),
-        Some(json!({ "accountId": "missing" })),
+        &format!("/api/configs/{id}"),
+        Some(json!({ "providerId": "missing" })),
     )
     .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
@@ -3876,10 +3993,11 @@ async fn preset_accounts_and_models_are_validated() {
     let (status, body) = call(
         &app,
         "POST",
-        "/api/presets",
+        "/api/configs",
         Some(json!({
             "name": "Bad model",
-            "accountId": "max",
+            "providerId": "max",
+            "client": "Claude Code",
             "model": "not a model"
         })),
     )
@@ -3889,10 +4007,25 @@ async fn preset_accounts_and_models_are_validated() {
     let (status, body) = call(
         &app,
         "POST",
-        "/api/presets",
+        "/api/configs",
+        Some(json!({
+            "name": "Bad effort",
+            "providerId": "max",
+            "client": "Claude Code",
+            "effort": "turbo"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+
+    let (status, body) = call(
+        &app,
+        "POST",
+        "/api/configs",
         Some(json!({
             "name": "Bad key",
-            "accountId": "max",
+            "providerId": "max",
+            "client": "Claude Code",
             "config": { "bad key": "value" }
         })),
     )
@@ -3902,10 +4035,11 @@ async fn preset_accounts_and_models_are_validated() {
     let (status, body) = call(
         &app,
         "POST",
-        "/api/presets",
+        "/api/configs",
         Some(json!({
             "name": "Key in env",
-            "accountId": "max",
+            "providerId": "max",
+            "client": "Claude Code",
             "env": [{ "name": "ANTHROPIC_API_KEY", "value": "secret" }]
         })),
     )
@@ -3915,10 +4049,11 @@ async fn preset_accounts_and_models_are_validated() {
     let (status, body) = call(
         &app,
         "POST",
-        "/api/presets",
+        "/api/configs",
         Some(json!({
             "name": "Key in config",
-            "accountId": "codex",
+            "providerId": "codex",
+            "client": "Codex",
             "config": { "providers.openai.apiKey": "secret" }
         })),
     )
@@ -3927,19 +4062,21 @@ async fn preset_accounts_and_models_are_validated() {
 }
 
 #[tokio::test]
-async fn presets_persist_across_restarts() {
-    let data_dir = TempDirectory::new("preset-persist");
+async fn configs_persist_across_restarts() {
+    let data_dir = TempDirectory::new("config-persist");
     {
         let app = router(AppState::with_data_dir(data_dir.path.clone()));
         let (status, created) = call(
             &app,
             "POST",
-            "/api/presets",
+            "/api/configs",
             Some(json!({
                 "name": "Saved",
-                "accountId": "codex",
+                "providerId": "codex",
+                "client": "Codex",
                 "model": "gpt-5.2",
-                "config": { "model_reasoning_effort": "high" }
+                "effort": "high",
+                "config": { "features.web": "true" }
             })),
         )
         .await;
@@ -3947,17 +4084,18 @@ async fn presets_persist_across_restarts() {
     }
 
     let app = router(AppState::with_data_dir(data_dir.path.clone()));
-    let (_, presets) = call(&app, "GET", "/api/presets", None).await;
-    let saved = presets
+    let (_, configs) = call(&app, "GET", "/api/configs", None).await;
+    let saved = configs
         .as_array()
-        .expect("presets")
+        .expect("configs")
         .iter()
-        .find(|preset| preset["name"] == "Saved")
-        .expect("the stored preset was reloaded");
-    assert_eq!(saved["accountId"], "codex");
+        .find(|config| config["name"] == "Saved")
+        .expect("the stored config was reloaded");
+    assert_eq!(saved["providerId"], "codex");
+    assert_eq!(saved["client"], "Codex");
     assert_eq!(saved["model"], "gpt-5.2");
-    assert_eq!(saved["config"]["model_reasoning_effort"], "high");
-    assert_eq!(saved["stored"], true);
+    assert_eq!(saved["effort"], "high");
+    assert_eq!(saved["config"]["features.web"], "true");
 }
 
 #[tokio::test]
@@ -3978,10 +4116,11 @@ async fn session_from_a_preset_gets_its_model_and_environment() {
     let (status, preset) = call(
         &app,
         "POST",
-        "/api/presets",
+        "/api/configs",
         Some(json!({
             "name": "Preset launch",
-            "accountId": "max",
+            "providerId": "max",
+            "client": "Claude Code",
             "model": "claude-sonnet-4-5",
             "env": [{ "name": "E2E_VALUE", "value": "from-preset" }],
             "config": { "permissions.defaultMode": "acceptEdits" }
@@ -3989,7 +4128,7 @@ async fn session_from_a_preset_gets_its_model_and_environment() {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{preset}");
-    let preset_id = preset["id"].as_str().expect("preset id");
+    let preset_id = preset["id"].as_str().expect("config id");
 
     let (status, session) = call(
         &app,
@@ -3998,7 +4137,7 @@ async fn session_from_a_preset_gets_its_model_and_environment() {
         Some(json!({
             "projectId": "web",
             "kind": "agent",
-            "presetId": preset_id,
+            "configId": preset_id,
             "name": "From preset",
             "folder": repo.path.to_string_lossy()
         })),
@@ -4006,8 +4145,8 @@ async fn session_from_a_preset_gets_its_model_and_environment() {
     .await;
     assert_eq!(status, StatusCode::OK, "{session}");
     let id = session["id"].as_str().expect("session id").to_owned();
-    assert_eq!(session["presetId"], preset_id);
-    assert_eq!(session["accountId"], "max");
+    assert_eq!(session["configId"], preset_id);
+    assert_eq!(session["providerId"], "max");
     assert_eq!(session["model"], "claude-sonnet-4-5");
 
     let request = request_builder("GET", &format!("/api/sessions/{id}/output?after=0"))
@@ -4047,16 +4186,17 @@ async fn launch_environment_overrides_win_over_a_preset() {
     let (status, preset) = call(
         &app,
         "POST",
-        "/api/presets",
+        "/api/configs",
         Some(json!({
             "name": "Preset environment",
-            "accountId": "max",
+            "providerId": "max",
+            "client": "Claude Code",
             "env": [{ "name": "E2E_VALUE", "value": "from-preset" }]
         })),
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{preset}");
-    let preset_id = preset["id"].as_str().expect("preset id");
+    let preset_id = preset["id"].as_str().expect("config id");
 
     let (status, session) = call(
         &app,
@@ -4065,7 +4205,7 @@ async fn launch_environment_overrides_win_over_a_preset() {
         Some(json!({
             "projectId": "web",
             "kind": "agent",
-            "presetId": preset_id,
+            "configId": preset_id,
             "name": "Launch wins",
             "folder": repo.path.to_string_lossy(),
             "env": [{ "name": "E2E_VALUE", "value": "from-launch" }]
@@ -4112,7 +4252,7 @@ async fn terminal_sessions_reject_a_preset() {
         Some(json!({
             "projectId": "web",
             "kind": "terminal",
-            "presetId": "account:max",
+            "configId": "max-claude-code",
             "folder": folder.path.to_string_lossy()
         })),
     )
@@ -4431,29 +4571,32 @@ async fn project_defaults_can_be_set_and_cleared() {
         "PATCH",
         "/api/projects/web",
         Some(json!({
-            "defaultAccountId": "max",
+            "defaultConfigId": "max-claude-code",
             "defaultSourceBranch": "feature"
         })),
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{updated}");
-    assert_eq!(updated["defaultAccountId"], "max");
+    assert_eq!(updated["defaultConfigId"], "max-claude-code");
     assert_eq!(updated["defaultSourceBranch"], "feature");
 
     let (status, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
     assert_eq!(status, StatusCode::OK, "{bootstrap}");
-    assert_eq!(bootstrap["projects"][0]["defaultAccountId"], "max");
+    assert_eq!(
+        bootstrap["projects"][0]["defaultConfigId"],
+        "max-claude-code"
+    );
     assert_eq!(bootstrap["projects"][0]["defaultSourceBranch"], "feature");
 
     let (status, cleared) = call(
         &app,
         "PATCH",
         "/api/projects/web",
-        Some(json!({ "defaultAccountId": null })),
+        Some(json!({ "defaultConfigId": null })),
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{cleared}");
-    assert_eq!(cleared["defaultAccountId"], Value::Null);
+    assert_eq!(cleared["defaultConfigId"], Value::Null);
     assert_eq!(
         cleared["defaultSourceBranch"], "feature",
         "an absent field keeps its value"
@@ -4467,7 +4610,7 @@ async fn project_defaults_can_be_set_and_cleared() {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{cleared}");
-    assert_eq!(cleared["defaultAccountId"], Value::Null);
+    assert_eq!(cleared["defaultConfigId"], Value::Null);
     assert_eq!(
         cleared["defaultSourceBranch"],
         Value::Null,
@@ -4485,7 +4628,7 @@ async fn project_defaults_reject_an_unknown_account() {
         &app,
         "PATCH",
         "/api/projects/web",
-        Some(json!({ "defaultAccountId": "missing" })),
+        Some(json!({ "defaultConfigId": "missing" })),
     )
     .await;
 
@@ -4568,7 +4711,7 @@ async fn project_defaults_reject_an_unknown_project() {
         &app,
         "PATCH",
         "/api/projects/missing",
-        Some(json!({ "defaultAccountId": null })),
+        Some(json!({ "defaultConfigId": null })),
     )
     .await;
 
@@ -4589,7 +4732,7 @@ async fn project_defaults_are_saved_and_reloaded() {
             "PATCH",
             "/api/projects/web",
             Some(json!({
-                "defaultAccountId": "max",
+                "defaultConfigId": "max-claude-code",
                 "defaultSourceBranch": "main"
             })),
         )
@@ -4600,7 +4743,7 @@ async fn project_defaults_are_saved_and_reloaded() {
     let app = router(AppState::with_data_dir(data_dir.path.clone()));
     let (status, body) = call(&app, "GET", "/api/bootstrap", None).await;
     assert_eq!(status, StatusCode::OK, "{body}");
-    assert_eq!(body["projects"][0]["defaultAccountId"], "max");
+    assert_eq!(body["projects"][0]["defaultConfigId"], "max-claude-code");
     assert_eq!(body["projects"][0]["defaultSourceBranch"], "main");
 }
 
@@ -4623,7 +4766,7 @@ async fn old_project_state_loads_without_defaults() {
     let (status, body) = call(&app, "GET", "/api/bootstrap", None).await;
 
     assert_eq!(status, StatusCode::OK, "{body}");
-    assert_eq!(body["projects"][0]["defaultAccountId"], Value::Null);
+    assert_eq!(body["projects"][0]["defaultConfigId"], Value::Null);
     assert_eq!(body["projects"][0]["defaultSourceBranch"], Value::Null);
 }
 
@@ -5136,8 +5279,9 @@ async fn persistence_keeps_projects_sessions_and_logs() {
     let state_path = data_dir.path.join("state.json");
     let state_text = fs::read_to_string(&state_path).expect("state file");
     let state: Value = serde_json::from_str(&state_text).expect("state json");
-    assert_eq!(state["version"], 1);
-    assert_eq!(state["accounts"].as_array().expect("accounts").len(), 4);
+    assert_eq!(state["version"], 2);
+    assert_eq!(state["providers"].as_array().expect("providers").len(), 4);
+    assert_eq!(state["configs"].as_array().expect("configs").len(), 4);
     assert!(
         state["projects"]
             .as_array()
@@ -5178,7 +5322,11 @@ async fn persistence_keeps_projects_sessions_and_logs() {
     ));
     let (status, bootstrap) = call(&restarted, "GET", "/api/bootstrap", None).await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(bootstrap["accounts"].as_array().expect("accounts").len(), 4);
+    assert_eq!(
+        bootstrap["providers"].as_array().expect("providers").len(),
+        4
+    );
+    assert_eq!(bootstrap["configs"].as_array().expect("configs").len(), 4);
     assert!(
         bootstrap["projects"]
             .as_array()
@@ -5302,17 +5450,18 @@ async fn restart_keeps_a_codex_preset_model_and_config() {
     let (status, preset) = call(
         &app,
         "POST",
-        "/api/presets",
+        "/api/configs",
         Some(json!({
             "name": "Recovered Codex",
-            "accountId": "codex",
+            "providerId": "codex",
+            "client": "Codex",
             "model": "gpt-5.2",
-            "config": { "model_reasoning_effort": "high" }
+            "effort": "high"
         })),
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{preset}");
-    let preset_id = preset["id"].as_str().expect("preset id");
+    let preset_id = preset["id"].as_str().expect("config id");
 
     let (status, session) = call(
         &app,
@@ -5321,7 +5470,7 @@ async fn restart_keeps_a_codex_preset_model_and_config() {
         Some(json!({
             "projectId": "web",
             "kind": "agent",
-            "presetId": preset_id,
+            "configId": preset_id,
             "name": "Recovered Codex",
             "folder": repo.path.to_string_lossy()
         })),
@@ -5380,7 +5529,8 @@ async fn active_agent_session_keeps_its_conversation_id_across_restart() {
         Some(json!({
             "projectId": "web",
             "kind": "agent",
-            "accountId": "max",
+            "providerId": "max",
+            "client": "Claude Code",
             "name": "Recovered agent",
             "folder": repo.path.to_string_lossy()
         })),
@@ -5487,7 +5637,8 @@ async fn active_session_with_a_missing_client_restores_as_paused() {
         Some(json!({
             "projectId": "web",
             "kind": "agent",
-            "accountId": "max",
+            "providerId": "max",
+            "client": "Claude Code",
             "name": "Missing client",
             "folder": repo.path.to_string_lossy()
         })),
@@ -5714,7 +5865,11 @@ async fn corrupt_state_falls_back_to_sample_accounts() {
             .expect("projects")
             .is_empty()
     );
-    assert_eq!(bootstrap["accounts"].as_array().expect("accounts").len(), 4);
+    assert_eq!(
+        bootstrap["providers"].as_array().expect("providers").len(),
+        4
+    );
+    assert_eq!(bootstrap["configs"].as_array().expect("configs").len(), 4);
     assert_eq!(bootstrap["sessions"].as_array().expect("sessions").len(), 0);
     assert!(data_dir.path.join("state.bad.json").exists());
     assert!(!state_path.exists());
@@ -5738,7 +5893,8 @@ async fn dirty_agent_close_commits_and_removes_the_worktree() {
         Some(json!({
             "projectId": "web",
             "kind": "agent",
-            "accountId": "max",
+            "providerId": "max",
+            "client": "Claude Code",
             "name": "Dirty Work",
             "folder": repo.path.to_string_lossy()
         })),
@@ -5783,7 +5939,8 @@ async fn close_puts_the_handoff_note_in_the_last_commit_message() {
         Some(json!({
             "projectId": "web",
             "kind": "agent",
-            "accountId": "max",
+            "providerId": "max",
+            "client": "Claude Code",
             "name": "Close Note",
             "folder": repo.path.to_string_lossy()
         })),
@@ -5835,7 +5992,8 @@ async fn close_on_a_clean_tree_keeps_the_note_on_the_last_commit() {
         Some(json!({
             "projectId": "web",
             "kind": "agent",
-            "accountId": "max",
+            "providerId": "max",
+            "client": "Claude Code",
             "name": "Clean Note",
             "folder": repo.path.to_string_lossy()
         })),
@@ -5885,7 +6043,8 @@ async fn push_failure_keeps_the_worktree() {
         Some(json!({
             "projectId": "web",
             "kind": "agent",
-            "accountId": "max",
+            "providerId": "max",
+            "client": "Claude Code",
             "name": "Push Failure",
             "folder": repo.path.to_string_lossy()
         })),
@@ -5936,7 +6095,8 @@ async fn push_success_removes_the_worktree_and_keeps_the_remote_branch() {
         Some(json!({
             "projectId": "web",
             "kind": "agent",
-            "accountId": "max",
+            "providerId": "max",
+            "client": "Claude Code",
             "name": "Push Success",
             "folder": repo.path.to_string_lossy()
         })),
@@ -5972,7 +6132,8 @@ async fn reopen_recreates_the_worktree_and_repo_root_survives_reload() {
         Some(json!({
             "projectId": "web",
             "kind": "agent",
-            "accountId": "max",
+            "providerId": "max",
+            "client": "Claude Code",
             "name": "Reopen Work",
             "folder": repo.path.to_string_lossy()
         })),
@@ -6036,7 +6197,8 @@ async fn non_git_folder_is_rejected_for_agent_sessions() {
         Some(json!({
             "projectId": "web",
             "kind": "agent",
-            "accountId": "max",
+            "providerId": "max",
+            "client": "Claude Code",
             "folder": folder.path.to_string_lossy()
         })),
     )
@@ -6065,7 +6227,8 @@ async fn close_and_reopen_are_serialized_during_slow_git() {
         Some(json!({
             "projectId": "web",
             "kind": "agent",
-            "accountId": "max",
+            "providerId": "max",
+            "client": "Claude Code",
             "name": "Race",
             "folder": repo.path.to_string_lossy()
         })),
@@ -6141,7 +6304,8 @@ async fn slow_git_times_out_and_keeps_the_worktree() {
         Some(json!({
             "projectId": "web",
             "kind": "agent",
-            "accountId": "max",
+            "providerId": "max",
+            "client": "Claude Code",
             "name": "Timeout",
             "folder": repo.path.to_string_lossy()
         })),
@@ -6175,7 +6339,8 @@ async fn branch_name_reuse_after_delete_gets_a_new_suffix() {
     let body = json!({
         "projectId": "web",
         "kind": "agent",
-        "accountId": "max",
+        "providerId": "max",
+            "client": "Claude Code",
         "name": "Reuse",
         "folder": repo.path.to_string_lossy()
     });
@@ -6222,7 +6387,8 @@ async fn close_pushes_to_a_single_non_origin_remote() {
         Some(json!({
             "projectId": "web",
             "kind": "agent",
-            "accountId": "max",
+            "providerId": "max",
+            "client": "Claude Code",
             "name": "Upstream",
             "folder": repo.path.to_string_lossy()
         })),
@@ -6258,7 +6424,8 @@ async fn spawn_failure_rolls_back_the_worktree_and_branch() {
         Some(json!({
             "projectId": "web",
             "kind": "agent",
-            "accountId": "max",
+            "providerId": "max",
+            "client": "Claude Code",
             "name": "Spawn Fail",
             "folder": repo.path.to_string_lossy()
         })),
@@ -6297,7 +6464,8 @@ async fn reopen_replaces_a_stale_worktree_directory() {
         Some(json!({
             "projectId": "web",
             "kind": "agent",
-            "accountId": "max",
+            "providerId": "max",
+            "client": "Claude Code",
             "name": "Stale",
             "folder": repo.path.to_string_lossy()
         })),
@@ -6347,7 +6515,8 @@ async fn refused_worktree_removal_keeps_it_with_a_preview() {
         Some(json!({
             "projectId": "web",
             "kind": "agent",
-            "accountId": "max",
+            "providerId": "max",
+            "client": "Claude Code",
             "name": "Refused",
             "folder": repo.path.to_string_lossy()
         })),
@@ -6387,7 +6556,8 @@ async fn close_with_a_missing_worktree_sets_a_truthful_preview() {
         Some(json!({
             "projectId": "web",
             "kind": "agent",
-            "accountId": "max",
+            "providerId": "max",
+            "client": "Claude Code",
             "name": "Missing Worktree",
             "folder": repo.path.to_string_lossy()
         })),
@@ -7622,36 +7792,49 @@ async fn google_account_is_stored_without_its_key_and_validated() {
     .with_test_secret_store(secrets.clone());
     let app = router(state);
 
-    let (status, account) = call(
+    let (status, provider) = call(
         &app,
         "POST",
-        "/api/accounts",
+        "/api/providers",
         Some(json!({
             "name": "Google Gemini",
-            "providerId": "google",
-            "client": "Antigravity",
+            "vendor": "google",
             "auth": "key",
             "key": "AIza-test-key-123"
         })),
     )
     .await;
-    assert_eq!(status, StatusCode::OK, "{account}");
-    let id = account["id"].as_str().expect("account id").to_owned();
-    assert_eq!(account["client"], "Antigravity");
-    assert_eq!(account["provider"], "google");
-    assert_eq!(account["auth"], "key");
-    assert_eq!(account["sample"], false);
-    assert_eq!(account["model"], "gemini-3.8-flash-medium");
-    assert_eq!(account["rows"].as_array().expect("rows").len(), 0);
-    assert_eq!(account["foot"], "No official usage source.");
-    assert!(account.get("key").is_none());
+    assert_eq!(status, StatusCode::OK, "{provider}");
+    let id = provider["id"].as_str().expect("provider id").to_owned();
+    assert_eq!(provider["supportedClients"], json!(["Antigravity"]));
+    assert_eq!(provider["vendor"], "google");
+    assert_eq!(provider["auth"], "key");
+    assert_eq!(provider["sample"], false);
+    assert_eq!(provider["rows"].as_array().expect("rows").len(), 0);
+    assert_eq!(provider["foot"], "No official usage source.");
+    assert!(provider.get("key").is_none());
     assert_eq!(
         secrets.get_key(&id).expect("read stored key"),
         Some("AIza-test-key-123".to_owned())
     );
 
+    let (status, config) = call(
+        &app,
+        "POST",
+        "/api/configs",
+        Some(json!({ "providerId": id, "client": "Antigravity" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{config}");
+    assert_eq!(config["model"], "gemini-3.8-flash-medium");
+    assert_eq!(config["name"], "Google Gemini (Antigravity)");
+
     let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
-    assert_eq!(bootstrap["accounts"].as_array().expect("accounts").len(), 5);
+    assert_eq!(
+        bootstrap["providers"].as_array().expect("providers").len(),
+        5
+    );
+    assert_eq!(bootstrap["configs"].as_array().expect("configs").len(), 5);
     assert!(!bootstrap.to_string().contains("AIza-test-key-123"));
     let state_text = fs::read_to_string(data_dir.path.join("state.json")).expect("state file");
     assert!(!state_text.contains("AIza-test-key-123"));
@@ -7660,11 +7843,10 @@ async fn google_account_is_stored_without_its_key_and_validated() {
     let (status, duplicate) = call(
         &app,
         "POST",
-        "/api/accounts",
+        "/api/providers",
         Some(json!({
             "name": "Google Gemini",
-            "providerId": "google",
-            "client": "Antigravity",
+            "vendor": "google",
             "auth": "key",
             "key": "AIza-second-key"
         })),
@@ -7676,64 +7858,51 @@ async fn google_account_is_stored_without_its_key_and_validated() {
         format!("{id}-2")
     );
 
-    let (status, custom_model) = call(
-        &app,
-        "POST",
-        "/api/accounts",
-        Some(json!({
-            "name": "Google Pro",
-            "providerId": "google",
-            "client": "Antigravity",
-            "auth": "key",
-            "key": "AIza-third-key",
-            "model": "gemini-3.8-pro"
-        })),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK, "{custom_model}");
-    assert_eq!(custom_model["model"], "gemini-3.8-pro");
-
     let invalid = [
         (
-            json!({"name": "", "providerId": "google", "client": "Antigravity", "auth": "key", "key": "k"}),
-            StatusCode::BAD_REQUEST,
-        ),
-        (
-            json!({"name": "Wrong provider", "providerId": "anthropic", "client": "Antigravity", "auth": "key", "key": "k"}),
+            json!({"name": "Unknown vendor", "vendor": "nope", "auth": "key", "key": "k"}),
             StatusCode::UNPROCESSABLE_ENTITY,
         ),
         (
-            json!({"name": "Wrong client", "providerId": "google", "client": "Claude Code", "auth": "key", "key": "k"}),
+            json!({"name": "Wrong auth", "vendor": "google", "auth": "subscription", "key": "k"}),
             StatusCode::UNPROCESSABLE_ENTITY,
         ),
         (
-            json!({"name": "Wrong auth", "providerId": "google", "client": "Antigravity", "auth": "subscription", "key": "k"}),
-            StatusCode::UNPROCESSABLE_ENTITY,
-        ),
-        (
-            json!({"name": "No key", "providerId": "google", "client": "Antigravity", "auth": "key", "key": "  "}),
-            StatusCode::BAD_REQUEST,
-        ),
-        (
-            json!({"name": "Long model", "providerId": "google", "client": "Antigravity", "auth": "key", "key": "k", "model": "x".repeat(121)}),
+            json!({"name": "No key", "vendor": "google", "auth": "key", "key": "  "}),
             StatusCode::BAD_REQUEST,
         ),
     ];
     for (request, expected) in invalid {
-        let (status, body) = call(&app, "POST", "/api/accounts", Some(request)).await;
+        let (status, body) = call(&app, "POST", "/api/providers", Some(request)).await;
         assert_eq!(status, expected, "{body}");
     }
     let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
-    assert_eq!(bootstrap["accounts"].as_array().expect("accounts").len(), 7);
+    assert_eq!(
+        bootstrap["providers"].as_array().expect("providers").len(),
+        6
+    );
+
+    let (status, body) = call(
+        &app,
+        "POST",
+        "/api/configs",
+        Some(json!({
+            "providerId": id,
+            "client": "Antigravity",
+            "model": "x".repeat(121)
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
 }
 
 #[tokio::test]
 async fn provider_list_matches_the_supported_table() {
     let app = router(AppState::ephemeral());
-    let (status, providers) = call(&app, "GET", "/api/providers", None).await;
-    assert_eq!(status, StatusCode::OK, "{providers}");
-    let providers = providers.as_array().expect("providers");
-    let ids = providers
+    let (status, options) = call(&app, "GET", "/api/provider-options", None).await;
+    assert_eq!(status, StatusCode::OK, "{options}");
+    let options = options.as_array().expect("provider options");
+    let ids = options
         .iter()
         .map(|provider| provider["id"].as_str().unwrap_or_default())
         .collect::<Vec<_>>();
@@ -7751,11 +7920,38 @@ async fn provider_list_matches_the_supported_table() {
     ] {
         assert!(ids.contains(&id), "missing provider {id}: {ids:?}");
     }
-    let custom = providers
+    let custom = options
         .iter()
         .find(|provider| provider["id"] == "custom")
         .expect("custom provider");
     assert_eq!(custom["custom"], true);
+
+    let client_table = [
+        ("anthropic", json!(["Claude Code", "OpenCode 2"])),
+        ("openai", json!(["Codex", "OpenCode 2"])),
+        ("google", json!(["Antigravity"])),
+        ("deepseek", json!(["Claude Code", "Codex", "OpenCode 2"])),
+        ("openrouter", json!(["OpenCode 2", "Codex"])),
+    ];
+    for (id, clients) in client_table {
+        let provider = options
+            .iter()
+            .find(|provider| provider["id"] == id)
+            .expect("provider option");
+        assert_eq!(provider["supportedClients"], clients, "{id}");
+    }
+    let claude = options
+        .iter()
+        .find(|provider| provider["id"] == "anthropic")
+        .expect("anthropic");
+    assert_eq!(
+        claude["efforts"]["Claude Code"],
+        json!(["low", "medium", "high", "xhigh", "max"])
+    );
+    assert_eq!(
+        claude["efforts"]["OpenCode 2"],
+        json!(["low", "medium", "high"])
+    );
 }
 
 #[tokio::test]
@@ -7772,10 +7968,10 @@ async fn deepseek_account_keeps_its_key_out_of_the_state() {
     let (status, account) = call(
         &app,
         "POST",
-        "/api/accounts",
+        "/api/providers",
         Some(json!({
             "name": "DeepSeek work",
-            "providerId": "deepseek",
+            "vendor": "deepseek",
             "auth": "key",
             "key": "sk-deepseek-secret"
         })),
@@ -7783,10 +7979,13 @@ async fn deepseek_account_keeps_its_key_out_of_the_state() {
     .await;
 
     assert_eq!(status, StatusCode::OK, "{account}");
-    assert_eq!(account["client"], "Claude Code");
-    assert_eq!(account["provider"], "deepseek");
+    assert_eq!(
+        account["supportedClients"],
+        json!(["Claude Code", "Codex", "OpenCode 2"])
+    );
+    assert_eq!(account["vendor"], "deepseek");
     assert!(account.get("key").is_none(), "the response leaked the key");
-    let id = account["id"].as_str().expect("account id");
+    let id = account["id"].as_str().expect("provider id");
     assert_eq!(
         secrets.get_key(id).expect("read key").as_deref(),
         Some("sk-deepseek-secret")
@@ -7811,41 +8010,58 @@ async fn custom_provider_account_validates_style_client_and_server() {
     let app = router(AppState::ephemeral());
     let valid = json!({
         "name": "Gateway",
-        "providerId": "custom",
+        "vendor": "custom",
         "auth": "key",
         "apiStyle": "openai",
-        "client": "Codex",
         "key": "sk-gateway",
-        "server": "https://gateway.example/v1",
-        "model": "gpt-test"
+        "server": "https://gateway.example/v1"
     });
-    let (status, account) = call(&app, "POST", "/api/accounts", Some(valid)).await;
+    let (status, account) = call(&app, "POST", "/api/providers", Some(valid)).await;
     assert_eq!(status, StatusCode::OK, "{account}");
-    assert_eq!(account["client"], "Codex");
+    assert_eq!(account["supportedClients"], json!(["Codex", "OpenCode 2"]));
     assert_eq!(account["apiStyle"], "openai");
     assert_eq!(account["server"], "https://gateway.example/v1");
-    assert_eq!(account["model"], "gpt-test");
+    let provider_id = account["id"].as_str().expect("provider id");
+
+    let (status, config) = call(
+        &app,
+        "POST",
+        "/api/configs",
+        Some(json!({
+            "providerId": provider_id,
+            "client": "Codex",
+            "model": "gpt-test"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{config}");
+    assert_eq!(config["model"], "gpt-test");
+
+    let (status, body) = call(
+        &app,
+        "POST",
+        "/api/configs",
+        Some(json!({"providerId": provider_id, "client": "Claude Code"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
 
     let invalid = [
         (
-            json!({"name": "No style", "providerId": "custom", "auth": "key", "key": "k", "server": "https://example.com"}),
+            json!({"name": "No style", "vendor": "custom", "auth": "key", "key": "k", "server": "https://example.com"}),
             StatusCode::BAD_REQUEST,
         ),
         (
-            json!({"name": "Wrong client", "providerId": "custom", "auth": "key", "apiStyle": "anthropic", "client": "Codex", "key": "k", "server": "https://example.com"}),
-            StatusCode::UNPROCESSABLE_ENTITY,
-        ),
-        (
-            json!({"name": "No server", "providerId": "custom", "auth": "key", "apiStyle": "openai", "client": "Codex", "key": "k"}),
+            json!({"name": "No server", "vendor": "custom", "auth": "key", "apiStyle": "openai", "key": "k"}),
             StatusCode::BAD_REQUEST,
         ),
         (
-            json!({"name": "Bad server", "providerId": "custom", "auth": "key", "apiStyle": "openai", "client": "Codex", "key": "k", "server": "ftp://example.com"}),
+            json!({"name": "Bad server", "vendor": "custom", "auth": "key", "apiStyle": "openai", "key": "k", "server": "ftp://example.com"}),
             StatusCode::BAD_REQUEST,
         ),
     ];
     for (request, expected) in invalid {
-        let (status, body) = call(&app, "POST", "/api/accounts", Some(request)).await;
+        let (status, body) = call(&app, "POST", "/api/providers", Some(request)).await;
         assert_eq!(status, expected, "{body}");
     }
 }
@@ -7863,9 +8079,9 @@ async fn account_list_filters_and_never_includes_keys() {
     let key = "AIza-account-list-secret";
     create_google_account(&app, "Google Gemini", key).await;
 
-    let (status, all) = call(&app, "GET", "/api/accounts", None).await;
+    let (status, all) = call(&app, "GET", "/api/providers", None).await;
     assert_eq!(status, StatusCode::OK, "{all}");
-    let accounts = all.as_array().expect("accounts");
+    let accounts = all.as_array().expect("providers");
     assert_eq!(accounts.len(), 5);
     let names = accounts
         .iter()
@@ -7891,26 +8107,25 @@ async fn account_list_filters_and_never_includes_keys() {
 
     for (filter, expected) in [
         ("chatgpt", "ChatGPT Pro"),
-        ("antigravity", "Google Gemini"),
         ("google", "Google Gemini"),
         ("team", "LiteLLM gateway"),
         ("anthropic", "Anthropic Max 20×"),
     ] {
         let (status, filtered) =
-            call(&app, "GET", &format!("/api/accounts?q={filter}"), None).await;
+            call(&app, "GET", &format!("/api/providers?q={filter}"), None).await;
         assert_eq!(status, StatusCode::OK, "{filter}: {filtered}");
-        let matches = filtered.as_array().expect("accounts");
+        let matches = filtered.as_array().expect("providers");
         assert_eq!(matches.len(), 1, "{filter}: {filtered}");
         assert_eq!(matches[0]["name"], expected, "{filter}");
     }
 
-    let (status, empty) = call(&app, "GET", "/api/accounts?q=", None).await;
+    let (status, empty) = call(&app, "GET", "/api/providers?q=", None).await;
     assert_eq!(status, StatusCode::OK, "{empty}");
-    assert_eq!(empty.as_array().expect("accounts").len(), 5);
+    assert_eq!(empty.as_array().expect("providers").len(), 5);
 
-    let (status, miss) = call(&app, "GET", "/api/accounts?q=missing", None).await;
+    let (status, miss) = call(&app, "GET", "/api/providers?q=missing", None).await;
     assert_eq!(status, StatusCode::OK, "{miss}");
-    assert!(miss.as_array().expect("accounts").is_empty());
+    assert!(miss.as_array().expect("providers").is_empty());
 }
 
 #[tokio::test]
@@ -7926,18 +8141,26 @@ async fn account_metadata_restores_and_a_missing_key_blocks_the_launch() {
     let (status, account) = call(
         &app,
         "POST",
-        "/api/accounts",
+        "/api/providers",
         Some(json!({
             "name": "Persistent Google",
-            "providerId": "google",
-            "client": "Antigravity",
+            "vendor": "google",
             "auth": "key",
             "key": "AIza-persist-key"
         })),
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{account}");
-    let id = account["id"].as_str().expect("account id").to_owned();
+    let id = account["id"].as_str().expect("provider id").to_owned();
+    let (status, config) = call(
+        &app,
+        "POST",
+        "/api/configs",
+        Some(json!({ "providerId": id, "client": "Antigravity" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{config}");
+    let config_id = config["id"].as_str().expect("config id").to_owned();
     drop(app);
 
     let state_text = fs::read_to_string(data_dir.path.join("state.json")).expect("state file");
@@ -7951,15 +8174,21 @@ async fn account_metadata_restores_and_a_missing_key_blocks_the_launch() {
     .with_test_secret_store(restored_secrets.clone());
     let restored_app = router(restored);
     let (_, bootstrap) = call(&restored_app, "GET", "/api/bootstrap", None).await;
-    let restored_account = bootstrap["accounts"]
+    let restored_account = bootstrap["providers"]
         .as_array()
-        .expect("accounts")
+        .expect("providers")
         .iter()
         .find(|account| account["id"].as_str() == Some(id.as_str()))
-        .expect("restored account");
-    assert_eq!(restored_account["client"], "Antigravity");
+        .expect("restored provider");
+    assert_eq!(restored_account["supportedClients"], json!(["Antigravity"]));
     assert_eq!(restored_account["sample"], false);
-    assert_eq!(restored_account["model"], "gemini-3.8-flash-medium");
+    let restored_config = bootstrap["configs"]
+        .as_array()
+        .expect("configs")
+        .iter()
+        .find(|config| config["id"].as_str() == Some(config_id.as_str()))
+        .expect("restored config");
+    assert_eq!(restored_config["model"], "gemini-3.8-flash-medium");
     assert_eq!(
         restored_secrets.get_key(&id).expect("read restored key"),
         None
@@ -8025,7 +8254,7 @@ async fn antigravity_session_uses_a_private_home_and_key_environment() {
     assert_eq!(status, StatusCode::OK, "{session}");
     let id = session["id"].as_str().expect("session id").to_owned();
     assert_eq!(session["client"], "Antigravity");
-    assert_eq!(session["accountId"], account_id);
+    assert_eq!(session["providerId"], account_id);
     assert_eq!(session["shortcuts"].as_array().expect("shortcuts").len(), 0);
     assert_eq!(session["pendingPermission"], Value::Null);
     let (status, body) = send_hook(
@@ -8046,7 +8275,7 @@ async fn antigravity_session_uses_a_private_home_and_key_environment() {
     assert!(home.is_dir(), "session home was not created");
     assert_eq!(
         fs::read(&settings).expect("read settings"),
-        br#"{"modelProvider":"gemini"}"#
+        br#"{"model":"gemini-3.8-flash-medium","modelProvider":"gemini"}"#
     );
     #[cfg(unix)]
     {
@@ -8149,7 +8378,7 @@ async fn reopen_recreates_the_antigravity_home() {
     assert!(settings.is_file(), "settings were not recreated on reopen");
     assert_eq!(
         fs::read(&settings).expect("read settings"),
-        br#"{"modelProvider":"gemini"}"#
+        br#"{"model":"gemini-3.8-flash-medium","modelProvider":"gemini"}"#
     );
     #[cfg(unix)]
     {
@@ -8580,25 +8809,36 @@ async fn agent_changes_include_commits_since_the_branch_point() {
 }
 
 async fn create_google_account(app: &Router, name: &str, key: &str) -> Value {
-    let (status, account) = call(
+    let (status, provider) = call(
         app,
         "POST",
-        "/api/accounts",
+        "/api/providers",
         Some(json!({
             "name": name,
-            "providerId": "google",
-            "client": "Antigravity",
+            "vendor": "google",
             "auth": "key",
             "key": key
         })),
     )
     .await;
-    assert_eq!(status, StatusCode::OK, "create Google account: {account}");
-    account
+    assert_eq!(status, StatusCode::OK, "create Google provider: {provider}");
+    let (status, config) = call(
+        app,
+        "POST",
+        "/api/configs",
+        Some(json!({
+            "providerId": provider["id"],
+            "client": "Antigravity"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "create Google config: {config}");
+    provider
 }
 
 async fn create_agent(app: &Router, repo: &Path, account: &str, name: &str) -> Value {
     ensure_test_project(app, repo).await;
+    let config_id = config_for_account(app, account).await;
     let (status, session) = call(
         app,
         "POST",
@@ -8606,7 +8846,7 @@ async fn create_agent(app: &Router, repo: &Path, account: &str, name: &str) -> V
         Some(json!({
             "projectId": "web",
             "kind": "agent",
-            "accountId": account,
+            "configId": config_id,
             "name": name,
             "folder": repo.to_string_lossy()
         })),
@@ -8854,17 +9094,29 @@ async fn create_deepseek_account(app: &Router, name: &str, key: &str) -> String 
     let (status, account) = call(
         app,
         "POST",
-        "/api/accounts",
+        "/api/providers",
         Some(json!({
             "name": name,
-            "providerId": "deepseek",
+            "vendor": "deepseek",
             "auth": "key",
             "key": key
         })),
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{account}");
-    account["id"].as_str().expect("account id").to_owned()
+    let provider_id = account["id"].as_str().expect("provider id").to_owned();
+    let (status, config) = call(
+        app,
+        "POST",
+        "/api/configs",
+        Some(json!({
+            "providerId": provider_id,
+            "client": "Claude Code"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{config}");
+    provider_id
 }
 
 #[tokio::test]
@@ -8873,7 +9125,7 @@ async fn refresh_without_an_official_source_returns_no_usage_data() {
     let (status, account) = call(
         &app,
         "POST",
-        "/api/accounts/max/usage/refresh",
+        "/api/providers/max/usage/refresh",
         Some(json!({})),
     )
     .await;
@@ -8907,7 +9159,7 @@ async fn deepseek_balance_is_read_from_the_official_endpoint_and_coalesced() {
     );
     let key = "sk-deepseek-secret";
     let id = create_deepseek_account(&app, "DeepSeek usage", key).await;
-    let uri = format!("/api/accounts/{id}/usage/refresh");
+    let uri = format!("/api/providers/{id}/usage/refresh");
 
     let (first, second) = tokio::join!(
         call(&app, "POST", &uri, Some(json!({}))),
@@ -8962,7 +9214,7 @@ async fn a_failed_balance_read_marks_the_account_unknown_and_keeps_the_key_priva
     let (status, response) = call(
         &app,
         "POST",
-        &format!("/api/accounts/{id}/usage/refresh"),
+        &format!("/api/providers/{id}/usage/refresh"),
         Some(json!({})),
     )
     .await;
@@ -8970,9 +9222,9 @@ async fn a_failed_balance_read_marks_the_account_unknown_and_keeps_the_key_priva
     assert!(!response.to_string().contains(key));
 
     let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
-    let account = bootstrap["accounts"]
+    let account = bootstrap["providers"]
         .as_array()
-        .expect("accounts")
+        .expect("providers")
         .iter()
         .find(|account| account["id"] == id)
         .expect("account");
@@ -9008,15 +9260,15 @@ async fn a_failed_read_keeps_the_last_values_and_marks_them_stale() {
     let (status, _) = call(
         &app,
         "POST",
-        &format!("/api/accounts/{id}/usage"),
+        &format!("/api/providers/{id}/usage"),
         Some(json!({ "rows": [{ "label": "Manual", "used": 20 }] })),
     )
     .await;
     assert_eq!(status, StatusCode::OK);
     let (_, before) = call(&app, "GET", "/api/bootstrap", None).await;
-    let read_at = before["accounts"]
+    let read_at = before["providers"]
         .as_array()
-        .expect("accounts")
+        .expect("providers")
         .iter()
         .find(|account| account["id"] == id)
         .expect("account")["usageReadAt"]
@@ -9026,16 +9278,16 @@ async fn a_failed_read_keeps_the_last_values_and_marks_them_stale() {
     let (status, _) = call(
         &app,
         "POST",
-        &format!("/api/accounts/{id}/usage/refresh"),
+        &format!("/api/providers/{id}/usage/refresh"),
         Some(json!({})),
     )
     .await;
     assert_eq!(status, StatusCode::BAD_GATEWAY);
 
     let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
-    let account = bootstrap["accounts"]
+    let account = bootstrap["providers"]
         .as_array()
-        .expect("accounts")
+        .expect("providers")
         .iter()
         .find(|account| account["id"] == id)
         .expect("account");
@@ -9059,7 +9311,7 @@ async fn claude_status_line_updates_usage_and_switches_the_session() {
     let (status, _) = call(
         &app,
         "POST",
-        &format!("/api/accounts/{backup}/usage"),
+        &format!("/api/providers/{backup}/usage"),
         Some(json!({ "rows": [{ "label": "Weekly", "used": 20 }] })),
     )
     .await;
@@ -9096,9 +9348,9 @@ async fn claude_status_line_updates_usage_and_switches_the_session() {
         !bootstrap.to_string().contains(&token),
         "the status line token leaked into bootstrap"
     );
-    let max = bootstrap["accounts"]
+    let max = bootstrap["providers"]
         .as_array()
-        .expect("accounts")
+        .expect("providers")
         .iter()
         .find(|account| account["id"] == "max")
         .expect("max account");
@@ -9112,7 +9364,7 @@ async fn claude_status_line_updates_usage_and_switches_the_session() {
     assert_eq!(max["rows"][1]["window"], "seven_day");
     assert_eq!(max["rows"][1]["used"], 41);
 
-    let switched = wait_for_session(&app, &id, |session| session["accountId"] == backup).await;
+    let switched = wait_for_session(&app, &id, |session| session["providerId"] == backup).await;
     assert_eq!(switched["status"], "active");
     let (status, _) = close_session(&app, &id).await;
     assert_eq!(status, StatusCode::OK);
@@ -9133,19 +9385,18 @@ async fn edit_account_without_a_key_change_keeps_the_saved_key() {
     let (status, updated) = call(
         &app,
         "PATCH",
-        &format!("/api/accounts/{id}"),
+        &format!("/api/providers/{id}"),
         Some(json!({
             "name": "Edited account",
-            "providerId": "deepseek",
-            "auth": "key",
-            "model": "deepseek-chat"
+            "vendor": "deepseek",
+            "auth": "key"
         })),
     )
     .await;
 
     assert_eq!(status, StatusCode::OK, "{updated}");
     assert_eq!(updated["name"], "Edited account");
-    assert_eq!(updated["model"], "deepseek-chat");
+    assert_eq!(updated["vendor"], "deepseek");
     assert_eq!(updated["id"], id);
     assert!(updated.get("key").is_none(), "the response leaked the key");
     assert_eq!(
@@ -9176,7 +9427,7 @@ async fn edit_account_with_a_key_change_replaces_the_key() {
     let (status, _) = call(
         &app,
         "POST",
-        &format!("/api/accounts/{id}/usage"),
+        &format!("/api/providers/{id}/usage"),
         Some(json!({ "rows": [{ "label": "5-hour", "used": 20 }] })),
     )
     .await;
@@ -9185,10 +9436,10 @@ async fn edit_account_with_a_key_change_replaces_the_key() {
     let (status, updated) = call(
         &app,
         "PATCH",
-        &format!("/api/accounts/{id}"),
+        &format!("/api/providers/{id}"),
         Some(json!({
             "name": "Rekey",
-            "providerId": "anthropic",
+            "vendor": "anthropic",
             "auth": "key",
             "key": "sk-new"
         })),
@@ -9220,22 +9471,22 @@ async fn editing_a_sample_account_stops_it_being_a_sample() {
     );
     let app = router(state);
     let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
-    let seed = bootstrap["accounts"]
+    let seed = bootstrap["providers"]
         .as_array()
-        .expect("accounts")
+        .expect("providers")
         .iter()
         .find(|account| account["id"] == "max")
         .cloned()
-        .expect("seed account");
+        .expect("seed provider");
     assert_eq!(seed["sample"], true);
 
     let (status, updated) = call(
         &app,
         "PATCH",
-        "/api/accounts/max",
+        "/api/providers/max",
         Some(json!({
             "name": "My Claude",
-            "providerId": "anthropic",
+            "vendor": "anthropic",
             "auth": "subscription"
         })),
     )
@@ -9243,7 +9494,7 @@ async fn editing_a_sample_account_stops_it_being_a_sample() {
     assert_eq!(status, StatusCode::OK, "{updated}");
     assert_eq!(
         updated["sample"], false,
-        "an edited sample is a real account"
+        "an edited sample is a real provider"
     );
     assert_eq!(updated["name"], "My Claude");
     drop(app);
@@ -9253,18 +9504,18 @@ async fn editing_a_sample_account_stops_it_being_a_sample() {
         data_dir.path.clone(),
     ));
     let (_, bootstrap) = call(&reloaded, "GET", "/api/bootstrap", None).await;
-    let account = bootstrap["accounts"]
+    let account = bootstrap["providers"]
         .as_array()
-        .expect("accounts")
+        .expect("providers")
         .iter()
         .find(|account| account["id"] == "max")
-        .expect("edited account");
+        .expect("edited provider");
     assert_eq!(account["name"], "My Claude");
     assert_eq!(account["sample"], false, "the sample mark must not return");
 }
 
 #[tokio::test]
-async fn removing_an_account_clears_its_key_usage_presets_and_project_defaults() {
+async fn removing_a_provider_is_refused_until_its_configs_are_gone() {
     let data_dir = TempDirectory::new("account-remove-data");
     let folder = TempDirectory::new("account-remove-project");
     let secrets = Arc::new(MemorySecretStore::default());
@@ -9276,47 +9527,55 @@ async fn removing_an_account_clears_its_key_usage_presets_and_project_defaults()
     let app = router(state);
     ensure_test_project(&app, &folder.path).await;
     let id = create_test_account(&app, "Remove me", "sk-remove-secret").await;
+    let config_id = config_for_account(&app, &id).await;
 
     let (status, _) = call(
         &app,
         "POST",
-        &format!("/api/accounts/{id}/usage"),
+        &format!("/api/providers/{id}/usage"),
         Some(json!({ "rows": [{ "label": "5-hour", "used": 20 }] })),
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    let (status, preset) = call(
-        &app,
-        "POST",
-        "/api/presets",
-        Some(json!({ "name": "Remove me preset", "accountId": id })),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK, "{preset}");
     let (status, project) = call(
         &app,
         "PATCH",
         "/api/projects/web",
-        Some(json!({ "defaultAccountId": id })),
+        Some(json!({ "defaultConfigId": config_id })),
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{project}");
-    assert_eq!(project["defaultAccountId"], id);
+    assert_eq!(project["defaultConfigId"], config_id);
 
-    let (status, removed) = call(&app, "DELETE", &format!("/api/accounts/{id}"), None).await;
-    assert_eq!(status, StatusCode::OK, "{removed}");
-    assert_eq!(removed["clearedProjectDefaults"], json!(["web"]));
-    assert_eq!(removed["removedPresets"], 1);
+    let (status, refused) = call(&app, "DELETE", &format!("/api/providers/{id}"), None).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{refused}");
+    assert!(
+        refused["error"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("AI config"),
+        "{refused}"
+    );
+    assert_eq!(
+        secrets.get_key(&id).expect("read key").as_deref(),
+        Some("sk-remove-secret"),
+        "a refused removal must keep the key"
+    );
+
+    let (status, _) = call(&app, "DELETE", &format!("/api/configs/{config_id}"), None).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let (status, _removed) = call(&app, "DELETE", &format!("/api/providers/{id}"), None).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
 
     assert_eq!(secrets.get_key(&id).expect("read key"), None);
     let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
     assert!(
-        !bootstrap["accounts"]
+        !bootstrap["providers"]
             .as_array()
-            .expect("accounts")
+            .expect("providers")
             .iter()
             .any(|account| account["id"] == id),
-        "the account is still in bootstrap"
+        "the provider is still in bootstrap"
     );
     let web = bootstrap["projects"]
         .as_array()
@@ -9324,22 +9583,25 @@ async fn removing_an_account_clears_its_key_usage_presets_and_project_defaults()
         .iter()
         .find(|project| project["id"] == "web")
         .expect("project");
-    assert!(web["defaultAccountId"].is_null());
-    let (_, presets) = call(&app, "GET", "/api/presets?q=", None).await;
     assert!(
-        !presets
+        web["defaultConfigId"].is_null(),
+        "removing a config clears the project default"
+    );
+    let (_, configs) = call(&app, "GET", "/api/configs?q=", None).await;
+    assert!(
+        !configs
             .as_array()
-            .expect("presets")
+            .expect("configs")
             .iter()
-            .any(|preset| preset["accountId"] == id),
-        "a preset still points at the removed account"
+            .any(|config| config["providerId"] == id),
+        "a config still points at the removed provider"
     );
     let state_text = fs::read_to_string(data_dir.path.join("state.json")).expect("state file");
     assert!(!state_text.contains("sk-remove-secret"));
 }
 
 #[tokio::test]
-async fn removing_an_account_used_by_an_active_session_is_refused() {
+async fn removing_a_config_used_by_an_active_session_is_refused() {
     let data_dir = TempDirectory::new("account-busy-data");
     let repo = TempDirectory::new("account-busy-repo");
     init_git_repo(&repo.path);
@@ -9352,10 +9614,10 @@ async fn removing_an_account_used_by_an_active_session_is_refused() {
     let app = router(state);
     ensure_test_project(&app, &repo.path).await;
     let account_id = create_test_account(&app, "Busy account", "sk-busy-secret").await;
+    let config_id = config_for_account(&app, &account_id).await;
     let session_id = create_agent_session(&app, &repo.path, &account_id, "Busy session").await;
 
-    let (status, refused) =
-        call(&app, "DELETE", &format!("/api/accounts/{account_id}"), None).await;
+    let (status, refused) = call(&app, "DELETE", &format!("/api/configs/{config_id}"), None).await;
     assert_eq!(status, StatusCode::CONFLICT, "{refused}");
     assert!(
         refused["error"]
@@ -9372,9 +9634,16 @@ async fn removing_an_account_used_by_an_active_session_is_refused() {
 
     let (status, _) = close_session(&app, &session_id).await;
     assert_eq!(status, StatusCode::OK);
-    let (status, removed) =
-        call(&app, "DELETE", &format!("/api/accounts/{account_id}"), None).await;
-    assert_eq!(status, StatusCode::OK, "{removed}");
+    let (status, _) = call(&app, "DELETE", &format!("/api/configs/{config_id}"), None).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let (status, _removed) = call(
+        &app,
+        "DELETE",
+        &format!("/api/providers/{account_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
     assert_eq!(secrets.get_key(&account_id).expect("read key"), None);
 }
 
@@ -9884,4 +10153,595 @@ async fn closing_or_pausing_a_session_stops_its_demo_servers() {
         .find(|session| session["id"] == id)
         .expect("session");
     assert_eq!(demo_servers(listed)[0]["state"], "stopped");
+}
+
+async fn create_agent_with_config(app: &Router, repo: &Path, config_id: &str, name: &str) -> Value {
+    ensure_test_project(app, repo).await;
+    let (status, session) = call(
+        app,
+        "POST",
+        "/api/sessions",
+        Some(json!({
+            "projectId": "web",
+            "kind": "agent",
+            "configId": config_id,
+            "name": name,
+            "folder": repo.to_string_lossy()
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "create agent: {session}");
+    session
+}
+
+#[tokio::test]
+async fn one_provider_serves_two_configs_on_two_clients() {
+    let data_dir = TempDirectory::new("reuse-data");
+    let repo = TempDirectory::new("reuse-repo");
+    init_git_repo(&repo.path);
+    let app = router(AppState::with_test_command_and_data_dir(
+        vec![
+            "/bin/sh".to_owned(),
+            "-c".to_owned(),
+            "printf 'A=%s O=%s\\n' \"$ANTHROPIC_BASE_URL\" \"$OPENAI_BASE_URL\"; sleep 30"
+                .to_owned(),
+        ],
+        data_dir.path.clone(),
+    ));
+    ensure_test_project(&app, &repo.path).await;
+
+    let (status, provider) = call(
+        &app,
+        "POST",
+        "/api/providers",
+        Some(json!({
+            "name": "Shared DeepSeek",
+            "vendor": "deepseek",
+            "auth": "key",
+            "key": "sk-shared-secret"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{provider}");
+    let provider_id = provider["id"].as_str().expect("provider id").to_owned();
+
+    let (status, claude) = call(
+        &app,
+        "POST",
+        "/api/configs",
+        Some(json!({
+            "providerId": provider_id,
+            "client": "Claude Code",
+            "model": "deepseek-chat"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{claude}");
+    let (status, codex) = call(
+        &app,
+        "POST",
+        "/api/configs",
+        Some(json!({
+            "providerId": provider_id,
+            "client": "Codex",
+            "model": "deepseek-chat"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{codex}");
+    assert_eq!(claude["providerId"], provider_id);
+    assert_eq!(codex["providerId"], provider_id);
+    assert_eq!(claude["client"], "Claude Code");
+    assert_eq!(codex["client"], "Codex");
+
+    let claude_id = claude["id"].as_str().expect("claude config id");
+    let codex_id = codex["id"].as_str().expect("codex config id");
+    let first = create_agent_with_config(&app, &repo.path, claude_id, "Claude reuse").await;
+    let first_id = first["id"].as_str().expect("session id");
+    assert_eq!(first["providerId"], provider_id);
+    let request = request_builder("GET", &format!("/api/sessions/{first_id}/output?after=0"))
+        .body(Body::empty())
+        .expect("output request");
+    let response = app.clone().oneshot(request).await.expect("output");
+    let text = read_sse_until(response.into_body(), |text| {
+        text.contains("A=https://api.deepseek.com/anthropic")
+    })
+    .await;
+    assert!(sse_data_text(&text).contains("A=https://api.deepseek.com/anthropic"));
+    assert!(!sse_data_text(&text).contains("sk-shared-secret"));
+
+    let second = create_agent_with_config(&app, &repo.path, codex_id, "Codex reuse").await;
+    let second_id = second["id"].as_str().expect("session id");
+    assert_eq!(second["providerId"], provider_id);
+    let request = request_builder("GET", &format!("/api/sessions/{second_id}/output?after=0"))
+        .body(Body::empty())
+        .expect("output request");
+    let response = app.clone().oneshot(request).await.expect("output");
+    let text = read_sse_until(response.into_body(), |text| {
+        text.contains("O=https://api.deepseek.com")
+    })
+    .await;
+    assert!(sse_data_text(&text).contains("O=https://api.deepseek.com"));
+
+    let (status, _) = close_session(&app, first_id).await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _) = close_session(&app, second_id).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn model_effort_and_extra_arguments_reach_each_client() {
+    let data_dir = TempDirectory::new("launch-flags-data");
+    let repo = TempDirectory::new("launch-flags-repo");
+    init_git_repo(&repo.path);
+    let args_file = data_dir.path.join("args.txt");
+    let script = format!(
+        "printf '%s\\n' \"$@\" > {}; sleep 30",
+        args_file.to_string_lossy()
+    );
+    let app = router(AppState::with_test_command_and_data_dir(
+        vec![
+            "/bin/sh".to_owned(),
+            "-c".to_owned(),
+            script,
+            "stub".to_owned(),
+        ],
+        data_dir.path.clone(),
+    ));
+    ensure_test_project(&app, &repo.path).await;
+
+    let (status, provider) = call(
+        &app,
+        "POST",
+        "/api/providers",
+        Some(json!({
+            "name": "Flags",
+            "vendor": "deepseek",
+            "auth": "key",
+            "key": "sk-flags"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{provider}");
+    let provider_id = provider["id"].as_str().expect("provider id");
+
+    let (status, config) = call(
+        &app,
+        "POST",
+        "/api/configs",
+        Some(json!({
+            "providerId": provider_id,
+            "client": "Codex",
+            "model": "gpt-5.2",
+            "effort": "high",
+            "args": ["--foo", "bar"]
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{config}");
+    let config_id = config["id"].as_str().expect("config id");
+    let session = create_agent_with_config(&app, &repo.path, config_id, "Codex flags").await;
+    let id = session["id"].as_str().expect("session id");
+    wait_for_args_file(&args_file).await;
+    let arguments = fs::read_to_string(&args_file).expect("read arguments");
+    let lines = arguments.lines().collect::<Vec<_>>();
+    assert!(
+        arguments.contains("model_reasoning_effort=\"high\""),
+        "effort missing: {arguments}"
+    );
+    assert!(
+        arguments.contains("model=\"gpt-5.2\""),
+        "model missing: {arguments}"
+    );
+    assert_eq!(&lines[lines.len() - 2..], ["--foo", "bar"]);
+    let (status, _) = close_session(&app, id).await;
+    assert_eq!(status, StatusCode::OK);
+    let _ = fs::remove_file(&args_file);
+
+    let (status, claude) = call(
+        &app,
+        "POST",
+        "/api/configs",
+        Some(json!({
+            "providerId": provider_id,
+            "client": "Claude Code",
+            "model": "claude-sonnet-4-5",
+            "effort": "max",
+            "args": ["--verbose"]
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{claude}");
+    let claude_id = claude["id"].as_str().expect("claude config id");
+    let session = create_agent_with_config(&app, &repo.path, claude_id, "Claude flags").await;
+    let id = session["id"].as_str().expect("session id");
+    wait_for_args_file(&args_file).await;
+    let arguments = fs::read_to_string(&args_file).expect("read arguments");
+    assert!(
+        arguments.contains("--model\nclaude-sonnet-4-5"),
+        "{arguments}"
+    );
+    assert!(arguments.contains("--effort\nmax"), "{arguments}");
+    assert!(arguments.trim_end().ends_with("--verbose"), "{arguments}");
+    let (status, _) = close_session(&app, id).await;
+    assert_eq!(status, StatusCode::OK);
+    let _ = fs::remove_file(&args_file);
+
+    let (status, opencode) = call(
+        &app,
+        "POST",
+        "/api/configs",
+        Some(json!({
+            "providerId": provider_id,
+            "client": "OpenCode 2",
+            "model": "deepseek-chat",
+            "effort": "high"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{opencode}");
+    let opencode_id = opencode["id"].as_str().expect("opencode config id");
+    let session = create_agent_with_config(&app, &repo.path, opencode_id, "OpenCode flags").await;
+    let id = session["id"].as_str().expect("session id");
+    let path = data_dir
+        .path
+        .join("mcp")
+        .join(format!("opencode-{id}.json"));
+    let config: Value =
+        serde_json::from_slice(&fs::read(&path).expect("read opencode config")).expect("json");
+    assert_eq!(config["model"], "deepseek-chat");
+    assert_eq!(config["reasoningEffort"], "high");
+    let (status, _) = close_session(&app, id).await;
+    assert_eq!(status, StatusCode::OK);
+
+    let (status, google) = call(
+        &app,
+        "POST",
+        "/api/providers",
+        Some(json!({
+            "name": "Google flags",
+            "vendor": "google",
+            "auth": "key",
+            "key": "sk-google-flags"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{google}");
+    let google_id = google["id"].as_str().expect("google provider id");
+    let (status, antigravity) = call(
+        &app,
+        "POST",
+        "/api/configs",
+        Some(json!({
+            "providerId": google_id,
+            "client": "Antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "effort": "high"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{antigravity}");
+    let antigravity_id = antigravity["id"].as_str().expect("antigravity config id");
+    let session =
+        create_agent_with_config(&app, &repo.path, antigravity_id, "Antigravity flags").await;
+    let id = session["id"].as_str().expect("session id");
+    let path = data_dir
+        .path
+        .join("homes")
+        .join(id)
+        .join(".gemini")
+        .join("antigravity-cli")
+        .join("settings.json");
+    let settings: Value =
+        serde_json::from_slice(&fs::read(&path).expect("read antigravity settings")).expect("json");
+    assert_eq!(settings["model"], "gemini-3.8-flash-medium");
+    assert_eq!(settings["effort"], "high");
+    let (status, _) = close_session(&app, id).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[derive(Clone)]
+struct ModelsServer {
+    calls: Arc<AtomicUsize>,
+    status: StatusCode,
+    body: Value,
+}
+
+async fn models_handler(AxumState(server): AxumState<ModelsServer>) -> Response {
+    server.calls.fetch_add(1, Ordering::SeqCst);
+    (server.status, axum::Json(server.body.clone())).into_response()
+}
+
+async fn start_models_server(status: StatusCode, body: Value) -> (String, Arc<AtomicUsize>) {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let server = ModelsServer {
+        calls: Arc::clone(&calls),
+        status,
+        body,
+    };
+    let app = Router::new()
+        .route("/v1/models", get(models_handler))
+        .route("/models", get(models_handler))
+        .with_state(server);
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+        .await
+        .expect("bind models server");
+    let address = listener.local_addr().expect("models address");
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    (format!("http://{address}/v1"), calls)
+}
+
+#[tokio::test]
+async fn provider_models_are_read_cached_coalesced_and_fall_back() {
+    let (server, calls) = start_models_server(
+        StatusCode::OK,
+        json!({
+            "data": [
+                { "id": "gateway-large", "display_name": "Gateway Large" },
+                { "id": "gateway-small" }
+            ]
+        }),
+    )
+    .await;
+    let app = router(AppState::ephemeral());
+    let (status, provider) = call(
+        &app,
+        "POST",
+        "/api/providers",
+        Some(json!({
+            "name": "Gateway",
+            "vendor": "custom",
+            "auth": "key",
+            "apiStyle": "openai",
+            "server": server,
+            "key": "sk-model-secret"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{provider}");
+    let provider_id = provider["id"].as_str().expect("provider id").to_owned();
+
+    let first = tokio::spawn({
+        let app = app.clone();
+        let provider_id = provider_id.clone();
+        async move {
+            call(
+                &app,
+                "GET",
+                &format!("/api/providers/{provider_id}/models?client=Codex"),
+                None,
+            )
+            .await
+        }
+    });
+    let second = tokio::spawn({
+        let app = app.clone();
+        let provider_id = provider_id.clone();
+        async move {
+            call(
+                &app,
+                "GET",
+                &format!("/api/providers/{provider_id}/models?client=Codex"),
+                None,
+            )
+            .await
+        }
+    });
+    let (first, second) = tokio::join!(first, second);
+    let (status, first) = first.expect("first call");
+    assert_eq!(status, StatusCode::OK, "{first}");
+    let (status, second) = second.expect("second call");
+    assert_eq!(status, StatusCode::OK, "{second}");
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        1,
+        "the reads were not coalesced"
+    );
+    let models = first["models"].as_array().expect("models");
+    assert!(models.iter().any(|model| model["id"] == "gateway-large"));
+    assert_eq!(first["source"], "provider");
+    assert_eq!(first["fallback"], false);
+    assert!(!first.to_string().contains("sk-model-secret"));
+
+    let (status, cached) = call(
+        &app,
+        "GET",
+        &format!("/api/providers/{provider_id}/models?client=Codex"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{cached}");
+    assert_eq!(cached["source"], "cache");
+    assert_eq!(calls.load(Ordering::SeqCst), 1, "the cache missed");
+
+    let closed = {
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .expect("bind");
+        let address = listener.local_addr().expect("address");
+        drop(listener);
+        format!("http://{address}/v1")
+    };
+    let (status, fallback_provider) = call(
+        &app,
+        "POST",
+        "/api/providers",
+        Some(json!({
+            "name": "Broken Gateway",
+            "vendor": "deepseek",
+            "auth": "key",
+            "server": closed,
+            "key": "sk-broken-secret"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{fallback_provider}");
+    let fallback_id = fallback_provider["id"].as_str().expect("id");
+    let (status, fallback) = call(
+        &app,
+        "GET",
+        &format!("/api/providers/{fallback_id}/models?client=Codex"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{fallback}");
+    assert_eq!(fallback["fallback"], true);
+    assert_eq!(fallback["source"], "known");
+    assert!(
+        fallback["models"]
+            .as_array()
+            .expect("models")
+            .iter()
+            .any(|model| model["id"] == "deepseek-chat")
+    );
+    assert!(!fallback.to_string().contains("sk-broken-secret"));
+}
+
+#[tokio::test]
+async fn a_state_with_accounts_and_presets_migrates_to_providers_and_configs() {
+    let data_dir = TempDirectory::new("migrate-state");
+    let state = json!({
+        "version": 1,
+        "projects": [],
+        "accounts": [
+            {
+                "id": "max",
+                "name": "Max plan",
+                "plan": "subscription",
+                "client": "Claude Code",
+                "provider": "anthropic",
+                "auth": "subscription",
+                "sample": true,
+                "rows": [],
+                "foot": "No official usage source.",
+                "server": null,
+                "model": null
+            },
+            {
+                "id": "codex",
+                "name": "Codex plan",
+                "plan": "subscription",
+                "client": "Codex",
+                "provider": "openai",
+                "auth": "subscription",
+                "sample": true,
+                "rows": [],
+                "foot": "No official usage source.",
+                "server": null,
+                "model": null
+            }
+        ],
+        "presets": [{
+            "id": "fast",
+            "name": "Fast",
+            "accountId": "max",
+            "model": "claude-sonnet-4-5",
+            "env": [],
+            "config": {},
+            "createdAt": "2026-01-01T00:00:00Z",
+            "updatedAt": "2026-01-01T00:00:00Z"
+        }],
+        "sessions": [
+            {
+                "session": {
+                    "id": "s1", "name": "From account", "short": "s1",
+                    "projectId": "web", "kind": "agent", "status": "closed",
+                    "workState": null, "client": "Claude Code",
+                    "accountId": "max", "allowedAccountIds": ["max"],
+                    "branch": null, "folder": "/tmp", "preview": "Closed.",
+                    "waitingFor": null, "startedAt": "2026-01-01T00:00:00Z",
+                    "shortcuts": []
+                },
+                "cols": 80, "rows": 24, "output": [], "nextSeq": 1
+            },
+            {
+                "session": {
+                    "id": "s2", "name": "From preset", "short": "s2",
+                    "projectId": "web", "kind": "agent", "status": "closed",
+                    "workState": null, "client": "Claude Code",
+                    "accountId": "max", "presetId": "fast",
+                    "allowedAccountIds": ["max", "codex"],
+                    "branch": null, "folder": "/tmp", "preview": "Closed.",
+                    "waitingFor": null, "startedAt": "2026-01-01T00:00:00Z",
+                    "shortcuts": []
+                },
+                "cols": 80, "rows": 24, "output": [], "nextSeq": 1
+            },
+            {
+                "session": {
+                    "id": "s3", "name": "Missing account", "short": "s3",
+                    "projectId": "web", "kind": "agent", "status": "closed",
+                    "workState": null, "client": "Claude Code",
+                    "accountId": "ghost", "branch": null, "folder": "/tmp",
+                    "preview": "Closed.", "waitingFor": null,
+                    "startedAt": "2026-01-01T00:00:00Z", "shortcuts": []
+                },
+                "cols": 80, "rows": 24, "output": [], "nextSeq": 1
+            }
+        ]
+    });
+    fs::write(
+        data_dir.path.join("state.json"),
+        serde_json::to_vec_pretty(&state).expect("serialize state"),
+    )
+    .expect("write state");
+
+    let app = router(AppState::with_data_dir(data_dir.path.clone()));
+    let (status, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    assert_eq!(status, StatusCode::OK, "{bootstrap}");
+    let providers = bootstrap["providers"].as_array().expect("providers");
+    assert_eq!(providers.len(), 2);
+    assert_eq!(
+        providers[0]["supportedClients"],
+        json!(["Claude Code", "OpenCode 2"])
+    );
+    let configs = bootstrap["configs"].as_array().expect("configs");
+    assert_eq!(configs.len(), 3);
+    assert!(
+        configs
+            .iter()
+            .any(|config| config["id"] == "max" && config["name"] == "Max plan (Claude Code)")
+    );
+    let preset = configs
+        .iter()
+        .find(|config| config["id"] == "fast")
+        .expect("preset config");
+    assert_eq!(preset["name"], "Fast");
+    assert_eq!(preset["providerId"], "max");
+    assert_eq!(preset["model"], "claude-sonnet-4-5");
+
+    let sessions = bootstrap["sessions"].as_array().expect("sessions");
+    let from_account = sessions
+        .iter()
+        .find(|session| session["id"] == "s1")
+        .expect("s1");
+    assert_eq!(from_account["configId"], "max");
+    assert_eq!(from_account["providerId"], "max");
+    let from_preset = sessions
+        .iter()
+        .find(|session| session["id"] == "s2")
+        .expect("s2");
+    assert_eq!(from_preset["configId"], "fast");
+    assert_eq!(
+        from_preset["allowedConfigIds"],
+        json!(["max", "codex", "fast"])
+    );
+    let missing = sessions
+        .iter()
+        .find(|session| session["id"] == "s3")
+        .expect("s3");
+    assert_eq!(missing["configId"], Value::Null);
+    assert!(
+        missing["preview"]
+            .as_str()
+            .is_some_and(|preview| preview.contains("Migration"))
+    );
+
+    let state_text = fs::read_to_string(data_dir.path.join("state.json")).expect("state file");
+    let reloaded: Value = serde_json::from_str(&state_text).expect("state json");
+    assert_eq!(reloaded["version"], 2);
+    assert!(reloaded.get("accounts").is_none());
+    assert!(reloaded.get("presets").is_none());
 }
