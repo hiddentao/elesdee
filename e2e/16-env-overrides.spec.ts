@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import {
+  CORE_URL,
   closeSession,
   createGitRepo,
   createProject,
@@ -41,9 +42,7 @@ test('passes launch environment overrides to the agent', async ({
     { timeout: 15_000 },
   );
 
-  const sessions = await request.get(
-    'http://127.0.0.1:4399/api/bootstrap',
-  );
+  const sessions = await request.get(`${CORE_URL}/api/bootstrap`);
   const data = (await sessions.json()) as {
     sessions: { id: string; projectId: string }[];
   };

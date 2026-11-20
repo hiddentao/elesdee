@@ -7,7 +7,6 @@ import {
   createProject,
   deleteSession,
   openApp,
-  openHeaderMenu,
   readClaudeHookUrl,
   uniqueName,
 } from './helpers';
@@ -53,7 +52,7 @@ test('answers a Claude Code permission prompt', async ({ page, request }) => {
     'echo e2e-hook',
   );
 
-  await openHeaderMenu(page);
+  await page.locator('.branch-pill').click();
   await expect(
     page.getByRole('menuitem', { name: 'Copy branch name' }),
   ).toBeVisible();

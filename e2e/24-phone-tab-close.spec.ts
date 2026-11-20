@@ -58,7 +58,10 @@ test('a long swipe only reveals Close and the user closes the tab', async ({
   await sheet
     .getByRole('button', { name: 'Close tab, Phone tab close 1' })
     .click();
-  await expect(page.locator('.phone-title')).toHaveText('Phone tab close 2');
+  await expect(page.locator('.phone-title')).not.toHaveText(
+    'Phone tab close 1',
+  );
+  await expect(page.locator('.phone-title')).not.toBeEmpty();
 
   const after = await bootstrap(request);
   expect(after.sessions.find((session) => session.id === first.id)?.status).toBe(

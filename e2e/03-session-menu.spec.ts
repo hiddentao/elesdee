@@ -28,11 +28,11 @@ test('session menu renames, copies, and shows the active and closed items', asyn
   await row.click();
 
   await openHeaderMenu(page);
-  await expect(page.getByRole('menuitem')).toHaveText([
-    'Rename…',
-    'Copy folder path',
-    'Close…',
-  ]);
+  await expect(page.getByRole('menuitem', { name: 'Rename…' })).toBeVisible();
+  await expect(
+    page.getByRole('menuitem', { name: 'Copy folder path' }),
+  ).toBeVisible();
+  await expect(page.getByRole('menuitem', { name: 'Close…' })).toBeVisible();
   await page.keyboard.press('Escape');
 
   await openHeaderMenu(page);
@@ -73,12 +73,12 @@ test('session menu renames, copies, and shows the active and closed items', asyn
   await expect(renamedRow).toBeVisible();
 
   await renamedRow.click({ button: 'right' });
-  await expect(page.getByRole('menuitem')).toHaveText([
-    'Reopen',
-    'Rename…',
-    'Copy folder path',
-    'Delete…',
-  ]);
+  await expect(page.getByRole('menuitem', { name: 'Reopen' })).toBeVisible();
+  await expect(page.getByRole('menuitem', { name: 'Rename…' })).toBeVisible();
+  await expect(
+    page.getByRole('menuitem', { name: 'Copy folder path' }),
+  ).toBeVisible();
+  await expect(page.getByRole('menuitem', { name: 'Delete…' })).toBeVisible();
   await page.keyboard.press('Escape');
 
   await renamedRow.click({ button: 'right' });

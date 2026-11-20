@@ -3,6 +3,7 @@ import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import { dataDir } from './env';
 import {
+  CORE_URL,
   closeSession,
   createAccount,
   createAgentSession,
@@ -29,7 +30,7 @@ test('gives Codex the elesdee MCP server at launch', async ({
   await openApp(page);
   await page.getByRole('button', { name: new RegExp(session.name) }).click();
   await expect(page.locator('.xterm-accessibility')).toContainText(
-    `arg:mcp_servers.elesdee.url="http://127.0.0.1:4399/internal/mcp/${session.id}"`,
+    `arg:mcp_servers.elesdee.url="${CORE_URL}/internal/mcp/${session.id}"`,
     { timeout: 15_000 },
   );
 
@@ -74,7 +75,7 @@ test('gives OpenCode the prompt and a merged MCP config', async ({
     mcp: { elesdee: { url: string } };
   };
   expect(config.mcp.elesdee.url).toBe(
-    `http://127.0.0.1:4399/internal/mcp/${session.id}`,
+    `${CORE_URL}/internal/mcp/${session.id}`,
   );
 
   await expect(page.locator('.xterm-accessibility')).toContainText(
