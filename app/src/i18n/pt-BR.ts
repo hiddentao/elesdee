@@ -807,6 +807,7 @@ export const ptBR = {
   'panel.demoServerStopLabel': 'Parar {name}',
   'panel.demoServerStopping': 'Parando…',
   'panel.demoServerPublic': 'Público',
+  'panel.demoServerPublicRetained': 'O endereço público pode ainda estar ativo',
   'panel.demoServerPublicOpenLabel': 'Abrir o endereço público {address} de {name}',
   'panel.demoServerFunnel': 'Tornar público',
   'panel.demoServerFunnelLabel': 'Tornar {name} público na internet',

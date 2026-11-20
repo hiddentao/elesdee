@@ -3651,6 +3651,15 @@ button:disabled {
   letter-spacing: 0.04em;
 }
 
+.demo-funnel-row.is-retained {
+  flex-wrap: wrap;
+}
+
+.demo-funnel-label.is-warning {
+  color: var(--danger);
+  font-weight: 600;
+}
+
 .demo-funnel-row .demo-address {
   margin-left: auto;
 }

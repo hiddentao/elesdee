@@ -737,6 +737,7 @@ export const zhCN = {
   'panel.demoServerStopLabel': '停止 {name}',
   'panel.demoServerStopping': '正在停止…',
   'panel.demoServerPublic': '公开',
+  'panel.demoServerPublicRetained': '公开地址可能仍处于开启状态',
   'panel.demoServerPublicOpenLabel': '为 {name} 打开公开地址 {address}',
   'panel.demoServerFunnel': '设为公开',
   'panel.demoServerFunnelLabel': '在互联网上公开 {name}',

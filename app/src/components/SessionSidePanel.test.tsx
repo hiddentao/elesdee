@@ -619,6 +619,98 @@ describe('SessionSidePanel demo servers', () => {
     ).toBeInTheDocument();
   });
 
+  it('warns about a retained public address on a stopped server and retries the turn-off', async () => {
+    const publicAddress = 'https://studio.tailnet.ts.net/';
+    vi.mocked(stopDemoServer).mockResolvedValue(
+      makeSession({ demoServers: [{ ...preview, state: 'stopped' }] }),
+    );
+    const user = userEvent.setup();
+    renderPanel(
+      'files',
+      vi.fn(),
+      vi.fn(),
+      makeSession({
+        demoServers: [
+          { ...preview, state: 'stopped', funnelAddress: publicAddress },
+        ],
+      }),
+    );
+
+    expect(await screen.findByText('Stopped')).toBeInTheDocument();
+    expect(
+      screen.getByText('Public address may still be on'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('link', {
+        name: `Open public address ${publicAddress} for Preview`,
+      }),
+    ).toHaveAttribute('href', publicAddress);
+    expect(
+      screen.queryByRole('button', {
+        name: 'Make Preview public on the internet',
+      }),
+    ).not.toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole('button', {
+        name: 'Stop the public address for Preview',
+      }),
+    );
+
+    expect(stopDemoServer).toHaveBeenCalledWith('s1', 'demo-1');
+    expect(disableDemoFunnel).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(screen.queryByText(publicAddress)).not.toBeInTheDocument(),
+    );
+    expect(
+      screen.queryByText('Public address may still be on'),
+    ).not.toBeInTheDocument();
+  });
+
+  it('keeps the retained public address when the retry is refused', async () => {
+    const publicAddress = 'https://studio.tailnet.ts.net/';
+    vi.mocked(stopDemoServer).mockRejectedValueOnce(
+      new ApiError(
+        422,
+        'Tailscale could not turn off the public address. The server stays public. Try Stop again.',
+      ),
+    );
+    const user = userEvent.setup();
+    renderPanel(
+      'files',
+      vi.fn(),
+      vi.fn(),
+      makeSession({
+        demoServers: [
+          { ...preview, state: 'stopped', funnelAddress: publicAddress },
+        ],
+      }),
+    );
+
+    await user.click(
+      await screen.findByRole('button', {
+        name: 'Stop the public address for Preview',
+      }),
+    );
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Tailscale could not turn off the public address.',
+    );
+    expect(
+      screen.getByText('Public address may still be on'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('link', {
+        name: `Open public address ${publicAddress} for Preview`,
+      }),
+    ).toHaveAttribute('href', publicAddress);
+    expect(
+      screen.getByRole('button', {
+        name: 'Stop the public address for Preview',
+      }),
+    ).toBeInTheDocument();
+  });
+
   it('portals the public confirmation and reports it open', async () => {
     const onDialogOpenChange = vi.fn();
     const user = userEvent.setup();

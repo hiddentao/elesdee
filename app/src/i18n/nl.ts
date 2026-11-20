@@ -800,6 +800,7 @@ export const nl = {
   'panel.demoServerStopLabel': '{name} stoppen',
   'panel.demoServerStopping': 'Stoppen…',
   'panel.demoServerPublic': 'Openbaar',
+  'panel.demoServerPublicRetained': 'Het openbare adres is mogelijk nog actief',
   'panel.demoServerPublicOpenLabel': 'Openbaar adres {address} voor {name} openen',
   'panel.demoServerFunnel': 'Openbaar maken',
   'panel.demoServerFunnelLabel': '{name} openbaar maken op internet',
