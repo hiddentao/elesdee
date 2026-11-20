@@ -440,6 +440,59 @@ export interface CreateProjectInput {
   folder: string;
 }
 
+export interface GitHubStatus {
+  connected: boolean;
+  login: string | null;
+  name: string | null;
+  avatarUrl: string | null;
+  defaultCloneFolder: string;
+}
+
+export type GitHubDeviceState =
+  | 'starting'
+  | 'waiting'
+  | 'success'
+  | 'failed'
+  | 'cancelled';
+
+export type GitHubDeviceReason =
+  | 'notConfigured'
+  | 'network'
+  | 'denied'
+  | 'expired'
+  | 'keychain'
+  | 'error';
+
+export interface GitHubDevice {
+  id: string;
+  state: GitHubDeviceState;
+  userCode: string | null;
+  verificationUri: string | null;
+  interval: number;
+  expiresIn: number;
+  login: string | null;
+  reason: GitHubDeviceReason | null;
+}
+
+export interface GitHubRepo {
+  id: number;
+  fullName: string;
+  name: string;
+  owner: string;
+  private: boolean;
+  cloneUrl: string;
+  htmlUrl: string;
+  description: string | null;
+  updatedAt: string | null;
+  added: boolean;
+}
+
+export interface CloneGitHubRepoInput {
+  fullName: string;
+  name?: string;
+  parentFolder?: string;
+}
+
 export interface ApiErrorPayload {
   error: string;
 }
