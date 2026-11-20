@@ -1,0 +1,6 @@
+{
+  "identifier": "default",
+  "description": "The shell screens and the QR scanner",
+  "windows": ["main"],
+  "permissions": ["core:default", "barcode-scanner:default"]
+}
