@@ -3449,6 +3449,13 @@ button:disabled {
   border-bottom: 1px solid var(--border);
 }
 
+.dock-tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 100%;
+}
+
 .dock-tab {
   display: inline-flex;
   align-items: center;

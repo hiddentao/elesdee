@@ -586,60 +586,62 @@ export function SessionSidePanel({
       className="dock"
       aria-label={t('panel.label', { name: session.name })}
     >
-      <div
-        className="dock-head"
-        role="tablist"
-        aria-label={t('panel.tabsLabel')}
-        onKeyDown={handleTabListKeyDown}
-      >
-        <button
-          ref={(element) => {
-            tabRefs.current.files = element;
-          }}
-          type="button"
-          role="tab"
-          id="dock-tab-files"
-          aria-selected={tab === 'files'}
-          aria-controls="dock-panel-files"
-          tabIndex={tab === 'files' ? 0 : -1}
-          className={`dock-tab${tab === 'files' ? ' is-on' : ''}`}
-          onClick={() => onSelectTab('files')}
+      <div className="dock-head">
+        <div
+          className="dock-tabs"
+          role="tablist"
+          aria-label={t('panel.tabsLabel')}
+          onKeyDown={handleTabListKeyDown}
         >
-          {t('panel.files')}
-        </button>
-        <button
-          ref={(element) => {
-            tabRefs.current.changes = element;
-          }}
-          type="button"
-          role="tab"
-          id="dock-tab-changes"
-          aria-selected={tab === 'changes'}
-          aria-controls="dock-panel-changes"
-          tabIndex={tab === 'changes' ? 0 : -1}
-          className={`dock-tab${tab === 'changes' ? ' is-on' : ''}`}
-          onClick={() => onSelectTab('changes')}
-        >
-          {t('panel.changes')}
-          {changes && changes.git && changes.files.length > 0 ? (
-            <span className="dock-count">{changes.files.length}</span>
-          ) : null}
-        </button>
-        <button
-          ref={(element) => {
-            tabRefs.current.browser = element;
-          }}
-          type="button"
-          role="tab"
-          id="dock-tab-browser"
-          aria-selected={tab === 'browser'}
-          aria-controls="dock-panel-browser"
-          tabIndex={tab === 'browser' ? 0 : -1}
-          className={`dock-tab${tab === 'browser' ? ' is-on' : ''}`}
-          onClick={() => onSelectTab('browser')}
-        >
-          {t('panel.browser')}
-        </button>
+          <button
+            ref={(element) => {
+              tabRefs.current.files = element;
+            }}
+            type="button"
+            role="tab"
+            id="dock-tab-files"
+            aria-selected={tab === 'files'}
+            aria-controls="dock-panel-files"
+            tabIndex={tab === 'files' ? 0 : -1}
+            className={`dock-tab${tab === 'files' ? ' is-on' : ''}`}
+            onClick={() => onSelectTab('files')}
+          >
+            {t('panel.files')}
+          </button>
+          <button
+            ref={(element) => {
+              tabRefs.current.changes = element;
+            }}
+            type="button"
+            role="tab"
+            id="dock-tab-changes"
+            aria-selected={tab === 'changes'}
+            aria-controls="dock-panel-changes"
+            tabIndex={tab === 'changes' ? 0 : -1}
+            className={`dock-tab${tab === 'changes' ? ' is-on' : ''}`}
+            onClick={() => onSelectTab('changes')}
+          >
+            {t('panel.changes')}
+            {changes && changes.git && changes.files.length > 0 ? (
+              <span className="dock-count">{changes.files.length}</span>
+            ) : null}
+          </button>
+          <button
+            ref={(element) => {
+              tabRefs.current.browser = element;
+            }}
+            type="button"
+            role="tab"
+            id="dock-tab-browser"
+            aria-selected={tab === 'browser'}
+            aria-controls="dock-panel-browser"
+            tabIndex={tab === 'browser' ? 0 : -1}
+            className={`dock-tab${tab === 'browser' ? ' is-on' : ''}`}
+            onClick={() => onSelectTab('browser')}
+          >
+            {t('panel.browser')}
+          </button>
+        </div>
         <button
           type="button"
           className="icon-btn dock-close"

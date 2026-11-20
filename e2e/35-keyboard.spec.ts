@@ -106,6 +106,11 @@ test('the session panel tabs respond to arrow keys and keep one tab stop', async
     await expect(
       tablist.locator('[role="tab"][tabindex="0"]'),
     ).toHaveCount(1);
+
+    await expect(tablist.getByRole('button')).toHaveCount(0);
+    await page.getByRole('button', { name: 'Close side panel' }).focus();
+    await page.keyboard.press('ArrowRight');
+    await expect(browser).toHaveAttribute('aria-selected', 'true');
   } finally {
     await closeSession(request, session.id);
   }
