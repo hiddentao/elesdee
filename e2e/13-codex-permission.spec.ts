@@ -8,8 +8,10 @@ import {
   uniqueName,
 } from './helpers';
 
+const CODEX_URL = process.env.ELESDEE_E2E_CODEX_URL ?? 'http://127.0.0.1:4397';
+
 test('answers a Codex permission from the app', async ({ page, request }) => {
-  await request.post('http://127.0.0.1:4397/reset');
+  await request.post(`${CODEX_URL}/reset`);
 
   const label = uniqueName('codex-permission-project');
   const repo = createGitRepo(label);
@@ -40,7 +42,7 @@ test('answers a Codex permission from the app', async ({ page, request }) => {
   await expect
     .poll(
       async () => {
-        const response = await request.get('http://127.0.0.1:4397/state');
+        const response = await request.get(`${CODEX_URL}/state`);
         return ((await response.json()) as { replied: string | null }).replied;
       },
       { timeout: 10_000 },

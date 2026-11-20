@@ -3,18 +3,24 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   listFiles,
+  listSharedFiles,
   readFile,
+  readSharedFile,
   sessionChanges,
+  sharedFileUrl,
   writeFile,
 } from '../api/client';
-import type { FileEntry } from '../api/types';
+import type { FileEntry, SharedFile } from '../api/types';
 import { makeSession } from '../test/fixtures';
 import { SessionSidePanel } from './SessionSidePanel';
 
 vi.mock('../api/client', () => ({
   listFiles: vi.fn(),
+  listSharedFiles: vi.fn(),
   readFile: vi.fn(),
+  readSharedFile: vi.fn(),
   sessionChanges: vi.fn(),
+  sharedFileUrl: vi.fn(),
   writeFile: vi.fn(),
 }));
 
@@ -83,6 +89,10 @@ beforeEach(() => {
     content: 'changed',
     size: 7,
   });
+  vi.mocked(listSharedFiles).mockResolvedValue([]);
+  vi.mocked(sharedFileUrl).mockImplementation(
+    (id, fileId) => `/api/sessions/${id}/shared/${fileId}`,
+  );
   vi.mocked(sessionChanges).mockResolvedValue({
     git: true,
     base: 'abc123',
@@ -151,6 +161,37 @@ describe('SessionSidePanel files', () => {
       await screen.findByRole('alert'),
     ).toHaveTextContent('The file is not UTF-8 text.');
     expect(screen.getByRole('button', { name: 'src' })).toBeInTheDocument();
+  });
+
+  it('lists a shared file and previews its text', async () => {
+    const shared: SharedFile = {
+      id: 'shared-1',
+      sessionId: 's1',
+      sessionName: 'Session',
+      name: 'shared.txt',
+      path: 'shared.txt',
+      caption: 'From the agent',
+      size: 12,
+      contentType: 'text/plain; charset=utf-8',
+      image: false,
+      createdAt: '2026-01-01T00:00:00Z',
+    };
+    vi.mocked(listSharedFiles).mockResolvedValue([shared]);
+    vi.mocked(readSharedFile).mockResolvedValue('shared text\n');
+    const user = userEvent.setup();
+    renderPanel();
+
+    await user.click(
+      await screen.findByRole('button', { name: /shared\.txt/ }),
+    );
+
+    expect(readSharedFile).toHaveBeenCalledWith('s1', 'shared-1');
+    expect(await screen.findByLabelText('shared.txt')).toHaveTextContent(
+      'shared text',
+    );
+    expect(
+      screen.getByRole('link', { name: 'Download' }),
+    ).toHaveAttribute('href', '/api/sessions/s1/shared/shared-1');
   });
 
   it('switches tabs and closes the panel', async () => {

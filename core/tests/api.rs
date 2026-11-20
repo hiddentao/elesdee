@@ -165,6 +165,23 @@ async fn wait_for_file_contains(path: &Path, needle: &str) -> String {
     }
 }
 
+async fn get_raw(app: &Router, uri: &str) -> (StatusCode, axum::http::HeaderMap, Vec<u8>) {
+    let request = request_builder("GET", uri)
+        .body(Body::empty())
+        .expect("build request");
+    let response = app.clone().oneshot(request).await.expect("call route");
+    let status = response.status();
+    let headers = response.headers().clone();
+    let bytes = response
+        .into_body()
+        .collect()
+        .await
+        .expect("read body")
+        .to_bytes()
+        .to_vec();
+    (status, headers, bytes)
+}
+
 async fn read_sse_until(mut body: Body, ready: impl Fn(&str) -> bool) -> String {
     let mut text = String::new();
     let deadline = tokio::time::Instant::now() + TIMEOUT;
@@ -2517,6 +2534,8 @@ async fn mcp_session_tools_ask_answer_notify_and_report_done() {
         "read_session",
         "send_message",
         "check_usage",
+        "wait_for_session",
+        "share_file",
     ] {
         assert!(names.contains(&name), "missing tool {name}");
     }
@@ -2668,6 +2687,370 @@ async fn mcp_session_tools_ask_answer_notify_and_report_done() {
     assert_eq!(finished["workState"], "done");
 
     let (status, _) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn mcp_wait_for_session_returns_on_a_state_change_and_times_out() {
+    let data_dir = TempDirectory::new("mcp-wait-data");
+    let repo = TempDirectory::new("mcp-wait-repo");
+    init_git_repo(&repo.path);
+    let app = router(AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    ));
+    let waiter = create_agent(&app, &repo.path, "max", "Waiter").await;
+    let worker = create_agent(&app, &repo.path, "max", "Worker").await;
+    let waiter_mcp = format!(
+        "/internal/mcp/{}",
+        waiter["id"].as_str().expect("waiter id")
+    );
+    let worker_mcp = format!(
+        "/internal/mcp/{}",
+        worker["id"].as_str().expect("worker id")
+    );
+
+    let (status, timed) = call(
+        &app,
+        "POST",
+        &waiter_mcp,
+        Some(json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "wait_for_session",
+                "arguments": {
+                    "sessionId": worker["id"],
+                    "until": "done",
+                    "timeoutSeconds": 1
+                }
+            }
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{timed}");
+    assert_eq!(timed["result"]["isError"], false);
+    let timed_state: Value = serde_json::from_str(
+        timed["result"]["content"][0]["text"]
+            .as_str()
+            .expect("wait text"),
+    )
+    .expect("wait result");
+    assert_eq!(timed_state["timedOut"], true);
+    assert_eq!(timed_state["workState"], "working");
+
+    let waiting_app = app.clone();
+    let waiting_mcp = waiter_mcp.clone();
+    let worker_id = worker["id"].as_str().expect("worker id").to_owned();
+    let waiting = tokio::spawn(async move {
+        call(
+            &waiting_app,
+            "POST",
+            &waiting_mcp,
+            Some(json!({
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {
+                    "name": "wait_for_session",
+                    "arguments": {
+                        "sessionId": worker_id,
+                        "until": "done",
+                        "timeoutSeconds": 5
+                    }
+                }
+            })),
+        )
+        .await
+    });
+    tokio::time::sleep(Duration::from_millis(150)).await;
+
+    let (status, done) = call(
+        &app,
+        "POST",
+        &worker_mcp,
+        Some(json!({
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "tools/call",
+            "params": { "name": "report_done", "arguments": {} }
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{done}");
+    assert_eq!(done["result"]["isError"], false);
+
+    let (status, waited) = tokio::time::timeout(Duration::from_secs(5), waiting)
+        .await
+        .expect("the wait tool did not return")
+        .expect("join the wait task");
+    assert_eq!(status, StatusCode::OK, "{waited}");
+    assert_eq!(waited["result"]["isError"], false);
+    let state: Value = serde_json::from_str(
+        waited["result"]["content"][0]["text"]
+            .as_str()
+            .expect("wait text"),
+    )
+    .expect("wait result");
+    assert_eq!(state["timedOut"], false);
+    assert_eq!(state["workState"], "done");
+    assert_eq!(state["status"], "active");
+
+    let (status, _) = close_session(&app, waiter["id"].as_str().expect("waiter id")).await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _) = close_session(&app, worker["id"].as_str().expect("worker id")).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn mcp_wait_for_session_stops_when_the_caller_closes() {
+    let data_dir = TempDirectory::new("mcp-wait-close-data");
+    let repo = TempDirectory::new("mcp-wait-close-repo");
+    init_git_repo(&repo.path);
+    let app = router(AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    ));
+    let waiter = create_agent(&app, &repo.path, "max", "Closing waiter").await;
+    let worker = create_agent(&app, &repo.path, "max", "Quiet worker").await;
+    let waiter_id = waiter["id"].as_str().expect("waiter id").to_owned();
+    let waiter_mcp = format!("/internal/mcp/{waiter_id}");
+    let worker_id = worker["id"].as_str().expect("worker id").to_owned();
+    let waiting_worker_id = worker_id.clone();
+
+    let waiting_app = app.clone();
+    let waiting = tokio::spawn(async move {
+        call(
+            &waiting_app,
+            "POST",
+            &waiter_mcp,
+            Some(json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {
+                    "name": "wait_for_session",
+                    "arguments": { "sessionId": waiting_worker_id, "timeoutSeconds": 20 }
+                }
+            })),
+        )
+        .await
+    });
+    tokio::time::sleep(Duration::from_millis(150)).await;
+
+    let (status, _) = close_session(&app, &waiter_id).await;
+    assert_eq!(status, StatusCode::OK);
+
+    let (status, waited) = tokio::time::timeout(Duration::from_secs(5), waiting)
+        .await
+        .expect("the wait tool did not stop when the caller closed")
+        .expect("join the wait task");
+    assert_eq!(status, StatusCode::OK, "{waited}");
+    assert_eq!(waited["result"]["isError"], true);
+    assert_eq!(
+        waited["result"]["content"][0]["text"],
+        "The caller session was closed."
+    );
+
+    let (status, _) = close_session(&app, &worker_id).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn mcp_share_file_copies_a_file_and_refuses_paths_outside() {
+    let data_dir = TempDirectory::new("mcp-share-data");
+    let repo = TempDirectory::new("mcp-share-repo");
+    init_git_repo(&repo.path);
+    let outside = TempDirectory::new("mcp-share-outside");
+    fs::write(outside.path.join("outside.txt"), "outside\n").expect("write outside file");
+    fs::write(repo.path.join("notes.txt"), "hello from the session\n").expect("write notes");
+    fs::write(repo.path.join(".env"), "TOKEN=secret\n").expect("write env");
+    let app = router(AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    ));
+    let session = create_terminal(&app, &repo.path).await;
+    let id = session["id"].as_str().expect("session id");
+    let mcp = format!("/internal/mcp/{id}");
+
+    let (status, shared) = call(
+        &app,
+        "POST",
+        &mcp,
+        Some(json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "share_file",
+                "arguments": { "path": "notes.txt", "caption": "Session notes" }
+            }
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{shared}");
+    assert_eq!(shared["result"]["isError"], false);
+    let file: Value = serde_json::from_str(
+        shared["result"]["content"][0]["text"]
+            .as_str()
+            .expect("share text"),
+    )
+    .expect("shared file");
+    assert_eq!(file["name"], "notes.txt");
+    assert_eq!(file["path"], "notes.txt");
+    assert_eq!(file["caption"], "Session notes");
+    assert_eq!(file["contentType"], "text/plain; charset=utf-8");
+    let file_id = file["id"].as_str().expect("shared file id");
+
+    let (status, files) = call(&app, "GET", &format!("/api/sessions/{id}/shared"), None).await;
+    assert_eq!(status, StatusCode::OK, "{files}");
+    let listed = files.as_array().expect("shared files");
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0]["id"], file_id);
+
+    let (status, headers, body) =
+        get_raw(&app, &format!("/api/sessions/{id}/shared/{file_id}")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        headers.get(header::CONTENT_TYPE).expect("content type"),
+        "text/plain; charset=utf-8"
+    );
+    assert_eq!(body, b"hello from the session\n");
+
+    let outside_relative = format!(
+        "../{}/outside.txt",
+        outside
+            .path
+            .file_name()
+            .expect("outside name")
+            .to_str()
+            .expect("outside name text")
+    );
+    for path in [
+        outside_relative,
+        outside
+            .path
+            .join("outside.txt")
+            .to_string_lossy()
+            .into_owned(),
+    ] {
+        let (status, refused) = call(
+            &app,
+            "POST",
+            &mcp,
+            Some(json!({
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {
+                    "name": "share_file",
+                    "arguments": { "path": path }
+                }
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{refused}");
+        assert_eq!(refused["result"]["isError"], true);
+        assert_eq!(
+            refused["result"]["content"][0]["text"],
+            "The path must be a file inside the session folder."
+        );
+    }
+
+    let (_, refused) = call(
+        &app,
+        "POST",
+        &mcp,
+        Some(json!({
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "tools/call",
+            "params": {
+                "name": "share_file",
+                "arguments": { "path": ".env" }
+            }
+        })),
+    )
+    .await;
+    assert_eq!(refused["result"]["isError"], true);
+    assert_eq!(
+        refused["result"]["content"][0]["text"],
+        "The file looks like a key or a secret file. It was not shared."
+    );
+
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(outside.path.join("outside.txt"), repo.path.join("link.txt"))
+            .expect("create symlink");
+        let (_, refused) = call(
+            &app,
+            "POST",
+            &mcp,
+            Some(json!({
+                "jsonrpc": "2.0",
+                "id": 4,
+                "method": "tools/call",
+                "params": {
+                    "name": "share_file",
+                    "arguments": { "path": "link.txt" }
+                }
+            })),
+        )
+        .await;
+        assert_eq!(refused["result"]["isError"], true);
+        assert_eq!(
+            refused["result"]["content"][0]["text"],
+            "The path must be a file inside the session folder."
+        );
+    }
+
+    let (status, _) = close_session(&app, id).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn mcp_share_file_refuses_a_stored_key() {
+    let data_dir = TempDirectory::new("mcp-share-key-data");
+    let repo = TempDirectory::new("mcp-share-key-repo");
+    init_git_repo(&repo.path);
+    let secrets = Arc::new(MemorySecretStore::default());
+    secrets
+        .set_key("deepseek", "sk-test-hidden-value")
+        .expect("store key");
+    let state = AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    )
+    .with_test_secret_store(secrets);
+    fs::write(repo.path.join("notes.txt"), "key: sk-test-hidden-value\n").expect("write notes");
+    let app = router(state);
+    let session = create_terminal(&app, &repo.path).await;
+    let id = session["id"].as_str().expect("session id");
+
+    let (status, refused) = call(
+        &app,
+        "POST",
+        &format!("/internal/mcp/{id}"),
+        Some(json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "share_file",
+                "arguments": { "path": "notes.txt" }
+            }
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{refused}");
+    assert_eq!(refused["result"]["isError"], true);
+    assert_eq!(
+        refused["result"]["content"][0]["text"],
+        "The file looks like a key or a secret file. It was not shared."
+    );
+
+    let (status, _) = close_session(&app, id).await;
     assert_eq!(status, StatusCode::OK);
 }
 

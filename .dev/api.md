@@ -129,6 +129,9 @@ interface PairedDevice {
 ## Session tools and skills
 
 - Claude Code, Codex and OpenCode 2 sessions get the elesdee MCP server and the skill pack: `elesdee`, `ask-and-notify`, `coordinate-sessions`, `handoff` and `frontend-design`. Antigravity gets neither.
+- The server exposes `ask_me`, `wait_for_answer`, `withdraw_question`, `notify_me`, `report_done`, `write_handoff_note`, `list_sessions`, `read_session`, `send_message`, `check_usage`, `start_session`, `wait_for_session` and `share_file`. Register demo server arrives with the demo servers.
+- `wait_for_session` waits on another session's status and work state. `until` is `attention` (default: input, permission, question, pause, done or closed), `waiting`, `done`, `closed` or `change`. `timeoutSeconds` is 1–25. The call returns the session state and `timedOut`; it never blocks past the route timeout. It stops with an error when the calling session closes.
+- `share_file` takes a path relative to the session folder and an optional caption. It copies the file into the shared store and returns the `SharedFile` record. A source that resolves outside the folder, a folder, a hard link, a secret file name, private-key content or a stored account key in the content is refused.
 - The core writes each session's skill kit under `<data dir>/skills/<session id>`. Directories use mode 0700 and files use mode 0600. The kit is removed on close, agent exit, delete and shutdown, and a startup sweep removes stale kits.
 - The kit holds `.claude-plugin/plugin.json` and `skills/<name>/SKILL.md`. Claude Code gets it as `--plugin-dir <kit>`.
 - OpenCode 2 gets `<data dir>/mcp/opencode-<session id>.json`. Its `skills` array lists `<kit>/skills`, and `OPENCODE_CONFIG` points at the file. The file is removed with the session.
@@ -145,6 +148,7 @@ interface PairedDevice {
 - Projects and their default account and source branch, accounts, launch presets, sessions, each session's desired columns and rows, its output log, an agent's repository root, an agent's own conversation ID, the session's handoff note, and the paired device list are saved. Account keys and pairing secrets are not saved. No runtime handles are saved.
 - The desktop link identity is a separate 32-byte key in `<data dir>/link.key`, with mode 0600, written once and reused. It is never in `state.json` and never logged. A missing key creates a new identity; every paired phone must pair again.
 - The paired device list is written on pair, removal and graceful shutdown. `lastSeen` updates in memory at most once a minute.
+- Shared files live in `<data dir>/shared/<session id>/`, directories 0700 and files 0600. Each copy has a metadata record beside it with the original relative path, name, caption, size and content type. The stored copy stays after the session closes. Account keys are compared with the content and are never copied.
 - State is saved on project create, account create, session create, rename, close, reopen, delete, resize, graceful shutdown, and when an agent reports its conversation ID. It is not written for each output chunk.
 - A session that was active on save is restarted when the state loads. It resumes the agent's conversation by its saved `agentSessionId`; without an ID it uses the client's continue-last behavior and the preview says so. A terminal session restarts its shell in the same folder. The log and sequence numbers are kept, so new output continues from the next sequence.
 - If the session folder, account or client is missing, that session is restored as active and paused with a clear reason. The other sessions still restart. A pending permission request is not written to the file and is not restored.
@@ -223,6 +227,19 @@ interface LaunchPreset extends Omit<Preset, 'createdAt' | 'updatedAt'> {
   stored: boolean;
   createdAt: string | null;      // null for an account-derived preset
   updatedAt: string | null;
+}
+
+interface SharedFile {
+  id: string;
+  sessionId: string;
+  sessionName: string;
+  name: string;          // the original file name
+  path: string;          // relative to the session folder
+  caption: string | null;
+  size: number;
+  contentType: string;
+  image: boolean;
+  createdAt: string;     // RFC 3339
 }
 
 interface Project {
@@ -355,6 +372,8 @@ interface OutputEvent {
 | GET | `/api/sessions/{id}/file?path={file}` | | `FileContent` |
 | POST | `/api/sessions/{id}/file` | `{ path, content }` | `FileContent` |
 | GET | `/api/sessions/{id}/changes` | | `Changes` |
+| GET | `/api/sessions/{id}/shared` | | `SharedFile[]` |
+| GET | `/api/sessions/{id}/shared/{fileId}` | | file bytes; `Content-Type` from the file |
 | GET | `/api/sessions/{id}/output?after={seq}` | | SSE: `data: {"seq":n,"data":"..."}` and an optional `gap` |
 | GET | `/api/events` | | SSE: `data: {"type":"session.updated","session":Session}` |
 
@@ -366,6 +385,7 @@ Errors use `{ "error": "message" }`. Pairing returns 503 when the link endpoint 
 - Close commits leftover work on the session branch and pushes it. When the session has a handoff note, the commit message body carries the note. A clean tree keeps its last commit; if that commit does not carry the note, Close adds an empty commit that does. The note is never written as a file.
 - The file and change routes use the session folder: the worktree for an agent, the chosen folder for a terminal. A missing folder returns 404.
 - A file path is relative to the session folder and is canonicalized. An absolute path, a `..` component and a symlink that resolves outside the folder return 400. A folder where a file is expected returns 422. A path with a `.git` component is refused, as is a hard-linked file and a named pipe or other special file. The listing skips `.git` folders, symlinks and names that are not UTF-8; a skipped name marks the listing truncated.
+- A shared file is copied from the session folder, never linked to the source. The store holds at most 10 MiB per file. The list is newest first. The read route returns 404 for an unknown id, 413 above the cap and 500 when the store is unavailable. Images are served inline; other files are served as attachments with a sanitized name. The response is not cached.
 - One folder listing returns at most 2000 entries and sets `truncated` when more exist. A file read or write is UTF-8 text of at most 1 MiB. A larger file or request body returns 413. Binary content, meaning a NUL byte in the first 8 KiB, returns 422.
 - `POST /api/sessions/{id}/file` creates the file or replaces its content. The parent folder must exist. The write is not limited to existing files. A write goes to a temporary file in the same folder and is renamed into place, so a failure cannot leave a half-written file. An existing file keeps its permission bits.
 - Changes for an agent session compare the worktree, including uncommitted work, against the merge base with the repository's current branch. Changes for a terminal session compare the working tree against `HEAD`. Untracked files are included.

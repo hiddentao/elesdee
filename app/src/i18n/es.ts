@@ -468,6 +468,12 @@ export const es = {
   'panel.emptyFolder': 'Carpeta vacía',
   'panel.moreEntries': 'No se muestran más entradas.',
   'panel.filesLabel': 'Archivos de la sesión',
+  'panel.sharedFiles': 'Compartidos',
+  'panel.sharedFilesLabel': 'Archivos compartidos',
+  'panel.download': 'Descargar',
+  'panel.sharedLoading': 'Cargando archivo compartido…',
+  'panel.sharedNoPreview':
+    'Este archivo no tiene vista previa. Descárgalo para abrirlo.',
   'panel.save': 'Guardar',
   'panel.saving': 'Guardando…',
   'panel.saved': 'Guardado.',

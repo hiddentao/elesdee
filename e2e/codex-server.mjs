@@ -77,6 +77,8 @@ sockets.on('connection', (socket) => {
   });
 });
 
-server.listen(4397, '127.0.0.1', () => {
-  console.log('fake Codex app server on 127.0.0.1:4397');
+const port = Number(process.env.ELESDEE_CODEX_PORT ?? 4397);
+
+server.listen(port, '127.0.0.1', () => {
+  console.log(`fake Codex app server on 127.0.0.1:${port}`);
 });

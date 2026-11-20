@@ -468,6 +468,12 @@ export const fr = {
   'panel.emptyFolder': 'Dossier vide',
   'panel.moreEntries': 'D’autres entrées ne sont pas affichées.',
   'panel.filesLabel': 'Fichiers de la session',
+  'panel.sharedFiles': 'Partagés',
+  'panel.sharedFilesLabel': 'Fichiers partagés',
+  'panel.download': 'Télécharger',
+  'panel.sharedLoading': 'Chargement du fichier partagé…',
+  'panel.sharedNoPreview':
+    "Ce fichier n'a pas d'aperçu. Téléchargez-le pour l'ouvrir.",
   'panel.save': 'Enregistrer',
   'panel.saving': 'Enregistrement…',
   'panel.saved': 'Enregistré.',

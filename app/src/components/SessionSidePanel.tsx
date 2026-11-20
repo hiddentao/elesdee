@@ -1,11 +1,20 @@
 import { useEffect, useRef, useState } from 'react';
-import { listFiles, readFile, sessionChanges, writeFile } from '../api/client';
+import {
+  listFiles,
+  listSharedFiles,
+  readFile,
+  readSharedFile,
+  sessionChanges,
+  sharedFileUrl,
+  writeFile,
+} from '../api/client';
 import type {
   ChangeStatus,
   ChangedFile,
   FileEntry,
   Session,
   SessionChanges,
+  SharedFile,
 } from '../api/types';
 import type { Translate } from '../i18n';
 import { useLanguage } from '../i18n/LanguageProvider';
@@ -23,6 +32,7 @@ export type DockTab = 'files' | 'changes';
 interface SessionSidePanelProps {
   session: Session;
   tab: DockTab;
+  sharedVersion?: number;
   onSelectTab: (tab: DockTab) => void;
   onClose: () => void;
 }
@@ -58,6 +68,7 @@ function messageFor(error: unknown, t: Translate): string {
 export function SessionSidePanel({
   session,
   tab,
+  sharedVersion = 0,
   onSelectTab,
   onClose,
 }: SessionSidePanelProps) {
@@ -81,6 +92,14 @@ export function SessionSidePanel({
   const [changesError, setChangesError] = useState<string | null>(null);
   const [selectedChange, setSelectedChange] = useState<string | null>(null);
 
+  const [shared, setShared] = useState<SharedFile[]>([]);
+  const [sharedLoading, setSharedLoading] = useState(false);
+  const [sharedError, setSharedError] = useState<string | null>(null);
+  const [sharedPreview, setSharedPreview] = useState<SharedFile | null>(null);
+  const [sharedText, setSharedText] = useState<string | null>(null);
+  const [sharedFileLoading, setSharedFileLoading] = useState(false);
+  const [sharedFileError, setSharedFileError] = useState<string | null>(null);
+
   const request = useRef(0);
 
   async function loadDirectory(path: string) {
@@ -98,6 +117,18 @@ export function SessionSidePanel({
         next.delete(path);
         return next;
       });
+    }
+  }
+
+  async function loadShared() {
+    setSharedLoading(true);
+    setSharedError(null);
+    try {
+      setShared(await listSharedFiles(session.id));
+    } catch (error) {
+      setSharedError(messageFor(error, t));
+    } finally {
+      setSharedLoading(false);
     }
   }
 
@@ -131,6 +162,11 @@ export function SessionSidePanel({
     setNotice(null);
     setChanges(null);
     setSelectedChange(null);
+    setShared([]);
+    setSharedPreview(null);
+    setSharedText(null);
+    setSharedFileError(null);
+    setSharedError(null);
     void loadDirectory('');
     // The panel is recreated for each session.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -140,14 +176,20 @@ export function SessionSidePanel({
     if (tab === 'changes') {
       void loadChanges();
     }
-    // Refresh when the Changes tab is opened.
+    if (tab === 'files') {
+      void loadShared();
+    }
+    // Refresh when the tab is opened or a file is shared.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, session.id]);
+  }, [tab, session.id, sharedVersion]);
 
   async function openFile(entry: FileEntry) {
     setSelectedPath(entry.path);
     setFileError(null);
     setNotice(null);
+    setSharedPreview(null);
+    setSharedText(null);
+    setSharedFileError(null);
 
     const draft = drafts[entry.path];
     if (draft !== undefined) {
@@ -174,6 +216,31 @@ export function SessionSidePanel({
       if (request.current === token) {
         setLoadingFile(false);
       }
+    }
+  }
+
+  async function openShared(file: SharedFile) {
+    setSelectedPath(null);
+    setFile(null);
+    setFileError(null);
+    setNotice(null);
+    setSharedPreview(file);
+    setSharedText(null);
+    setSharedFileError(null);
+    if (file.image) {
+      return;
+    }
+    if (!file.contentType.startsWith('text/')) {
+      setSharedFileError(t('panel.sharedNoPreview'));
+      return;
+    }
+    setSharedFileLoading(true);
+    try {
+      setSharedText(await readSharedFile(session.id, file.id));
+    } catch (error) {
+      setSharedFileError(messageFor(error, t));
+    } finally {
+      setSharedFileLoading(false);
     }
   }
 
@@ -383,6 +450,56 @@ export function SessionSidePanel({
               {fileError}
             </p>
           ) : null}
+          {shared.length > 0 || sharedError ? (
+            <div className="shared-block">
+              <div className="dock-toolbar">
+                <span className="dock-toolbar-title">
+                  {t('panel.sharedFiles')}
+                </span>
+                <button
+                  type="button"
+                  className="btn btn-ghost dock-action"
+                  disabled={sharedLoading}
+                  onClick={() => void loadShared()}
+                >
+                  {sharedLoading ? t('panel.refreshing') : t('panel.refresh')}
+                </button>
+              </div>
+              {sharedError ? (
+                <p className="dock-error" role="alert">
+                  {sharedError}
+                </p>
+              ) : null}
+              <ul
+                className="shared-list"
+                aria-label={t('panel.sharedFilesLabel')}
+              >
+                {shared.map((item) => (
+                  <li key={item.id}>
+                    <button
+                      type="button"
+                      className={`tree-row is-file${
+                        sharedPreview?.id === item.id ? ' is-on' : ''
+                      }`}
+                      aria-current={
+                        sharedPreview?.id === item.id ? 'true' : undefined
+                      }
+                      onClick={() => void openShared(item)}
+                    >
+                      <span className="tree-spacer" aria-hidden="true" />
+                      <FileIcon />
+                      <span className="tree-name">{item.name}</span>
+                      {item.caption ? (
+                        <span className="shared-meta" title={item.caption}>
+                          {item.caption}
+                        </span>
+                      ) : null}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
           <ul
             className="file-tree"
             role="tree"
@@ -424,6 +541,45 @@ export function SessionSidePanel({
                   onSave={() => void saveFile()}
                 />
               ) : null}
+            </div>
+          ) : sharedPreview ? (
+            <div className="editor shared-preview">
+              <div className="editor-head">
+                <span className="editor-path" title={sharedPreview.path}>
+                  {sharedPreview.name}
+                </span>
+                <a
+                  className="btn btn-ghost editor-save"
+                  href={sharedFileUrl(session.id, sharedPreview.id)}
+                  download={sharedPreview.name}
+                >
+                  {t('panel.download')}
+                </a>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  onClick={() => setSharedPreview(null)}
+                >
+                  {t('common.close')}
+                </button>
+              </div>
+              {sharedFileError ? (
+                <p className="dock-error" role="alert">
+                  {sharedFileError}
+                </p>
+              ) : sharedPreview.image ? (
+                <img
+                  className="shared-image"
+                  src={sharedFileUrl(session.id, sharedPreview.id)}
+                  alt={sharedPreview.name}
+                />
+              ) : sharedFileLoading ? (
+                <p className="dock-note">{t('panel.sharedLoading')}</p>
+              ) : (
+                <pre className="shared-text" aria-label={sharedPreview.name}>
+                  {sharedText ?? ''}
+                </pre>
+              )}
             </div>
           ) : (
             <p className="dock-note">{t('panel.selectFile')}</p>

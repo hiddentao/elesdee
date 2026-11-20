@@ -113,6 +113,7 @@ export default function App() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [questions, setQuestions] = useState<Question[]>([]);
   const [questionsOpen, setQuestionsOpen] = useState(false);
+  const [sharedVersion, setSharedVersion] = useState(0);
   const [sessionRequests, setSessionRequests] = useState<SessionRequest[]>([]);
   const [requestsOpen, setRequestsOpen] = useState(false);
   const [agents, setAgents] = useState<AgentCheck[]>([]);
@@ -344,6 +345,10 @@ export default function App() {
             ? [...others, event.request]
             : others;
         });
+        return;
+      }
+      if (event.type === 'sharedfile.created') {
+        setSharedVersion((value) => value + 1);
         return;
       }
       setToast({
@@ -969,6 +974,7 @@ export default function App() {
                       key={activeSession.id}
                       session={activeSession}
                       tab={activeDock}
+                      sharedVersion={sharedVersion}
                       onSelectTab={(tab) => setDock(activeSession.id, tab)}
                       onClose={() => setDock(activeSession.id, null)}
                     />

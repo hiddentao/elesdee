@@ -461,6 +461,12 @@ export const de = {
   'panel.emptyFolder': 'Leerer Ordner',
   'panel.moreEntries': 'Weitere Einträge werden nicht angezeigt.',
   'panel.filesLabel': 'Sitzungsdateien',
+  'panel.sharedFiles': 'Geteilt',
+  'panel.sharedFilesLabel': 'Geteilte Dateien',
+  'panel.download': 'Herunterladen',
+  'panel.sharedLoading': 'Geteilte Datei wird geladen…',
+  'panel.sharedNoPreview':
+    'Diese Datei hat keine Vorschau. Lade sie herunter, um sie zu öffnen.',
   'panel.save': 'Speichern',
   'panel.saving': 'Wird gespeichert…',
   'panel.saved': 'Gespeichert.',

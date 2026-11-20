@@ -32,6 +32,7 @@ The **Notify me** tool sends a short message. The app shows it as a notification
 - **List sessions** shows the sessions on this computer with their project, status and branch.
 - **Read session** shows another session's status and recent output.
 - **Send message** sends a line of input to another session.
+- **Wait for session** waits until another session needs you or the agent, finishes, closes or changes state. The wait has a short timeout and returns the session's status. The agent calls it again to keep waiting.
 - **Report done** marks this session's task finished. The session stays active until you close it.
 
 A session started this way shows the session it came from in the sidebar.
@@ -39,6 +40,16 @@ A session started this way shows the session it came from in the sidebar.
 ## Handoff note
 
 **Write handoff note** saves a short note about the work. The agent writes one before a switch to a different client, a run out of usage, or a close. The app keeps the note and gives it, with the end of the log, to the next agent that takes over the session. The same skill also tells the agent to put the note in the last commit message and push the branch, so the note travels with the branch as well. See [Agents and providers](agents.md) for the skill.
+
+## Shared files
+
+**Share file** takes a file or screenshot from the session's folder and adds it to the session. It shows in the **Shared** list at the top of the session's Files panel. Select it to read a text preview, see an image, or download the copy. The copy is kept in the app's data folder, so you can open it after the session closes.
+
+- The path must stay inside the session folder. A path outside it, a folder, a link that leaves the folder, or a file above 10 MiB is refused.
+- Secret files such as `.env` and private keys are refused. A file that contains a stored account key is refused too.
+- The original file is not changed and the app stores no key in the copy.
+
+**Register demo server** will arrive with demo servers. Until then, a session does not get that tool.
 
 ## Usage
 

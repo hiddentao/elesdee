@@ -467,6 +467,12 @@ export const sv = {
   'panel.emptyFolder': 'Tom mapp',
   'panel.moreEntries': 'Fler poster visas inte.',
   'panel.filesLabel': 'Sessionsfiler',
+  'panel.sharedFiles': 'Delade',
+  'panel.sharedFilesLabel': 'Delade filer',
+  'panel.download': 'Ladda ner',
+  'panel.sharedLoading': 'Läser in delad fil…',
+  'panel.sharedNoPreview':
+    'Filen har ingen förhandsgranskning. Ladda ner den för att öppna den.',
   'panel.save': 'Spara',
   'panel.saving': 'Sparar…',
   'panel.saved': 'Sparat.',

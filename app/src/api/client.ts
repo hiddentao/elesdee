@@ -21,6 +21,7 @@ import type {
   Session,
   SessionChanges,
   SessionRequest,
+  SharedFile,
   UpdatePresetInput,
   UpdateProjectDefaultsInput,
 } from './types';
@@ -315,4 +316,29 @@ export function sessionChanges(
     `/api/sessions/${encodeURIComponent(id)}/changes`,
     signal ? { signal } : undefined,
   );
+}
+
+export function listSharedFiles(
+  id: string,
+  signal?: AbortSignal,
+): Promise<SharedFile[]> {
+  return request<SharedFile[]>(
+    `/api/sessions/${encodeURIComponent(id)}/shared`,
+    signal ? { signal } : undefined,
+  );
+}
+
+export function sharedFileUrl(id: string, fileId: string): string {
+  return `${API_BASE}/api/sessions/${encodeURIComponent(id)}/shared/${encodeURIComponent(fileId)}`;
+}
+
+export async function readSharedFile(
+  id: string,
+  fileId: string,
+): Promise<string> {
+  const response = await fetch(sharedFileUrl(id, fileId));
+  if (!response.ok) {
+    throw new ApiError(response.status, await errorMessage(response));
+  }
+  return response.text();
 }

@@ -471,6 +471,12 @@ export const ptBR = {
   'panel.emptyFolder': 'Pasta vazia',
   'panel.moreEntries': 'Mais entradas não são mostradas.',
   'panel.filesLabel': 'Arquivos da sessão',
+  'panel.sharedFiles': 'Compartilhados',
+  'panel.sharedFilesLabel': 'Arquivos compartilhados',
+  'panel.download': 'Baixar',
+  'panel.sharedLoading': 'Carregando arquivo compartilhado…',
+  'panel.sharedNoPreview':
+    'Este arquivo não tem pré-visualização. Baixe-o para abri-lo.',
   'panel.save': 'Salvar',
   'panel.saving': 'Salvando…',
   'panel.saved': 'Salvo.',

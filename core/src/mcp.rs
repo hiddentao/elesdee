@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::state::{AppState, QuestionStatus};
+use crate::state::{AppState, QuestionStatus, Session, SessionState, WaitingFor, WorkState};
 
 #[derive(Debug, Deserialize)]
 pub struct RpcRequest {
@@ -149,6 +149,35 @@ fn tools() -> Vec<Value> {
                 "required": ["projectId"]
             }
         }),
+        json!({
+            "name": "wait_for_session",
+            "description": "Wait until another session needs attention, reaches a chosen state, or changes state. The call returns at the timeout with the session's status; call it again to keep waiting. It also stops when this session closes.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "sessionId": { "type": "string", "description": "The other session." },
+                    "until": {
+                        "type": "string",
+                        "enum": ["attention", "waiting", "done", "closed", "change"],
+                        "description": "attention (default): needs input, a permission or a question, pauses, finishes or closes. waiting: needs input, a permission or a question. change: any change of status or work state."
+                    },
+                    "timeoutSeconds": { "type": "integer", "minimum": 1, "maximum": 25 }
+                },
+                "required": ["sessionId"]
+            }
+        }),
+        json!({
+            "name": "share_file",
+            "description": "Share a file or screenshot from this session's folder with the user. The file is copied into the app's private shared store and appears in the session's Files panel on every device. Use a path relative to the session folder. Secret files, folders and paths outside the folder are refused.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "A file path relative to the session folder." },
+                    "caption": { "type": "string", "description": "An optional short label for the file." }
+                },
+                "required": ["path"]
+            }
+        }),
     ]
 }
 
@@ -170,6 +199,8 @@ pub async fn call_tool(
         "send_message" => send_message(state, arguments).await,
         "check_usage" => check_usage(state, session_id, arguments),
         "start_session" => start_session(state, session_id, arguments).await,
+        "wait_for_session" => wait_for_session(state, session_id, arguments).await,
+        "share_file" => share_file(state, session_id, arguments).await,
         other => (format!("Unknown tool: {other}"), true),
     }
 }
@@ -473,6 +504,249 @@ async fn start_session(
 
     state.add_session_request(request);
     (format!("Session request: {request_id}"), false)
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+struct SessionSnapshot {
+    status: SessionState,
+    work_state: Option<WorkState>,
+    waiting_for: Option<WaitingFor>,
+}
+
+impl SessionSnapshot {
+    fn of(session: &Session) -> Self {
+        Self {
+            status: session.status,
+            work_state: session.work_state,
+            waiting_for: session.waiting_for,
+        }
+    }
+
+    fn needs_attention(self) -> bool {
+        self.status == SessionState::Closed
+            || self.waiting_for.is_some()
+            || matches!(
+                self.work_state,
+                Some(WorkState::Waiting | WorkState::Input | WorkState::Paused | WorkState::Done)
+            )
+    }
+
+    fn is_waiting(self) -> bool {
+        self.status == SessionState::Active
+            && (self.waiting_for.is_some()
+                || matches!(self.work_state, Some(WorkState::Waiting | WorkState::Input)))
+    }
+}
+
+async fn wait_for_session(state: &AppState, caller_id: &str, arguments: Value) -> (String, bool) {
+    let Some(target_id) = arguments
+        .get("sessionId")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+    else {
+        return ("The session id is required.".to_owned(), true);
+    };
+    if target_id == caller_id {
+        return ("A session cannot wait for itself.".to_owned(), true);
+    }
+    let until = arguments
+        .get("until")
+        .and_then(Value::as_str)
+        .unwrap_or("attention");
+    if !matches!(
+        until,
+        "attention" | "waiting" | "done" | "closed" | "change"
+    ) {
+        return (
+            "The until value must be attention, waiting, done, closed or change.".to_owned(),
+            true,
+        );
+    }
+    let timeout = arguments
+        .get("timeoutSeconds")
+        .and_then(Value::as_u64)
+        .unwrap_or(25)
+        .clamp(1, 25);
+    let Some(entry) = state.session(target_id) else {
+        return ("Unknown session.".to_owned(), true);
+    };
+    let initial = SessionSnapshot::of(&entry.session());
+    if wait_condition(until, initial, initial) {
+        return (wait_result(&entry.session(), false), false);
+    }
+
+    let mut events = state.subscribe_events();
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(timeout);
+    loop {
+        if state
+            .session(caller_id)
+            .is_none_or(|entry| entry.is_closed())
+        {
+            return ("The caller session was closed.".to_owned(), true);
+        }
+        let Some(target) = state.session(target_id) else {
+            return ("The session was deleted.".to_owned(), true);
+        };
+        let current = target.session();
+        if wait_condition(until, SessionSnapshot::of(&current), initial) {
+            return (wait_result(&current, false), false);
+        }
+
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if remaining.is_zero() {
+            return (wait_result(&current, true), false);
+        }
+        match tokio::time::timeout(remaining, events.recv()).await {
+            Ok(Ok(event)) => {
+                if event.session.id == caller_id && event.session.status == SessionState::Closed {
+                    return ("The caller session was closed.".to_owned(), true);
+                }
+                if event.session.id == target_id
+                    && wait_condition(until, SessionSnapshot::of(&event.session), initial)
+                {
+                    return (wait_result(&event.session, false), false);
+                }
+            }
+            Ok(Err(tokio::sync::broadcast::error::RecvError::Lagged(_))) => continue,
+            Ok(Err(tokio::sync::broadcast::error::RecvError::Closed)) => {
+                return ("The event stream closed.".to_owned(), true);
+            }
+            Err(_) => {
+                let Some(target) = state.session(target_id) else {
+                    return ("The session was deleted.".to_owned(), true);
+                };
+                return (wait_result(&target.session(), true), false);
+            }
+        }
+    }
+}
+
+fn wait_condition(until: &str, current: SessionSnapshot, initial: SessionSnapshot) -> bool {
+    match until {
+        "change" => current != initial,
+        "waiting" => current.is_waiting(),
+        "done" => current.work_state == Some(WorkState::Done),
+        "closed" => current.status == SessionState::Closed,
+        _ => current.needs_attention(),
+    }
+}
+
+fn wait_result(session: &Session, timed_out: bool) -> String {
+    serde_json::to_string(&json!({
+        "timedOut": timed_out,
+        "id": session.id,
+        "name": session.name,
+        "status": session.status,
+        "workState": session.work_state,
+        "waitingFor": session.waiting_for,
+        "preview": session.preview
+    }))
+    .unwrap_or_else(|_| "{}".to_owned())
+}
+
+async fn share_file(state: &AppState, session_id: &str, arguments: Value) -> (String, bool) {
+    let Some(path) = arguments
+        .get("path")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+    else {
+        return ("The file path is required.".to_owned(), true);
+    };
+    if path.chars().count() > 4096 {
+        return ("The file path is too long.".to_owned(), true);
+    }
+    let caption = arguments
+        .get("caption")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|caption| !caption.is_empty())
+        .map(|caption| caption.chars().take(200).collect::<String>());
+    let Some(entry) = state.session(session_id) else {
+        return ("Unknown session.".to_owned(), true);
+    };
+    let session = entry.session();
+    let Some(data_dir) = state.data_dir().map(Path::to_path_buf) else {
+        return ("The shared file store is not available.".to_owned(), true);
+    };
+    let secrets = shared_secret_values(state, entry.redactions()).await;
+    let root = PathBuf::from(session.folder);
+    let session_name = session.name;
+    let target_id = session.id;
+    let path = path.to_owned();
+    let result = tokio::task::spawn_blocking(move || {
+        crate::shared::share(
+            &root,
+            &data_dir,
+            &target_id,
+            &session_name,
+            &path,
+            caption,
+            &secrets,
+        )
+    })
+    .await;
+
+    match result {
+        Ok(Ok(file)) => {
+            let body = serde_json::to_string(&file).unwrap_or_else(|_| "{}".to_owned());
+            state.emit_shared_file(file);
+            (body, false)
+        }
+        Ok(Err(error)) => (share_error_message(error), true),
+        Err(error) => {
+            tracing::error!(%error, "the shared file task failed");
+            ("The file could not be shared.".to_owned(), true)
+        }
+    }
+}
+
+async fn shared_secret_values(state: &AppState, mut secrets: Vec<String>) -> Vec<String> {
+    let store = state.secret_store();
+    let account_ids = state
+        .accounts()
+        .into_iter()
+        .map(|account| account.id)
+        .collect::<Vec<_>>();
+    let keys = tokio::task::spawn_blocking(move || {
+        account_ids
+            .into_iter()
+            .filter_map(|id| store.get_key(&id).ok().flatten())
+            .collect::<Vec<_>>()
+    })
+    .await
+    .unwrap_or_default();
+    secrets.extend(keys);
+    secrets.retain(|secret| !secret.is_empty());
+    secrets.sort();
+    secrets.dedup();
+    secrets
+}
+
+fn share_error_message(error: crate::shared::ShareError) -> String {
+    match error {
+        crate::shared::ShareError::InvalidPath | crate::shared::ShareError::OutsideFolder => {
+            "The path must be a file inside the session folder.".to_owned()
+        }
+        crate::shared::ShareError::NotFound => "The file does not exist.".to_owned(),
+        crate::shared::ShareError::NotAFile => "The path is a folder, not a file.".to_owned(),
+        crate::shared::ShareError::TooLarge(size) => format!(
+            "The file is too large. The limit is {} bytes; this file is {size} bytes.",
+            crate::shared::MAX_SHARED_BYTES
+        ),
+        crate::shared::ShareError::Linked => "Hard-linked files are not supported.".to_owned(),
+        crate::shared::ShareError::Secret => {
+            "The file looks like a key or a secret file. It was not shared.".to_owned()
+        }
+        crate::shared::ShareError::Unavailable => {
+            "The shared file store is not available.".to_owned()
+        }
+        crate::shared::ShareError::Io(error) => {
+            tracing::error!(%error, "sharing a file failed");
+            "The file could not be shared.".to_owned()
+        }
+    }
 }
 
 fn check_usage(state: &AppState, session_id: &str, arguments: Value) -> (String, bool) {

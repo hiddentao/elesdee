@@ -62,6 +62,8 @@ export function subscribeAux(
         onEvent({ type: 'question.updated', question: payload.question });
       } else if (payload.type === 'request.updated' && payload.request) {
         onEvent({ type: 'request.updated', request: payload.request });
+      } else if (payload.type === 'sharedfile.created' && payload.file) {
+        onEvent({ type: 'sharedfile.created', file: payload.file });
       } else if (payload.type === 'notification' && payload.notification) {
         onEvent({
           type: 'notification',

@@ -4,8 +4,10 @@ import { defineConfig } from '@playwright/test';
 import { createRunDir } from './e2e/env';
 
 const runDir = createRunDir();
-const corePort = 4399;
-const webPort = 5199;
+const corePort = Number(process.env.ELESDEE_E2E_CORE_PORT ?? 4399);
+const webPort = Number(process.env.ELESDEE_E2E_WEB_PORT ?? 5199);
+const opencodePort = Number(process.env.ELESDEE_E2E_OPENCODE_PORT ?? 4398);
+const codexPort = Number(process.env.ELESDEE_E2E_CODEX_PORT ?? 4397);
 const agentStub = path.join(runDir, 'agent-stub.sh');
 
 fs.writeFileSync(
@@ -40,7 +42,7 @@ export default defineConfig({
   globalTeardown: './e2e/global-teardown.ts',
   webServer: [
     {
-      command: `ELESDEE_PORT=${corePort} ELESDEE_DATA_DIR=${JSON.stringify(path.join(runDir, 'data'))} ELESDEE_AGENT_BIN=${JSON.stringify(agentStub)} ELESDEE_MEMORY_SECRETS=1 ELESDEE_OPENCODE_PORT=4398 ELESDEE_CODEX_WS=ws://127.0.0.1:4397 cargo run --manifest-path core/Cargo.toml`,
+      command: `ELESDEE_PORT=${corePort} ELESDEE_DATA_DIR=${JSON.stringify(path.join(runDir, 'data'))} ELESDEE_AGENT_BIN=${JSON.stringify(agentStub)} ELESDEE_MEMORY_SECRETS=1 ELESDEE_OPENCODE_PORT=${opencodePort} ELESDEE_CODEX_WS=ws://127.0.0.1:${codexPort} cargo run --manifest-path core/Cargo.toml`,
       url: `http://127.0.0.1:${corePort}/api/health`,
       timeout: 300_000,
       reuseExistingServer: false,
@@ -48,16 +50,16 @@ export default defineConfig({
       stderr: 'pipe',
     },
     {
-      command: 'node e2e/opencode-server.mjs',
-      url: 'http://127.0.0.1:4398/health',
+      command: `ELESDEE_OPENCODE_PORT=${opencodePort} node e2e/opencode-server.mjs`,
+      url: `http://127.0.0.1:${opencodePort}/health`,
       timeout: 30_000,
       reuseExistingServer: false,
       stdout: 'pipe',
       stderr: 'pipe',
     },
     {
-      command: 'node e2e/codex-server.mjs',
-      url: 'http://127.0.0.1:4397/health',
+      command: `ELESDEE_CODEX_PORT=${codexPort} node e2e/codex-server.mjs`,
+      url: `http://127.0.0.1:${codexPort}/health`,
       timeout: 30_000,
       reuseExistingServer: false,
       stdout: 'pipe',
