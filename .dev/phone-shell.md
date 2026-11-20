@@ -758,12 +758,13 @@ Checks run on macOS with no Android or iOS SDK:
 
 Checks run on macOS with no Android or iOS SDK:
 
-- `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings` and `cargo test` in `link/`: 79 tests pass.
-- The same three in `core/`: all tests pass, including the phone input and config checks in `core/tests/link.rs`.
-- The same three in `phone-shell/src-tauri/`: 7 Rust tests pass.
-- `npm --prefix phone-shell run test`: 69 tests pass. `typecheck` and `build` pass.
+- `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings` and `cargo test` in `link/`: 82 tests pass, including the framed upload and image body tests.
+- The same three in `core/`: 386 tests pass (164 unit, 201 API, 8 GitHub, 13 link), including the phone input and config checks, the upload limits, names and no-overwrite rule, the image confinement and type checks and the diff data.
+- The same three in `phone-shell/src-tauri/`: 10 Rust tests pass, including the picked-file size and folder checks.
+- `npm --prefix app run test`: 235 tests pass, including the shared phone file helpers.
+- `npm --prefix phone-shell run test`: 85 tests pass, including the upload state, image data URL and diff row tests. `typecheck` and `build` pass.
 - `npm test`, `npm run typecheck` and `npm run build` at the root pass.
-- Playwright runs the browser phone layout at 390 width.
+- Playwright runs the browser phone layout at 390 width, including the file list, image and text previews, the upload notice and the diff rows.
 
 **Message view.** The core publishes a bounded structured history for each agent session. Claude Code items come from its hooks (`UserPromptSubmit`, `MessageDisplay`, `PreToolUse`, `PostToolUse`, `Stop`), Codex items from the app-server `item/*` notifications (`turn/completed` ends a streamed reply), and OpenCode 2 items from the local server's message records, polled with the permission poll. Antigravity has no structured source and stays terminal-only. An item update is a new version with a higher sequence and the same opaque id. The log holds at most 400 versions and 128 KiB per session, persisted in `state.json`, with session secrets removed. The link method `history.subscribe` replays from `after` and follows live versions.
 
