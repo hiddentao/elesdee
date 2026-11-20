@@ -26,7 +26,7 @@ The service binds `127.0.0.1` only. It accepts requests only for loopback hostna
 - Configs and providers are saved in `state.json`. Keys are never part of either record.
 - At most 64 sessions may be active at one time. This is a safety cap for memory and process limits. A new session above the cap returns 429. Closing a session frees its slot.
 - At most 32 output streams and 32 event streams may be open at once. More returns 429.
-- The optional `folder` is canonicalized. When it is absent, the project folder is used. A terminal session runs in that folder. For an agent, the folder must be inside a Git repository; the session runs in a new worktree under `<data dir>/worktrees/<session id>`.
+- The optional `folder` is canonicalized. When it is absent, the project folder is used. A terminal session runs in that folder. For an agent, the folder must be inside a Git repository; the session runs in a new worktree under `<data dir>/worktrees/<session id>`. The resolved repository root is saved as `sourceRepository`; a terminal session has `null`. Moving the session to another project does not change it. A stored record without the field takes the saved repository root, or else its project folder, when the service loads it.
 - A session starts at 120 columns by 32 rows unless `cols` and `rows` are supplied. Column values must be 20–500 and row values 5–300; any other value returns 400.
 - A live session's PTY can be resized. An unknown session returns 404 and a closed or exited session returns 409.
 - `short` is unique within a project. A repeated name gets a numeric suffix. Agent branch names are also checked against existing Git refs, so a kept branch from an earlier session gets a new suffix.
@@ -455,6 +455,7 @@ interface Session {
   contextLeft: number | null;    // percent of the context window free, or null when unknown
   branch: string | null;
   folder: string;
+  sourceRepository: string | null; // the repository root an agent session started from
   preview: string;
   waitingFor: WaitingFor | null;
   pendingPermission: PendingPermission | null;

@@ -54,6 +54,7 @@ export interface Session {
   handoffNote?: string | null;
   contextLeft?: number | null;
   folder: string;
+  sourceRepository?: string | null;
   preview: string;
   waitingFor: WaitingFor | null;
   pendingPermission: PendingPermission | null;
