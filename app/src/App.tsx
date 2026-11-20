@@ -11,12 +11,14 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import {
   ApiError,
   answerQuestion,
+  approveSessionRequest,
   bootstrap,
   closeSession,
   createAccount,
   createProject,
   createSession,
   deleteSession,
+  denySessionRequest,
   health,
   renameSession,
   reopenSession,
@@ -33,6 +35,7 @@ import type {
   Project,
   Question,
   Session,
+  SessionRequest,
 } from './api/types';
 import { AddProjectDialog } from './components/AddProjectDialog';
 import {
@@ -46,6 +49,7 @@ import { NewSessionDialog } from './components/NewSessionDialog';
 import { QuitDialog } from './components/QuitDialog';
 import { QuestionsDialog } from './components/QuestionsDialog';
 import { RenameSessionDialog } from './components/RenameSessionDialog';
+import { RequestsDialog } from './components/RequestsDialog';
 import {
   SessionActionsMenu,
   type SessionMenuAction,
@@ -97,6 +101,8 @@ export default function App() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [questions, setQuestions] = useState<Question[]>([]);
   const [questionsOpen, setQuestionsOpen] = useState(false);
+  const [sessionRequests, setSessionRequests] = useState<SessionRequest[]>([]);
+  const [requestsOpen, setRequestsOpen] = useState(false);
   const [agents, setAgents] = useState<AgentCheck[]>([]);
   const [agentsChecked, setAgentsChecked] = useState(false);
   const [version, setVersion] = useState<string | null>(null);
@@ -143,6 +149,7 @@ export default function App() {
       setAccounts(data.accounts);
       setSessions(data.sessions);
       setQuestions(data.questions ?? []);
+      setSessionRequests(data.sessionRequests ?? []);
       setAgents(report?.agents ?? []);
       setAgentsChecked(report !== null);
       setVersion(report?.version ?? null);
@@ -171,6 +178,11 @@ export default function App() {
     ? questions.find((question) => question.sessionId === activeSession.id) ??
       null
     : null;
+  const activeRequest = activeSession
+    ? sessionRequests.find(
+        (request) => request.parentSessionId === activeSession.id,
+      ) ?? null
+    : null;
   const closeTarget = closeSessionId
     ? sessions.find((session) => session.id === closeSessionId) ?? null
     : null;
@@ -198,6 +210,7 @@ export default function App() {
     switchTarget !== null ||
     settingsOpen ||
     questionsOpen ||
+    requestsOpen ||
     quitOpen;
 
   activeSessionIdRef.current = activeSessionId;
@@ -266,6 +279,17 @@ export default function App() {
           );
           return event.question.status === 'pending'
             ? [...others, event.question]
+            : others;
+        });
+        return;
+      }
+      if (event.type === 'request.updated') {
+        setSessionRequests((current) => {
+          const others = current.filter(
+            (request) => request.id !== event.request.id,
+          );
+          return event.request.status === 'pending'
+            ? [...others, event.request]
             : others;
         });
         return;
@@ -654,6 +678,30 @@ export default function App() {
     setToast({ message: 'Answer sent.', error: false });
   }
 
+  async function approveRequest(id: string, allowFurther: boolean) {
+    const result = await approveSessionRequest(id, allowFurther);
+    setSessionRequests((current) =>
+      current.filter((request) => request.id !== id),
+    );
+    if (result.session) {
+      setSessions((current) =>
+        current.some((session) => session.id === result.session?.id)
+          ? current
+          : [...current, result.session as Session],
+      );
+      openSession(result.session);
+    }
+    setToast({ message: 'Session approved and started.', error: false });
+  }
+
+  async function denyRequest(id: string) {
+    await denySessionRequest(id);
+    setSessionRequests((current) =>
+      current.filter((request) => request.id !== id),
+    );
+    setToast({ message: 'Session request denied.', error: false });
+  }
+
   async function confirmDelete() {
     if (!deleteTarget) {
       return;
@@ -759,6 +807,8 @@ export default function App() {
             onOpenSettings={() => setSettingsOpen(true)}
             questions={questions.length}
             onOpenQuestions={() => setQuestionsOpen(true)}
+            requests={sessionRequests.length}
+            onOpenRequests={() => setRequestsOpen(true)}
           />
 
           <main
@@ -818,6 +868,17 @@ export default function App() {
                   onAnswerQuestion={(answer) =>
                     activeQuestion
                       ? answerOpenQuestion(activeQuestion.id, answer)
+                      : Promise.resolve()
+                  }
+                  request={activeRequest}
+                  onApproveRequest={(allowFurther) =>
+                    activeRequest
+                      ? approveRequest(activeRequest.id, allowFurther)
+                      : Promise.resolve()
+                  }
+                  onDenyRequest={() =>
+                    activeRequest
+                      ? denyRequest(activeRequest.id)
                       : Promise.resolve()
                   }
                 />
@@ -922,6 +983,15 @@ export default function App() {
           questions={questions}
           onAnswer={answerOpenQuestion}
           onClose={() => setQuestionsOpen(false)}
+        />
+      ) : null}
+
+      {requestsOpen ? (
+        <RequestsDialog
+          requests={sessionRequests}
+          onApprove={approveRequest}
+          onDeny={denyRequest}
+          onClose={() => setRequestsOpen(false)}
         />
       ) : null}
 

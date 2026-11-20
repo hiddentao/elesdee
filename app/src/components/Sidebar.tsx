@@ -8,6 +8,7 @@ import {
 } from '../state/sessionStatus';
 import { accountUsage } from '../state/usage';
 import {
+  AgentIcon,
   AlertIcon,
   ChatIcon,
   ChevronDownIcon,
@@ -40,6 +41,8 @@ interface SidebarProps {
   onOpenSettings: () => void;
   questions?: number;
   onOpenQuestions?: () => void;
+  requests?: number;
+  onOpenRequests?: () => void;
 }
 
 interface SessionRowProps {
@@ -96,6 +99,11 @@ function SessionRow({
               {' · '}
             </>
           ) : null}
+          {session.parentSessionName ? (
+            <span className="session-parent">
+              from {session.parentSessionName} ·{' '}
+            </span>
+          ) : null}
           {waiting ? (
             <>
               <AlertIcon className="waiting-icon" />
@@ -140,6 +148,8 @@ export function Sidebar({
   onOpenSettings,
   questions = 0,
   onOpenQuestions,
+  requests = 0,
+  onOpenRequests,
 }: SidebarProps) {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [manualCollapsed, setManualCollapsed] = useState<Set<string>>(new Set());
@@ -281,16 +291,28 @@ export function Sidebar({
         ) : null}
       </div>
 
-      {questions > 0 ? (
+      {questions > 0 || requests > 0 ? (
         <div className="sidebar-questions">
-          <button
-            type="button"
-            className="chip questions-chip"
-            onClick={onOpenQuestions}
-          >
-            <ChatIcon />
-            Questions <span className="chip-count">{questions}</span>
-          </button>
+          {questions > 0 ? (
+            <button
+              type="button"
+              className="chip questions-chip"
+              onClick={onOpenQuestions}
+            >
+              <ChatIcon />
+              Questions <span className="chip-count">{questions}</span>
+            </button>
+          ) : null}
+          {requests > 0 ? (
+            <button
+              type="button"
+              className="chip questions-chip"
+              onClick={onOpenRequests}
+            >
+              <AgentIcon />
+              Requests <span className="chip-count">{requests}</span>
+            </button>
+          ) : null}
         </div>
       ) : null}
 

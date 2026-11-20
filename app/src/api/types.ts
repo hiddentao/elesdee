@@ -41,6 +41,8 @@ export interface Session {
   waitingFor: WaitingFor | null;
   pendingPermission: PendingPermission | null;
   firstPrompt?: string | null;
+  parentSessionId?: string | null;
+  parentSessionName?: string | null;
   startedAt: string;
   shortcuts: Shortcut[];
 }
@@ -99,6 +101,29 @@ export interface BootstrapResponse {
   accounts: Account[];
   sessions: Session[];
   questions?: Question[];
+  sessionRequests?: SessionRequest[];
+}
+
+export interface SessionRequest {
+  id: string;
+  parentSessionId: string;
+  parentSessionName: string;
+  projectId: string;
+  projectName: string;
+  name: string | null;
+  folder: string;
+  sourceBranch: string | null;
+  firstPrompt: string | null;
+  accountId: string;
+  client: Client;
+  status: 'pending' | 'approved' | 'denied';
+  childSessionId: string | null;
+  createdAt: string;
+}
+
+export interface ApproveSessionResult {
+  request: SessionRequest;
+  session: Session | null;
 }
 
 export interface Question {
@@ -122,6 +147,7 @@ export interface Notification {
 
 export type AuxEvent =
   | { type: 'question.updated'; question: Question }
+  | { type: 'request.updated'; request: SessionRequest }
   | { type: 'notification'; notification: Notification };
 
 export interface HealthResponse {

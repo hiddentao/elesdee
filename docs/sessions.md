@@ -59,6 +59,10 @@ An agent can ask you a question through the session tools. The question appears 
 
 See [Session tools](session-tools.md).
 
+## Session requests
+
+A session can ask to start another session. The request appears in the parent session and in the sidebar **Requests** list. Approve it to start the new session, or deny it. With **Allow further sessions from this session**, later requests from that session start without asking. A session started this way shows where it came from in the sidebar.
+
 ## Switch account
 
 Open the session menu and choose **Switch account…**. Choose another account and confirm. The session keeps its worktree and restarts with the new account. The same client continues its conversation. A different client starts again in the same worktree.

@@ -22,6 +22,7 @@ The app keeps your sessions, projects and accounts on this computer. It does not
 - Add provider accounts with a subscription, API key or local server, including custom compatible endpoints.
 - Switch a session to another account, and let usage limits switch or pause it.
 - Answer agent questions from the session or the Questions list, and let agents notify you.
+- Approve or deny a session that an agent asks to start.
 
 This is an early build. The pages here describe what the app does today. Features that are not built yet do not appear in these pages.
 

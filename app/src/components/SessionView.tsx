@@ -1,9 +1,15 @@
 import { lazy, Suspense } from 'react';
-import type { PermissionDecision, Question, Session } from '../api/types';
+import type {
+  PermissionDecision,
+  Question,
+  Session,
+  SessionRequest,
+} from '../api/types';
 import { waitingForDetail } from '../state/sessionStatus';
 import { AlertIcon, ChevronRightIcon } from './icons';
 import { PermissionCard } from './PermissionCard';
 import { QuestionForm } from './QuestionForm';
+import { SessionRequestForm } from './SessionRequestForm';
 
 const TerminalPane = lazy(() =>
   import('./TerminalPane').then((module) => ({
@@ -18,6 +24,9 @@ interface SessionViewProps {
   onResume: () => void;
   question?: Question | null;
   onAnswerQuestion?: (answer: string) => Promise<void>;
+  request?: SessionRequest | null;
+  onApproveRequest?: (allowFurther: boolean) => Promise<void>;
+  onDenyRequest?: () => Promise<void>;
 }
 
 export function SessionView({
@@ -27,6 +36,9 @@ export function SessionView({
   onResume,
   question,
   onAnswerQuestion,
+  request,
+  onApproveRequest,
+  onDenyRequest,
 }: SessionViewProps) {
   const closed = session.status === 'closed';
   const paused =
@@ -61,6 +73,14 @@ export function SessionView({
             <ChevronRightIcon />
           </button>
         </div>
+      ) : request ? (
+        <section className="session-question">
+          <SessionRequestForm
+            request={request}
+            onApprove={onApproveRequest ?? (() => Promise.resolve())}
+            onDeny={onDenyRequest ?? (() => Promise.resolve())}
+          />
+        </section>
       ) : paused ? (
         <div className="waiting-note" role="status">
           <AlertIcon />

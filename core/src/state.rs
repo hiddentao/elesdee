@@ -156,6 +156,10 @@ pub struct Session {
     pub pending_permission: Option<PendingPermission>,
     #[serde(default)]
     pub first_prompt: Option<String>,
+    #[serde(default)]
+    pub parent_session_id: Option<String>,
+    #[serde(default)]
+    pub parent_session_name: Option<String>,
     pub started_at: String,
     pub shortcuts: Vec<Shortcut>,
 }
@@ -191,11 +195,40 @@ pub struct Notification {
     pub created_at: String,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionRequest {
+    pub id: String,
+    pub parent_session_id: String,
+    pub parent_session_name: String,
+    pub project_id: String,
+    pub project_name: String,
+    pub name: Option<String>,
+    pub folder: String,
+    pub source_branch: Option<String>,
+    pub first_prompt: Option<String>,
+    pub account_id: String,
+    pub client: Client,
+    pub status: RequestStatus,
+    pub child_session_id: Option<String>,
+    pub created_at: String,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RequestStatus {
+    Pending,
+    Approved,
+    Denied,
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "type")]
 pub enum AuxEvent {
     #[serde(rename = "question.updated")]
     Question { question: Question },
+    #[serde(rename = "request.updated")]
+    Request { request: SessionRequest },
     #[serde(rename = "notification")]
     Notification { notification: Notification },
 }
@@ -254,11 +287,13 @@ pub struct HealthResponse {
 }
 
 #[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Bootstrap {
     pub projects: Vec<Project>,
     pub accounts: Vec<Account>,
     pub sessions: Vec<Session>,
     pub questions: Vec<Question>,
+    pub session_requests: Vec<SessionRequest>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -360,6 +395,7 @@ struct Inner {
     sessions: Mutex<SessionStore>,
     events: broadcast::Sender<SessionEvent>,
     questions: Mutex<Vec<Question>>,
+    session_requests: Mutex<Vec<SessionRequest>>,
     aux_events: broadcast::Sender<AuxEvent>,
     command_override: Option<Vec<String>>,
     agent_bin: Option<PathBuf>,
@@ -509,16 +545,17 @@ impl AppState {
         session_cap: usize,
         stall_writer: bool,
     ) -> Self {
-        let (projects, accounts, sessions, questions) =
+        let (projects, accounts, sessions, questions, session_requests) =
             match store.as_ref().map(|store| store.load()) {
                 Some(LoadResult::Loaded(state)) => (
                     state.projects,
                     state.accounts.unwrap_or_else(seed::accounts),
                     state.sessions,
                     state.questions.unwrap_or_default(),
+                    state.session_requests.unwrap_or_default(),
                 ),
                 Some(LoadResult::Missing | LoadResult::Corrupt) | None => {
-                    (Vec::new(), seed::accounts(), Vec::new(), Vec::new())
+                    (Vec::new(), seed::accounts(), Vec::new(), Vec::new(), Vec::new())
                 }
             };
         let mut accounts = accounts;
@@ -554,6 +591,16 @@ impl AppState {
             })
             .collect();
         *lock(&state.inner.questions) = pending;
+        let pending_requests = session_requests
+            .into_iter()
+            .filter(|request| {
+                request.status == RequestStatus::Pending
+                    && state
+                        .session(&request.parent_session_id)
+                        .is_some_and(|entry| entry.session().status == SessionState::Active)
+            })
+            .collect();
+        *lock(&state.inner.session_requests) = pending_requests;
         if let Some(directory) = state.data_dir() {
             crate::claude::sweep(directory);
         }
@@ -580,6 +627,7 @@ impl AppState {
                 sessions: Mutex::new(SessionStore::new()),
                 events,
                 questions: Mutex::new(Vec::new()),
+                session_requests: Mutex::new(Vec::new()),
                 aux_events,
                 command_override,
                 agent_bin: None,
@@ -839,6 +887,26 @@ impl AppState {
         })
     }
 
+    pub fn withdraw_requests_for_session(&self, session_id: &str) {
+        let finished = {
+            let mut requests = lock(&self.inner.session_requests);
+            requests
+                .iter_mut()
+                .filter(|request| {
+                    request.parent_session_id == session_id
+                        && request.status == RequestStatus::Pending
+                })
+                .map(|request| {
+                    request.status = RequestStatus::Denied;
+                    request.clone()
+                })
+                .collect::<Vec<_>>()
+        };
+        for request in finished {
+            self.emit_aux(AuxEvent::Request { request });
+        }
+    }
+
     pub fn notify(&self, session_id: &str, message: String) -> Option<Notification> {
         let entry = self.session(session_id)?;
         let session = entry.session();
@@ -857,6 +925,53 @@ impl AppState {
 
     pub fn subscribe_aux(&self) -> broadcast::Receiver<AuxEvent> {
         self.inner.aux_events.subscribe()
+    }
+
+    pub fn pending_session_requests(&self) -> Vec<SessionRequest> {
+        lock(&self.inner.session_requests)
+            .iter()
+            .filter(|request| request.status == RequestStatus::Pending)
+            .cloned()
+            .collect()
+    }
+
+    pub fn session_request(&self, id: &str) -> Option<SessionRequest> {
+        lock(&self.inner.session_requests)
+            .iter()
+            .find(|request| request.id == id)
+            .cloned()
+    }
+
+    pub fn add_session_request(&self, request: SessionRequest) -> SessionRequest {
+        lock(&self.inner.session_requests).push(request.clone());
+        self.emit_aux(AuxEvent::Request {
+            request: request.clone(),
+        });
+        self.save();
+        request
+    }
+
+    pub fn finish_session_request(
+        &self,
+        id: &str,
+        status: RequestStatus,
+        child_session_id: Option<String>,
+    ) -> Option<SessionRequest> {
+        let request = {
+            let mut requests = lock(&self.inner.session_requests);
+            let request = requests.iter_mut().find(|request| request.id == id)?;
+            if request.status != RequestStatus::Pending {
+                return None;
+            }
+            request.status = status;
+            request.child_session_id = child_session_id;
+            request.clone()
+        };
+        self.emit_aux(AuxEvent::Request {
+            request: request.clone(),
+        });
+        self.save();
+        Some(request)
     }
 
     fn emit_aux(&self, event: AuxEvent) {
@@ -920,6 +1035,7 @@ impl AppState {
             accounts: self.accounts(),
             sessions,
             questions: self.pending_questions(),
+            session_requests: self.pending_session_requests(),
         }
     }
 
@@ -1018,6 +1134,7 @@ impl AppState {
             projects,
             Some(self.accounts()),
             Some(self.pending_questions()),
+            Some(self.pending_session_requests()),
             sessions,
         );
         if let Err(error) = store.save(&state) {

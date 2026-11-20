@@ -163,6 +163,8 @@ struct CreateSessionRequest {
     folder: Option<String>,
     source_branch: Option<String>,
     first_prompt: Option<String>,
+    parent_session_id: Option<String>,
+    parent_session_name: Option<String>,
     cols: Option<u16>,
     rows: Option<u16>,
 }
@@ -225,6 +227,19 @@ struct UsageRequest {
 #[derive(Debug, Deserialize)]
 struct AnswerRequest {
     answer: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ApproveRequest {
+    #[serde(default)]
+    allow_further: bool,
+}
+
+#[derive(Serialize)]
+struct ApproveResponse {
+    request: crate::state::SessionRequest,
+    session: Option<Session>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -301,6 +316,14 @@ pub fn router(state: AppState) -> Router {
         .route("/api/questions", get(list_questions))
         .route("/api/questions/{id}/answer", post(answer_question))
         .route("/api/questions/{id}/withdraw", post(withdraw_question))
+        .route(
+            "/api/session-requests/{id}/approve",
+            post(approve_session_request),
+        )
+        .route(
+            "/api/session-requests/{id}/deny",
+            post(deny_session_request),
+        )
         .route("/api/sessions", post(create_session))
         .route(
             "/api/sessions/{id}",
@@ -1077,6 +1100,7 @@ async fn close_session(
 
     let session = entry.finish_close(preview.as_deref());
     state.withdraw_questions_for_session(&id);
+    state.withdraw_requests_for_session(&id);
     state.release_activation();
     state.emit(SessionEvent::updated(session.clone()));
     state.save();
@@ -1950,6 +1974,84 @@ fn question_error(failure: QuestionFailure) -> ApiError {
     }
 }
 
+async fn approve_session_request(
+    State(state): State<AppState>,
+    UrlPath(id): UrlPath<String>,
+    body: Result<Json<ApproveRequest>, JsonRejection>,
+) -> Result<Json<ApproveResponse>, ApiError> {
+    let Json(request) = body.map_err(invalid_json)?;
+    let pending = state
+        .session_request(&id)
+        .filter(|request| request.status == crate::state::RequestStatus::Pending)
+        .ok_or_else(|| ApiError::not_found("Unknown session request."))?;
+
+    let session = create_session_via_api(
+        &state,
+        serde_json::json!({
+            "projectId": pending.project_id,
+            "kind": "agent",
+            "accountId": pending.account_id,
+            "name": pending.name,
+            "folder": pending.folder,
+            "sourceBranch": pending.source_branch,
+            "firstPrompt": pending.first_prompt,
+            "parentSessionId": pending.parent_session_id,
+            "parentSessionName": pending.parent_session_name
+        }),
+    )
+    .await
+    .map_err(|_| ApiError::unprocessable("The session did not start."))?;
+
+    if request.allow_further
+        && let Some(parent) = state.session(&pending.parent_session_id)
+    {
+        parent.set_auto_approve_children(true);
+    }
+    let request = state
+        .finish_session_request(
+            &id,
+            crate::state::RequestStatus::Approved,
+            Some(session.id.clone()),
+        )
+        .ok_or_else(|| ApiError::conflict("The request was already answered."))?;
+    Ok(Json(ApproveResponse {
+        request,
+        session: Some(session),
+    }))
+}
+
+async fn deny_session_request(
+    State(state): State<AppState>,
+    UrlPath(id): UrlPath<String>,
+    body: Result<Json<CloseRequest>, JsonRejection>,
+) -> Result<Json<crate::state::SessionRequest>, ApiError> {
+    let _ = body.map_err(invalid_json)?;
+    state
+        .finish_session_request(&id, crate::state::RequestStatus::Denied, None)
+        .map(Json)
+        .ok_or_else(|| ApiError::not_found("Unknown session request."))
+}
+
+pub(crate) async fn create_session_via_api(
+    state: &AppState,
+    body: serde_json::Value,
+) -> Result<Session, String> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .build()
+        .map_err(|error| error.to_string())?;
+    let response = client
+        .post(format!("http://127.0.0.1:{}/api/sessions", state.port()))
+        .json(&body)
+        .send()
+        .await
+        .map_err(|error| error.to_string())?;
+    if !response.status().is_success() {
+        return Err(response.text().await.unwrap_or_default());
+    }
+    response.json().await.map_err(|error| error.to_string())
+}
+
 async fn mcp_request(
     State(state): State<AppState>,
     UrlPath(id): UrlPath<String>,
@@ -2444,6 +2546,8 @@ fn prepare_terminal(
         waiting_for: None,
         pending_permission: None,
         first_prompt: None,
+        parent_session_id: None,
+        parent_session_name: None,
         started_at: timestamp(),
         shortcuts: Vec::new(),
     };
@@ -2518,6 +2622,8 @@ async fn prepare_agent(
         waiting_for: None,
         pending_permission: None,
         first_prompt,
+        parent_session_id: request.parent_session_id.clone(),
+        parent_session_name: request.parent_session_name.clone(),
         started_at: timestamp(),
         shortcuts: shortcuts::for_client(account.client),
     };

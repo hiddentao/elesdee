@@ -150,6 +150,7 @@ pub struct SessionEntry {
     mcp_config: Mutex<Option<PathBuf>>,
     opencode: Mutex<Option<OpenCodeRuntime>>,
     codex: Mutex<Option<CodexRuntime>>,
+    auto_approve_children: Mutex<bool>,
     redactions: Mutex<Vec<String>>,
 }
 
@@ -353,8 +354,17 @@ impl SessionEntry {
             mcp_config: Mutex::new(None),
             opencode: Mutex::new(None),
             codex: Mutex::new(None),
+            auto_approve_children: Mutex::new(false),
             redactions: Mutex::new(Vec::new()),
         }
+    }
+
+    pub fn set_auto_approve_children(&self, allow: bool) {
+        *lock(&self.auto_approve_children) = allow;
+    }
+
+    pub fn auto_approves_children(&self) -> bool {
+        *lock(&self.auto_approve_children)
     }
 
     pub fn set_codex_runtime(&self, runtime: CodexRuntime) {
@@ -1748,6 +1758,8 @@ mod tests {
             waiting_for: None,
             pending_permission: None,
             first_prompt: None,
+            parent_session_id: None,
+            parent_session_name: None,
             started_at: "2026-01-01T00:00:00Z".to_owned(),
             shortcuts: Vec::new(),
         };
@@ -1783,6 +1795,8 @@ mod tests {
             waiting_for: None,
             pending_permission: None,
             first_prompt: None,
+            parent_session_id: None,
+            parent_session_name: None,
             started_at: "2026-01-01T00:00:00Z".to_owned(),
             shortcuts: Vec::new(),
         };

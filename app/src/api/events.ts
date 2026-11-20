@@ -55,6 +55,8 @@ export function subscribeAux(
       const payload = JSON.parse(event.data) as Partial<AuxEvent>;
       if (payload.type === 'question.updated' && payload.question) {
         onEvent({ type: 'question.updated', question: payload.question });
+      } else if (payload.type === 'request.updated' && payload.request) {
+        onEvent({ type: 'request.updated', request: payload.request });
       } else if (payload.type === 'notification' && payload.notification) {
         onEvent({
           type: 'notification',

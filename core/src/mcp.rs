@@ -122,6 +122,21 @@ fn tools() -> Vec<Value> {
                 "properties": { "accountId": { "type": "string" } }
             }
         }),
+        json!({
+            "name": "start_session",
+            "description": "Ask the user to start another session. The user must approve the request first. With the user's permission, later requests from this session can start without asking.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "projectId": { "type": "string" },
+                    "accountId": { "type": "string" },
+                    "name": { "type": "string" },
+                    "firstPrompt": { "type": "string" },
+                    "sourceBranch": { "type": "string" }
+                },
+                "required": ["projectId"]
+            }
+        }),
     ]
 }
 
@@ -141,6 +156,7 @@ pub async fn call_tool(
         "read_session" => read_session(state, arguments),
         "send_message" => send_message(state, arguments).await,
         "check_usage" => check_usage(state, session_id, arguments),
+        "start_session" => start_session(state, session_id, arguments).await,
         other => (format!("Unknown tool: {other}"), true),
     }
 }
@@ -327,8 +343,98 @@ async fn send_message(state: &AppState, arguments: Value) -> (String, bool) {
     }
 }
 
-fn check_usage(state: &AppState, session_id: &str, arguments: Value) -> (String, bool) {
+async fn start_session(
+    state: &AppState,
+    parent_session_id: &str,
+    arguments: Value,
+) -> (String, bool) {
+    let Some(parent_entry) = state.session(parent_session_id) else {
+        return ("Unknown session.".to_owned(), true);
+    };
+    let parent = parent_entry.session();
+    let Some(project_id) = arguments.get("projectId").and_then(Value::as_str) else {
+        return ("The project id is required.".to_owned(), true);
+    };
+    let Some(project) = state.project(project_id) else {
+        return ("Unknown project.".to_owned(), true);
+    };
     let account_id = arguments
+        .get("accountId")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .or_else(|| parent.account_id.clone());
+    let Some(account_id) = account_id else {
+        return ("The session needs an account.".to_owned(), true);
+    };
+    let Some(account) = state.account(&account_id) else {
+        return ("Unknown account.".to_owned(), true);
+    };
+    let name = arguments
+        .get("name")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(|name| name.chars().take(64).collect::<String>());
+    let first_prompt = arguments
+        .get("firstPrompt")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|prompt| !prompt.is_empty())
+        .map(|prompt| prompt.chars().take(8000).collect::<String>());
+    let source_branch = arguments
+        .get("sourceBranch")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|branch| !branch.is_empty())
+        .map(str::to_owned);
+    let request_id = uuid::Uuid::new_v4().to_string();
+    let request = crate::state::SessionRequest {
+        id: request_id.clone(),
+        parent_session_id: parent.id.clone(),
+        parent_session_name: parent.name.clone(),
+        project_id: project.id.clone(),
+        project_name: project.name.clone(),
+        name,
+        folder: project.folder.clone(),
+        source_branch,
+        first_prompt,
+        account_id: account_id.clone(),
+        client: account.client,
+        status: crate::state::RequestStatus::Pending,
+        child_session_id: None,
+        created_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+    };
+
+    if parent_entry.auto_approves_children() {
+        let body = serde_json::json!({
+            "projectId": request.project_id,
+            "kind": "agent",
+            "accountId": request.account_id,
+            "name": request.name,
+            "folder": request.folder,
+            "sourceBranch": request.source_branch,
+            "firstPrompt": request.first_prompt,
+            "parentSessionId": request.parent_session_id,
+            "parentSessionName": request.parent_session_name
+        });
+        return match crate::api::create_session_via_api(state, body).await {
+            Ok(session) => {
+                state.finish_session_request(
+                    &request.id,
+                    crate::state::RequestStatus::Approved,
+                    Some(session.id.clone()),
+                );
+                (format!("Session started: {}", session.id), false)
+            }
+            Err(error) => (format!("The session did not start: {error}"), true),
+        };
+    }
+
+    state.add_session_request(request);
+    (format!("Session request: {request_id}"), false)
+}
+
+fn check_usage(state: &AppState, session_id: &str, arguments: Value) -> (String, bool) {    let account_id = arguments
         .get("accountId")
         .and_then(Value::as_str)
         .map(str::to_owned)
@@ -382,10 +488,13 @@ pub fn write_opencode_config(
     crate::private_fs::create_private_dir_all(&directory)?;
     let path = directory.join(format!("opencode-{session_id}.json"));
     let url = format!("http://127.0.0.1:{port}/internal/mcp/{session_id}");
+    let plugin = write_skill_plugin(data_dir)?;
+    let skills = plugin.join("skills");
     let body = json!({
         "mcp": {
             "elesdee": { "type": "remote", "url": url }
-        }
+        },
+        "skills": [skills.to_string_lossy()]
     });
     crate::private_fs::write_private_file(&path, body.to_string().as_bytes())?;
     Ok(path)
@@ -446,6 +555,12 @@ mod tests {
             "http://127.0.0.1:4319/internal/mcp/session-1"
         );
         assert_eq!(value["mcp"]["elesdee"]["type"], "remote");
+        let skills = value["skills"].as_array().expect("skills");
+        assert_eq!(skills.len(), 1);
+        let skill = PathBuf::from(skills[0].as_str().expect("skill path"))
+            .join("elesdee")
+            .join("SKILL.md");
+        assert!(skill.is_file(), "the skill was not written at {}", skill.display());
         fs::remove_dir_all(&directory).expect("remove test directory");
     }
 

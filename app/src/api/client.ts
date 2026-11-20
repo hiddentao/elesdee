@@ -2,6 +2,7 @@ import { API_BASE } from './base';
 import type {
   Account,
   ApiErrorPayload,
+  ApproveSessionResult,
   BootstrapResponse,
   Branch,
   CreateAccountInput,
@@ -13,6 +14,7 @@ import type {
   ProviderInfo,
   Question,
   Session,
+  SessionRequest,
 } from './types';
 
 export class ApiError extends Error {
@@ -82,6 +84,23 @@ export function answerQuestion(id: string, answer: string): Promise<Question> {
 export function withdrawQuestion(id: string): Promise<Question> {
   return request<Question>(
     `/api/questions/${encodeURIComponent(id)}/withdraw`,
+    post({}),
+  );
+}
+
+export function approveSessionRequest(
+  id: string,
+  allowFurther: boolean,
+): Promise<ApproveSessionResult> {
+  return request<ApproveSessionResult>(
+    `/api/session-requests/${encodeURIComponent(id)}/approve`,
+    post({ allowFurther }),
+  );
+}
+
+export function denySessionRequest(id: string): Promise<SessionRequest> {
+  return request<SessionRequest>(
+    `/api/session-requests/${encodeURIComponent(id)}/deny`,
     post({}),
   );
 }

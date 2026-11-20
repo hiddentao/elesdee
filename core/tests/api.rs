@@ -1476,6 +1476,93 @@ async fn claude_sessions_get_and_clean_up_their_mcp_config() {
 }
 
 #[tokio::test]
+async fn start_session_tool_creates_a_pending_request_that_can_be_denied() {
+    let data_dir = TempDirectory::new("request-data");
+    let repo = TempDirectory::new("request-repo");
+    init_git_repo(&repo.path);
+    let app = router(AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    ));
+    ensure_test_project(&app, &repo.path).await;
+    let (status, parent) = call(
+        &app,
+        "POST",
+        "/api/sessions",
+        Some(json!({
+            "projectId": "web",
+            "kind": "agent",
+            "accountId": "max",
+            "name": "Coordinator",
+            "folder": repo.path.to_string_lossy()
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{parent}");
+    let parent_id = parent["id"].as_str().expect("parent id");
+
+    let (status, asked) = call(
+        &app,
+        "POST",
+        &format!("/internal/mcp/{parent_id}"),
+        Some(json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "start_session",
+                "arguments": {
+                    "projectId": "web",
+                    "name": "Helper",
+                    "firstPrompt": "Run the tests"
+                }
+            }
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{asked}");
+    let text = asked["result"]["content"][0]["text"]
+        .as_str()
+        .expect("tool text");
+    let request_id = text
+        .strip_prefix("Session request: ")
+        .expect("request id")
+        .to_owned();
+
+    let (status, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    assert_eq!(status, StatusCode::OK);
+    let requests = bootstrap["sessionRequests"]
+        .as_array()
+        .expect("session requests");
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0]["id"], request_id);
+    assert_eq!(requests[0]["parentSessionId"], parent_id);
+    assert_eq!(requests[0]["projectName"], "web");
+    assert_eq!(requests[0]["firstPrompt"], "Run the tests");
+
+    let (status, denied) = call(
+        &app,
+        "POST",
+        &format!("/api/session-requests/{request_id}/deny"),
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{denied}");
+    assert_eq!(denied["status"], "denied");
+    let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    assert_eq!(
+        bootstrap["sessionRequests"]
+            .as_array()
+            .expect("session requests")
+            .len(),
+        0
+    );
+
+    let (status, _) = close_session(&app, parent_id).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
 async fn mcp_session_tools_ask_answer_notify_and_report_done() {
     let data_dir = TempDirectory::new("mcp-data");
     let repo = TempDirectory::new("mcp-repo");

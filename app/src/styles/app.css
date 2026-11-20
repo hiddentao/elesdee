@@ -2777,3 +2777,59 @@ button:disabled {
   flex: none;
   white-space: nowrap;
 }
+
+.request-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.request-text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.request-details {
+  margin: 0;
+  display: grid;
+  gap: 4px;
+  font-size: var(--fs-small);
+}
+
+.request-details > div {
+  display: grid;
+  grid-template-columns: 90px 1fr;
+  gap: 8px;
+}
+
+.request-details dt {
+  color: var(--text-3);
+}
+
+.request-details dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.request-allow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-2);
+  font-size: var(--fs-small);
+}
+
+.request-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.session-parent {
+  color: var(--text-3);
+}
