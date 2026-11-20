@@ -1,6 +1,6 @@
 # Phone shell, pairing and remote connection
 
-Status: design. Step 1, the shared `link` crate; step 2, the core endpoint and pairing; step 3, the phone shell skeleton, link client and pairing screens; step 4, the app connection, live events, output and session RPC; and step 8, demo-server forwarding on both the computer and the phone, are implemented. The shell has not run on a device or an emulator, and the Android and iOS projects are not generated.
+Status: design. Step 1, the shared `link` crate; step 2, the core endpoint and pairing; step 3, the phone shell skeleton, link client and pairing screens; step 4, the app connection, live events, output and session RPC; step 7's terminal input, session actions, permission and question cards and AI config switch; and step 8, demo-server forwarding on both the computer and the phone, are implemented in part. Upload, file and image reads, diffs and the structured message view remain. The shell has not run on a device or an emulator, and the Android and iOS projects are not generated.
 
 Read this with `.dev/SPEC.md` (Mobile companion app, Connection technology), `.dev/api.md` and `docs/phone.md`.
 
@@ -564,7 +564,8 @@ Step 2 implements the key check at accept, the method allowlist and the frame li
 | `sessions.close` | `POST /api/sessions/{id}/close` | Same confirmation as the desktop. |
 | `sessions.input` | `POST /api/sessions/{id}/input` | Text and key bytes. No resize. |
 | `sessions.permission` | `POST /api/sessions/{id}/permission` | Allow or deny one request. |
-| `sessions.account` | `POST /api/sessions/{id}/account` | The one-button provider switch. |
+| `sessions.account` | `POST /api/sessions/{id}/account` | The older provider switch. |
+| `sessions.config` | `POST /api/sessions/{id}/config` | The one-button AI config switch. |
 | `sessions.resume` | `POST /api/sessions/{id}/resume` | Resume a paused session. |
 | `sessions.upload` | New local route | Writes one file to the session upload folder. |
 | `questions.list` | `GET /api/questions` | Pending questions. |
@@ -591,7 +592,7 @@ The phone cannot call:
 
 The link server rejects an unknown method with `forbidden`. A test compares the allowlist table with the local router, so a new route does not become reachable by accident.
 
-Step 4 dispatches every allowlisted method that has a local route: `bootstrap`, `health`, the project, branch, provider and account lists, session create, close, input, permission, account and resume, question list and answer, session request approve and deny, the file list and text read, the diff read, `demoServers.list`, and the event and output subscriptions. `sessions.create` drops a phone-supplied folder. `sessions.upload`, `files.image` and the UI package methods return `unsupported` until their steps. A method outside the allowlist is rejected while the request frame decodes, so it returns `forbidden`.
+Step 4 dispatches every allowlisted method that has a local route: `bootstrap`, `health`, the project, branch, provider and account lists, session create, close, input, permission, account, config and resume, question list and answer, session request approve and deny, the file list and text read, the diff read, `demoServers.list`, and the event and output subscriptions. `sessions.create` drops a phone-supplied folder. `sessions.upload`, `files.image` and the UI package methods return `unsupported` until their steps. A method outside the allowlist is rejected while the request frame decodes, so it returns `forbidden`.
 
 A phone never chooses a job folder. When remote session creation is added, it starts in the project folder, and the link drops any `folder` parameter from a `sessions.create` request before a handler sees it.
 
@@ -665,7 +666,7 @@ Each step ends with an end-to-end test.
 | 4. App connection and session RPC | **Implemented.** `hello` and `welcome`, unary dispatch through the local router, event and output streams with sequence replay, phone link client, shell connection manager and live session screens. Files: `link/src/app.rs`, `link/src/reconnect.rs`, `link/src/client.rs`, `core/src/link/app.rs`, `phone-shell/src-tauri/src/commands.rs`, `phone-shell/ui/src/app.ts`, `live.ts`, `bridge.ts`. | **Implemented.** Rust integration with two real loopback endpoints: welcome, a unary call, a denied method, an event, output replay and live output, live revocation with close code 3, and reconnect delays on a fake clock. The phone shell has UI tests for the live list and output merge and 2 Rust tests for channels and terminal errors. The browser phone layout still runs against the core; Playwright cannot drive the native bridge without a device. |
 | 5. UI package build and delivery | Vite phone config, packaging script, manifest, download, hash check, safe unzip, custom protocol serving, version gates. Files: `app/vite.phone.config.ts`, `scripts/package-phone-ui.mjs`, `core/src/link/ui.rs`, `phone-shell/src/`. | Node test: deterministic zip and matching hash. Rust test: hash mismatch rejected, traversal zip rejected, oversize rejected, atomic swap. Android: first download, desktop upgrade then phone update on connect, offline restart uses the stored build. |
 | 6. Reconnect and revocation | **Implemented in part.** Backoff, output resume and the revocation close code exist. Network change and foreground reconnect controls remain. Files: `link/src/reconnect.rs`, `phone-shell/src-tauri/src/commands.rs`. | **Implemented in part.** Rust tests cover the backoff sequence on a fake clock, output replay from a requested sequence and close code 3. The shell subscription stores the last sequence and reopens from it after a reconnect. A full reconnect test on a device remains. |
-| 7. Mobile actions | New-session form, close, switch account, usage, upload, files, images, diffs. Files: `core/src/link/`, `core/src/api.rs`, `app/src/phone/`. | One Rust test per method. Upload tests: bad name, duplicate name, oversize, path outside the session. File read tests: `..`, absolute path, symlink. Playwright: permission card, question form and composer. |
+| 7. Mobile actions | **Implemented in part:** terminal input with the key rail, latches, held-key repeat and saved keys; start, close, AI config switch and usage panel; permission, question and session-request cards; and the one-line input in the browser phone layout. **Remaining:** upload, files, images, diffs and the structured message view. Files: `core/src/link/`, `link/src/method.rs`, `app/src/phone/`, `phone-shell/ui/`. | **Run:** link tests for the allowlist and the config route, a core loopback test for input and config switch, phone shell UI tests for key encoding, latches, saved keys and action rules, and a Playwright test for the browser phone layout. **Not run:** a device or emulator. Upload, file and image tests remain. |
 | 8. Demo forwarding | **Implemented on the computer and the phone shell.** Forward ALPN, registered-port check, loopback connect, one tunnel per port, teardown. On the phone: loopback listener, same-or-free port choice, 8-tunnel registry, socket bridge, session list with local address, state and Open. Files: `link/src/forward.rs`, `link/src/client.rs`, `core/src/link/forward.rs`, `core/src/link/hub.rs`, `core/src/api.rs`, `core/src/demo.rs`, `core/src/mcp.rs`, `phone-shell/src-tauri/src/forward.rs`, `phone-shell/src-tauri/src/commands.rs`, `phone-shell/ui/src/demo.ts`, `phone-shell/ui/src/app.ts`, `phone-shell/ui/src/bridge.ts`. | **Run:** the link-crate forward tests, the core loopback test that registers a port, fetches a local HTTP server through the tunnel, refuses an unregistered port and refuses an unpaired phone, and the phone shell tests for port choice, refusal and a bridged socket. **Not run:** a device or emulator build, the phone's browser handoff, and any background behavior. |
 | 9. CI and release | Android job with JDK, SDK, NDK and Rust targets. Shell version and APK artifact. Signing secrets. Path filters. | CI builds the APK on a phone-shell change, runs the Rust and JS tests, and uploads the artifact. Install the artifact on a device and check the version screen. |
 
@@ -713,6 +714,33 @@ Checks run on macOS with no Android or iOS SDK:
 - The same three in `phone-shell/src-tauri/`: 2 Rust tests pass.
 - `npm --prefix phone-shell run test`: 44 tests pass. `typecheck` and `build` pass.
 - Playwright is not used for the link. The native bridge needs the Tauri shell and a paired phone key, so a browser test would not exercise it. The existing browser phone layout tests still run against the local HTTP API.
+
+### Step 7 files and checks
+
+| Path | Contents |
+| --- | --- |
+| `link/src/method.rs` | The `sessions.config` allowlist entry. |
+| `core/src/link/app.rs` | The config route and its unit test. |
+| `core/tests/link.rs` | A paired phone sends terminal input, reads bootstrap configs and reaches the config route. |
+| `app/src/phone/keys.ts` | Base keys, agent key parsing, key encoding, latches, rail merge, saved-key validation and storage. Shared by both phone surfaces. |
+| `app/src/phone/sessionActions.ts` | Switch choices, picker filtering, start request, close copy and pending-card selection. |
+| `app/src/phone/PhoneApp.tsx` | One-line terminal input, key rail and saved-key sheet, start, close, switch and usage actions, and the permission, question and request cards. |
+| `phone-shell/ui/src/app.ts` | The same actions and terminal input over the link methods. |
+| `phone-shell/ui/src/combo.ts` | A filterable asynchronous combo box with keyboard and screen-reader support. |
+| `phone-shell/test/keys.test.mjs` | Key encoding, agent merge, latches, repeat rules and saved keys. |
+| `phone-shell/test/actions.test.mjs` | Switch choices, start request, usage text and pending cards. |
+| `e2e/26-phone-actions.spec.ts` | The browser phone layout: input, rail toggle, latches, usage, switch, start and close. |
+
+Checks run on macOS with no Android or iOS SDK:
+
+- `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings` and `cargo test` in `link/`: 79 tests pass.
+- The same three in `core/`: all tests pass, including the phone input and config checks in `core/tests/link.rs`.
+- The same three in `phone-shell/src-tauri/`: 7 Rust tests pass.
+- `npm --prefix phone-shell run test`: 69 tests pass. `typecheck` and `build` pass.
+- `npm test`, `npm run typecheck` and `npm run build` at the root pass.
+- Playwright runs the browser phone layout at 390 width.
+
+**Message view.** The core does not publish a structured conversation history. Its events carry the session record, output chunks, questions, session requests, notifications, shared files and provider usage; the agent hooks and app-server clients do not yet produce message and tool items. The phone therefore shows the read-only terminal plus the cards. The message view waits for a core history source with user prompts, agent replies and tool rows.
 
 ### Step 8 files and checks
 

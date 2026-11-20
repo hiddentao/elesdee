@@ -2,6 +2,88 @@ export type SessionState = 'active' | 'closed';
 export type WorkState = 'working' | 'waiting' | 'input' | 'paused' | 'done';
 export type WaitingFor = 'permission' | 'input' | 'start' | 'question';
 export type SessionKind = 'agent' | 'terminal';
+export type Client = 'Claude Code' | 'Codex' | 'OpenCode 2' | 'Antigravity';
+
+export interface Shortcut {
+  key: string;
+  label: string;
+  name: string;
+  description: string;
+}
+
+export interface PendingPermission {
+  requestId: string;
+  tool: string;
+  summary: string;
+}
+
+export interface UsageRow {
+  label: string;
+  window?: string | null;
+  used?: number;
+  value?: string;
+  min?: string;
+  warn?: boolean;
+  resetsAt?: number | null;
+}
+
+export interface Provider {
+  id: string;
+  name: string;
+  vendor: string;
+  auth: 'subscription' | 'key' | 'local';
+  server?: string | null;
+  sample?: boolean;
+  plan: string;
+  rows: UsageRow[];
+  foot: string;
+  usageReadAt?: string | null;
+  usageCheckedAt?: string | null;
+  usageStatus?: 'fresh' | 'stale' | 'unknown' | null;
+  usageSource?: string | null;
+  supportedClients?: Client[];
+}
+
+export interface AiConfig {
+  id: string;
+  name: string;
+  providerId: string;
+  client: Client;
+  model?: string | null;
+  effort?: string | null;
+  args?: string[];
+  env?: { name: string; value: string }[];
+  config?: Record<string, string>;
+}
+
+export interface Question {
+  id: string;
+  sessionId: string;
+  sessionName: string;
+  text: string;
+  options: string[];
+  status: 'pending' | 'answered' | 'withdrawn';
+  answer: string | null;
+  createdAt: string;
+}
+
+export interface SessionRequest {
+  id: string;
+  parentSessionId: string;
+  parentSessionName: string;
+  projectId: string;
+  projectName: string;
+  name: string | null;
+  folder: string;
+  sourceBranch: string | null;
+  firstPrompt: string | null;
+  configId: string;
+  providerId: string;
+  client: Client;
+  status: 'pending' | 'approved' | 'denied';
+  childSessionId: string | null;
+  createdAt: string;
+}
 
 export type DemoServerState = 'active' | 'stopped';
 
@@ -23,11 +105,19 @@ export interface Session {
   kind: SessionKind;
   status: SessionState;
   workState: WorkState | null;
+  client?: Client | null;
+  configId?: string | null;
+  allowedConfigIds?: string[];
+  providerId?: string | null;
+  branch?: string | null;
+  folder?: string;
   preview: string;
   waitingFor: WaitingFor | null;
-  pendingPermission: unknown | null;
+  pendingPermission: PendingPermission | null;
+  firstPrompt?: string | null;
   demoServers?: DemoServer[];
   startedAt: string;
+  shortcuts?: Shortcut[];
 }
 
 export interface ForwardAddress {
@@ -39,14 +129,23 @@ export interface ForwardAddress {
 export interface Project {
   id: string;
   name: string;
+  folder: string;
+  defaultConfigId?: string | null;
+  defaultSourceBranch?: string | null;
+}
+
+export interface Branch {
+  name: string;
+  current: boolean;
 }
 
 export interface BootstrapResponse {
   projects: Project[];
-  accounts: unknown[];
+  providers: Provider[];
+  configs: AiConfig[];
   sessions: Session[];
-  questions?: unknown[];
-  sessionRequests?: unknown[];
+  questions: Question[];
+  sessionRequests: SessionRequest[];
 }
 
 export interface ComputerRecord {

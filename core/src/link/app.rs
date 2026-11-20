@@ -359,6 +359,10 @@ fn route_for(method: Method, params: Option<&Value>) -> Result<Route, Response> 
             &format!("/api/sessions/{}/account", session_id(object)?),
             json!({"accountId": required(object, "accountId")?}),
         ),
+        Method::SessionsConfig => post(
+            &format!("/api/sessions/{}/config", session_id(object)?),
+            json!({"configId": required(object, "configId")?}),
+        ),
         Method::SessionsResume => post(
             &format!("/api/sessions/{}/resume", session_id(object)?),
             json!({}),
@@ -776,6 +780,15 @@ mod tests {
         assert_eq!(route.method, HttpMethod::POST);
         assert_eq!(route.path, "/api/sessions/s1/input");
         assert_eq!(route.body, Some(json!({"data": "ls\n"})));
+    }
+
+    #[test]
+    fn a_config_switch_route_uses_the_config_path() {
+        let params = json!({"sessionId": "s1", "configId": "deepseek-opencode"});
+        let route = route_for(Method::SessionsConfig, Some(&params)).expect("route");
+        assert_eq!(route.method, HttpMethod::POST);
+        assert_eq!(route.path, "/api/sessions/s1/config");
+        assert_eq!(route.body, Some(json!({"configId": "deepseek-opencode"})));
     }
 
     #[test]

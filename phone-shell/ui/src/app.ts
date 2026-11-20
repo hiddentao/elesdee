@@ -27,7 +27,38 @@ import {
   type MessageValues,
   type Translate,
 } from './i18n';
+import {
+  MAX_SAVED_KEYS,
+  addSavedKey,
+  encodeRailKey,
+  isRepeatable,
+  noModifiers,
+  railKeys,
+  readSavedKeys,
+  removeSavedKey,
+  savedKeyFrom,
+  savedKeyLabel,
+  toggleModifier,
+  writeSavedKeys,
+  type KeyModifiers,
+  type Modifier,
+  type RailKey,
+  type SavedKey,
+} from '../../../app/src/phone/keys';
+import {
+  buildStartInput,
+  canSwitch,
+  closeBodyKey,
+  configChoiceLabel,
+  filterChoices,
+  pendingQuestion,
+  pendingRequest,
+  switchableConfigs,
+  usageSummary,
+} from '../../../app/src/phone/sessionActions';
+import { combo } from './combo';
 import type {
+  AiConfig,
   BootstrapResponse,
   CommandError,
   ComputerRecord,
@@ -37,11 +68,16 @@ import type {
   ForwardAddress,
   PairConfirm,
   PhoneInfo,
+  Project,
+  Provider,
+  Question,
   Session,
+  SessionRequest,
   WorkState,
 } from './types';
 
 type Filter = 'all' | 'running' | 'waiting';
+type OverlayKind = 'keys' | 'switch' | 'close' | 'usage';
 
 interface Notice {
   key: MessageKey;
@@ -76,7 +112,27 @@ type Screen =
       ended: boolean;
       error?: Notice;
       connection?: ConnectionState;
+    }
+  | {
+      name: 'newSession';
+      computer: ComputerRecord;
+      form: StartForm;
+      loading: boolean;
+      busy: boolean;
+      error?: Notice;
+      connection?: ConnectionState;
     };
+
+interface StartForm {
+  projectId: string | null;
+  projectLabel: string;
+  configId: string | null;
+  configLabel: string;
+  sourceBranch: string | null;
+  sourceBranchLabel: string;
+  name: string;
+  firstPrompt: string;
+}
 
 const PAIR_STATUS_KEYS: Record<string, MessageKey> = {
   rejected: 'error.rejected',
@@ -218,6 +274,8 @@ const PLUS_ICON =
   '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4v12M4 10h12" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>';
 const REFRESH_ICON =
   '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16 10a6 6 0 1 1-1.8-4.3M16 4v4h-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const KEYBOARD_ICON =
+  '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="18" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M6.5 10h1M9.5 10h1M12.5 10h1M15.5 10h1M6.5 13h1M9.5 13h1M12.5 13h1M15.5 13h1M8 16h8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>';
 
 export class ShellApp {
   private readonly root: HTMLElement;
@@ -233,6 +291,31 @@ export class ShellApp {
   private readonly forwards = new Map<number, ForwardView>();
   private renderPending = false;
   private idCounter = 0;
+  private projects: Project[] = [];
+  private providers: Provider[] = [];
+  private configs: AiConfig[] = [];
+  private questions: Question[] = [];
+  private requests: SessionRequest[] = [];
+  private savedKeys: SavedKey[] = [];
+  private overlay: { kind: OverlayKind; sessionId?: string } | null = null;
+  private usageLoading = false;
+  private usageError: Notice | null = null;
+  private switchLoading = false;
+  private sessionCache: Session[] = [];
+  private readonly railStates = new Map<
+    string,
+    { open: boolean; scroll: number }
+  >();
+  private readonly latches = new Map<string, KeyModifiers>();
+  private readonly drafts = new Map<string, string>();
+  private repeatTimer: ReturnType<typeof setInterval> | null = null;
+  private repeatDelay: ReturnType<typeof setTimeout> | null = null;
+  private suppressClick = false;
+  private keyDraft: { name: string; modifiers: Modifier[] } = {
+    name: '',
+    modifiers: [],
+  };
+  private switchFilter = '';
 
   constructor(root: HTMLElement) {
     this.root = root;
@@ -248,6 +331,7 @@ export class ShellApp {
     this.t = createTranslator(language);
     document.documentElement.lang = htmlLanguage(language);
     document.title = this.t('app.title');
+    this.savedKeys = readSavedKeys(this.keyStorage());
     await onConnection((state) => {
       void this.handleConnection(state);
     });
@@ -266,11 +350,44 @@ export class ShellApp {
   }
 
   private render(): void {
+    const focused = document.activeElement;
+    const focusId =
+      focused instanceof HTMLElement && focused.id ? focused.id : null;
+    const selection =
+      focused instanceof HTMLInputElement ||
+      focused instanceof HTMLTextAreaElement
+        ? [focused.selectionStart, focused.selectionEnd]
+        : null;
+    const output = this.root.querySelector<HTMLElement>('.session-output');
+    const follow =
+      output !== null &&
+      output.scrollHeight - output.scrollTop - output.clientHeight < 24;
+
     this.root.replaceChildren();
     const shell = el('div', { class: 'phone' });
     shell.append(this.renderHead());
     shell.append(this.renderBody());
+    if (this.overlay) {
+      shell.append(this.renderOverlay(this.overlay));
+    }
     this.root.append(shell);
+
+    if (focusId) {
+      const next = document.getElementById(focusId);
+      if (next) {
+        next.focus();
+        if (
+          selection &&
+          (next instanceof HTMLInputElement || next instanceof HTMLTextAreaElement)
+        ) {
+          next.setSelectionRange(selection[0], selection[1]);
+        }
+      }
+    }
+    const nextOutput = this.root.querySelector<HTMLElement>('.session-output');
+    if (nextOutput && follow) {
+      nextOutput.scrollTop = nextOutput.scrollHeight;
+    }
   }
 
   private renderHead(): HTMLElement {
@@ -288,6 +405,17 @@ export class ShellApp {
       return head;
     }
 
+    if (screen.name === 'newSession') {
+      head.append(this.backButton(() => this.goSessions(screen.computer)));
+      head.append(
+        el('div', { class: 'phone-head-text' }, [
+          el('span', { class: 'phone-title', text: this.t('session.new') }),
+          el('span', { class: 'phone-sub', text: screen.computer.name }),
+        ]),
+      );
+      return head;
+    }
+
     if (screen.name === 'sessions') {
       head.append(this.backButton(() => this.goComputers()));
       head.append(
@@ -295,6 +423,11 @@ export class ShellApp {
           el('span', { class: 'phone-title', text: this.t('sessions.title') }),
           el('span', { class: 'phone-sub', text: screen.computer.name }),
         ]),
+      );
+      head.append(
+        iconButton(this.t('session.new'), PLUS_ICON, () => {
+          void this.openNewSession(screen.computer);
+        }),
       );
       head.append(
         iconButton(this.t('sessions.refresh'), REFRESH_ICON, () => {
@@ -387,6 +520,8 @@ export class ShellApp {
         return this.renderSessions(screen);
       case 'session':
         return this.renderSession(screen);
+      case 'newSession':
+        return this.renderNewSession(screen);
     }
   }
 
@@ -764,6 +899,12 @@ export class ShellApp {
       ]),
     );
 
+    main.append(this.renderSessionActions(screen.session));
+    const card = this.renderSessionCard(screen.session);
+    if (card) {
+      main.append(card);
+    }
+
     const panel = el('section', {
       class: 'session-output-panel',
       attrs: { 'aria-label': this.t('session.output') },
@@ -810,7 +951,1389 @@ export class ShellApp {
     if (demoPanel) {
       main.append(demoPanel);
     }
+    main.append(this.renderComposer(screen.session));
     return main;
+  }
+
+  private renderSessionActions(session: Session): HTMLElement {
+    const actions = el('div', {
+      class: 'session-actions',
+      attrs: { role: 'group', 'aria-label': this.t('session.actions') },
+    });
+    if (canSwitch(session)) {
+      actions.append(
+        el('button', {
+          class: 'btn btn-secondary',
+          text: this.t('session.switch'),
+          attrs: { type: 'button' },
+          on: { click: () => void this.openSwitch(session.id) },
+        }),
+      );
+    }
+    actions.append(
+      el('button', {
+        class: 'btn btn-secondary',
+        text: this.t('session.usage'),
+        attrs: { type: 'button' },
+        on: { click: () => void this.openUsage() },
+      }),
+    );
+    if (session.status === 'active') {
+      actions.append(
+        el('button', {
+          class: 'btn btn-secondary',
+          text: this.t('session.close'),
+          attrs: { type: 'button' },
+          on: { click: () => this.openClose(session.id) },
+        }),
+      );
+    }
+    return actions;
+  }
+
+  private renderSessionCard(session: Session): HTMLElement | null {
+    const permission = session.pendingPermission;
+    if (permission) {
+      const card = el('section', {
+        class: 'phone-card session-card',
+        attrs: { 'aria-label': this.t('permission.title') },
+      });
+      card.append(
+        el('span', { class: 'phone-card-label', text: this.t('permission.title') }),
+        el('p', {
+          class: 'card-line',
+          text: `${permission.tool} · ${permission.summary}`,
+        }),
+      );
+      const actions = el('div', { class: 'card-actions' });
+      actions.append(
+        el('button', {
+          class: 'btn btn-secondary',
+          text: this.t('permission.deny'),
+          attrs: { type: 'button' },
+          on: {
+            click: () => {
+              void this.respondPermission(session, 'deny');
+            },
+          },
+        }),
+        el('button', {
+          class: 'btn btn-primary',
+          text: this.t('permission.allow'),
+          attrs: { type: 'button' },
+          on: {
+            click: () => {
+              void this.respondPermission(session, 'allow');
+            },
+          },
+        }),
+      );
+      card.append(actions);
+      return card;
+    }
+
+    const question = pendingQuestion(this.questions, session.id);
+    if (question) {
+      const card = el('section', {
+        class: 'phone-card session-card',
+        attrs: { 'aria-label': this.t('question.title') },
+      });
+      card.append(
+        el('span', { class: 'phone-card-label', text: this.t('question.title') }),
+        el('p', { class: 'card-line', text: question.text }),
+      );
+      const form = el('form', { class: 'question-form' });
+      const input = el('input', {
+        class: 'text-input',
+        attrs: {
+          type: 'text',
+          id: `question-answer-${question.id}`,
+          placeholder: this.t('question.placeholder'),
+          'aria-label': this.t('question.answer'),
+        },
+      });
+      if (question.options.length > 0) {
+        const options = el('div', { class: 'question-options' });
+        for (const option of question.options) {
+          options.append(
+            el('button', {
+              class: 'chip',
+              text: option,
+              attrs: { type: 'button' },
+              on: {
+                click: () => {
+                  void this.answerQuestion(question.id, option);
+                },
+              },
+            }),
+          );
+        }
+        form.append(options);
+      }
+      form.append(
+        input,
+        el('button', {
+          class: 'btn btn-primary',
+          text: this.t('question.send'),
+          attrs: { type: 'submit' },
+        }),
+      );
+      form.addEventListener('submit', (event) => {
+        event.preventDefault();
+        const answer = input.value.trim();
+        if (answer) {
+          void this.answerQuestion(question.id, answer);
+        }
+      });
+      card.append(form);
+      return card;
+    }
+
+    const request = pendingRequest(this.requests, session.id);
+    if (request) {
+      const card = el('section', {
+        class: 'phone-card session-card',
+        attrs: { 'aria-label': this.t('request.title') },
+      });
+      card.append(
+        el('span', { class: 'phone-card-label', text: this.t('request.title') }),
+        el('p', {
+          class: 'card-line',
+          text: this.t('request.body', {
+            project: request.projectName,
+            name: request.name ?? request.parentSessionName,
+          }),
+        }),
+      );
+      const actions = el('div', { class: 'card-actions' });
+      actions.append(
+        el('button', {
+          class: 'btn btn-secondary',
+          text: this.t('request.deny'),
+          attrs: { type: 'button' },
+          on: { click: () => void this.answerRequest(request.id, false) },
+        }),
+        el('button', {
+          class: 'btn btn-primary',
+          text: this.t('request.approve'),
+          attrs: { type: 'button' },
+          on: { click: () => void this.answerRequest(request.id, true) },
+        }),
+      );
+      card.append(actions);
+      return card;
+    }
+    return null;
+  }
+
+  private renderComposer(session: Session): HTMLElement {
+    const wrap = el('section', {
+      class: 'session-composer-wrap',
+      attrs: { 'aria-label': this.t('keys.title') },
+    });
+    const rail = this.railStates.get(session.id) ?? {
+      open: true,
+      scroll: 0,
+    };
+    if (rail.open) {
+      wrap.append(this.renderKeyRail(session));
+    }
+
+    const form = el('form', { class: 'session-composer' });
+    const keyboard = el('button', {
+      class: 'phone-icon composer-keyboard',
+      attrs: {
+        type: 'button',
+        id: `keyboard-${session.id}`,
+        'aria-label': this.t(
+          rail.open ? 'keys.hide' : 'keys.show',
+        ),
+        'aria-pressed': rail.open ? 'true' : 'false',
+      },
+      on: {
+        click: () => {
+          this.railStates.set(session.id, {
+            open: !rail.open,
+            scroll: rail.scroll,
+          });
+          this.scheduleRender();
+        },
+      },
+    });
+    keyboard.innerHTML = KEYBOARD_ICON;
+
+    const input = el('input', {
+      class: 'text-input session-input',
+      attrs: {
+        type: 'text',
+        id: `session-input-${session.id}`,
+        placeholder: this.t('session.inputPlaceholder'),
+        'aria-label': this.t('session.input'),
+        autocomplete: 'off',
+        autocapitalize: 'sentences',
+        spellcheck: 'false',
+        enterkeyhint: 'send',
+      },
+    });
+    input.value = this.drafts.get(session.id) ?? '';
+    input.addEventListener('input', () => {
+      this.drafts.set(session.id, input.value);
+    });
+    form.append(keyboard, input);
+    form.append(
+      el('button', {
+        class: 'btn btn-primary composer-send',
+        text: this.t('session.send'),
+        attrs: { type: 'submit' },
+      }),
+    );
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      const value = input.value;
+      this.drafts.delete(session.id);
+      input.value = '';
+      void this.sendInput(session, `${value}\r`);
+    });
+    wrap.append(form);
+    return wrap;
+  }
+
+  private renderKeyRail(session: Session): HTMLElement {
+    const latches = this.latches.get(session.id) ?? noModifiers();
+    const state = this.railStates.get(session.id) ?? {
+      open: true,
+      scroll: 0,
+    };
+    const rail = el('div', {
+      class: 'key-rail',
+      attrs: {
+        role: 'toolbar',
+        'aria-label': this.t('keys.title'),
+      },
+    });
+    for (const modifier of ['shift', 'ctrl', 'alt'] as const) {
+      const on = latches[modifier];
+      const label =
+        modifier === 'shift'
+          ? this.t('keys.shift')
+          : modifier === 'ctrl'
+            ? this.t('keys.ctrl')
+            : this.t('keys.alt');
+      rail.append(
+        el('button', {
+          class: on ? 'key-chip latch is-on' : 'key-chip latch',
+          text: modifier === 'shift' ? '⇧' : modifier === 'ctrl' ? '^' : '⌥',
+          attrs: {
+            type: 'button',
+            id: `latch-${session.id}-${modifier}`,
+            'aria-label': label,
+            'aria-pressed': on ? 'true' : 'false',
+          },
+          on: {
+            click: () => {
+              this.latches.set(
+                session.id,
+                toggleModifier(latches, modifier),
+              );
+              this.scheduleRender();
+            },
+          },
+        }),
+      );
+    }
+    rail.append(el('span', { class: 'key-separator', attrs: { 'aria-hidden': 'true' } }));
+
+    const keys = railKeys(session.shortcuts ?? [], this.savedKeys);
+    for (const entry of keys) {
+      rail.append(this.keyChip(session, entry, latches));
+    }
+    rail.append(
+      el('button', {
+        class: 'key-chip add-key',
+        text: '+',
+        attrs: {
+          type: 'button',
+          id: `key-add-${session.id}`,
+          'aria-label': this.t('keys.add'),
+        },
+        on: {
+          click: () => {
+            this.keyDraft = { name: '', modifiers: [] };
+            this.overlay = { kind: 'keys', sessionId: session.id };
+            this.scheduleRender();
+          },
+        },
+      }),
+    );
+    rail.scrollLeft = state.scroll;
+    rail.addEventListener('scroll', () => {
+      this.railStates.set(session.id, {
+        open: state.open,
+        scroll: rail.scrollLeft,
+      });
+    });
+    return rail;
+  }
+
+  private keyChip(
+    session: Session,
+    entry: RailKey,
+    latches: KeyModifiers,
+  ): HTMLElement {
+    const name = entry.nameKey
+      ? this.t(entry.nameKey as MessageKey)
+      : entry.name;
+    const label = entry.description
+      ? `${name}: ${entry.description}`
+      : name;
+    const button = el('button', {
+      class: 'key-chip',
+      text: entry.label,
+      attrs: {
+        type: 'button',
+        id: `key-${session.id}-${entry.id}`,
+        'aria-label': label,
+        title: entry.description ?? name,
+      },
+    });
+    if (entry.description) {
+      button.append(
+        el('span', {
+          class: 'key-purpose',
+          text: entry.description,
+          attrs: { 'aria-hidden': 'true' },
+        }),
+      );
+    }
+    button.addEventListener('pointerdown', (event) => {
+      event.preventDefault();
+      this.suppressClick = true;
+      this.sendRailKey(session, entry, latches);
+      if (isRepeatable(entry.key)) {
+        // The latch belongs to the first key only; held repeats are plain.
+        this.startRepeat(() =>
+          this.sendRailKey(session, entry, noModifiers()),
+        );
+      }
+    });
+    for (const name of ['pointerup', 'pointerleave', 'pointercancel']) {
+      button.addEventListener(name, () => this.stopRepeat());
+    }
+    button.addEventListener('click', () => {
+      if (this.suppressClick) {
+        this.suppressClick = false;
+        return;
+      }
+      this.sendRailKey(session, entry, latches);
+    });
+    return button;
+  }
+
+  private keyStorage(): Storage | null {
+    try {
+      return window.localStorage;
+    } catch {
+      return null;
+    }
+  }
+
+  private currentComputer(): ComputerRecord | null {
+    const screen = this.screen;
+    if (
+      screen.name === 'sessions' ||
+      screen.name === 'session' ||
+      screen.name === 'newSession'
+    ) {
+      return screen.computer;
+    }
+    return null;
+  }
+
+  private sessionById(id: string): Session | null {
+    const screen = this.screen;
+    if (screen.name === 'session' && screen.session.id === id) {
+      return screen.session;
+    }
+    if (screen.name === 'sessions') {
+      return screen.sessions.find((session) => session.id === id) ?? null;
+    }
+    return this.sessionCache.find((session) => session.id === id) ?? null;
+  }
+
+  private async sendInput(session: Session, data: string): Promise<void> {
+    const computer = this.currentComputer();
+    if (!computer) {
+      return;
+    }
+    try {
+      await phone.request(computer.id, 'sessions.input', {
+        sessionId: session.id,
+        data,
+      });
+    } catch (error) {
+      this.showSessionError(error);
+    }
+  }
+
+  private sendRailKey(
+    session: Session,
+    entry: RailKey,
+    latches: KeyModifiers,
+  ): void {
+    const data = encodeRailKey(entry, latches);
+    this.latches.set(session.id, noModifiers());
+    this.scheduleRender();
+    void this.sendInput(session, data);
+  }
+
+  private startRepeat(send: () => void): void {
+    this.stopRepeat();
+    this.repeatDelay = setTimeout(() => {
+      this.repeatTimer = setInterval(send, 80);
+    }, 400);
+  }
+
+  private stopRepeat(): void {
+    if (this.repeatDelay) {
+      clearTimeout(this.repeatDelay);
+      this.repeatDelay = null;
+    }
+    if (this.repeatTimer) {
+      clearInterval(this.repeatTimer);
+      this.repeatTimer = null;
+    }
+  }
+
+  private async respondPermission(
+    session: Session,
+    decision: 'allow' | 'deny',
+  ): Promise<void> {
+    const computer = this.currentComputer();
+    const pending = session.pendingPermission;
+    if (!computer || !pending) {
+      return;
+    }
+    try {
+      await phone.request(computer.id, 'sessions.permission', {
+        sessionId: session.id,
+        requestId: pending.requestId,
+        decision,
+      });
+      const screen = this.screen;
+      if (screen.name === 'session' && screen.session.id === session.id) {
+        this.screen = {
+          ...screen,
+          session: { ...screen.session, pendingPermission: null },
+        };
+        this.scheduleRender();
+      }
+    } catch (error) {
+      this.showSessionError(error);
+    }
+  }
+
+  private async answerQuestion(id: string, answer: string): Promise<void> {
+    const computer = this.currentComputer();
+    if (!computer) {
+      return;
+    }
+    try {
+      await phone.request(computer.id, 'questions.answer', { id, answer });
+      this.questions = this.questions.filter((question) => question.id !== id);
+      this.scheduleRender();
+    } catch (error) {
+      this.showSessionError(error);
+    }
+  }
+
+  private async answerRequest(id: string, allow: boolean): Promise<void> {
+    const computer = this.currentComputer();
+    if (!computer) {
+      return;
+    }
+    try {
+      const result = (await phone.request(
+        computer.id,
+        allow ? 'sessionRequests.approve' : 'sessionRequests.deny',
+        { id, allowFurther: false },
+      )) as { request?: SessionRequest; session?: Session | null };
+      this.requests = this.requests.filter((request) => request.id !== id);
+      if (result.session) {
+        const child = result.session;
+        this.sessionCache = mergeSession(this.sessionCache, child);
+        const screen = this.screen;
+        if (screen.name === 'session') {
+          this.screen = {
+            ...screen,
+            sessions: mergeSession(screen.sessions, child),
+          };
+        }
+      }
+      this.scheduleRender();
+    } catch (error) {
+      this.showSessionError(error);
+    }
+  }
+
+  private openClose(sessionId: string): void {
+    this.overlay = { kind: 'close', sessionId };
+    this.scheduleRender();
+  }
+
+  private async confirmClose(): Promise<void> {
+    const computer = this.currentComputer();
+    const overlay = this.overlay;
+    if (!computer || overlay?.kind !== 'close' || !overlay.sessionId) {
+      return;
+    }
+    const session = this.sessionById(overlay.sessionId);
+    if (!session) {
+      this.overlay = null;
+      this.scheduleRender();
+      return;
+    }
+    try {
+      await phone.request(computer.id, 'sessions.close', {
+        sessionId: session.id,
+      });
+      this.overlay = null;
+      const screen = this.screen;
+      if (screen.name === 'session' && screen.session.id === session.id) {
+        this.sessionCache = this.sessionCache.map((entry) =>
+          entry.id === session.id
+            ? { ...entry, status: 'closed' }
+            : entry,
+        );
+        this.goSessions(computer);
+      } else {
+        this.scheduleRender();
+      }
+    } catch (error) {
+      this.overlay = null;
+      this.showSessionError(error);
+    }
+  }
+
+  private async openSwitch(sessionId: string): Promise<void> {
+    const computer = this.currentComputer();
+    this.switchFilter = '';
+    this.switchLoading = Boolean(computer);
+    this.overlay = { kind: 'switch', sessionId };
+    this.scheduleRender();
+    if (!computer) {
+      return;
+    }
+    try {
+      const data = (await phone.request(
+        computer.id,
+        'bootstrap',
+      )) as BootstrapResponse;
+      this.applySnapshot(data);
+      const current = this.sessionById(sessionId);
+      const screen = this.screen;
+      if (
+        current &&
+        screen.name === 'session' &&
+        screen.session.id === current.id
+      ) {
+        this.screen = {
+          ...screen,
+          session: current,
+          sessions: this.sessionCache,
+        };
+      }
+    } catch {
+      // The sheet still shows the configs from the last snapshot.
+    } finally {
+      this.switchLoading = false;
+      this.scheduleRender();
+    }
+  }
+
+  private async chooseConfig(configId: string): Promise<void> {
+    const computer = this.currentComputer();
+    const overlay = this.overlay;
+    if (
+      !computer ||
+      overlay?.kind !== 'switch' ||
+      !overlay.sessionId
+    ) {
+      return;
+    }
+    const session = this.sessionById(overlay.sessionId);
+    if (!session || session.configId === configId) {
+      return;
+    }
+    try {
+      const updated = (await phone.request(
+        computer.id,
+        'sessions.config',
+        { sessionId: session.id, configId },
+      )) as Session;
+      this.overlay = null;
+      this.sessionCache = mergeSession(this.sessionCache, updated);
+      const screen = this.screen;
+      if (screen.name === 'session' && screen.session.id === session.id) {
+        this.screen = {
+          ...screen,
+          session: updated,
+          sessions: mergeSession(screen.sessions, updated),
+        };
+      }
+      this.scheduleRender();
+    } catch (error) {
+      this.overlay = null;
+      this.showSessionError(error);
+    }
+  }
+
+  private async openUsage(): Promise<void> {
+    const computer = this.currentComputer();
+    this.overlay = { kind: 'usage' };
+    this.usageLoading = true;
+    this.usageError = null;
+    this.scheduleRender();
+    if (!computer) {
+      this.usageLoading = false;
+      this.scheduleRender();
+      return;
+    }
+    try {
+      const providers = (await phone.request(
+        computer.id,
+        'accounts.list',
+      )) as Provider[];
+      this.providers = providers;
+    } catch (error) {
+      this.usageError = noticeFor(asError(error));
+    } finally {
+      this.usageLoading = false;
+      this.scheduleRender();
+    }
+  }
+
+  private async openNewSession(computer: ComputerRecord): Promise<void> {
+    this.screen = {
+      name: 'newSession',
+      computer,
+      form: {
+        projectId: null,
+        projectLabel: '',
+        configId: null,
+        configLabel: '',
+        sourceBranch: null,
+        sourceBranchLabel: '',
+        name: '',
+        firstPrompt: '',
+      },
+      loading: true,
+      busy: false,
+      connection: this.connectionStates.get(computer.id),
+    };
+    this.render();
+    try {
+      const data = (await phone.request(
+        computer.id,
+        'bootstrap',
+      )) as BootstrapResponse;
+      this.applySnapshot(data);
+      const screen = this.screen;
+      if (screen.name !== 'newSession') {
+        return;
+      }
+      this.screen = { ...screen, loading: false };
+      this.render();
+    } catch (error) {
+      const screen = this.screen;
+      if (screen.name !== 'newSession') {
+        return;
+      }
+      this.screen = {
+        ...screen,
+        loading: false,
+        error: noticeFor(asError(error)),
+      };
+      this.render();
+    }
+  }
+
+  private async startSession(form: StartForm): Promise<void> {
+    const screen = this.screen;
+    if (screen.name !== 'newSession' || screen.busy) {
+      return;
+    }
+    const input = buildStartInput(form);
+    if (!input) {
+      this.screen = {
+        ...screen,
+        error: { key: 'error.startIncomplete', tone: 'error' },
+      };
+      this.render();
+      return;
+    }
+    this.screen = { ...screen, busy: true, error: undefined };
+    this.render();
+    try {
+      const created = (await phone.request(
+        screen.computer.id,
+        'sessions.create',
+        input,
+      )) as Session;
+      this.sessionCache = mergeSession(this.sessionCache, created);
+      await this.openSession(screen.computer, created, this.sessionCache);
+    } catch (error) {
+      const current = this.screen;
+      if (current.name !== 'newSession') {
+        return;
+      }
+      this.screen = {
+        ...current,
+        busy: false,
+        error: noticeFor(asError(error)),
+      };
+      this.render();
+    }
+  }
+
+  private renderNewSession(
+    screen: Extract<Screen, { name: 'newSession' }>,
+  ): HTMLElement {
+    const main = el('main', { class: 'phone-list' });
+    if (screen.loading) {
+      main.append(
+        el('p', {
+          class: 'phone-empty',
+          text: this.t('app.loading'),
+          attrs: { 'aria-busy': 'true' },
+        }),
+      );
+      return main;
+    }
+    if (screen.error) {
+      main.append(this.noticeEl(screen.error));
+    }
+
+    const form = el('form', { class: 'new-session-form' });
+    const computer = screen.computer;
+    const formState = screen.form;
+
+    let configCombo: ReturnType<typeof combo> | null = null;
+    let branchCombo: ReturnType<typeof combo> | null = null;
+
+    const configFor = (id: string | null): AiConfig | null =>
+      id ? this.configs.find((config) => config.id === id) ?? null : null;
+    const projectFor = (id: string | null): Project | null =>
+      id ? this.projects.find((project) => project.id === id) ?? null : null;
+
+    const projectHandle = combo({
+      id: 'new-session-project',
+      label: this.t('newSession.project'),
+      value: formState.projectId,
+      selectedLabel: formState.projectLabel,
+      placeholder: this.t('newSession.projectPlaceholder'),
+      required: true,
+      loadingLabel: this.t('combobox.loading'),
+      emptyLabel: this.t('combobox.noMatches'),
+      failedLabel: this.t('combobox.loadFailed'),
+      load: async (query) =>
+        filterChoices(this.projects, query, (project) => project.name).map(
+          (project) => ({
+            id: project.id,
+            label: project.name,
+            meta: project.folder,
+          }),
+        ),
+      onChange: (id) => {
+        const project = projectFor(id);
+        formState.projectId = id;
+        formState.projectLabel = project?.name ?? '';
+        const config = configFor(project?.defaultConfigId ?? null);
+        formState.configId = config?.id ?? null;
+        formState.configLabel = config ? configChoiceLabel(config) : '';
+        configCombo?.setValue(formState.configId, formState.configLabel);
+        formState.sourceBranch = project?.defaultSourceBranch ?? null;
+        formState.sourceBranchLabel = formState.sourceBranch ?? '';
+        branchCombo?.setValue(formState.sourceBranch, formState.sourceBranchLabel);
+      },
+    });
+
+    configCombo = combo({
+      id: 'new-session-config',
+      label: this.t('newSession.config'),
+      value: formState.configId,
+      selectedLabel: formState.configLabel,
+      placeholder: this.t('newSession.configPlaceholder'),
+      required: true,
+      loadingLabel: this.t('combobox.loading'),
+      emptyLabel: this.t('combobox.noMatches'),
+      failedLabel: this.t('combobox.loadFailed'),
+      load: async (query) =>
+        filterChoices(this.configs, query, configChoiceLabel).map((config) => ({
+          id: config.id,
+          label: config.name,
+          meta: `${config.client}${config.model ? ` · ${config.model}` : ''}`,
+        })),
+      onChange: (id) => {
+        const config = configFor(id);
+        formState.configId = id;
+        formState.configLabel = config ? configChoiceLabel(config) : '';
+      },
+    });
+
+    branchCombo = combo({
+      id: 'new-session-branch',
+      label: this.t('newSession.sourceBranch'),
+      value: formState.sourceBranch,
+      selectedLabel: formState.sourceBranchLabel,
+      placeholder: this.t('newSession.sourceBranchPlaceholder'),
+      loadingLabel: this.t('combobox.loading'),
+      emptyLabel: this.t('combobox.noMatches'),
+      failedLabel: this.t('combobox.loadFailed'),
+      load: async (query, signal) => {
+        const project = projectFor(formState.projectId);
+        if (!project) {
+          return [];
+        }
+        const branches = (await phone.request(
+          computer.id,
+          'branches.list',
+          { folder: project.folder, q: query || undefined },
+        )) as { name: string; current: boolean }[];
+        signal.throwIfAborted();
+        return branches.map((branch) => ({
+          id: branch.name,
+          label: branch.name,
+          meta: branch.current ? this.t('newSession.currentTag') : undefined,
+        }));
+      },
+      onChange: (id) => {
+        formState.sourceBranch = id;
+        formState.sourceBranchLabel = id ?? '';
+      },
+    });
+
+    form.append(projectHandle.element, configCombo.element, branchCombo.element);
+
+    const nameInput = el('input', {
+      class: 'text-input',
+      attrs: {
+        type: 'text',
+        id: 'new-session-name',
+        placeholder: this.t('newSession.namePlaceholder'),
+      },
+    });
+    nameInput.value = formState.name;
+    nameInput.addEventListener('input', () => {
+      formState.name = nameInput.value;
+    });
+    const nameField = el('div', { class: 'field' }, [
+      el('label', {
+        class: 'field-label',
+        text: this.t('newSession.name'),
+        attrs: { for: 'new-session-name' },
+      }),
+      nameInput,
+    ]);
+
+    const promptInput = el('textarea', {
+      class: 'text-input prompt-input',
+      attrs: {
+        id: 'new-session-prompt',
+        rows: '3',
+        placeholder: this.t('newSession.firstPromptPlaceholder'),
+      },
+    });
+    promptInput.value = formState.firstPrompt;
+    promptInput.addEventListener('input', () => {
+      formState.firstPrompt = promptInput.value;
+    });
+    const promptField = el('div', { class: 'field' }, [
+      el('label', {
+        class: 'field-label',
+        text: this.t('newSession.firstPrompt'),
+        attrs: { for: 'new-session-prompt' },
+      }),
+      promptInput,
+    ]);
+
+    form.append(nameField, promptField);
+
+    const actions = el('div', { class: 'screen-actions' });
+    actions.append(
+      el('button', {
+        class: 'btn btn-secondary',
+        text: this.t('common.cancel'),
+        attrs: { type: 'button' },
+        on: { click: () => this.goSessions(computer) },
+      }),
+      el('button', {
+        class: 'btn btn-primary',
+        text: screen.busy
+          ? this.t('newSession.submitting')
+          : this.t('newSession.submit'),
+        attrs: { type: 'submit' },
+      }),
+    );
+    if (screen.busy) {
+      actions.querySelectorAll('button').forEach((button) => {
+        button.disabled = true;
+      });
+    }
+    form.append(actions);
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      void this.startSession(formState);
+    });
+    main.append(form);
+    return main;
+  }
+
+  private renderOverlay(
+    overlay: { kind: OverlayKind; sessionId?: string },
+  ): HTMLElement {
+    const layer = el('div', { class: 'sheet-layer' });
+    layer.append(
+      el('button', {
+        class: 'sheet-scrim',
+        attrs: { type: 'button', 'aria-label': this.t('common.close') },
+        on: {
+          click: () => {
+            this.overlay = null;
+            this.scheduleRender();
+          },
+        },
+      }),
+    );
+    const sheet = el('div', {
+      class: 'sheet',
+      attrs: {
+        role: 'dialog',
+        'aria-modal': 'true',
+        'aria-label': this.t(
+          overlay.kind === 'keys'
+            ? 'keys.title'
+            : overlay.kind === 'switch'
+              ? 'session.switch'
+              : overlay.kind === 'close'
+                ? 'close.title'
+                : 'usage.title',
+        ),
+      },
+    });
+    const close = () => {
+      this.overlay = null;
+      this.scheduleRender();
+    };
+    const head = el('div', { class: 'sheet-head' }, [
+      el('h2', {
+        class: 'sheet-title',
+        text: this.t(
+          overlay.kind === 'keys'
+            ? 'keys.title'
+            : overlay.kind === 'switch'
+              ? 'session.switch'
+              : overlay.kind === 'close'
+                ? 'close.title'
+                : 'usage.title',
+        ),
+      }),
+      el('button', {
+        class: 'sheet-close',
+        text: '×',
+        attrs: { type: 'button', 'aria-label': this.t('common.close') },
+        on: { click: close },
+      }),
+    ]);
+    sheet.append(head);
+
+    if (overlay.kind === 'keys') {
+      this.renderKeysSheet(sheet, overlay.sessionId, close);
+    } else if (overlay.kind === 'switch') {
+      this.renderSwitchSheet(sheet, overlay.sessionId, close);
+    } else if (overlay.kind === 'close') {
+      this.renderCloseSheet(sheet, overlay.sessionId, close);
+    } else {
+      this.renderUsageSheet(sheet);
+    }
+
+    layer.append(sheet);
+    return layer;
+  }
+
+  private renderKeysSheet(
+    sheet: HTMLElement,
+    sessionId: string | undefined,
+    close: () => void,
+  ): void {
+    const session = sessionId ? this.sessionById(sessionId) : null;
+    const body = el('div', { class: 'sheet-body' });
+    const shortcuts = session?.shortcuts ?? [];
+    if (shortcuts.length > 0) {
+      body.append(
+        el('h3', { class: 'sheet-section', text: this.t('keys.agent') }),
+      );
+      const list = el('ul', { class: 'key-list' });
+      for (const shortcut of shortcuts) {
+        list.append(
+          el('li', { class: 'key-list-row' }, [
+            el('span', { class: 'key-list-name', text: shortcut.label }),
+            el('span', {
+              class: 'key-list-purpose',
+              text: shortcut.description,
+            }),
+          ]),
+        );
+      }
+      body.append(list);
+    }
+
+    body.append(
+      el('h3', { class: 'sheet-section', text: this.t('keys.saved') }),
+    );
+    if (this.savedKeys.length === 0) {
+      body.append(
+        el('p', { class: 'sheet-note', text: this.t('keys.none') }),
+      );
+    } else {
+      const list = el('ul', { class: 'key-list' });
+      for (const entry of this.savedKeys) {
+        const remove = el('button', {
+          class: 'sheet-row-action',
+          text: this.t('keys.remove'),
+          attrs: {
+            type: 'button',
+            'aria-label': this.t('keys.removeLabel', {
+              name: savedKeyLabel(entry.key, entry.modifiers),
+            }),
+          },
+          on: {
+            click: () => {
+              this.savedKeys = removeSavedKey(this.savedKeys, entry.id);
+              writeSavedKeys(this.keyStorage(), this.savedKeys);
+              this.scheduleRender();
+            },
+          },
+        });
+        list.append(
+          el('li', { class: 'key-list-row' }, [
+            el('span', {
+              class: 'key-list-name',
+              text: savedKeyLabel(entry.key, entry.modifiers),
+            }),
+            remove,
+          ]),
+        );
+      }
+      body.append(list);
+    }
+
+    const full = this.savedKeys.length >= MAX_SAVED_KEYS;
+    const form = el('form', { class: 'key-form' });
+    const modifiers = el('div', {
+      class: 'modifier-row',
+      attrs: { role: 'group', 'aria-label': this.t('keys.modifiers') },
+    });
+    for (const modifier of ['shift', 'ctrl', 'alt'] as const) {
+      const id = `saved-mod-${modifier}`;
+      const input = el('input', {
+        attrs: { type: 'checkbox', id, value: modifier },
+      });
+      input.checked = this.keyDraft.modifiers.includes(modifier);
+      input.addEventListener('change', () => {
+        const current = new Set(this.keyDraft.modifiers);
+        if (input.checked) {
+          current.add(modifier);
+        } else {
+          current.delete(modifier);
+        }
+        this.keyDraft.modifiers = [...current];
+      });
+      modifiers.append(
+        el('label', { class: 'modifier', attrs: { for: id } }, [
+          input,
+          el('span', {
+            text:
+              modifier === 'shift'
+                ? this.t('keys.shift')
+                : modifier === 'ctrl'
+                  ? this.t('keys.ctrl')
+                  : this.t('keys.alt'),
+          }),
+        ]),
+      );
+    }
+    const keyInput = el('input', {
+      class: 'text-input',
+      attrs: {
+        type: 'text',
+        id: 'saved-key-name',
+        placeholder: this.t('keys.namePlaceholder'),
+        'aria-label': this.t('keys.name'),
+      },
+    });
+    keyInput.value = this.keyDraft.name;
+    keyInput.addEventListener('input', () => {
+      this.keyDraft.name = keyInput.value;
+    });
+    const error = el('p', {
+      class: 'field-error',
+      attrs: { role: 'alert', hidden: 'hidden' },
+    });
+    const add = el('button', {
+      class: 'btn btn-primary',
+      text: this.t('keys.add'),
+      attrs: { type: 'submit' },
+    });
+    if (full) {
+      add.disabled = true;
+      keyInput.disabled = true;
+    }
+    form.append(modifiers, keyInput, error, add);
+    if (full) {
+      form.append(
+        el('p', { class: 'sheet-note', text: this.t('keys.full') }),
+      );
+    }
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      const chosen: Modifier[] = [];
+      for (const modifier of ['shift', 'ctrl', 'alt'] as const) {
+        const input = form.querySelector<HTMLInputElement>(
+          `#saved-mod-${modifier}`,
+        );
+        if (input?.checked) {
+          chosen.push(modifier);
+        }
+      }
+      const saved = savedKeyFrom({
+        name: keyInput.value,
+        modifiers: chosen,
+      });
+      if (!saved) {
+        error.textContent = this.t('keys.invalid');
+        error.hidden = false;
+        keyInput.focus();
+        return;
+      }
+      const result = addSavedKey(this.savedKeys, saved);
+      if (result.error) {
+        error.textContent = this.t(
+          result.error === 'full' ? 'keys.full' : 'keys.duplicate',
+        );
+        error.hidden = false;
+        return;
+      }
+      this.savedKeys = result.keys;
+      writeSavedKeys(this.keyStorage(), this.savedKeys);
+      this.keyDraft = { name: '', modifiers: [] };
+      this.scheduleRender();
+    });
+    body.append(form);
+    sheet.append(body);
+    void close;
+  }
+
+  private renderSwitchSheet(
+    sheet: HTMLElement,
+    sessionId: string | undefined,
+    close: () => void,
+  ): void {
+    const session = sessionId ? this.sessionById(sessionId) : null;
+    const body = el('div', { class: 'sheet-body' });
+    if (!session) {
+      body.append(el('p', { class: 'sheet-note', text: this.t('error.generic') }));
+      sheet.append(body);
+      return;
+    }
+    if (this.switchLoading) {
+      body.append(
+        el('p', {
+          class: 'sheet-note',
+          text: this.t('combobox.loading'),
+          attrs: { 'aria-busy': 'true' },
+        }),
+      );
+    }
+    const choices = switchableConfigs(this.configs, session);
+    if (choices.length === 0) {
+      body.append(
+        el('p', { class: 'sheet-note', text: this.t('switch.none') }),
+      );
+      sheet.append(body);
+      return;
+    }
+    const filter = el('input', {
+      class: 'text-input',
+      attrs: {
+        type: 'text',
+        id: 'switch-filter',
+        placeholder: this.t('switch.filter'),
+        'aria-label': this.t('switch.filter'),
+      },
+    });
+    filter.value = this.switchFilter;
+    const list = el('ul', { class: 'sheet-list' });
+    const renderChoices = (query: string) => {
+      const visible = filterChoices(choices, query, configChoiceLabel);
+      list.replaceChildren();
+      for (const config of visible) {
+        const provider = this.providers.find(
+          (entry) => entry.id === config.providerId,
+        );
+        const summary = provider ? usageSummary(provider) : null;
+        list.append(
+          el('li', {}, [
+            el('button', {
+              class: 'sheet-row',
+              attrs: { type: 'button' },
+              on: { click: () => void this.chooseConfig(config.id) },
+            }, [
+              el('span', { class: 'sheet-row-name', text: config.name }),
+              el('span', {
+                class: 'sheet-row-meta',
+                text: [
+                  config.client,
+                  provider?.name,
+                  summary,
+                ]
+                  .filter(Boolean)
+                  .join(' · '),
+              }),
+            ]),
+          ]),
+        );
+      }
+      if (visible.length === 0) {
+        list.append(
+          el('li', {
+            class: 'sheet-note',
+            text: this.t('combobox.noMatches'),
+          }),
+        );
+      }
+    };
+    filter.addEventListener('input', () => {
+      this.switchFilter = filter.value;
+      renderChoices(filter.value);
+    });
+    renderChoices(this.switchFilter);
+    body.append(filter, list);
+    sheet.append(body);
+    void close;
+  }
+
+  private renderCloseSheet(
+    sheet: HTMLElement,
+    sessionId: string | undefined,
+    close: () => void,
+  ): void {
+    const session = sessionId ? this.sessionById(sessionId) : null;
+    const body = el('div', { class: 'sheet-body' });
+    if (!session) {
+      sheet.append(body);
+      return;
+    }
+    body.append(
+      el('p', { class: 'sheet-note', text: session.name }),
+      el('p', {
+        class: 'sheet-note',
+        text: this.t(closeBodyKey(session.kind)),
+      }),
+    );
+    const actions = el('div', { class: 'screen-actions' });
+    actions.append(
+      el('button', {
+        class: 'btn btn-secondary',
+        text: this.t('common.cancel'),
+        attrs: { type: 'button' },
+        on: { click: close },
+      }),
+      el('button', {
+        class: 'btn btn-primary',
+        text: this.t('session.closeConfirm'),
+        attrs: { type: 'button' },
+        on: { click: () => void this.confirmClose() },
+      }),
+    );
+    body.append(actions);
+    sheet.append(body);
+  }
+
+  private renderUsageSheet(sheet: HTMLElement): void {
+    const body = el('div', { class: 'sheet-body' });
+    if (this.usageError) {
+      body.append(this.noticeEl(this.usageError));
+    }
+    if (this.usageLoading) {
+      body.append(
+        el('p', {
+          class: 'sheet-note',
+          text: this.t('app.loading'),
+          attrs: { 'aria-busy': 'true' },
+        }),
+      );
+    } else if (this.providers.length === 0) {
+      body.append(
+        el('p', { class: 'sheet-note', text: this.t('usage.none') }),
+      );
+    } else {
+      for (const provider of this.providers) {
+        const card = el('section', {
+          class: 'usage-card',
+          attrs: { 'aria-label': provider.name },
+        });
+        card.append(
+          el('div', { class: 'usage-head' }, [
+            el('span', { class: 'usage-name', text: provider.name }),
+            provider.sample
+              ? el('span', { class: 'sample-tag', text: this.t('common.sample') })
+              : null,
+            el('span', {
+              class: 'usage-plan',
+              text: `${provider.plan} · ${provider.vendor}`,
+            }),
+          ]),
+        );
+        if (provider.rows.length === 0) {
+          card.append(
+            el('p', { class: 'sheet-note', text: this.t('usage.none') }),
+          );
+        } else {
+          const list = el('ul', { class: 'usage-rows' });
+          for (const row of provider.rows) {
+            list.append(
+              el('li', { class: 'usage-row' }, [
+                el('span', { class: 'usage-label', text: row.label }),
+                el('span', {
+                  class: row.warn ? 'usage-value is-warn' : 'usage-value',
+                  text:
+                    typeof row.used === 'number'
+                      ? `${row.used}%`
+                      : (row.value ?? ''),
+                }),
+              ]),
+            );
+          }
+          card.append(list);
+        }
+        if (provider.foot) {
+          card.append(
+            el('p', { class: 'sheet-note', text: provider.foot }),
+          );
+        }
+        body.append(card);
+      }
+    }
+    sheet.append(body);
+  }
+
+  private applySnapshot(data: BootstrapResponse): void {
+    this.projects = data.projects ?? [];
+    this.providers = data.providers ?? [];
+    this.configs = data.configs ?? [];
+    this.sessionCache = data.sessions ?? [];
+    this.questions = data.questions ?? [];
+    this.requests = data.sessionRequests ?? [];
   }
 
   private renderDemoServers(
@@ -1006,7 +2529,9 @@ export class ShellApp {
     this.connectionStates.set(state.computerId, state);
     const screen = this.screen;
     if (
-      (screen.name === 'sessions' || screen.name === 'session') &&
+      (screen.name === 'sessions' ||
+        screen.name === 'session' ||
+        screen.name === 'newSession') &&
       screen.computer.id === state.computerId
     ) {
       this.screen = {
@@ -1026,6 +2551,7 @@ export class ShellApp {
       }
       if (state.state === 'connected' && previous?.state !== 'connected') {
         await this.refreshBootstrap(screen.computer);
+        this.render();
       } else {
         this.render();
       }
@@ -1051,6 +2577,7 @@ export class ShellApp {
       if (token !== this.sessionsToken) {
         return;
       }
+      this.applySnapshot(data);
       const sessions = data.sessions ?? [];
       const screen = this.screen;
       if (screen.name === 'sessions' && screen.computer.id === computer.id) {
@@ -1084,7 +2611,7 @@ export class ShellApp {
     const id = this.nextId('events');
     try {
       const stop = await openSubscription(computer.id, id, 'events', {}, {
-        onEvent: (value) => this.applySessionEvent(value),
+        onEvent: (value) => this.applyLiveEvent(value),
         onError: (error) => this.applyLiveError(computer.id, error),
       });
       if (token !== this.sessionsToken) {
@@ -1097,11 +2624,46 @@ export class ShellApp {
     }
   }
 
-  private applySessionEvent(value: unknown): void {
+  private applyLiveEvent(value: unknown): void {
     const session = sessionFromEvent(value);
-    if (!session) {
+    if (session) {
+      this.applySessionEvent(session);
       return;
     }
+    if (typeof value !== 'object' || value === null) {
+      return;
+    }
+    const event = value as {
+      type?: unknown;
+      question?: Question;
+      request?: SessionRequest;
+      provider?: Provider;
+    };
+    if (event.type === 'question.updated' && event.question) {
+      const question = event.question;
+      const others = this.questions.filter((entry) => entry.id !== question.id);
+      this.questions =
+        question.status === 'pending' ? [...others, question] : others;
+      this.scheduleRender();
+    } else if (event.type === 'request.updated' && event.request) {
+      const request = event.request;
+      const others = this.requests.filter((entry) => entry.id !== request.id);
+      this.requests =
+        request.status === 'pending' ? [...others, request] : others;
+      this.scheduleRender();
+    } else if (event.type === 'provider.updated' && event.provider) {
+      const provider = event.provider;
+      this.providers = this.providers.map((entry) =>
+        entry.id === provider.id ? provider : entry,
+      );
+      if (this.overlay?.kind === 'usage') {
+        this.scheduleRender();
+      }
+    }
+  }
+
+  private applySessionEvent(session: Session): void {
+    this.sessionCache = mergeSession(this.sessionCache, session);
     const screen = this.screen;
     if (screen.name === 'sessions') {
       this.screen = {
@@ -1132,7 +2694,7 @@ export class ShellApp {
       this.screen = { ...screen, error: notice };
       this.scheduleRender();
     } else if (
-      screen.name === 'session' &&
+      (screen.name === 'session' || screen.name === 'newSession') &&
       screen.computer.id === computerId
     ) {
       this.screen = { ...screen, error: notice };
@@ -1330,8 +2892,13 @@ export class ShellApp {
 
   private goSessions(computer: ComputerRecord): void {
     const sessions =
-      this.screen.name === 'session' ? this.screen.sessions : [];
+      this.sessionCache.length > 0
+        ? this.sessionCache
+        : this.screen.name === 'session'
+          ? this.screen.sessions
+          : [];
     this.closeOutput();
+    this.overlay = null;
     this.screen = {
       name: 'sessions',
       computer,
@@ -1367,6 +2934,7 @@ export class ShellApp {
       if (token !== this.sessionsToken) {
         return;
       }
+      this.applySnapshot(data);
       this.screen = {
         name: 'sessions',
         computer,
@@ -1400,6 +2968,8 @@ export class ShellApp {
     sessions: Session[],
   ): Promise<void> {
     this.closeOutput();
+    this.overlay = null;
+    this.sessionCache = mergeSession(this.sessionCache, session);
     const demoServers = sessionDemoServers(
       session.demoServers ?? [],
       session.id,
