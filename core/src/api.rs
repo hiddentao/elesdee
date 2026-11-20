@@ -26,6 +26,7 @@ use tokio::time::{MissedTickBehavior, interval_at};
 use crate::antigravity;
 use crate::claude;
 use crate::clients;
+use crate::files;
 use crate::git;
 use crate::seed;
 use crate::sessions::{
@@ -103,6 +104,13 @@ impl ApiError {
     fn too_many_requests(message: impl Into<String>) -> Self {
         Self {
             status: StatusCode::TOO_MANY_REQUESTS,
+            message: message.into(),
+        }
+    }
+
+    fn payload_too_large(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::PAYLOAD_TOO_LARGE,
             message: message.into(),
         }
     }
@@ -299,6 +307,17 @@ struct OutputQuery {
     after: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+struct FileQuery {
+    path: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct WriteFileRequest {
+    path: String,
+    content: String,
+}
+
 pub fn router(state: AppState) -> Router {
     let streaming = Router::new()
         .route("/api/sessions/{id}/output", get(session_output))
@@ -337,6 +356,12 @@ pub fn router(state: AppState) -> Router {
         .route("/api/sessions/{id}/account", post(switch_session_account))
         .route("/api/sessions/{id}/resume", post(resume_session))
         .route("/api/sessions/{id}/permission", post(answer_permission))
+        .route("/api/sessions/{id}/files", get(list_session_files))
+        .route(
+            "/api/sessions/{id}/file",
+            get(read_session_file).post(write_session_file),
+        )
+        .route("/api/sessions/{id}/changes", get(session_changes))
         .route("/internal/mcp/{id}", post(mcp_request))
         .layer(middleware::from_fn(request_timeout));
 
@@ -575,7 +600,8 @@ struct ProviderInfo {
 async fn list_accounts(
     State(state): State<AppState>,
     query: Result<Query<ListQuery>, QueryRejection>,
-) -> Result<Json<Vec<Account>>, ApiError> {    let filter = list_filter(query)?;
+) -> Result<Json<Vec<Account>>, ApiError> {
+    let filter = list_filter(query)?;
     let mut accounts = state.accounts();
     if let Some(filter) = filter.as_deref() {
         accounts.retain(|account| {
@@ -753,9 +779,9 @@ async fn create_account(
 fn safe_server_url(value: &str) -> bool {
     (value.starts_with("https://") || value.starts_with("http://"))
         && value.chars().count() <= 500
-        && !value.chars().any(|character| {
-            character.is_control() || character.is_whitespace()
-        })
+        && !value
+            .chars()
+            .any(|character| character.is_control() || character.is_whitespace())
 }
 
 async fn store_account_key(state: &AppState, account_id: &str, key: &str) -> Result<(), String> {
@@ -884,15 +910,12 @@ async fn create_session(
         {
             Some(branch) if !safe_branch_name(branch) => {
                 rollback_created_session(&state, &entry, &session_id, None).await;
-                return Err(ApiError::bad_request("The source branch name is not valid."));
+                return Err(ApiError::bad_request(
+                    "The source branch name is not valid.",
+                ));
             }
             Some(branch) => {
-                if !git::ref_exists(
-                    repo_root.clone(),
-                    branch.to_owned(),
-                    state.git_timeout(),
-                )
-                .await
+                if !git::ref_exists(repo_root.clone(), branch.to_owned(), state.git_timeout()).await
                 {
                     rollback_created_session(&state, &entry, &session_id, None).await;
                     return Err(ApiError::unprocessable("The source branch does not exist."));
@@ -1347,7 +1370,9 @@ async fn switch_session_account(
         .ok_or_else(|| ApiError::not_found("Unknown session."))?;
     let session = entry.session();
     if session.kind != SessionKind::Agent {
-        return Err(ApiError::unprocessable("Only agent sessions have accounts."));
+        return Err(ApiError::unprocessable(
+            "Only agent sessions have accounts.",
+        ));
     }
     if session.status != SessionState::Active {
         return Err(ApiError::conflict("Reopen the session before switching."));
@@ -1595,7 +1620,11 @@ async fn update_account_usage(
     if request.rows.len() > 16 {
         return Err(ApiError::bad_request("Too many usage rows."));
     }
-    if request.rows.iter().any(|row| row.label.chars().count() > 80) {
+    if request
+        .rows
+        .iter()
+        .any(|row| row.label.chars().count() > 80)
+    {
         return Err(ApiError::bad_request("A usage label is too long."));
     }
     let account = state
@@ -1636,7 +1665,8 @@ async fn auto_switch_account(state: &AppState, account: &Account) {
                 candidate.id != account.id
                     && !candidate.sample
                     && candidate.client == client
-                    && crate::providers::usage_state(candidate) == crate::providers::UsageState::Room
+                    && crate::providers::usage_state(candidate)
+                        == crate::providers::UsageState::Room
             })
             .max_by_key(crate::providers::remaining_percent);
 
@@ -1862,6 +1892,108 @@ async fn resize_session(
     Ok(StatusCode::NO_CONTENT)
 }
 
+async fn list_session_files(
+    State(state): State<AppState>,
+    UrlPath(id): UrlPath<String>,
+    query: Result<Query<FileQuery>, QueryRejection>,
+) -> Result<Json<files::FileList>, ApiError> {
+    let Query(query) = query.map_err(|_| ApiError::bad_request("Invalid file query."))?;
+    let root = session_folder(&state, &id)?;
+    let path = query.path.unwrap_or_default();
+    let list = tokio::task::spawn_blocking(move || files::list(&root, &path))
+        .await
+        .map_err(|_| ApiError::internal("The file listing failed."))?
+        .map_err(file_error)?;
+    Ok(Json(list))
+}
+
+async fn read_session_file(
+    State(state): State<AppState>,
+    UrlPath(id): UrlPath<String>,
+    query: Result<Query<FileQuery>, QueryRejection>,
+) -> Result<Json<files::FileContent>, ApiError> {
+    let Query(query) = query.map_err(|_| ApiError::bad_request("Invalid file query."))?;
+    let path = query
+        .path
+        .filter(|path| !path.trim().is_empty())
+        .ok_or_else(|| ApiError::bad_request("A file path is required."))?;
+    let root = session_folder(&state, &id)?;
+    let content = tokio::task::spawn_blocking(move || files::read(&root, &path))
+        .await
+        .map_err(|_| ApiError::internal("The file read failed."))?
+        .map_err(file_error)?;
+    Ok(Json(content))
+}
+
+async fn write_session_file(
+    State(state): State<AppState>,
+    UrlPath(id): UrlPath<String>,
+    body: Result<Json<WriteFileRequest>, JsonRejection>,
+) -> Result<Json<files::FileContent>, ApiError> {
+    let Json(request) = body.map_err(invalid_json)?;
+    let root = session_folder(&state, &id)?;
+    let written =
+        tokio::task::spawn_blocking(move || files::write(&root, &request.path, &request.content))
+            .await
+            .map_err(|_| ApiError::internal("The file save failed."))?
+            .map_err(file_error)?;
+    Ok(Json(written))
+}
+
+async fn session_changes(
+    State(state): State<AppState>,
+    UrlPath(id): UrlPath<String>,
+) -> Result<Json<git::Changes>, ApiError> {
+    let entry = state
+        .session(&id)
+        .ok_or_else(|| ApiError::not_found("Unknown session."))?;
+    let session = entry.session();
+    let agent_repo_root = if session.kind == SessionKind::Agent {
+        entry.repo_root().map(PathBuf::from)
+    } else {
+        None
+    };
+    let root = session_folder(&state, &id)?;
+    let changes = git::changes(root, agent_repo_root, state.git_timeout()).await;
+    Ok(Json(changes))
+}
+
+fn session_folder(state: &AppState, id: &str) -> Result<PathBuf, ApiError> {
+    let entry = state
+        .session(id)
+        .ok_or_else(|| ApiError::not_found("Unknown session."))?;
+    let folder = PathBuf::from(entry.session().folder);
+    let root = folder
+        .canonicalize()
+        .map_err(|_| ApiError::not_found("The session folder is no longer available."))?;
+    if !root.is_dir() {
+        return Err(ApiError::not_found(
+            "The session folder is no longer available.",
+        ));
+    }
+    Ok(root)
+}
+
+fn file_error(error: files::FileError) -> ApiError {
+    match error {
+        files::FileError::InvalidPath | files::FileError::OutsideRoot => {
+            ApiError::bad_request("The path must stay inside the session folder.")
+        }
+        files::FileError::NotFound => ApiError::not_found("The file does not exist."),
+        files::FileError::NotAFile => ApiError::unprocessable("The path is a folder, not a file."),
+        files::FileError::NotADirectory => ApiError::unprocessable("The path is not a folder."),
+        files::FileError::TooLarge(size) => ApiError::payload_too_large(format!(
+            "The file is too large. The limit is {} bytes; this file is {size} bytes.",
+            files::MAX_FILE_BYTES
+        )),
+        files::FileError::Binary => ApiError::unprocessable("The file is not UTF-8 text."),
+        files::FileError::Io(error) => {
+            tracing::error!(%error, "file operation failed");
+            ApiError::internal("The file operation failed.")
+        }
+    }
+}
+
 async fn session_output(
     State(state): State<AppState>,
     UrlPath(id): UrlPath<String>,
@@ -1987,9 +2119,7 @@ async fn withdraw_question(
 fn question_error(failure: QuestionFailure) -> ApiError {
     match failure {
         QuestionFailure::NotFound => ApiError::not_found("Unknown question."),
-        QuestionFailure::NotPending => {
-            ApiError::conflict("This question is no longer pending.")
-        }
+        QuestionFailure::NotPending => ApiError::conflict("This question is no longer pending."),
         QuestionFailure::Closed => ApiError::conflict("The session is closed."),
     }
 }
@@ -2719,8 +2849,8 @@ fn configure_session_tools(
     let add_args = state.command_override().is_none();
     match client {
         Client::ClaudeCode => {
-            let path =
-                crate::mcp::write_claude_config(data_dir, session_id, state.port()).map_err(|error| {
+            let path = crate::mcp::write_claude_config(data_dir, session_id, state.port())
+                .map_err(|error| {
                     tracing::error!(session = %session_id, %error, "could not write MCP config");
                     ApiError::unprocessable("Could not prepare session tools.")
                 })?;
@@ -2759,11 +2889,7 @@ fn configure_session_tools(
     Ok(())
 }
 
-fn start_opencode_poller(
-    state: AppState,
-    entry: Arc<SessionEntry>,
-    base_url: String,
-) {
+fn start_opencode_poller(state: AppState, entry: Arc<SessionEntry>, base_url: String) {
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(2));
         interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
@@ -2795,8 +2921,7 @@ fn start_opencode_poller(
                 }
                 None => {
                     if let Some(pending) = session.pending_permission
-                        && let Some(updated) =
-                            entry.clear_external_permission(&pending.request_id)
+                        && let Some(updated) = entry.clear_external_permission(&pending.request_id)
                     {
                         state.emit(SessionEvent::updated(updated));
                     }
@@ -2904,13 +3029,19 @@ fn validated_env(
                 .chars()
                 .all(|character| character.is_ascii_alphanumeric() || character == '_');
         if !valid_name {
-            return Err(ApiError::bad_request("An environment variable name is not valid."));
+            return Err(ApiError::bad_request(
+                "An environment variable name is not valid.",
+            ));
         }
         if item.value.chars().count() > 2000 || item.value.contains('\0') {
-            return Err(ApiError::bad_request("An environment variable value is not valid."));
+            return Err(ApiError::bad_request(
+                "An environment variable value is not valid.",
+            ));
         }
         if !seen.insert(name.to_owned()) {
-            return Err(ApiError::bad_request("An environment variable is set twice."));
+            return Err(ApiError::bad_request(
+                "An environment variable is set twice.",
+            ));
         }
     }
     Ok(values

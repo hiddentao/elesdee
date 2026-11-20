@@ -47,6 +47,24 @@ export function FolderIcon({ className }: IconProps) {
   );
 }
 
+export function FileIcon({ className }: IconProps) {
+  return (
+    <svg {...base} className={className}>
+      <path d="M4 2.5h5l3 3v8H4Z" />
+      <path d="M9 2.5v3h3" />
+    </svg>
+  );
+}
+
+export function PanelIcon({ className }: IconProps) {
+  return (
+    <svg {...base} className={className}>
+      <rect x="2" y="3" width="12" height="10" rx="1.5" />
+      <path d="M10 3v10" />
+    </svg>
+  );
+}
+
 export function BranchIcon({ className }: IconProps) {
   return (
     <svg {...base} className={className}>

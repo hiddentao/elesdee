@@ -5,6 +5,7 @@ import {
   BranchIcon,
   FolderIcon,
   MoreIcon,
+  PanelIcon,
   TerminalIcon,
 } from './icons';
 import { StatusBadge } from './StatusBadge';
@@ -17,6 +18,8 @@ interface SessionHeaderProps {
   onOpenMenu: (trigger: HTMLElement) => void;
   branchOpen: boolean;
   onOpenBranchMenu: (trigger: HTMLElement) => void;
+  panelOpen: boolean;
+  onTogglePanel: () => void;
 }
 
 export function SessionHeader({
@@ -26,6 +29,8 @@ export function SessionHeader({
   onOpenMenu,
   branchOpen,
   onOpenBranchMenu,
+  panelOpen,
+  onTogglePanel,
 }: SessionHeaderProps) {
   const account = accountFor(accounts, session.accountId);
 
@@ -75,6 +80,16 @@ export function SessionHeader({
       </div>
 
       <div className="session-head-actions">
+        <button
+          type="button"
+          className={`btn btn-ghost session-panel-toggle${panelOpen ? ' is-on' : ''}`}
+          aria-label="Session panel"
+          aria-expanded={panelOpen}
+          title="Session panel"
+          onClick={onTogglePanel}
+        >
+          <PanelIcon />
+        </button>
         <button
           type="button"
           className="btn btn-ghost session-actions"

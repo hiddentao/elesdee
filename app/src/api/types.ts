@@ -162,6 +162,51 @@ export interface EnvOverride {
   value: string;
 }
 
+export interface FileEntry {
+  name: string;
+  path: string;
+  directory: boolean;
+}
+
+export interface FileList {
+  path: string;
+  entries: FileEntry[];
+  truncated: boolean;
+}
+
+export interface FileContent {
+  path: string;
+  content: string;
+  size: number;
+}
+
+export type ChangeStatus =
+  | 'added'
+  | 'modified'
+  | 'deleted'
+  | 'renamed'
+  | 'untracked'
+  | 'conflicted';
+
+export interface ChangedFile {
+  path: string;
+  oldPath: string | null;
+  status: ChangeStatus;
+  additions: number;
+  deletions: number;
+  binary: boolean;
+  diff: string;
+  diffTruncated: boolean;
+}
+
+export interface SessionChanges {
+  git: boolean;
+  base: string | null;
+  files: ChangedFile[];
+  truncated: boolean;
+  error: string | null;
+}
+
 export interface CreateSessionInput {
   projectId: string;
   kind: SessionKind;

@@ -122,10 +122,9 @@ pub fn clients_for_style(style: &str) -> &'static [Client] {
 
 pub fn environment(account: &Account, key: Option<&str>) -> Vec<(String, String)> {
     let mut environment = Vec::new();
-    let base = account
-        .server
-        .clone()
-        .or_else(|| find(&account.provider).and_then(|provider| provider.base_url.map(str::to_owned)));
+    let base = account.server.clone().or_else(|| {
+        find(&account.provider).and_then(|provider| provider.base_url.map(str::to_owned))
+    });
     let model = account.model.clone();
 
     let mut add = |name: &str, value: String| {
@@ -243,8 +242,7 @@ pub fn usage_state(account: &Account) -> UsageState {
 
 fn parse_number(value: &str) -> Option<f64> {
     let cleaned = value.replace(',', "");
-    let start = cleaned
-        .find(|character: char| character.is_ascii_digit() || character == '-')?;
+    let start = cleaned.find(|character: char| character.is_ascii_digit() || character == '-')?;
     let number = cleaned[start..]
         .chars()
         .take_while(|character| character.is_ascii_digit() || matches!(character, '.' | '-'))
@@ -284,10 +282,16 @@ mod tests {
 
     #[test]
     fn provider_table_matches_the_supported_clients() {
-        assert_eq!(find("anthropic").expect("anthropic").client, Client::ClaudeCode);
+        assert_eq!(
+            find("anthropic").expect("anthropic").client,
+            Client::ClaudeCode
+        );
         assert_eq!(find("openai").expect("openai").client, Client::Codex);
         assert_eq!(find("google").expect("google").client, Client::Antigravity);
-        assert_eq!(find("openrouter").expect("openrouter").client, Client::OpenCode2);
+        assert_eq!(
+            find("openrouter").expect("openrouter").client,
+            Client::OpenCode2
+        );
         assert!(find("unknown").is_none());
         assert_eq!(
             clients_for_style("anthropic"),

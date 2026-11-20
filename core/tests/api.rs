@@ -12,6 +12,7 @@ use serde_json::{Value, json};
 use tower::ServiceExt;
 
 use elesdee_core::api::router;
+use elesdee_core::files::MAX_FILE_BYTES;
 use elesdee_core::{AppState, MemorySecretStore, SecretStore};
 
 const TEST_HOST: &str = "127.0.0.1:4319";
@@ -1065,7 +1066,9 @@ async fn branch_listing_reports_local_and_remote_branches() {
     let repo = TempDirectory::new("branch-list");
     init_git_repo(&repo.path);
     assert!(
-        run_git(&repo.path, &["checkout", "-b", "feature"]).status.success(),
+        run_git(&repo.path, &["checkout", "-b", "feature"])
+            .status
+            .success(),
         "create feature branch"
     );
     assert!(run_git(&repo.path, &["checkout", "main"]).status.success());
@@ -1140,7 +1143,9 @@ async fn source_branch_sets_the_worktree_base() {
     let repo = TempDirectory::new("source-repo");
     init_git_repo(&repo.path);
     assert!(
-        run_git(&repo.path, &["checkout", "-b", "feature"]).status.success(),
+        run_git(&repo.path, &["checkout", "-b", "feature"])
+            .status
+            .success(),
         "create feature branch"
     );
     fs::write(repo.path.join("feature.txt"), "from feature\n").expect("write feature file");
@@ -1226,7 +1231,11 @@ async fn unknown_source_branch_is_rejected() {
             .as_str()
             .is_some_and(|error| error.contains("source branch"))
     );
-    assert_eq!(git_ref_count(&repo.path), 1, "a failed launch left a branch");
+    assert_eq!(
+        git_ref_count(&repo.path),
+        1,
+        "a failed launch left a branch"
+    );
 }
 
 fn url_escape(value: &str) -> String {
@@ -1338,10 +1347,7 @@ async fn usage_near_the_limit_switches_then_pauses_without_room() {
     .await;
     assert_eq!(status, StatusCode::OK);
 
-    let switched = wait_for_session(&app, id, |session| {
-        session["accountId"] == second
-    })
-    .await;
+    let switched = wait_for_session(&app, id, |session| session["accountId"] == second).await;
     assert_eq!(switched["status"], "active");
     assert_eq!(switched["workState"], "working");
 
@@ -1354,10 +1360,7 @@ async fn usage_near_the_limit_switches_then_pauses_without_room() {
     .await;
     assert_eq!(status, StatusCode::OK);
 
-    let paused = wait_for_session(&app, id, |session| {
-        session["workState"] == "paused"
-    })
-    .await;
+    let paused = wait_for_session(&app, id, |session| session["workState"] == "paused").await;
     assert_eq!(paused["status"], "active");
     assert!(
         paused["preview"]
@@ -1373,10 +1376,7 @@ async fn usage_near_the_limit_switches_then_pauses_without_room() {
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    let resumed = wait_for_session(&app, id, |session| {
-        session["workState"] == "working"
-    })
-    .await;
+    let resumed = wait_for_session(&app, id, |session| session["workState"] == "working").await;
     assert_eq!(resumed["accountId"], first);
 
     let (status, _) = close_session(&app, id).await;
@@ -1400,11 +1400,7 @@ async fn create_test_account(app: &Router, name: &str, key: &str) -> String {
     account["id"].as_str().expect("account id").to_owned()
 }
 
-async fn wait_for_session(
-    app: &Router,
-    id: &str,
-    ready: impl Fn(&Value) -> bool,
-) -> Value {
+async fn wait_for_session(app: &Router, id: &str, ready: impl Fn(&Value) -> bool) -> Value {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
     loop {
         let (_, bootstrap) = call(app, "GET", "/api/bootstrap", None).await;
@@ -1450,9 +1446,8 @@ async fn claude_sessions_get_and_clean_up_their_mcp_config() {
     let id = session["id"].as_str().expect("session id");
     let config_path = data_dir.path.join("mcp").join(format!("{id}.json"));
     assert!(config_path.is_file(), "the MCP config was not written");
-    let config: Value =
-        serde_json::from_slice(&fs::read(&config_path).expect("read MCP config"))
-            .expect("parse MCP config");
+    let config: Value = serde_json::from_slice(&fs::read(&config_path).expect("read MCP config"))
+        .expect("parse MCP config");
     let url = config["mcpServers"]["elesdee"]["url"]
         .as_str()
         .expect("MCP URL");
@@ -1876,7 +1871,10 @@ async fn invalid_environment_names_are_rejected() {
     ));
     ensure_test_project(&app, &repo.path).await;
 
-    for (name, status) in [("1BAD", StatusCode::BAD_REQUEST), ("BAD-NAME", StatusCode::BAD_REQUEST)] {
+    for (name, status) in [
+        ("1BAD", StatusCode::BAD_REQUEST),
+        ("BAD-NAME", StatusCode::BAD_REQUEST),
+    ] {
         let (result, body) = call(
             &app,
             "POST",
@@ -4960,10 +4958,15 @@ async fn deepseek_account_keeps_its_key_out_of_the_state() {
     let (status, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
     assert_eq!(status, StatusCode::OK);
     let text = bootstrap.to_string();
-    assert!(!text.contains("sk-deepseek-secret"), "bootstrap leaked the key");
-    let state_text =
-        fs::read_to_string(data_dir.path.join("state.json")).expect("read state file");
-    assert!(!state_text.contains("sk-deepseek-secret"), "state leaked the key");
+    assert!(
+        !text.contains("sk-deepseek-secret"),
+        "bootstrap leaked the key"
+    );
+    let state_text = fs::read_to_string(data_dir.path.join("state.json")).expect("read state file");
+    assert!(
+        !state_text.contains("sk-deepseek-secret"),
+        "state leaked the key"
+    );
 }
 
 #[tokio::test]
@@ -5325,6 +5328,307 @@ async fn reopen_recreates_the_antigravity_home() {
     let (status, closed) = close_session(&app, &id).await;
     assert_eq!(status, StatusCode::OK, "{closed}");
     assert!(!home.exists(), "reopened home survived close");
+}
+
+#[tokio::test]
+async fn session_files_list_read_and_write_round_trip() {
+    let folder = TempDirectory::new("files-roundtrip");
+    fs::write(folder.path.join("note.txt"), "hello\n").expect("write note");
+    fs::create_dir_all(folder.path.join("src")).expect("create src");
+    fs::write(folder.path.join("src/lib.rs"), "fn main() {}\n").expect("write source");
+
+    let app = router(AppState::ephemeral());
+    let session = create_terminal(&app, &folder.path).await;
+    let id = session["id"].as_str().expect("session id").to_owned();
+
+    let (status, listing) = call(&app, "GET", &format!("/api/sessions/{id}/files"), None).await;
+    assert_eq!(status, StatusCode::OK, "{listing}");
+    let entries = listing["entries"].as_array().expect("entries");
+    let names = entries
+        .iter()
+        .map(|entry| entry["name"].as_str().unwrap_or_default())
+        .collect::<Vec<_>>();
+    assert_eq!(names, ["src", "note.txt"]);
+    assert_eq!(entries[0]["directory"], true);
+
+    let (status, nested) = call(
+        &app,
+        "GET",
+        &format!("/api/sessions/{id}/files?path=src"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{nested}");
+    assert_eq!(nested["path"], "src");
+    assert_eq!(nested["entries"][0]["path"], "src/lib.rs");
+
+    let (status, file) = call(
+        &app,
+        "GET",
+        &format!("/api/sessions/{id}/file?path=note.txt"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{file}");
+    assert_eq!(file["content"], "hello\n");
+    assert_eq!(file["size"], 6);
+
+    let (status, written) = call(
+        &app,
+        "POST",
+        &format!("/api/sessions/{id}/file"),
+        Some(json!({ "path": "note.txt", "content": "changed\n" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{written}");
+    assert_eq!(written["content"], "changed\n");
+    assert_eq!(
+        fs::read_to_string(folder.path.join("note.txt")).expect("read note"),
+        "changed\n"
+    );
+
+    let (status, created) = call(
+        &app,
+        "POST",
+        &format!("/api/sessions/{id}/file"),
+        Some(json!({ "path": "src/new.txt", "content": "new\n" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{created}");
+    assert_eq!(
+        fs::read_to_string(folder.path.join("src/new.txt")).expect("read new file"),
+        "new\n"
+    );
+
+    let (status, closed) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+}
+
+#[tokio::test]
+async fn file_endpoints_reject_unsafe_and_oversized_content() {
+    let folder = TempDirectory::new("files-guards");
+    let outside = TempDirectory::new("files-outside");
+    fs::write(folder.path.join("note.txt"), "hello\n").expect("write note");
+    fs::create_dir_all(folder.path.join("src")).expect("create src");
+    fs::write(folder.path.join("blob.bin"), [0_u8, 1, 2]).expect("write binary");
+    fs::write(
+        folder.path.join("big.txt"),
+        vec![b'a'; MAX_FILE_BYTES as usize + 1],
+    )
+    .expect("write large file");
+    fs::write(outside.path.join("secret.txt"), "secret\n").expect("write secret");
+
+    let app = router(AppState::ephemeral());
+    let session = create_terminal(&app, &folder.path).await;
+    let id = session["id"].as_str().expect("session id").to_owned();
+
+    for path in ["../secret.txt", "/etc/passwd", "src/.."] {
+        let (status, body) = call(
+            &app,
+            "GET",
+            &format!("/api/sessions/{id}/file?path={path}"),
+            None,
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::BAD_REQUEST,
+            "{path} must be rejected: {body}"
+        );
+    }
+
+    let (status, body) = call(
+        &app,
+        "GET",
+        &format!("/api/sessions/{id}/file?path=src"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+
+    let (status, body) = call(
+        &app,
+        "GET",
+        &format!("/api/sessions/{id}/file?path=blob.bin"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+
+    let (status, body) = call(
+        &app,
+        "GET",
+        &format!("/api/sessions/{id}/file?path=big.txt"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE, "{body}");
+
+    let oversized = "a".repeat(MAX_FILE_BYTES as usize + 1);
+    let (status, body) = call(
+        &app,
+        "POST",
+        &format!("/api/sessions/{id}/file"),
+        Some(json!({ "path": "note.txt", "content": oversized })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE, "{body}");
+    assert_eq!(
+        fs::read_to_string(folder.path.join("note.txt")).expect("read note"),
+        "hello\n"
+    );
+
+    let (status, body) = call(
+        &app,
+        "POST",
+        &format!("/api/sessions/{id}/file"),
+        Some(json!({ "path": "blob.bin", "content": "a\u{0}b" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(
+            outside.path.join("secret.txt"),
+            folder.path.join("escape.txt"),
+        )
+        .expect("create symlink");
+        let (status, body) = call(
+            &app,
+            "GET",
+            &format!("/api/sessions/{id}/file?path=escape.txt"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+
+        let (status, body) = call(
+            &app,
+            "POST",
+            &format!("/api/sessions/{id}/file"),
+            Some(json!({ "path": "escape.txt", "content": "overwritten\n" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        assert_eq!(
+            fs::read_to_string(outside.path.join("secret.txt")).expect("read secret"),
+            "secret\n"
+        );
+    }
+
+    let (status, closed) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+}
+
+#[tokio::test]
+async fn terminal_changes_report_tracked_and_untracked_files() {
+    let repo = TempDirectory::new("changes-repo");
+    init_git_repo(&repo.path);
+    fs::write(repo.path.join("README.md"), "initial\nmore\n").expect("change readme");
+    fs::write(repo.path.join("new.txt"), "one\ntwo\n").expect("add file");
+
+    let app = router(AppState::ephemeral());
+    let session = create_terminal(&app, &repo.path).await;
+    let id = session["id"].as_str().expect("session id").to_owned();
+
+    let (status, changes) = call(&app, "GET", &format!("/api/sessions/{id}/changes"), None).await;
+    assert_eq!(status, StatusCode::OK, "{changes}");
+    assert_eq!(changes["git"], true);
+    let files = changes["files"].as_array().expect("changed files");
+    assert_eq!(files.len(), 2, "{changes}");
+
+    let readme = files
+        .iter()
+        .find(|file| file["path"] == "README.md")
+        .expect("README change");
+    assert_eq!(readme["status"], "modified");
+    assert_eq!(readme["additions"], 1);
+    assert!(
+        readme["diff"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("+more"),
+        "{readme}"
+    );
+
+    let new_file = files
+        .iter()
+        .find(|file| file["path"] == "new.txt")
+        .expect("untracked change");
+    assert_eq!(new_file["status"], "untracked");
+    assert_eq!(new_file["additions"], 2);
+    assert!(
+        new_file["diff"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("+++ b/new.txt"),
+        "{new_file}"
+    );
+
+    let (status, closed) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+
+    let plain = TempDirectory::new("changes-plain");
+    fs::write(plain.path.join("note.txt"), "hello\n").expect("write note");
+    let session = create_terminal(&app, &plain.path).await;
+    let id = session["id"].as_str().expect("session id").to_owned();
+    let (status, changes) = call(&app, "GET", &format!("/api/sessions/{id}/changes"), None).await;
+    assert_eq!(status, StatusCode::OK, "{changes}");
+    assert_eq!(changes["git"], false);
+    assert!(changes["files"].as_array().expect("files").is_empty());
+    let (status, closed) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+}
+
+#[tokio::test]
+async fn agent_changes_include_commits_since_the_branch_point() {
+    let data_dir = TempDirectory::new("changes-agent-data");
+    let repo = TempDirectory::new("changes-agent-repo");
+    init_git_repo(&repo.path);
+    let app = router(AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    ));
+    let session = create_agent(&app, &repo.path, "max", "Changes agent").await;
+    let id = session["id"].as_str().expect("session id").to_owned();
+    let worktree = data_dir.path.join("worktrees").join(&id);
+    assert!(worktree.is_dir());
+
+    fs::write(worktree.join("committed.txt"), "committed\n").expect("write committed file");
+    assert!(run_git(&worktree, &["add", "."]).status.success());
+    let commit = run_git(&worktree, &["commit", "-m", "agent commit"]);
+    assert!(commit.status.success(), "commit failed: {commit:?}");
+    fs::write(worktree.join("README.md"), "initial\nwork\n").expect("change readme");
+
+    let (status, changes) = call(&app, "GET", &format!("/api/sessions/{id}/changes"), None).await;
+    assert_eq!(status, StatusCode::OK, "{changes}");
+    assert_eq!(changes["git"], true);
+    assert!(changes["base"].is_string(), "{changes}");
+
+    let files = changes["files"].as_array().expect("changed files");
+    let committed = files
+        .iter()
+        .find(|file| file["path"] == "committed.txt")
+        .expect("committed change");
+    assert_eq!(committed["status"], "added");
+    assert_eq!(committed["additions"], 1);
+
+    let readme = files
+        .iter()
+        .find(|file| file["path"] == "README.md")
+        .expect("working change");
+    assert_eq!(readme["status"], "modified");
+    assert!(
+        readme["diff"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("+work"),
+        "{readme}"
+    );
+
+    let (status, closed) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
 }
 
 async fn create_google_account(app: &Router, name: &str, key: &str) -> Value {
