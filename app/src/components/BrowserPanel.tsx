@@ -417,7 +417,9 @@ export function BrowserPanel({ session }: BrowserPanelProps) {
                 }}
                 type="button"
                 role="tab"
+                id={`browser-tab-${tab.id}`}
                 aria-selected={tab.id === state.activeTabId}
+                aria-controls="browser-tabpanel"
                 tabIndex={tab.id === rovingTabId ? 0 : -1}
                 className={`browser-tab${
                   tab.id === state.activeTabId ? ' is-on' : ''
@@ -519,7 +521,14 @@ export function BrowserPanel({ session }: BrowserPanelProps) {
         <p className="dock-note">{t('panel.browserUnavailable')}</p>
       ) : null}
 
-      <div className="browser-view">
+      <div
+        className="browser-view"
+        id="browser-tabpanel"
+        role="tabpanel"
+        aria-labelledby={
+          activeTab ? `browser-tab-${activeTab.id}` : undefined
+        }
+      >
         {activeTab && state && state.screenshotSeq > 0 ? (
           <>
             <div className="browser-stage">

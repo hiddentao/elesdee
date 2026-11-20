@@ -230,6 +230,42 @@ describe('BrowserPanel', () => {
     await waitFor(() => expect(first).toHaveFocus());
   });
 
+  it('links each tab to the browser panel', async () => {
+    const tabs = [
+      tab(),
+      tab({
+        id: 's1-tab-2',
+        title: 'Other',
+        url: 'http://localhost:3000/other',
+      }),
+    ];
+    vi.mocked(getBrowserState).mockResolvedValue(stateWith(tabs));
+    vi.mocked(activateBrowserTab).mockResolvedValue(
+      stateWith(tabs, { activeTabId: 's1-tab-2' }),
+    );
+    const user = userEvent.setup();
+    render(<BrowserPanel session={makeSession()} />);
+
+    const first = await screen.findByRole('tab', { name: 'Demo' });
+    const second = screen.getByRole('tab', { name: 'Other' });
+    const panel = screen.getByRole('tabpanel');
+
+    expect(first).toHaveAttribute('aria-controls', 'browser-tabpanel');
+    expect(second).toHaveAttribute('aria-controls', 'browser-tabpanel');
+    expect(panel).toHaveAttribute('id', 'browser-tabpanel');
+    expect(panel).toHaveAttribute(
+      'aria-labelledby',
+      'browser-tab-s1-tab-1',
+    );
+
+    await user.click(second);
+
+    expect(screen.getByRole('tabpanel')).toHaveAttribute(
+      'aria-labelledby',
+      'browser-tab-s1-tab-2',
+    );
+  });
+
   it('leaves arrow keys alone on the close and new-tab buttons', async () => {
     vi.mocked(getBrowserState).mockResolvedValue(
       stateWith([

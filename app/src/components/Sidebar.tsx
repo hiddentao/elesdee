@@ -13,6 +13,7 @@ import {
   statusTone,
   tabStateLabel,
 } from '../state/sessionStatus';
+import { focusSessionRow } from '../state/sessionRowFocus';
 import { providerUsage } from '../state/usage';
 import {
   AgentIcon,
@@ -433,13 +434,7 @@ export function Sidebar({
     }
     await commitMove(session, projectId);
     window.setTimeout(() => {
-      const rows = document.querySelectorAll<HTMLElement>('[data-session-id]');
-      for (const row of rows) {
-        if (row.dataset.sessionId === session.id) {
-          row.focus();
-          return;
-        }
-      }
+      focusSessionRow(session.id);
     }, 0);
   }
 
