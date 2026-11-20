@@ -493,7 +493,7 @@ Routes on the `elesdee` protocol:
 - Resolve the path, reject `..` before disk access, and check the canonical path is under the build root.
 - Set the correct MIME type. Hashed assets can be cached for a year. `index.html` is `no-store`.
 - The package cannot load scripts, styles, fonts or images from the internet. Session images arrive through the bridge as blobs or data URLs.
-- The shell blocks navigation away from the shell origin and the package origin, and denies new windows.
+- The shell allows navigation only to the shell origin and the package origin, matching the parsed origin so a lookalike host is refused. Any other URL is refused, including `javascript:`, `data:`, `file:`, `about:` and malformed URLs; paths, queries and fragments on the two origins stay allowed. A new-window request opens no second webview: macOS refuses it, Windows WebView2 may hand the URL to the system browser instead, and Tauri 2.12.7 offers no mobile hook for new windows.
 - Content security policy: `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src ipc: http://ipc.localhost; object-src 'none'; base-uri 'none'; frame-ancestors 'none'`.
 
 ### 5.6 Bridge
