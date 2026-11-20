@@ -17,7 +17,7 @@ The app keeps your sessions, projects, providers and AI configs on this computer
 - Give each agent session its own branch and worktree.
 - Watch and type into the agent's real terminal.
 - Browse a session's files, edit a text file and save it, and review its changes with a diff.
-- Approve or deny Claude Code permission requests from a card.
+- Approve or deny Claude Code, Codex and OpenCode 2 permission requests from a card.
 - Close, reopen, rename and delete sessions.
 - Confirm before quitting while sessions run.
 - Close the window to keep the sessions and the phone connection running, and show it again from the Dock.

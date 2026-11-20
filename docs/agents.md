@@ -54,18 +54,18 @@ A new install includes sample providers and configs. They are marked **Sample**.
 
 **Supported vendors**
 
-| Provider | Client | Sign-in |
+| Provider | Clients | Sign-in |
 | --- | --- | --- |
-| Anthropic | Claude Code | Subscription or API key |
-| OpenAI | Codex | Subscription or API key |
+| Anthropic | Claude Code, OpenCode 2 | Subscription or API key |
+| OpenAI | Codex, OpenCode 2 | Subscription or API key |
 | Google | Antigravity | API key |
-| DeepSeek | Claude Code | API key |
-| Kimi (Moonshot) | Claude Code | API key |
-| Z.ai | Claude Code | API key |
-| OpenRouter | OpenCode 2 | API key |
-| Ollama | Claude Code | Local server |
-| LM Studio | Claude Code | Local server |
-| Custom provider | Codex, Claude Code or OpenCode 2 | API key or local server |
+| DeepSeek | Claude Code, Codex, OpenCode 2 | API key |
+| Kimi (Moonshot) | Claude Code, OpenCode 2 | API key |
+| Z.ai | Claude Code, OpenCode 2 | API key |
+| OpenRouter | OpenCode 2, Codex | API key |
+| Ollama | Claude Code, OpenCode 2 | Local server |
+| LM Studio | Claude Code, OpenCode 2 | Local server |
+| Custom provider | Codex, OpenCode 2 for OpenAI style; Claude Code, OpenCode 2 for Anthropic style | API key or local server |
 
 **API keys**
 
@@ -100,15 +100,15 @@ Choose **Local server** and enter the server URL for Ollama or LM Studio. The ap
 Choose **Custom provider** for any server that speaks the OpenAI or Anthropic API, such as a gateway or a company proxy.
 
 1. Choose the API style: OpenAI-compatible or Anthropic-compatible.
-2. Choose the client: Codex, Claude Code or OpenCode 2.
+2. Choose the client: Codex or OpenCode 2 for OpenAI style, or Claude Code or OpenCode 2 for Anthropic style.
 3. Enter the server URL, an optional API key and an optional model.
 4. Save.
 
-The client follows the style. OpenCode 2 is the default client.
+The form picks the first client the chosen style supports: Codex for OpenAI-compatible, or Claude Code for Anthropic-compatible.
 
 ## How a session uses an AI config
 
-The session starts the client from its AI config and gives it the provider's environment. For Claude Code and Codex subscriptions, the client uses its own sign-in. For API-key providers, the app passes the key in the child process environment and redacts it from session output. For Google, the app creates a private home folder for the session, writes a settings file that selects Gemini, and removes the private home when the session closes.
+The session starts the client from its AI config and gives it the provider's settings. For Claude Code and Codex subscriptions, the client uses its own sign-in. With an API-key provider, the key reaches the client without appearing in session output. A Google provider uses an API key and runs Antigravity with Gemini; the session's temporary settings are removed when the session closes.
 
 ## Skills
 

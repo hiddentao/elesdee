@@ -16,9 +16,9 @@ Choose **Pair a phone** in **Settings > Devices** on the computer. The computer 
 
 ## Phone interface updates
 
-The desktop build includes the phone interface. When a paired phone connects, it compares the interface version on the computer with the copy it holds for that computer. It downloads a new interface only when the version differs. It checks the download before it uses it and keeps the previous copy for the next attempt.
+The desktop build includes the phone interface. When a paired phone connects, it compares the interface version on the computer with the copy it holds for that computer. It downloads a new interface only when the version differs. It checks the download before it uses it and keeps the current build, the one it replaces and the build on screen, so an open screen keeps working through an update.
 
-The downloaded interface talks to the computer through the phone app's connection. Requests, live messages, terminal output, file uploads, image previews and session actions all travel that way; they do not use a local computer address on the phone. The browser layout at `/phone.html` keeps using the computer's local API. While the downloaded interface is open, the phone app raises the same notifications as its own screens.
+The downloaded interface talks to the computer through the phone app's connection. Requests, live messages, terminal output, file uploads, image previews and session actions all travel that way. While the downloaded interface is open, the phone app raises the same notifications as its own screens.
 
 If the download fails, the phone app keeps its own screens and says that the interface could not be loaded. If the phone app, the computer or the interface needs a newer version, the app shows an update-needed screen. Update the phone app or elesdee on the computer as the screen says.
 

@@ -13,7 +13,7 @@ Open **Settings** from the bottom of the sidebar. Settings opens over the sessio
 The General page holds two options for this computer. Both are off by default. A change takes effect at once and stays after a restart.
 
 - **Start elesdee when the system starts** starts the core service in the background at login and resumes the saved sessions. The window opens only when you click the app. When another copy is already running, the system starts one copy.
-- **Keep the computer awake while agents work** stops the computer from sleeping while an agent session runs. The phone stays connected during that time. The app releases the computer when no agent session runs. Terminal sessions, closed sessions and paused work do not hold it awake.
+- **Keep the computer awake while agents work** stops the computer from sleeping while an agent session is active. The phone stays connected during that time. The app releases the computer when no agent session is active. A paused session and a session that reported done are still active, so they hold it awake; terminal sessions and closed sessions do not.
 
 If the system does not accept a change, the page says so. The app does not claim the new state when the system refused it.
 

@@ -79,7 +79,7 @@ The session's Files panel has a **Make public** action for an active server. It 
 - This needs Tailscale, installed, running and signed in, and Funnel allowed for the tailnet. Without it the server stays local and the panel shows the reason.
 - Only one demo server is public at a time. Making another server public turns the first one off.
 - **Stop public**, closing the session, pausing the session and deleting a closed session turn it off. An app restart also turns off an address that was left on.
-- If Tailscale refuses to turn the address off, the app keeps the address on the record and shows the reason, because the address may still be public. Choose **Stop public** again to retry. The next app start also retries.
+- If Tailscale refuses to turn the address off, the app keeps the address on the record, because the address may still be public. If the server is active, the panel shows the reason and **Stop public** can be retried. After a close or pause, the server shows as stopped, and the panel still shows the retained address with a warning and one **Stop public** action; that action retries the turn-off and shows the reason if Tailscale refuses again. The next app start also retries.
 - Delete tries the turn-off before it removes anything. If the address is still on, the app refuses the delete and keeps the session and its address, so you can choose **Delete** again after Tailscale accepts the command.
 - The app uses the Tailscale client it found. It never exposes another port and never takes an address from the agent.
 
@@ -106,7 +106,7 @@ The browser uses an installed Chrome or Chromium when one exists. Otherwise the 
 
 ## Where the tools come from
 
-The core service runs one MCP server. Each session gets a private skill folder under the app's data directory, and the folder is removed when the session closes. Claude Code gets a launch-only MCP config and loads the folder as a plugin. Codex gets the server through a launch config override and reads the skills from a private Codex home for the session. OpenCode 2 gets a launch-only config file that adds the server and the skill folder and merges with your own OpenCode config. None of these changes your repository or your global agent settings.
+elesdee provides the same tools and skills to Claude Code, Codex and OpenCode 2 sessions. Each session gets a private skill folder, and the folder is removed when the session closes. None of these changes your repository or your global agent settings.
 
 A session gets the seven skills listed above.
 
