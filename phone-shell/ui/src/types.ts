@@ -3,6 +3,18 @@ export type WorkState = 'working' | 'waiting' | 'input' | 'paused' | 'done';
 export type WaitingFor = 'permission' | 'input' | 'start' | 'question';
 export type SessionKind = 'agent' | 'terminal';
 
+export type DemoServerState = 'active' | 'stopped';
+
+export interface DemoServer {
+  id: string;
+  sessionId: string;
+  name: string;
+  port: number;
+  address: string;
+  state: DemoServerState;
+  createdAt: string;
+}
+
 export interface Session {
   id: string;
   name: string;
@@ -14,7 +26,14 @@ export interface Session {
   preview: string;
   waitingFor: WaitingFor | null;
   pendingPermission: unknown | null;
+  demoServers?: DemoServer[];
   startedAt: string;
+}
+
+export interface ForwardAddress {
+  port: number;
+  localPort: number;
+  address: string;
 }
 
 export interface Project {
