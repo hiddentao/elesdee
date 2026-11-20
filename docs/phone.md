@@ -6,7 +6,7 @@ order: 10
 
 # Phone layout
 
-The app has a phone-sized layout at `/phone.html`. It uses the same core service and the same sessions as the desktop window. It is a preview of the phone experience. The core service can hold the phone link identity and pair a phone that speaks the link protocol. A paired phone app can show the live session list, open a session and follow its output. The installable phone app is not released yet.
+The app has a phone-sized layout at `/phone.html`. It uses the same core service and the same sessions as the desktop window. It is a preview of the phone experience. The core service can hold the phone link identity and pair a phone that speaks the link protocol. A paired phone app can show the live session list, open a session, follow its output, send terminal input and run the session actions. The installable phone app is not released yet.
 
 ## Paired phones
 
@@ -32,11 +32,18 @@ Swipe a row left to reveal **Close**. No matter how far you swipe, it stops at t
 
 ## Session view
 
-- The terminal is read-only on the phone.
+- The terminal output is read-only. A one-line input sends text to the terminal when you press Send.
+- A key rail above the input sends Esc, Tab, Shift+Tab, Backspace, Delete, the four arrows, Ctrl+C and Ctrl+D. It also shows the keys of the session's agent, such as the permission-mode key of Claude Code, with a short purpose.
+- Tap Shift, Control or Alt to latch it for the next key. The latch clears after one key. Hold an arrow, Backspace or Delete to repeat it. The keyboard button shows or hides the rail, and the rail scrolls sideways.
+- The **+** on the rail opens **Keyboard keys**. It lists the agent's keys and your saved keys. Name a key such as `C`, `F5` or `PageUp`, add Shift, Control or Alt, and add it to the rail. You can save up to eight keys. They belong to the phone, not to one session.
 - The output follows the session as it runs. If the connection drops, the app reconnects and continues from the last output it saw.
 - A session created from the phone starts in its project folder. The phone cannot choose another folder.
+- **New session** on the session list asks for a project, an AI config, an optional source branch, an optional name and an optional first prompt.
+- The session actions switch the AI config, open the usage panel and close the session. Close asks first, as it does on the computer.
 - Approval requests, agent questions and session requests appear as cards. Answer or approve them there.
 - The back button returns to the session list.
+
+The message view from the product spec, with prompts and replies built from structured events, is not built. The core gathers session state and terminal output, not conversation items from the agents.
 
 ## Demo servers on the phone
 
@@ -48,7 +55,7 @@ The installable app is not released. The computer side and the phone shell liste
 
 ## What is not built yet
 
-There is no phone app you can install. The repository has the phone shell, its pairing screens, the live session list, the session output view and the demo-server list with its forwarding listener, but no released build. The downloaded phone interface comes later. The core service starts the link, creates a pairing ticket, stores paired devices and answers the allowlisted methods for a paired phone, including the demo-server list and both sides of demo forwarding. The phone's system browser handoff and its behavior in the background need a device test. The current browser layout still opens on this computer, next to the desktop app.
+There is no phone app you can install. The repository has the phone shell, its pairing screens, the live session list, the session output view, terminal input and the key rail, the session actions, and the demo-server list with its forwarding listener, but no released build. The downloaded phone interface comes later. The core service starts the link, creates a pairing ticket, stores paired devices and answers the allowlisted methods for a paired phone, including terminal input, session start, close, AI config switch and the demo-server list and both sides of demo forwarding. Upload, file and image reads and diffs are not built. The message view is not built. The phone's system browser handoff, the native keychain, the camera and behavior in the background need a device test. The current browser layout still opens on this computer, next to the desktop app.
 
 ## Next steps
 

@@ -377,3 +377,214 @@ body {
   flex: 1;
   min-height: 0;
 }
+
+/* Session actions, terminal input and key rail */
+
+.phone-session-actions {
+  display: flex;
+  flex: none;
+  gap: 6px;
+  margin: 8px 12px 0;
+}
+
+.phone-session-actions .btn {
+  flex: 1;
+  min-height: 34px;
+  padding: 0 8px;
+  font-size: 12px;
+}
+
+.phone-card-error {
+  margin: 8px 12px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--danger);
+  border-radius: 8px;
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: 12.5px;
+}
+
+.phone-composer {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 10px calc(8px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.phone-input-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.phone-terminal-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.phone-keyboard-toggle {
+  flex: none;
+  margin-left: 0;
+}
+
+.phone-key-area {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.phone-key-latches {
+  display: flex;
+  gap: 6px;
+}
+
+.phone-key-rail {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  scrollbar-width: none;
+}
+
+.phone-key-rail::-webkit-scrollbar {
+  display: none;
+}
+
+.phone-key-rail .key-chip,
+.phone-key-latches .key-chip {
+  display: inline-flex;
+  flex: none;
+  min-width: 40px;
+  min-height: 34px;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-family: var(--mono-font);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.phone-key-rail .key-chip:hover,
+.phone-key-latches .key-chip:hover {
+  background: var(--surface-3);
+}
+
+.phone-key-latches .key-chip.latch.is-on {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.phone-key-rail .key-chip.add-key {
+  font-family: var(--ui-font);
+  font-size: 18px;
+}
+
+.phone-key-rail .key-purpose {
+  max-width: 12ch;
+  overflow: hidden;
+  color: var(--text-3);
+  font-family: var(--ui-font);
+  font-size: 9.5px;
+  text-overflow: ellipsis;
+}
+
+/* Sheets for start, switch and saved keys */
+
+.phone-sheet-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.phone-sheet-close {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-size: 20px;
+  line-height: 1;
+}
+
+.phone-key-list,
+.phone-sheet-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.phone-key-list-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.phone-key-list-name {
+  flex: none;
+  font-family: var(--mono-font);
+  font-size: 12.5px;
+}
+
+.phone-key-list-purpose {
+  flex: 1;
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+.phone-key-remove {
+  flex: none;
+  border: 0;
+  background: transparent;
+  color: var(--danger);
+  font-size: 12px;
+}
+
+.phone-key-form,
+.phone-start-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.phone-modifier-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.phone-modifier {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+}
+
+.phone-sheet-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.phone-sheet-actions .btn {
+  flex: 1;
+}
+
+.phone-sheet .phone-sheet-row {
+  width: 100%;
+}

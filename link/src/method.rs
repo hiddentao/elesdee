@@ -34,6 +34,8 @@ pub enum Method {
     SessionsPermission,
     /// Switch a session to another account.
     SessionsAccount,
+    /// Switch a session to another AI config.
+    SessionsConfig,
     /// Resume a paused session.
     SessionsResume,
     /// Upload one file to a session.
@@ -68,7 +70,7 @@ pub enum Method {
 
 impl Method {
     /// Every allowed method, in the order of the design table.
-    pub const ALL: [Method; 26] = [
+    pub const ALL: [Method; 27] = [
         Self::Bootstrap,
         Self::Health,
         Self::ProjectsList,
@@ -80,6 +82,7 @@ impl Method {
         Self::SessionsInput,
         Self::SessionsPermission,
         Self::SessionsAccount,
+        Self::SessionsConfig,
         Self::SessionsResume,
         Self::SessionsUpload,
         Self::QuestionsList,
@@ -111,6 +114,7 @@ impl Method {
             Self::SessionsInput => "sessions.input",
             Self::SessionsPermission => "sessions.permission",
             Self::SessionsAccount => "sessions.account",
+            Self::SessionsConfig => "sessions.config",
             Self::SessionsResume => "sessions.resume",
             Self::SessionsUpload => "sessions.upload",
             Self::QuestionsList => "questions.list",
@@ -145,6 +149,7 @@ impl Method {
             "sessions.input" => Some(Self::SessionsInput),
             "sessions.permission" => Some(Self::SessionsPermission),
             "sessions.account" => Some(Self::SessionsAccount),
+            "sessions.config" => Some(Self::SessionsConfig),
             "sessions.resume" => Some(Self::SessionsResume),
             "sessions.upload" => Some(Self::SessionsUpload),
             "questions.list" => Some(Self::QuestionsList),
@@ -188,7 +193,7 @@ impl FromStr for Method {
 mod tests {
     use super::*;
 
-    const EXPECTED: [&str; 26] = [
+    const EXPECTED: [&str; 27] = [
         "bootstrap",
         "health",
         "projects.list",
@@ -200,6 +205,7 @@ mod tests {
         "sessions.input",
         "sessions.permission",
         "sessions.account",
+        "sessions.config",
         "sessions.resume",
         "sessions.upload",
         "questions.list",
@@ -250,6 +256,19 @@ mod tests {
             .map(|method| method.as_str())
             .collect();
         assert_eq!(streaming, ["events.subscribe", "output.subscribe"]);
+    }
+
+    #[test]
+    fn config_switch_is_allowed_and_provider_alias_stays() {
+        assert_eq!(
+            Method::parse("sessions.config"),
+            Some(Method::SessionsConfig)
+        );
+        assert_eq!(
+            Method::parse("sessions.account"),
+            Some(Method::SessionsAccount)
+        );
+        assert_eq!(Method::parse("sessions.switch"), None);
     }
 
     #[test]

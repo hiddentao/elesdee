@@ -213,6 +213,7 @@ Every later stream carries one request with the shared four-byte JSON length fra
 | `sessions.input` | `POST /api/sessions/{id}/input` |
 | `sessions.permission` | `POST /api/sessions/{id}/permission` |
 | `sessions.account` | `POST /api/sessions/{id}/account` |
+| `sessions.config` | `POST /api/sessions/{id}/config` |
 | `sessions.resume` | `POST /api/sessions/{id}/resume` |
 | `questions.list` | `GET /api/questions` |
 | `questions.answer` | `POST /api/questions/{id}/answer` |
@@ -225,6 +226,7 @@ Every later stream carries one request with the shared four-byte JSON length fra
 | `output.subscribe` | `GET /api/sessions/{id}/output?after=`, streamed |
 
 - The result is the local route's JSON, or the local error message with the matching link code. A method outside the allowlist returns `forbidden` before a handler runs.
+- `sessions.config` switches to one exact AI config and needs `{ sessionId, configId }`. It replaces the provider alias for the phone. `sessions.account` stays for an older client and maps a provider id to that provider's config for the session's client.
 - `sessions.upload`, `files.image`, `ui.manifest` and `ui.download` are allowlisted but return `unsupported` until their steps. `demoServers.list` returns the active registered entries.
 - `events.subscribe` has no parameters. It forwards `session.updated` from the event stream and the question, request, notification, shared-file and provider events from the auxiliary stream. A phone that falls behind loses the stream and reconnects; the bootstrap snapshot shows the current state.
 - `output.subscribe` takes `{ sessionId, after }`. It sends a stream start, replays the retained output with a higher sequence than `after`, and keeps the stream open. A replayed event may carry `gap`. The stream ends when the session closes. A slow reader gets a fresh snapshot from its last sequence, which fills the gap.

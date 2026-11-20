@@ -651,6 +651,48 @@ async fn a_phone_says_hello_and_calls_the_allowed_methods() {
         let closed = response.result().expect("closed session");
         assert_eq!(closed["status"], "closed");
 
+        let response = request_on(
+            &connection,
+            Request::new(
+                Method::SessionsInput,
+                Some(json!({"sessionId": session_id, "data": "echo phone\n"})),
+            ),
+        )
+        .await;
+        assert!(
+            response.result().is_some(),
+            "the phone could not send input: {response:?}"
+        );
+
+        let response = request_on(&connection, Request::new(Method::Bootstrap, None)).await;
+        let snapshot = response.result().expect("bootstrap result");
+        assert!(
+            snapshot["configs"].is_array()
+                && !snapshot["configs"]
+                    .as_array()
+                    .expect("configs array")
+                    .is_empty(),
+            "bootstrap has no configs: {snapshot}"
+        );
+        assert!(
+            snapshot["providers"].is_array(),
+            "bootstrap has no providers: {snapshot}"
+        );
+
+        let response = request_on(
+            &connection,
+            Request::new(
+                Method::SessionsConfig,
+                Some(json!({"sessionId": session_id, "configId": "deepseek-claude-code"})),
+            ),
+        )
+        .await;
+        assert_eq!(
+            response.error_body().expect("config error").code(),
+            ErrorCode::Unprocessable,
+            "a terminal session accepted an AI config switch"
+        );
+
         let response = request_on(&connection, Request::new(Method::QuestionsList, None)).await;
         assert!(
             response
