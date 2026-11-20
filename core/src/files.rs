@@ -225,7 +225,7 @@ pub fn write(root: &Path, relative: &str, content: &str) -> Result<FileContent, 
     })
 }
 
-fn valid_relative(relative: &str) -> Result<PathBuf, FileError> {
+pub(crate) fn valid_relative(relative: &str) -> Result<PathBuf, FileError> {
     let trimmed = relative.trim();
     if trimmed.is_empty() || trimmed.len() > 4096 {
         return Err(FileError::InvalidPath);
@@ -257,7 +257,7 @@ fn path_string(path: &Path) -> String {
     path.to_string_lossy().replace('\\', "/")
 }
 
-fn open_readonly(path: &Path) -> io::Result<fs::File> {
+pub(crate) fn open_readonly(path: &Path) -> io::Result<fs::File> {
     let mut options = fs::OpenOptions::new();
     options.read(true);
     #[cfg(unix)]
@@ -268,7 +268,7 @@ fn open_readonly(path: &Path) -> io::Result<fs::File> {
     options.open(path)
 }
 
-fn reject_hard_link(metadata: &fs::Metadata) -> Result<(), FileError> {
+pub(crate) fn reject_hard_link(metadata: &fs::Metadata) -> Result<(), FileError> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt;
@@ -281,7 +281,7 @@ fn reject_hard_link(metadata: &fs::Metadata) -> Result<(), FileError> {
     Ok(())
 }
 
-fn is_binary(bytes: &[u8]) -> bool {
+pub(crate) fn is_binary(bytes: &[u8]) -> bool {
     bytes.iter().take(SNIFF_BYTES).any(|byte| *byte == 0)
 }
 

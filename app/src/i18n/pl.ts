@@ -463,6 +463,12 @@ export const pl = {
   'panel.emptyFolder': 'Pusty folder',
   'panel.moreEntries': 'Więcej pozycji nie jest pokazywanych.',
   'panel.filesLabel': 'Pliki sesji',
+  'panel.sharedFiles': 'Udostępnione',
+  'panel.sharedFilesLabel': 'Udostępnione pliki',
+  'panel.download': 'Pobierz',
+  'panel.sharedLoading': 'Ładowanie udostępnionego pliku…',
+  'panel.sharedNoPreview':
+    'Ten plik nie ma podglądu. Pobierz go, aby otworzyć.',
   'panel.save': 'Zapisz',
   'panel.saving': 'Zapisywanie…',
   'panel.saved': 'Zapisano.',

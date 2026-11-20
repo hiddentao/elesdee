@@ -414,6 +414,10 @@ impl SessionEntry {
         *lock(&self.redactions) = secrets;
     }
 
+    pub fn redactions(&self) -> Vec<String> {
+        lock(&self.redactions).clone()
+    }
+
     pub fn persistence_output(&self) -> (Vec<(u64, String)>, u64) {
         let data = lock(&self.data);
         (

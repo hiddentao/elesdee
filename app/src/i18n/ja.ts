@@ -460,6 +460,12 @@ export const ja = {
   'panel.moreEntries':
     'さらに項目がありますが表示されていません。',
   'panel.filesLabel': 'セッションのファイル',
+  'panel.sharedFiles': '共有',
+  'panel.sharedFilesLabel': '共有ファイル',
+  'panel.download': 'ダウンロード',
+  'panel.sharedLoading': '共有ファイルを読み込み中…',
+  'panel.sharedNoPreview':
+    'このファイルはプレビューできません。ダウンロードして開いてください。',
   'panel.save': '保存',
   'panel.saving': '保存しています…',
   'panel.saved': '保存しました。',

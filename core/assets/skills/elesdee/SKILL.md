@@ -29,8 +29,12 @@ The elesdee MCP server gives you these tools:
 | `send_message` | Send input to another session. |
 | `check_usage` | Show the account's remaining usage. |
 | `start_session` | Ask the user to start a helper session. |
+| `wait_for_session` | Wait until another session needs attention or reaches a state. |
+| `share_file` | Share a file or screenshot from this folder with the user. |
 
 The user must approve a new session. Only the user closes a session or switches its provider.
+
+`wait_for_session` returns at its timeout with the session's status. Call it again to keep waiting. It stops when this session closes. `share_file` takes a path relative to this folder; the app stores a copy for the user and refuses secret files and paths outside the folder.
 
 ## Skills
 

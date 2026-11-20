@@ -33,8 +33,10 @@ The user must approve each new session, unless the user allowed further sessions
 - `list_sessions` returns each session's project, status, work state and branch.
 - `read_session` returns one session's status, waiting state and recent output preview.
 - `send_message` sends a line of input to a helper, for example an answer or a correction.
+- `wait_for_session` waits for a helper to need input, finish or change state. It returns at its timeout with the status, so call it again to keep waiting.
 - Check the helpers at sensible intervals. Do not poll in a tight loop.
 - If a helper is waiting for input, use `read_session` to see why and `send_message` to unblock it.
+- A helper can share a screenshot or a file with `share_file`. It appears in that session's Files panel.
 
 ## Merge the results
 

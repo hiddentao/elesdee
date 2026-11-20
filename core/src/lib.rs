@@ -16,6 +16,7 @@ mod recovery;
 mod secrets;
 mod seed;
 mod sessions;
+mod shared;
 mod shortcuts;
 mod slug;
 pub mod state;

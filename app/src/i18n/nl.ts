@@ -459,6 +459,12 @@ export const nl = {
   'panel.emptyFolder': 'Lege map',
   'panel.moreEntries': 'Meer items worden niet getoond.',
   'panel.filesLabel': 'Sessiebestanden',
+  'panel.sharedFiles': 'Gedeeld',
+  'panel.sharedFilesLabel': 'Gedeelde bestanden',
+  'panel.download': 'Downloaden',
+  'panel.sharedLoading': 'Gedeeld bestand laden…',
+  'panel.sharedNoPreview':
+    'Dit bestand heeft geen voorbeeld. Download het om het te openen.',
   'panel.save': 'Opslaan',
   'panel.saving': 'Opslaan…',
   'panel.saved': 'Opgeslagen.',

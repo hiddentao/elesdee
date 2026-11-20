@@ -200,6 +200,7 @@ export interface Notification {
 export type AuxEvent =
   | { type: 'question.updated'; question: Question }
   | { type: 'request.updated'; request: SessionRequest }
+  | { type: 'sharedfile.created'; file: SharedFile }
   | { type: 'notification'; notification: Notification };
 
 export interface HealthResponse {
@@ -229,6 +230,19 @@ export interface FileContent {
   path: string;
   content: string;
   size: number;
+}
+
+export interface SharedFile {
+  id: string;
+  sessionId: string;
+  sessionName: string;
+  name: string;
+  path: string;
+  caption: string | null;
+  size: number;
+  contentType: string;
+  image: boolean;
+  createdAt: string;
 }
 
 export type ChangeStatus =

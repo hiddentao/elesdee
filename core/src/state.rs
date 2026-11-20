@@ -15,6 +15,7 @@ use crate::persist::{LoadResult, PersistedOutput, PersistedSession, PersistedSta
 use crate::secrets::{KeyringStore, MemorySecretStore, SecretStore};
 use crate::seed;
 use crate::sessions::{self, CloseFailure, OutputBudget, SessionEntry, TerminalSize};
+use crate::shared::SharedFile;
 use crate::slug::{slugify, with_suffix};
 
 const EVENT_CHANNEL_CAPACITY: usize = 256;
@@ -261,6 +262,8 @@ pub enum AuxEvent {
     Request { request: SessionRequest },
     #[serde(rename = "notification")]
     Notification { notification: Notification },
+    #[serde(rename = "sharedfile.created")]
+    SharedFile { file: SharedFile },
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -1300,6 +1303,10 @@ impl AppState {
         });
         self.save();
         Some(request)
+    }
+
+    pub fn emit_shared_file(&self, file: SharedFile) {
+        self.emit_aux(AuxEvent::SharedFile { file });
     }
 
     fn emit_aux(&self, event: AuxEvent) {

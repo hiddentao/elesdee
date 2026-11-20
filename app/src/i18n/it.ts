@@ -463,6 +463,12 @@ export const it = {
   'panel.emptyFolder': 'Cartella vuota',
   'panel.moreEntries': 'Altre voci non sono mostrate.',
   'panel.filesLabel': 'File della sessione',
+  'panel.sharedFiles': 'Condivisi',
+  'panel.sharedFilesLabel': 'File condivisi',
+  'panel.download': 'Scarica',
+  'panel.sharedLoading': 'Caricamento del file condiviso…',
+  'panel.sharedNoPreview':
+    "Questo file non ha un'anteprima. Scaricalo per aprirlo.",
   'panel.save': 'Salva',
   'panel.saving': 'Salvataggio…',
   'panel.saved': 'Salvato.',

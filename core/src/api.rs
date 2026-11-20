@@ -9,7 +9,7 @@ use axum::extract::rejection::{JsonRejection, QueryRejection};
 use axum::extract::{Path as UrlPath, Query, Request, State};
 use axum::http::header::{
     ACCESS_CONTROL_ALLOW_HEADERS, ACCESS_CONTROL_ALLOW_METHODS, ACCESS_CONTROL_ALLOW_ORIGIN,
-    ACCESS_CONTROL_MAX_AGE, CACHE_CONTROL, CONTENT_TYPE, HOST, ORIGIN, VARY,
+    ACCESS_CONTROL_MAX_AGE, CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_TYPE, HOST, ORIGIN, VARY,
 };
 use axum::http::{HeaderName, HeaderValue, Method, StatusCode};
 use axum::middleware::{self, Next};
@@ -36,6 +36,7 @@ use crate::sessions::{
     self, BeginPermission, CloseFailure, InputFailure, PermissionAnswerFailure, ResizeFailure,
     SessionEntry, TerminalSize,
 };
+use crate::shared;
 use crate::shortcuts;
 use crate::slug::slugify;
 use crate::state::{
@@ -437,6 +438,8 @@ pub fn router(state: AppState) -> Router {
             get(read_session_file).post(write_session_file),
         )
         .route("/api/sessions/{id}/changes", get(session_changes))
+        .route("/api/sessions/{id}/shared", get(list_shared_files))
+        .route("/api/sessions/{id}/shared/{file_id}", get(read_shared_file))
         .route("/internal/mcp/{id}", post(mcp_request))
         .layer(middleware::from_fn(request_timeout));
 
@@ -2503,6 +2506,103 @@ async fn write_session_file(
             .map_err(|_| ApiError::internal("The file save failed."))?
             .map_err(file_error)?;
     Ok(Json(written))
+}
+
+async fn list_shared_files(
+    State(state): State<AppState>,
+    UrlPath(id): UrlPath<String>,
+) -> Result<Json<Vec<shared::SharedFile>>, ApiError> {
+    if state.session(&id).is_none() {
+        return Err(ApiError::not_found("Unknown session."));
+    }
+    let data_dir = shared_data_dir(&state)?;
+    let session_id = id.clone();
+    let files = tokio::task::spawn_blocking(move || shared::list(&data_dir, &session_id))
+        .await
+        .map_err(|_| ApiError::internal("The shared file list failed."))?
+        .map_err(shared_error)?;
+    Ok(Json(files))
+}
+
+async fn read_shared_file(
+    State(state): State<AppState>,
+    UrlPath((id, file_id)): UrlPath<(String, String)>,
+) -> Result<Response, ApiError> {
+    if state.session(&id).is_none() {
+        return Err(ApiError::not_found("Unknown session."));
+    }
+    let data_dir = shared_data_dir(&state)?;
+    let (file, bytes) = tokio::task::spawn_blocking(move || shared::read(&data_dir, &id, &file_id))
+        .await
+        .map_err(|_| ApiError::internal("The shared file read failed."))?
+        .map_err(shared_error)?;
+    let inline = file.image;
+    let mut response = Response::new(axum::body::Body::from(bytes));
+    let headers = response.headers_mut();
+    headers.insert(
+        CONTENT_TYPE,
+        HeaderValue::from_str(&file.content_type)
+            .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")),
+    );
+    headers.insert(
+        CONTENT_DISPOSITION,
+        HeaderValue::from_str(&content_disposition(&file.name, inline))
+            .unwrap_or_else(|_| HeaderValue::from_static("attachment")),
+    );
+    headers.insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    headers.insert(NOSNIFF, HeaderValue::from_static("nosniff"));
+    Ok(response)
+}
+
+fn shared_data_dir(state: &AppState) -> Result<PathBuf, ApiError> {
+    state
+        .data_dir()
+        .map(Path::to_path_buf)
+        .ok_or_else(|| ApiError::internal("The shared file store is not available."))
+}
+
+fn shared_error(error: shared::ShareError) -> ApiError {
+    match error {
+        shared::ShareError::InvalidPath | shared::ShareError::OutsideFolder => {
+            ApiError::bad_request("The shared file path is not valid.")
+        }
+        shared::ShareError::NotFound => ApiError::not_found("The shared file does not exist."),
+        shared::ShareError::NotAFile => ApiError::unprocessable("The shared file is not a file."),
+        shared::ShareError::TooLarge(size) => ApiError::payload_too_large(format!(
+            "The shared file is too large. The limit is {} bytes; this file is {size} bytes.",
+            shared::MAX_SHARED_BYTES
+        )),
+        shared::ShareError::Linked => {
+            ApiError::unprocessable("Hard-linked files are not supported.")
+        }
+        shared::ShareError::Secret => ApiError::unprocessable("The shared file is not available."),
+        shared::ShareError::Unavailable => {
+            ApiError::internal("The shared file store is not available.")
+        }
+        shared::ShareError::Io(error) => {
+            tracing::error!(%error, "the shared file route failed");
+            ApiError::internal("The shared file operation failed.")
+        }
+    }
+}
+
+fn content_disposition(name: &str, inline: bool) -> String {
+    let name = name
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || " ._-()".contains(character) {
+                character
+            } else {
+                '_'
+            }
+        })
+        .take(120)
+        .collect::<String>();
+    format!(
+        "{}; filename=\"{}\"",
+        if inline { "inline" } else { "attachment" },
+        name
+    )
 }
 
 async fn session_changes(
