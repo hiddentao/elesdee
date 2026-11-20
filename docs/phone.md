@@ -18,6 +18,8 @@ Choose **Pair a phone** in **Settings > Devices** on the computer. The computer 
 
 The desktop build includes the phone interface. When a paired phone connects, it compares the interface version on the computer with the copy it holds for that computer. It downloads a new interface only when the version differs. It checks the download before it uses it and keeps the previous copy for the next attempt.
 
+The downloaded interface talks to the computer through the phone app's connection. Requests, live messages, terminal output, file uploads, image previews and session actions all travel that way; they do not use a local computer address on the phone. The browser layout at `/phone.html` keeps using the computer's local API. While the downloaded interface is open, the phone app raises the same notifications as its own screens.
+
 If the download fails, the phone app keeps its own screens and says that the interface could not be loaded. If the phone app, the computer or the interface needs a newer version, the app shows an update-needed screen. Update the phone app or elesdee on the computer as the screen says.
 
 ## Language
@@ -76,6 +78,8 @@ A demo server is a loopback port that an agent registers for its session. The se
 A paired phone shell opens the session's active demo servers as a list. Each row shows the server's name, its address on the phone, the tailnet address when the computer recorded one, a state and an **Open** action. The phone listens on `127.0.0.1` at the same port when it is free, or at a free port, and forwards the connection over the link to `127.0.0.1` on the computer. Only a registered port is allowed. There is one tunnel per port and at most eight at once. A tunnel closes when its server stops, the session closes or pauses, the phone disconnects, the pairing is removed or the app exits.
 
 The installable app is not released. The computer side and the phone shell listener are built and tested on the host. No device or emulator test has run, so the browser handoff and background behavior are unchecked. Android may pause the app after you switch to the browser; this build does not request a foreground service. The phone stops forwarding only when the platform stops the app.
+
+The downloaded interface also runs through the phone app's connection on the host tests only. A real phone must still check that interface inside the phone app, including a file upload, an image preview and a notification tap.
 
 ## What is not built yet
 

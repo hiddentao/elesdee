@@ -306,6 +306,8 @@ Every later stream carries one request with the shared four-byte JSON length fra
 
 The phone shell reconnects after a drop. It waits 0.5 s, 1 s, 2 s, 4 s, 8 s, 15 s and then 30 s, with ±20% jitter. A connection that stayed up for 30 seconds resets the sequence. The shell reopens the event stream and resumes each output stream from the last sequence seen. A revoked or unknown device stops the retries.
 
+The loaded UI package uses the same methods. A marker in the served entry page selects the package bridge; the package calls the shell commands in `.dev/phone-shell.md`, and the shell checks the same allowlist before it sends. The package adds no link method.
+
 ## Agent permissions
 
 - Antigravity has no hooks and no permission card. Its own terminal handles prompts.

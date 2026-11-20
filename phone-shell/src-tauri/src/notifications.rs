@@ -8,7 +8,7 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_notification::{NotificationExt, PermissionState};
@@ -125,6 +125,174 @@ pub fn show_notice<H: NotificationHost>(host: &H, notice: &LocalNotice) -> Resul
     }
     host.display(notice)?;
     Ok(true)
+}
+
+/// The notice that an event earns after the rules are applied.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NoticeDecision {
+    /// A session waits for permission, input or a session start.
+    Waiting(&'static str),
+    /// An agent reported its task done.
+    Done,
+    /// An agent sent a message.
+    Message,
+}
+
+/// The phone screen state at the moment an event arrives.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ScreenState<'a> {
+    /// The session id on the open session screen, or `None`.
+    pub session_id: Option<&'a str>,
+    /// True when the app is in the foreground.
+    pub app_visible: bool,
+}
+
+/// The text that the package sends for each kind of notice.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NoticeTexts {
+    pub waiting_title: String,
+    pub request_title: String,
+    pub request_body: String,
+    pub permission_body: String,
+    pub question_body: String,
+    pub input_body: String,
+    pub done_title: String,
+    pub done_body: String,
+    pub message_title: String,
+    pub message_body: String,
+}
+
+impl NoticeTexts {
+    /// Returns the title and body that fit one decision.
+    pub fn for_decision(&self, decision: NoticeDecision) -> (String, String) {
+        match decision {
+            NoticeDecision::Waiting("permission") => {
+                (cap(&self.waiting_title), cap(&self.permission_body))
+            }
+            NoticeDecision::Waiting("question") => {
+                (cap(&self.waiting_title), cap(&self.question_body))
+            }
+            NoticeDecision::Waiting("start") => (cap(&self.request_title), cap(&self.request_body)),
+            NoticeDecision::Waiting(_) => (cap(&self.waiting_title), cap(&self.input_body)),
+            NoticeDecision::Done => (cap(&self.done_title), cap(&self.done_body)),
+            NoticeDecision::Message => (cap(&self.message_title), cap(&self.message_body)),
+        }
+    }
+}
+
+const MAX_NOTICE_TEXT: usize = 512;
+
+fn cap(value: &str) -> String {
+    value.chars().take(MAX_NOTICE_TEXT).collect()
+}
+
+fn safe_id(value: &str) -> Option<&str> {
+    if value.is_empty()
+        || value.len() > 128
+        || !value.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.')
+        })
+    {
+        return None;
+    }
+    Some(value)
+}
+
+fn field<'a>(event: &'a Value, name: &str) -> Option<&'a str> {
+    event.get(name)?.as_str()
+}
+
+fn event_session_id(event: &Value) -> Option<&str> {
+    safe_id(field(event, "sessionId")?)
+}
+
+/// Decides which event raises a notification.
+///
+/// A session update notifies when its waiting state changes, except for a
+/// question: the pending question event that follows carries that notice. A
+/// pending session request, a question, a done report and a message each raise
+/// their own notice. A notice for the open session stays quiet while the app
+/// is in front, and a message always sends.
+pub fn notice_for_event(event: &Value, screen: ScreenState<'_>) -> Option<NoticeDecision> {
+    let session_id = event_session_id(event)?;
+    let decision = match field(event, "kind")? {
+        "session" => {
+            if field(event, "status")? != "active" {
+                return None;
+            }
+            let waiting = field(event, "waitingFor")?;
+            if waiting == "question" {
+                return None;
+            }
+            if field(event, "previousWaitingFor") == Some(waiting) {
+                return None;
+            }
+            NoticeDecision::Waiting(match waiting {
+                "permission" => "permission",
+                "question" => "question",
+                "start" => "start",
+                _ => "input",
+            })
+        }
+        "question" => {
+            if field(event, "status")? != "pending" {
+                return None;
+            }
+            NoticeDecision::Waiting("question")
+        }
+        "request" => {
+            if field(event, "status")? != "pending" {
+                return None;
+            }
+            NoticeDecision::Waiting("start")
+        }
+        "notification" => match field(event, "notificationKind")? {
+            "done" => NoticeDecision::Done,
+            "message" => NoticeDecision::Message,
+            _ => return None,
+        },
+        _ => return None,
+    };
+    if decision != NoticeDecision::Message
+        && screen.app_visible
+        && screen.session_id == Some(session_id)
+    {
+        return None;
+    }
+    Some(decision)
+}
+
+/// Raises one notice from a package event when the rules allow it.
+#[tauri::command]
+pub async fn phone_notification_event(
+    app: AppHandle,
+    computer_id: String,
+    event: Value,
+    screen_session_id: Option<String>,
+    app_visible: bool,
+    texts: NoticeTexts,
+) -> Result<bool, String> {
+    let screen = ScreenState {
+        session_id: screen_session_id.as_deref(),
+        app_visible,
+    };
+    let Some(decision) = notice_for_event(&event, screen) else {
+        return Ok(false);
+    };
+    let session_id =
+        event_session_id(&event).ok_or_else(|| "The event has no session.".to_owned())?;
+    if safe_id(&computer_id).is_none() {
+        return Err("The computer id is not valid.".to_owned());
+    }
+    let (title, body) = texts.for_decision(decision);
+    let notice = LocalNotice {
+        computer_id,
+        session_id: session_id.to_owned(),
+        title,
+        body,
+    };
+    show_notice(&PluginHost(app), &notice)
 }
 
 /// Reads the computer and session from a tap on a notification.
@@ -254,8 +422,9 @@ fn focus_main_window(app: &AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::{
-        LocalNotice, MAX_ROUTES, NotificationHost, NotificationRoutes, NotificationTarget,
-        ensure_permission, notification_target, show_notice,
+        LocalNotice, MAX_ROUTES, NoticeDecision, NoticeTexts, NotificationHost, NotificationRoutes,
+        NotificationTarget, ScreenState, ensure_permission, notice_for_event, notification_target,
+        show_notice,
     };
     use serde_json::json;
     use std::cell::{Cell, RefCell};
@@ -409,6 +578,190 @@ mod tests {
                 ])
             )
             .is_none()
+        );
+    }
+
+    fn idle_screen() -> ScreenState<'static> {
+        ScreenState {
+            session_id: None,
+            app_visible: false,
+        }
+    }
+
+    #[test]
+    fn a_waiting_transition_earns_a_notice() {
+        let event = json!({
+            "kind": "session",
+            "sessionId": "s1",
+            "sessionName": "Build",
+            "status": "active",
+            "waitingFor": "permission",
+            "previousWaitingFor": "working",
+        });
+        assert_eq!(
+            notice_for_event(&event, idle_screen()),
+            Some(NoticeDecision::Waiting("permission"))
+        );
+    }
+
+    #[test]
+    fn an_unchanged_waiting_state_stays_quiet() {
+        let event = json!({
+            "kind": "session",
+            "sessionId": "s1",
+            "sessionName": "Build",
+            "status": "active",
+            "waitingFor": "input",
+            "previousWaitingFor": "input",
+        });
+        assert_eq!(notice_for_event(&event, idle_screen()), None);
+    }
+
+    #[test]
+    fn a_question_update_owns_the_question_notice() {
+        let session = json!({
+            "kind": "session",
+            "sessionId": "s1",
+            "sessionName": "Build",
+            "status": "active",
+            "waitingFor": "question",
+            "previousWaitingFor": null,
+        });
+        assert_eq!(notice_for_event(&session, idle_screen()), None);
+
+        let question = json!({
+            "kind": "question",
+            "sessionId": "s1",
+            "sessionName": "Build",
+            "status": "pending",
+        });
+        assert_eq!(
+            notice_for_event(&question, idle_screen()),
+            Some(NoticeDecision::Waiting("question"))
+        );
+    }
+
+    #[test]
+    fn a_pending_session_request_earns_a_start_notice() {
+        let event = json!({
+            "kind": "request",
+            "sessionId": "s1",
+            "sessionName": "Build",
+            "status": "pending",
+        });
+        assert_eq!(
+            notice_for_event(&event, idle_screen()),
+            Some(NoticeDecision::Waiting("start"))
+        );
+    }
+
+    #[test]
+    fn done_and_message_notifications_earn_their_notice() {
+        let done = json!({
+            "kind": "notification",
+            "sessionId": "s1",
+            "sessionName": "Build",
+            "notificationKind": "done",
+            "message": "",
+        });
+        assert_eq!(
+            notice_for_event(&done, idle_screen()),
+            Some(NoticeDecision::Done)
+        );
+
+        let message = json!({
+            "kind": "notification",
+            "sessionId": "s1",
+            "sessionName": "Build",
+            "notificationKind": "message",
+            "message": "Please look",
+        });
+        assert_eq!(
+            notice_for_event(&message, idle_screen()),
+            Some(NoticeDecision::Message)
+        );
+    }
+
+    #[test]
+    fn the_open_session_suppresses_a_waiting_notice() {
+        let event = json!({
+            "kind": "session",
+            "sessionId": "s1",
+            "sessionName": "Build",
+            "status": "active",
+            "waitingFor": "input",
+            "previousWaitingFor": null,
+        });
+        let screen = ScreenState {
+            session_id: Some("s1"),
+            app_visible: true,
+        };
+        assert_eq!(notice_for_event(&event, screen), None);
+    }
+
+    #[test]
+    fn a_message_is_never_suppressed() {
+        let event = json!({
+            "kind": "notification",
+            "sessionId": "s1",
+            "sessionName": "Build",
+            "notificationKind": "message",
+            "message": "Please look",
+        });
+        let screen = ScreenState {
+            session_id: Some("s1"),
+            app_visible: true,
+        };
+        assert_eq!(
+            notice_for_event(&event, screen),
+            Some(NoticeDecision::Message)
+        );
+    }
+
+    #[test]
+    fn an_unknown_event_earns_nothing() {
+        assert_eq!(
+            notice_for_event(&json!({"kind": "other"}), idle_screen()),
+            None
+        );
+        assert_eq!(
+            notice_for_event(
+                &json!({
+                    "kind": "session",
+                    "sessionId": "../state",
+                    "status": "active",
+                }),
+                idle_screen()
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn the_texts_follow_the_decision() {
+        let texts = NoticeTexts {
+            waiting_title: "Waiting".to_owned(),
+            request_title: "Request".to_owned(),
+            request_body: "Approve".to_owned(),
+            permission_body: "Permission".to_owned(),
+            question_body: "Question".to_owned(),
+            input_body: "Input".to_owned(),
+            done_title: "Done".to_owned(),
+            done_body: "Complete".to_owned(),
+            message_title: "Message".to_owned(),
+            message_body: "Hello".to_owned(),
+        };
+        assert_eq!(
+            texts.for_decision(NoticeDecision::Waiting("permission")),
+            ("Waiting".to_owned(), "Permission".to_owned())
+        );
+        assert_eq!(
+            texts.for_decision(NoticeDecision::Waiting("start")),
+            ("Request".to_owned(), "Approve".to_owned())
+        );
+        assert_eq!(
+            texts.for_decision(NoticeDecision::Message),
+            ("Message".to_owned(), "Hello".to_owned())
         );
     }
 }
