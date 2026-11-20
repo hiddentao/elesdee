@@ -43,6 +43,8 @@ A project groups sessions. Moving a session changes only its project. The sessio
 
 In the grouped session list, drag a session onto another project. The target project shows a dashed outline. Press Escape during the drag to cancel. A small pointer movement still selects the session.
 
+You can also open the session menu and choose **Move to project…**. Pick a project from the filterable list and confirm. This is the same move as dragging.
+
 To move a session with the keyboard, focus its row and press **M**. The sidebar says which project is the target. Use the up and down arrows to choose another project, **Enter** to move, or **Escape** to cancel.
 
 ## Terminals
@@ -163,6 +165,7 @@ Right-click a session in the sidebar or its tab, or use the menu button in the s
 
 - **Reopen** for a closed session
 - **Rename…**
+- **Move to project…** when another project exists
 - **Switch AI config…** for an active agent session
 - **Copy folder path**
 - **Copy branch name**

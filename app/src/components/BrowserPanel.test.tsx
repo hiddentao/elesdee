@@ -196,6 +196,40 @@ describe('BrowserPanel', () => {
     expect(createBrowserTab).toHaveBeenCalledWith('s1');
   });
 
+  it('moves browser tabs with arrow keys and one tab stop', async () => {
+    const tabs = [
+      tab(),
+      tab({ id: 's1-tab-2', title: 'Other', url: 'http://localhost:3000/other' }),
+      tab({ id: 's1-tab-3', title: 'Third', url: 'http://localhost:3000/third' }),
+    ];
+    vi.mocked(getBrowserState).mockResolvedValue(stateWith(tabs));
+    vi.mocked(activateBrowserTab).mockImplementation(async (_id, tabId) =>
+      stateWith(tabs, { activeTabId: tabId }),
+    );
+    const user = userEvent.setup();
+    render(<BrowserPanel session={makeSession()} />);
+
+    const first = await screen.findByRole('tab', { name: 'Demo' });
+    const second = screen.getByRole('tab', { name: 'Other' });
+    const third = screen.getByRole('tab', { name: 'Third' });
+    expect(first).toHaveAttribute('tabindex', '0');
+    expect(second).toHaveAttribute('tabindex', '-1');
+    expect(third).toHaveAttribute('tabindex', '-1');
+
+    first.focus();
+    await user.keyboard('{ArrowRight}');
+    expect(activateBrowserTab).toHaveBeenCalledWith('s1', 's1-tab-2');
+    await waitFor(() => expect(second).toHaveFocus());
+
+    await user.keyboard('{End}');
+    expect(activateBrowserTab).toHaveBeenLastCalledWith('s1', 's1-tab-3');
+    await waitFor(() => expect(third).toHaveFocus());
+
+    await user.keyboard('{Home}');
+    expect(activateBrowserTab).toHaveBeenLastCalledWith('s1', 's1-tab-1');
+    await waitFor(() => expect(first).toHaveFocus());
+  });
+
   it('keeps each session on its own tab state', async () => {
     const other: Session = makeSession({ id: 's2', name: 'Other session' });
     vi.mocked(getBrowserState).mockImplementation(async (id) =>

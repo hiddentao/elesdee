@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -71,16 +72,18 @@ vi.mock('../api/client', () => ({
 
 vi.mock('./FileEditor', () => ({
   FileEditor: ({
+    label,
     value,
     onChange,
     onSave,
   }: {
+    label: string;
     value: string;
     onChange: (value: string) => void;
     onSave: () => void;
   }) => (
     <textarea
-      aria-label="Code editor"
+      aria-label={label}
       value={value}
       onChange={(event) => onChange(event.target.value)}
       onKeyDown={(event) => {
@@ -196,7 +199,9 @@ describe('SessionSidePanel files', () => {
     const note = await screen.findByRole('button', { name: /note\.txt/ });
     await user.click(note);
 
-    const editor = await screen.findByLabelText('Code editor');
+    const editor = await screen.findByRole('textbox', {
+      name: 'Editor: note.txt',
+    });
     expect(editor).toHaveValue('hello\n');
     expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
 
@@ -283,6 +288,113 @@ describe('SessionSidePanel files', () => {
 
     await user.click(screen.getByRole('button', { name: 'Close side panel' }));
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('SessionSidePanel keyboard', () => {
+  it('moves the dock tabs with arrow keys and one tab stop', async () => {
+    const user = userEvent.setup();
+    const onSelectTab = vi.fn();
+    renderPanel('files', onSelectTab);
+
+    const files = screen.getByRole('tab', { name: 'Files' });
+    const changes = screen.getByRole('tab', { name: 'Changes' });
+    const browser = screen.getByRole('tab', { name: 'Browser' });
+    expect(files).toHaveAttribute('tabindex', '0');
+    expect(changes).toHaveAttribute('tabindex', '-1');
+    expect(browser).toHaveAttribute('tabindex', '-1');
+
+    files.focus();
+    await user.keyboard('{ArrowRight}');
+    expect(onSelectTab).toHaveBeenCalledWith('changes');
+    expect(changes).toHaveFocus();
+
+    await user.keyboard('{End}');
+    expect(onSelectTab).toHaveBeenLastCalledWith('browser');
+    expect(browser).toHaveFocus();
+
+    await user.keyboard('{Home}');
+    expect(onSelectTab).toHaveBeenLastCalledWith('files');
+    expect(files).toHaveFocus();
+  });
+
+  it('moves, expands and collapses file rows with the keyboard', async () => {
+    const user = userEvent.setup();
+    renderPanel();
+
+    const folder = await screen.findByRole('treeitem', { name: 'src' });
+    const file = screen.getByRole('treeitem', { name: 'note.txt' });
+    expect(folder).toHaveAttribute('tabindex', '0');
+    expect(file).toHaveAttribute('tabindex', '-1');
+
+    folder.focus();
+    await user.keyboard('{ArrowDown}');
+    expect(file).toHaveFocus();
+
+    await user.keyboard('{ArrowUp}');
+    expect(folder).toHaveFocus();
+
+    await user.keyboard('{ArrowRight}');
+    expect(folder).toHaveAttribute('aria-expanded', 'true');
+    expect(listFiles).toHaveBeenCalledWith('s1', 'src');
+
+    const child = await screen.findByRole('treeitem', { name: 'lib.rs' });
+    await user.keyboard('{ArrowDown}');
+    expect(child).toHaveFocus();
+
+    await user.keyboard('{ArrowLeft}');
+    expect(folder).toHaveFocus();
+
+    await user.keyboard('{ArrowLeft}');
+    expect(folder).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('opens a file with Enter and toggles a folder with Space', async () => {
+    const user = userEvent.setup();
+    renderPanel();
+
+    const folder = await screen.findByRole('treeitem', { name: 'src' });
+    folder.focus();
+    await user.keyboard(' ');
+    expect(folder).toHaveAttribute('aria-expanded', 'true');
+
+    const file = screen.getByRole('treeitem', { name: 'note.txt' });
+    file.focus();
+    await user.keyboard('{Enter}');
+    expect(
+      await screen.findByRole('textbox', { name: 'Editor: note.txt' }),
+    ).toHaveValue('hello\n');
+  });
+
+  it('returns focus to the opener when the panel closes', async () => {
+    function PanelHarness() {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <button type="button" onClick={() => setOpen(true)}>
+            Open panel
+          </button>
+          {open ? (
+            <SessionSidePanel
+              session={makeSession()}
+              tab="files"
+              onSelectTab={vi.fn()}
+              onClose={() => setOpen(false)}
+            />
+          ) : null}
+        </>
+      );
+    }
+
+    const user = userEvent.setup();
+    render(<PanelHarness />);
+    const opener = screen.getByRole('button', { name: 'Open panel' });
+
+    await user.click(opener);
+    await screen.findByRole('tab', { name: 'Files' });
+    await user.click(screen.getByRole('button', { name: 'Close side panel' }));
+
+    expect(opener).toHaveFocus();
   });
 });
 

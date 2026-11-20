@@ -150,6 +150,7 @@ The agents write their conversation to files on disk, and each keeps its own int
 **Session menu**
 
 - Right-click a session in the sidebar, or its tab, to open a menu of actions.
+- Move to project opens a chooser of the other projects and moves the session to the chosen one. It does the same as dragging the session.
 - One action is Close. Close stops the session. The app asks me to confirm first.
 - Close is the only way to stop a session for good. The app can also pause a session that is out of usage (see Auto-switch).
 
@@ -468,7 +469,7 @@ A project groups sessions.
 
 - Creating a project is fast: one action, a name and a folder. The folder can be a Git repository or a plain folder.
 - Add project offers two sources: a local folder, or a repository from GitHub. The GitHub choice connects with a device code, lists and searches my repositories, and clones the chosen repository into a folder I pick or the default projects folder. It never overwrites an existing folder, and a failed clone leaves no folder. The cloned folder becomes the project.
-- I can drag a session from one project to another.
+- I can drag a session from one project to another, or choose Move to project in its session menu.
 - A project can store a default AI config and a default source branch. New sessions in the project start with these filled in, and I can change them for each session. The branch must exist in the project folder's Git repository.
 
 ## Launching a session

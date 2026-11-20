@@ -107,6 +107,7 @@ import { QuestionsDialog } from './components/QuestionsDialog';
 import { RenameSessionDialog } from './components/RenameSessionDialog';
 import { RequestsDialog } from './components/RequestsDialog';
 import {
+  MoveSessionDialog,
   SessionActionsMenu,
   type SessionMenuAction,
 } from './components/SessionActionsMenu';
@@ -189,6 +190,7 @@ export default function App() {
   const [deleteSessionId, setDeleteSessionId] = useState<string | null>(null);
   const [switchSessionId, setSwitchSessionId] = useState<string | null>(null);
   const [sessionMenu, setSessionMenu] = useState<SessionMenuState | null>(null);
+  const [moveSessionId, setMoveSessionId] = useState<string | null>(null);
   const [branchMenu, setBranchMenu] = useState<BranchMenuState | null>(null);
   const [dialogProjectId, setDialogProjectId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -442,6 +444,9 @@ export default function App() {
   const menuSession = sessionMenu
     ? sessions.find((session) => session.id === sessionMenu.sessionId) ?? null
     : null;
+  const moveTarget = moveSessionId
+    ? sessions.find((session) => session.id === moveSessionId) ?? null
+    : null;
   const branchSession = branchMenu
     ? sessions.find((session) => session.id === branchMenu.sessionId) ?? null
     : null;
@@ -450,6 +455,7 @@ export default function App() {
     projectDialogOpen ||
     projectSettingsTarget !== null ||
     closeTarget !== null ||
+    moveTarget !== null ||
     renameTarget !== null ||
     deleteTarget !== null ||
     switchTarget !== null ||
@@ -1052,6 +1058,9 @@ export default function App() {
       case 'rename':
         setRenameSessionId(session.id);
         break;
+      case 'move':
+        setMoveSessionId(session.id);
+        break;
       case 'switch-account':
         setSwitchSessionId(session.id);
         break;
@@ -1625,8 +1634,18 @@ export default function App() {
           point={sessionMenu.point}
           placement={sessionMenu.placement}
           trigger={sessionMenu.trigger}
+          canMove={projects.length > 1}
           onAction={(action) => handleMenuAction(action, menuSession)}
           onClose={() => setSessionMenu(null)}
+        />
+      ) : null}
+
+      {moveTarget ? (
+        <MoveSessionDialog
+          session={moveTarget}
+          projects={projects}
+          onMove={performMove}
+          onClose={() => setMoveSessionId(null)}
         />
       ) : null}
 

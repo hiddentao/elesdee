@@ -8,6 +8,7 @@ import { tags } from '@lezer/highlight';
 
 interface FileEditorProps {
   filename: string;
+  label: string;
   value: string;
   onChange: (value: string) => void;
   onSave: () => void;
@@ -54,14 +55,23 @@ const theme = EditorView.theme({
   },
 });
 
-export function FileEditor({ filename, value, onChange, onSave }: FileEditorProps) {
+export function FileEditor({
+  filename,
+  label,
+  value,
+  onChange,
+  onSave,
+}: FileEditorProps) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
   const language = useRef(new Compartment());
+  const content = useRef(new Compartment());
   const onChangeRef = useRef(onChange);
   const onSaveRef = useRef(onSave);
+  const labelRef = useRef(label);
   onChangeRef.current = onChange;
   onSaveRef.current = onSave;
+  labelRef.current = label;
 
   useEffect(() => {
     if (!host.current) {
@@ -74,6 +84,9 @@ export function FileEditor({ filename, value, onChange, onSave }: FileEditorProp
         theme,
         syntaxHighlighting(highlight),
         language.current.of([]),
+        content.current.of(
+          EditorView.contentAttributes.of({ 'aria-label': labelRef.current }),
+        ),
         keymap.of([
           {
             key: 'Mod-s',
@@ -113,6 +126,14 @@ export function FileEditor({ filename, value, onChange, onSave }: FileEditorProp
       });
     }
   }, [value]);
+
+  useEffect(() => {
+    view.current?.dispatch({
+      effects: content.current.reconfigure(
+        EditorView.contentAttributes.of({ 'aria-label': label }),
+      ),
+    });
+  }, [label]);
 
   useEffect(() => {
     let cancelled = false;

@@ -90,6 +90,7 @@ export function BrowserPanel({ session }: BrowserPanelProps) {
   const [address, setAddress] = useState('');
   const addressRef = useRef<HTMLInputElement>(null);
   const addressFocused = useRef(false);
+  const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
   const activeTab: BrowserTab | null =
     state?.tabs.find((tab) => tab.id === state.activeTabId) ?? null;
@@ -163,6 +164,36 @@ export function BrowserPanel({ session }: BrowserPanelProps) {
       return;
     }
     void run(() => openBrowserUrl(session.id, url), t('panel.browserLoading'));
+  }
+
+  function handleTabListKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
+      return;
+    }
+    const tabs = state?.tabs ?? [];
+    if (tabs.length === 0) {
+      return;
+    }
+    event.preventDefault();
+    const current = Math.max(
+      0,
+      tabs.findIndex((tab) => tab.id === state?.activeTabId),
+    );
+    const index =
+      event.key === 'Home'
+        ? 0
+        : event.key === 'End'
+          ? tabs.length - 1
+          : (current + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) %
+            tabs.length;
+    const next = tabs[index];
+    tabRefs.current[next.id]?.focus();
+    if (next.id !== state?.activeTabId) {
+      void run(
+        () => activateBrowserTab(session.id, next.id),
+        t('panel.browserLoading'),
+      );
+    }
   }
 
   async function newTab() {
@@ -293,6 +324,7 @@ export function BrowserPanel({ session }: BrowserPanelProps) {
   const message =
     setupFailed || setupActive ? null : state?.error ?? error;
   const controlsDisabled = busy !== null || setupActive;
+  const rovingTabId = state?.activeTabId ?? state?.tabs[0]?.id ?? null;
 
   return (
     <div className="browser-panel">
@@ -367,15 +399,20 @@ export function BrowserPanel({ session }: BrowserPanelProps) {
         className="browser-tabs"
         role="tablist"
         aria-label={t('panel.browserTabLabel')}
+        onKeyDown={handleTabListKeyDown}
       >
         {state?.tabs.map((tab) => {
           const label = tab.title || tab.url || t('panel.browserNoTitle');
           return (
             <div className="browser-tab-item" role="presentation" key={tab.id}>
               <button
+                ref={(element) => {
+                  tabRefs.current[tab.id] = element;
+                }}
                 type="button"
                 role="tab"
                 aria-selected={tab.id === state.activeTabId}
+                tabIndex={tab.id === rovingTabId ? 0 : -1}
                 className={`browser-tab${
                   tab.id === state.activeTabId ? ' is-on' : ''
                 }`}
