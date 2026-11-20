@@ -491,6 +491,8 @@ export const sv = {
   'quit.manyRunning': '{count} sessioner körs fortfarande.',
   'quit.copy':
     'Avslutning stoppar de sessioner som körs. De finns kvar i sidofältet och kan återupptas nästa gång.',
+  'quit.windowHint':
+    'Att stänga fönstret låter elesdee och sessionerna fortsätta köra.',
   'quit.busyLabel': 'Stänger elesdee…',
   'quit.submitting': 'Avslutar…',
   'quit.submit': 'Avsluta',

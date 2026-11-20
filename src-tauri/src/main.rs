@@ -26,6 +26,29 @@ struct QuitState {
 #[derive(Default)]
 struct AwakeState(AtomicBool);
 
+/// What the close button does. A hidden window keeps the core, its sessions
+/// and the phone connection alive.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum WindowCloseAction {
+    Hide,
+    AskToQuit,
+}
+
+/// macOS keeps the process and its sessions alive while the window is hidden.
+/// Other platforms have no hidden-window mode, so a close keeps the confirmed
+/// quit path.
+const fn platform_keeps_alive_without_window() -> bool {
+    cfg!(target_os = "macos")
+}
+
+const fn window_close_action(keeps_alive_without_window: bool) -> WindowCloseAction {
+    if keeps_alive_without_window {
+        WindowCloseAction::Hide
+    } else {
+        WindowCloseAction::AskToQuit
+    }
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct StartAtLoginState {
@@ -294,6 +317,20 @@ fn main() {
         ))
         .plugin(tauri_plugin_keepawake::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .on_window_event(|window, event| {
+            let tauri::WindowEvent::CloseRequested { api, .. } = event else {
+                return;
+            };
+            api.prevent_close();
+            match window_close_action(platform_keeps_alive_without_window()) {
+                WindowCloseAction::Hide => {
+                    let _ = window.hide();
+                }
+                WindowCloseAction::AskToQuit => {
+                    let _ = window.app_handle().emit("elesdee://quit-requested", ());
+                }
+            }
+        })
         .manage(QuitState::default())
         .manage(AwakeState::default())
         .invoke_handler(tauri::generate_handler![
@@ -329,6 +366,9 @@ fn main() {
             let state = app_handle.state::<QuitState>();
             if !state.confirmed.load(Ordering::SeqCst) {
                 api.prevent_exit();
+                // The confirmation lives in the window, so show it first when
+                // it is hidden.
+                show_main_window(app_handle);
                 let _ = app_handle.emit("elesdee://quit-requested", ());
             }
         }
@@ -364,5 +404,15 @@ mod tests {
         assert!(launched_at_login(["--other", AUTOSTART_ARG]));
         assert!(!launched_at_login(["--other"]));
         assert!(!launched_at_login(std::iter::empty::<&str>()));
+    }
+
+    #[test]
+    fn a_window_close_hides_the_window_when_the_app_keeps_running() {
+        assert_eq!(window_close_action(true), WindowCloseAction::Hide);
+    }
+
+    #[test]
+    fn a_window_close_asks_to_quit_when_the_window_cannot_hide_alone() {
+        assert_eq!(window_close_action(false), WindowCloseAction::AskToQuit);
     }
 }

@@ -15,6 +15,11 @@ describe('QuitDialog', () => {
 
     expect(screen.getByRole('heading', { name: 'Quit elesdee?' })).toBeVisible();
     expect(screen.getByText('2 sessions are still running.')).toBeVisible();
+    expect(
+      screen.getByText(
+        'Closing the window keeps elesdee and its sessions running.',
+      ),
+    ).toBeVisible();
 
     await user.click(screen.getByRole('button', { name: 'Quit' }));
     expect(onConfirm).toHaveBeenCalledOnce();

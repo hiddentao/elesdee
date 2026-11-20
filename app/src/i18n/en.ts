@@ -471,6 +471,8 @@ export const en = {
   'quit.manyRunning': '{count} sessions are still running.',
   'quit.copy':
     'Quitting stops the running sessions. They stay in the sidebar and can be resumed next time.',
+  'quit.windowHint':
+    'Closing the window keeps elesdee and its sessions running.',
   'quit.busyLabel': 'Closing elesdee…',
   'quit.submitting': 'Quitting…',
   'quit.submit': 'Quit',

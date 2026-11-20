@@ -493,6 +493,8 @@ export const pl = {
   'quit.manyRunning': 'Nadal uruchomione sesje: {count}.',
   'quit.copy':
     'Zamknięcie zatrzymuje uruchomione sesje. Pozostają na pasku bocznym i można je wznowić następnym razem.',
+  'quit.windowHint':
+    'Zamknięcie okna nie zatrzymuje elesdee ani sesji.',
   'quit.busyLabel': 'Zamykanie elesdee…',
   'quit.submitting': 'Zamykanie…',
   'quit.submit': 'Zamknij',

@@ -490,6 +490,8 @@ export const nl = {
   'quit.manyRunning': 'Er lopen nog {count} sessies.',
   'quit.copy':
     'Afsluiten stopt de lopende sessies. Ze blijven in de zijbalk en kunnen de volgende keer worden hervat.',
+  'quit.windowHint':
+    'Als je het venster sluit, blijven elesdee en de sessies draaien.',
   'quit.busyLabel': 'elesdee wordt afgesloten…',
   'quit.submitting': 'Afsluiten…',
   'quit.submit': 'Afsluiten',

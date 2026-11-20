@@ -20,6 +20,7 @@ The app keeps your sessions, projects, providers and AI configs on this computer
 - Approve or deny Claude Code permission requests from a card.
 - Close, reopen, rename and delete sessions.
 - Confirm before quitting while sessions run.
+- Close the window to keep the sessions and the phone connection running, and show it again from the Dock.
 - Add providers with a subscription, API key or local server, including custom compatible endpoints.
 - Create AI configs with their own client, model, effort and overrides.
 - Switch the interface language on the Languages page in Settings. See [Settings](settings.md#languages).

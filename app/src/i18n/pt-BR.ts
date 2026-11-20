@@ -495,6 +495,8 @@ export const ptBR = {
   'quit.manyRunning': '{count} sessões ainda estão em execução.',
   'quit.copy':
     'Sair para as sessões em execução. Elas permanecem na barra lateral e podem ser retomadas na próxima vez.',
+  'quit.windowHint':
+    'Fechar a janela mantém o elesdee e as sessões em execução.',
   'quit.busyLabel': 'Fechando o elesdee…',
   'quit.submitting': 'Saindo…',
   'quit.submit': 'Sair',

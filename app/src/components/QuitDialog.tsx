@@ -48,6 +48,7 @@ export function QuitDialog({
       </div>
       <div className="dialog-body">
         <p className="close-copy">{t('quit.copy')}</p>
+        <p className="close-copy">{t('quit.windowHint')}</p>
         {error ? (
           <div className="form-error" role="alert">
             <span>{error}</span>

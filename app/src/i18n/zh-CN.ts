@@ -445,6 +445,7 @@ export const zhCN = {
   'quit.manyRunning': '还有 {count} 个会话在运行。',
   'quit.copy':
     '退出会停止正在运行的会话。它们会保留在侧边栏中，下次可以恢复。',
+  'quit.windowHint': '关闭窗口后，elesdee 和会话会继续运行。',
   'quit.busyLabel': '正在关闭 elesdee…',
   'quit.submitting': '正在退出…',
   'quit.submit': '退出',
