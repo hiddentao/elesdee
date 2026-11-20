@@ -49,7 +49,9 @@ test('shows one session tab at a time and lists all tabs in a sheet', async ({
   const sheet = page.getByRole('dialog', { name: 'All tabs' });
   await expect(sheet).toContainText(`${total} tabs`);
   await expect(sheet).toContainText('Phone session 4');
-  await sheet.getByRole('button', { name: /Phone session 4/ }).click();
+  await sheet
+    .locator('.phone-sheet-row', { hasText: 'Phone session 4' })
+    .click();
   await expect(page.locator('.phone-title')).toHaveText('Phone session 4');
 
   const hookUrl = await readClaudeHookUrl(sessions[0].id);
