@@ -538,6 +538,8 @@ export interface GitHubRepo {
   description: string | null;
   updatedAt: string | null;
   added: boolean;
+  /** The project folder whose git remote matches the repository. */
+  localFolder: string | null;
 }
 
 export interface CloneGitHubRepoInput {

@@ -45,9 +45,7 @@ export function UsageDialog({ providers, onClose }: UsageDialogProps) {
                     {provider.sample ? (
                       <span className="sample-tag">{t('common.sample')}</span>
                     ) : null}
-                    <span className="usage-plan">
-                      {provider.plan} · {provider.vendor}
-                    </span>
+                    <span className="usage-plan">{provider.plan}</span>
                   </div>
                 </div>
 

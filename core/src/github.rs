@@ -65,7 +65,7 @@ struct CachedAccount {
 
 struct CachedAdded {
     read_at: Instant,
-    remotes: HashSet<String>,
+    projects: HashMap<String, String>,
 }
 
 impl GitHubInner {
@@ -246,16 +246,16 @@ impl GitHubInner {
         *lock(&self.account) = None;
     }
 
-    fn cached_added(&self) -> Option<HashSet<String>> {
+    fn cached_added(&self) -> Option<HashMap<String, String>> {
         let cache = lock(&self.added);
         let cache = cache.as_ref()?;
-        (cache.read_at.elapsed() < ADDED_CACHE_TTL).then(|| cache.remotes.clone())
+        (cache.read_at.elapsed() < ADDED_CACHE_TTL).then(|| cache.projects.clone())
     }
 
-    fn store_added(&self, remotes: HashSet<String>) {
+    fn store_added(&self, projects: HashMap<String, String>) {
         *lock(&self.added) = Some(CachedAdded {
             read_at: Instant::now(),
-            remotes,
+            projects,
         });
     }
 
@@ -346,6 +346,8 @@ pub struct GitHubRepo {
     pub description: Option<String>,
     pub updated_at: Option<String>,
     pub added: bool,
+    /// The project folder whose `origin` remote matches this repository.
+    pub local_folder: Option<String>,
 }
 
 #[derive(Debug)]
@@ -722,7 +724,9 @@ pub async fn list_repos(state: &AppState, query: &str) -> Result<Vec<GitHubRepo>
     }
 
     for repo in &mut repos {
-        repo.added = added.contains(&normalize_remote(&repo.clone_url));
+        let local = added.get(&normalize_remote(&repo.clone_url)).cloned();
+        repo.added = local.is_some();
+        repo.local_folder = local;
     }
     Ok(repos)
 }
@@ -772,6 +776,7 @@ async fn load_repos(state: &AppState, token: &str) -> Result<Vec<GitHubRepo>, Gi
                     description: repo.description,
                     updated_at: repo.updated_at,
                     added: false,
+                    local_folder: None,
                 });
             }
         }
@@ -783,29 +788,42 @@ async fn load_repos(state: &AppState, token: &str) -> Result<Vec<GitHubRepo>, Gi
     Ok(repos)
 }
 
-async fn added_remotes(state: &AppState) -> HashSet<String> {
-    if let Some(remotes) = state.github().cached_added() {
-        return remotes;
+async fn added_remotes(state: &AppState) -> HashMap<String, String> {
+    if let Some(projects) = state.github().cached_added() {
+        return projects;
     }
     let folders: Vec<PathBuf> = state
         .projects()
         .into_iter()
         .map(|project| PathBuf::from(project.folder))
         .collect();
-    let timeout = state.git_timeout();
-    let remotes = futures::future::join_all(
-        folders
-            .into_iter()
-            .map(|folder| crate::git::origin_remote(folder, timeout)),
-    )
+    let projects = collect_added_remotes(folders, state.git_timeout()).await;
+    state.github().store_added(projects.clone());
+    projects
+}
+
+/// Maps each normalized `origin` remote to the project folder that holds it.
+/// Two checkouts with the same folder name stay apart because the address
+/// decides the match.
+async fn collect_added_remotes(
+    folders: Vec<PathBuf>,
+    timeout: Duration,
+) -> HashMap<String, String> {
+    let results = futures::future::join_all(folders.into_iter().map(|folder| async move {
+        let remote = crate::git::origin_remote(folder.clone(), timeout).await;
+        (folder, remote)
+    }))
     .await;
-    let remotes: HashSet<String> = remotes
-        .into_iter()
-        .flatten()
-        .map(|remote| normalize_remote(&remote))
-        .collect();
-    state.github().store_added(remotes.clone());
-    remotes
+    let mut projects = HashMap::new();
+    for (folder, remote) in results {
+        if let Some(remote) = remote {
+            projects.insert(
+                normalize_remote(&remote),
+                folder.to_string_lossy().into_owned(),
+            );
+        }
+    }
+    projects
 }
 
 #[derive(Debug)]
@@ -1065,6 +1083,52 @@ mod tests {
         assert_eq!(normalize_remote("ssh://git@github.com/acme/web"), expected);
         assert_eq!(normalize_remote("https://GitHub.com/acme/web/"), expected);
         assert_eq!(normalize_remote("http://github.com/acme/web.git"), expected);
+    }
+
+    #[tokio::test]
+    async fn added_folders_keep_repositories_with_the_same_name_apart() {
+        let root = env::temp_dir().join(format!("elesdee-added-{}", Uuid::new_v4()));
+        let first = root.join("acme-checkout");
+        let second = root.join("other-checkout");
+        fs::create_dir_all(&first).unwrap();
+        fs::create_dir_all(&second).unwrap();
+        for (folder, remote) in [
+            (&first, "https://github.com/acme/web.git"),
+            (&second, "git@github.com:other/web.git"),
+        ] {
+            assert!(
+                Command::new("git")
+                    .arg("-C")
+                    .arg(folder)
+                    .args(["init", "--quiet"])
+                    .status()
+                    .unwrap()
+                    .success()
+            );
+            assert!(
+                Command::new("git")
+                    .arg("-C")
+                    .arg(folder)
+                    .args(["remote", "add", "origin", remote])
+                    .status()
+                    .unwrap()
+                    .success()
+            );
+        }
+
+        let added =
+            collect_added_remotes(vec![first.clone(), second.clone()], Duration::from_secs(5))
+                .await;
+
+        assert_eq!(
+            added.get("acme/web"),
+            Some(&first.to_string_lossy().into_owned())
+        );
+        assert_eq!(
+            added.get("other/web"),
+            Some(&second.to_string_lossy().into_owned())
+        );
+        let _ = fs::remove_dir_all(&root);
     }
 
     #[test]

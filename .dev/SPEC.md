@@ -150,6 +150,7 @@ The agents write their conversation to files on disk, and each keeps its own int
 **Session menu**
 
 - Right-click a session in the sidebar, or its tab, to open a menu of actions.
+- The menu holds Rename, Switch AI config, Move to project, and Close or Delete. The branch chip's menu holds Copy branch name, Copy folder path, Open folder and Open in Terminal.
 - Move to project opens a chooser of the other projects and moves the session to the chosen one. It does the same as dragging the session.
 - One action is Close. Close stops the session. The app asks me to confirm first.
 - Close is the only way to stop a session for good. The app can also pause a session that is out of usage (see Auto-switch).
@@ -173,14 +174,14 @@ The agents write their conversation to files on disk, and each keeps its own int
 
 **Tabs**
 
-- Each project has its own tab strip. Switching projects replaces the strip with that project's tabs.
+- Each project has its own tab strip. Switching projects replaces the strip with that project's tabs. The plus sits after the last tab and opens the new session form for that project.
 - Click a session in the sidebar to open it as a tab. Clicking a session in another project switches to that project and makes the session active there.
 - A tab cannot be closed. There is no minimize. The session keeps running and stays in the sidebar.
 - The last active tab of each project is restored when I return to it.
 
 **Session side panel**
 
-- Each session has its own side panel, closed by default. Switching sessions switches its content and open state. The panel sits beside the terminal, which stays usable while the panel is open.
+- Each session has its own side panel, closed by default. Switching sessions switches its content and open state. The panel sits beside the terminal, which stays usable while the panel is open. It keeps at least 320px and stacks the session name above the branch on narrower windows. A diff scrolls both ways when it is wider than the panel, and the scrollbar stays visible.
 - It has three tabs: Files, Changes and Browser. All three tabs are built.
 - Files shows the file tree of the session's worktree or folder, one folder at a time. It opens a CodeMirror editor with full syntax highlighting, which works on touch screens. I can edit and save files with an explicit Save action. Unsaved edits are marked, and a failed read or save shows an error.
 - The file API handles UTF-8 text up to 1 MiB. It refuses binary files, larger files, traversal, symlink escapes and a folder where a file is expected.

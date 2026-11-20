@@ -357,6 +357,23 @@ describe('NewSessionDialog', () => {
     });
   });
 
+  it('keeps the name and additional settings in the scrollable dialog body', () => {
+    renderDialog();
+
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toHaveClass('new-session-dialog');
+    const body = dialog.querySelector('.dialog-body');
+    expect(body).not.toBeNull();
+    expect(body).toContainElement(
+      screen.getByLabelText('Session name (optional)'),
+    );
+    expect(body).toContainElement(
+      screen.getByLabelText('Source branch (optional)'),
+    );
+    expect(body).toContainElement(screen.getByText('Additional settings'));
+    expect(dialog.querySelector('.dialog-foot')).not.toBeNull();
+  });
+
   it('merges recent and GitHub repositories without duplicating', async () => {
     const user = userEvent.setup();
     const repos: GitHubRepo[] = [
@@ -371,6 +388,7 @@ describe('NewSessionDialog', () => {
         description: '',
         updatedAt: null,
         added: true,
+        localFolder: '/dev/web',
       },
       {
         id: 2,
@@ -383,6 +401,7 @@ describe('NewSessionDialog', () => {
         description: '',
         updatedAt: null,
         added: false,
+        localFolder: null,
       },
     ];
     const github = githubActions({
@@ -414,6 +433,55 @@ describe('NewSessionDialog', () => {
     ).toBeInTheDocument();
   });
 
+  it('uses the folder the core matched when two repositories share a name', async () => {
+    const user = userEvent.setup();
+    const repos: GitHubRepo[] = [
+      {
+        id: 11,
+        fullName: 'acme/web',
+        name: 'web',
+        owner: 'acme',
+        private: false,
+        cloneUrl: 'https://github.com/acme/web.git',
+        htmlUrl: 'https://github.com/acme/web',
+        description: '',
+        updatedAt: null,
+        added: true,
+        localFolder: '/work/acme/web',
+      },
+      {
+        id: 12,
+        fullName: 'other/web',
+        name: 'web',
+        owner: 'other',
+        private: false,
+        cloneUrl: 'https://github.com/other/web.git',
+        htmlUrl: 'https://github.com/other/web',
+        description: '',
+        updatedAt: null,
+        added: true,
+        localFolder: '/work/other/web',
+      },
+    ];
+    renderDialog({
+      github: githubActions({ listRepos: vi.fn(async () => repos) }),
+    });
+    const repository = screen.getByLabelText('Repository folder');
+
+    await user.click(repository);
+    await (
+      await screen.findByRole('option', { name: /\/work\/acme\/web/ })
+    ).click();
+    expect(repository).toHaveValue('/work/acme/web');
+
+    await user.clear(repository);
+    await user.click(repository);
+    await (
+      await screen.findByRole('option', { name: /\/work\/other\/web/ })
+    ).click();
+    expect(repository).toHaveValue('/work/other/web');
+  });
+
   it('clones a remote repository into the chosen parent and starts there', async () => {
     const user = userEvent.setup();
     const repo: GitHubRepo = {
@@ -427,6 +495,7 @@ describe('NewSessionDialog', () => {
       description: '',
       updatedAt: null,
       added: false,
+      localFolder: null,
     };
     const clone = vi.fn(async () => ({
       id: 'api',

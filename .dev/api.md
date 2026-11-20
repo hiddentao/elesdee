@@ -100,6 +100,7 @@ interface GitHubRepo {
   description: string | null;
   updatedAt: string | null;
   added: boolean;
+  localFolder: string | null;
 }
 ```
 
@@ -108,7 +109,7 @@ interface GitHubRepo {
 - `GET /api/github/device/{id}` returns the current view. An unknown id returns 404.
 - `DELETE /api/github/device/{id}` cancels the flow and returns 204. An unknown id returns 404.
 - `POST /api/github/sign-out` cancels open flows, deletes the keychain entry and clears the caches. It returns 204.
-- `GET /api/github/repos?q=` returns `GitHubRepo[]` for the connected account. It needs a stored token; otherwise it returns 401. An empty `q` returns up to 50 recently updated repositories. A query filters by owner, repository name and description, and returns up to 50 matches. The service reads up to 300 repositories across three pages from `GET /user/repos` with owner, collaborator and organization affiliations, so private repositories appear when the token allows them. The list is cached for 60 seconds. `added` is true when a project folder's `origin` remote matches the repository; https, ssh and scp forms compare equal.
+- `GET /api/github/repos?q=` returns `GitHubRepo[]` for the connected account. It needs a stored token; otherwise it returns 401. An empty `q` returns up to 50 recently updated repositories. A query filters by owner, repository name and description, and returns up to 50 matches. The service reads up to 300 repositories across three pages from `GET /user/repos` with owner, collaborator and organization affiliations, so private repositories appear when the token allows them. The list is cached for 60 seconds. `added` is true when a project folder's `origin` remote matches the repository, and `localFolder` is that project's folder. https, ssh and scp forms compare equal. The match uses the remote address, so two checkouts with the same folder name stay apart.
 - `POST /api/github/clone` takes `{ fullName, name?, parentFolder? }`. It finds the repository in the connected account's list, clones its `cloneUrl` into `<parentFolder>/<repository name>`, and adds that folder as a project. `parentFolder` defaults to the default clone folder and is created when missing. The target folder must not exist; any existing file or folder returns 409 and is left unchanged. A failed or timed-out clone deletes the partial folder and adds no project; a failed state save removes the project and the folder. The clone runs for at most two minutes.
 - The clone passes the token to Git through a private `GIT_ASKPASS` helper with mode 0700 and the token in the child environment. The remote URL in the repository is the ordinary clone address without the token. The helper is deleted after the clone. Clones run one at a time.
 - A repository name that cannot be a folder name or an empty or malformed `fullName` returns 422. The clone address comes from the configured GitHub API, never from the caller. The real client accepts only https addresses; an address with another scheme fails the clone. The test configuration also accepts http and file addresses so a fake server can clone a local repository.

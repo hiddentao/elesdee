@@ -93,4 +93,37 @@ describe('App window lifecycle', () => {
     expect(shownTab).toHaveAttribute('aria-selected', 'true');
     expect(screen.getAllByRole('tab')).toHaveLength(1);
   });
+
+  it('opens the side panel without duplicate sibling keys', async () => {
+    const user = userEvent.setup();
+    const errors: string[] = [];
+    const spy = vi.spyOn(console, 'error').mockImplementation((...args) => {
+      errors.push(args.map(String).join(' '));
+    });
+    try {
+      render(
+        <LanguageProvider>
+          <App />
+        </LanguageProvider>,
+      );
+
+      await user.click(
+        await screen.findByRole('button', { name: /First session/ }),
+      );
+      spy.mockClear();
+
+      await user.click(
+        await screen.findByRole('button', { name: 'Session panel' }),
+      );
+      expect(
+        await screen.findByRole('tab', { name: 'Files' }),
+      ).toBeInTheDocument();
+
+      expect(
+        errors.filter((message) => message.includes('same key')),
+      ).toEqual([]);
+    } finally {
+      spy.mockRestore();
+    }
+  });
 });

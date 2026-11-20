@@ -47,7 +47,7 @@ export function RequestsDialog({
         )}
       </div>
       <div className="dialog-foot">
-        <button type="button" className="btn btn-ghost" onClick={onClose} autoFocus>
+        <button type="button" className="btn btn-ghost" onClick={onClose}>
           {t('common.close')}
         </button>
       </div>

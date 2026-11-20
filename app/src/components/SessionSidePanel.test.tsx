@@ -414,9 +414,12 @@ describe('SessionSidePanel demo servers', () => {
 
     expect(await screen.findByText('Preview')).toBeInTheDocument();
     expect(screen.getByText('Active')).toBeInTheDocument();
-    expect(
-      screen.getByRole('link', { name: 'Open http://localhost:3000 for Preview' }),
-    ).toHaveAttribute('href', 'http://localhost:3000');
+    const link = screen.getByRole('link', {
+      name: 'Open http://localhost:3000 for Preview',
+    });
+    expect(link).toHaveAttribute('href', 'http://localhost:3000');
+    expect(link).toHaveAttribute('title', 'http://localhost:3000');
+    expect(screen.getByText('Session')).toHaveAttribute('title', 'Session');
     expect(
       screen.getByRole('button', { name: 'Stop Preview' }),
     ).toBeInTheDocument();

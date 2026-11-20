@@ -57,6 +57,17 @@ function projectGroup(id: string): HTMLElement {
   return document.querySelector(`[data-project-id="${id}"]`) as HTMLElement;
 }
 
+describe('Sidebar session row', () => {
+  it('keeps the full name and status in the row tooltip', () => {
+    renderSidebar();
+
+    expect(sessionRow()).toHaveAttribute(
+      'title',
+      'Move me, Active, Working',
+    );
+  });
+});
+
 describe('Sidebar session move', () => {
   it('drags a session onto another project and marks the drop target', async () => {
     const { onMoveSession } = renderSidebar();

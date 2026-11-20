@@ -116,7 +116,10 @@ function SessionRow({
       data-session-id={session.id}
       aria-current={isActive ? 'true' : undefined}
       aria-keyshortcuts={canMove ? 'M' : undefined}
-      title={statusText(session, t)}
+      title={t('session.tabLabel', {
+        name: session.name,
+        status: statusText(session, t),
+      })}
       onClick={() => onSelect(session)}
       onPointerDown={(event) => onPointerDown(session, event)}
       onPointerMove={onPointerMove}

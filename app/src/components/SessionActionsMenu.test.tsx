@@ -1,12 +1,20 @@
 import { render, screen } from '@testing-library/react';
+import type { ReactNode } from 'react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import type { Project } from '../api/types';
 import { LanguageProvider } from '../i18n/LanguageProvider';
 import { makeSession } from '../test/fixtures';
-import { MoveSessionDialog, SessionActionsMenu } from './SessionActionsMenu';
+import { BranchActionsMenu } from './BranchActionsMenu';
+import { MoveSessionDialog, SessionActionsMenu, menuItems } from './SessionActionsMenu';
 
 const session = makeSession({ name: 'Move me', projectId: 'p1' });
+
+const copySession = makeSession({
+  name: 'Copy check',
+  folder: '/dev/web',
+  branch: 'elesdee/core/copy-check',
+});
 
 const projects: Project[] = [
   { id: 'p1', name: 'web', folder: '/dev/web' },
@@ -86,5 +94,54 @@ describe('MoveSessionDialog', () => {
 
     expect(onMove).toHaveBeenCalledWith(session, 'p2');
     expect(onClose).toHaveBeenCalled();
+  });
+});
+
+function renderWithLanguage(node: ReactNode) {
+  return render(<LanguageProvider>{node}</LanguageProvider>);
+}
+
+describe('session copy actions', () => {
+  it('keeps copy folder and copy branch out of the session menu', () => {
+    const labels = menuItems(copySession).map((item) => item.label);
+    expect(labels).not.toContain('Copy folder path');
+    expect(labels).not.toContain('Copy branch name');
+
+    renderWithLanguage(
+      <SessionActionsMenu
+        session={copySession}
+        point={{ x: 40, y: 40 }}
+        placement="at-point"
+        trigger={null}
+        onAction={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.queryByRole('menuitem', { name: 'Copy folder path' }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('menuitem', { name: 'Copy branch name' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('keeps copy folder and copy branch in the branch menu', () => {
+    renderWithLanguage(
+      <BranchActionsMenu
+        session={copySession}
+        trigger={document.createElement('button')}
+        canOpen={false}
+        onAction={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByRole('menuitem', { name: 'Copy branch name' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('menuitem', { name: 'Copy folder path' }),
+    ).toBeInTheDocument();
   });
 });

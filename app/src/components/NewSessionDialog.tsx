@@ -140,44 +140,19 @@ function recentRepositoryOptions(
 }
 
 /** The local folder of a repository that a project already holds. */
-function githubRepoLocalFolder(
-  repo: GitHubRepo,
-  sessions: Session[],
-  projects: Project[],
-): string | null {
-  if (!repo.added) {
-    return null;
-  }
-  const name = repo.name.toLowerCase();
-  const matches = new Set<string>();
-  for (const project of projects) {
-    if (folderLabel(project.folder).toLowerCase() === name) {
-      matches.add(project.folder);
-    }
-  }
-  const projectsById = new Map(
-    projects.map((project) => [project.id, project]),
-  );
-  for (const session of sessions) {
-    const path = sessionRepository(session, projectsById);
-    if (path && folderLabel(path).toLowerCase() === name) {
-      matches.add(path);
-    }
-  }
-  return matches.size === 1 ? [...matches][0] : null;
+function githubRepoLocalFolder(repo: GitHubRepo): string | null {
+  return repo.localFolder?.trim() || null;
 }
 
 function mergeRepositoryOptions(
   recent: ComboboxOption[],
   repos: GitHubRepo[],
-  sessions: Session[],
-  projects: Project[],
   t: ReturnType<typeof useLanguage>['t'],
 ): ComboboxOption[] {
   const options = [...recent];
   const seen = new Set(recent.map((option) => option.id));
   for (const repo of repos) {
-    const local = githubRepoLocalFolder(repo, sessions, projects);
+    const local = githubRepoLocalFolder(repo);
     const id = local ?? `${GITHUB_REPO_PREFIX}${repo.fullName}`;
     if (seen.has(id)) {
       continue;
@@ -454,7 +429,7 @@ export function NewSessionDialog({
           repo,
         );
       }
-      return mergeRepositoryOptions(recent, repos, sessions, projects, t);
+      return mergeRepositoryOptions(recent, repos, t);
     },
     [kind, projects, sessions, githubStatus, github, t],
   );
@@ -567,7 +542,7 @@ export function NewSessionDialog({
   }
 
   function chooseGitHubRepository(repo: GitHubRepo) {
-    const local = githubRepoLocalFolder(repo, sessions, projects);
+    const local = githubRepoLocalFolder(repo);
     if (local) {
       applyRepository(local);
       return;
@@ -744,6 +719,7 @@ export function NewSessionDialog({
       titleId="new-session-title"
       descriptionId="new-session-description"
       busyLabel={t('newSession.busyLabel')}
+      className="new-session-dialog"
       onClose={onClose}
       busy={submitting}
     >

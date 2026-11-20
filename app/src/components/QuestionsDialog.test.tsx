@@ -34,6 +34,19 @@ describe('QuestionsDialog', () => {
     expect(onAnswer).toHaveBeenCalledWith('q1', 'Yes');
   });
 
+  it('starts on the first answer option instead of Close', () => {
+    render(
+      <QuestionsDialog
+        questions={[question]}
+        onAnswer={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: 'Yes' })).toHaveFocus();
+    expect(screen.getByRole('button', { name: 'Close' })).not.toHaveFocus();
+  });
+
   it('shows an empty state', () => {
     render(
       <QuestionsDialog questions={[]} onAnswer={vi.fn()} onClose={vi.fn()} />,

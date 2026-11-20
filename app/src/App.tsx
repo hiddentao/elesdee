@@ -1064,14 +1064,6 @@ export default function App() {
       case 'switch-account':
         setSwitchSessionId(session.id);
         break;
-      case 'copy-folder':
-        void copyText(session.folder, t('app.folderCopied'));
-        break;
-      case 'copy-branch':
-        if (session.branch) {
-          void copyText(session.branch, t('app.branchCopied'));
-        }
-        break;
       case 'close':
         setCloseSessionId(session.id);
         break;
@@ -1407,7 +1399,7 @@ export default function App() {
                   className={`session-workspace${activeDock ? ' has-dock' : ''}`}
                 >
                   <SessionView
-                    key={activeSession.id}
+                    key={`view:${activeSession.id}`}
                     session={activeSession}
                     onRespondPermission={(decision) =>
                       answerPermission(activeSession, decision)
@@ -1434,7 +1426,7 @@ export default function App() {
                   />
                   {activeDock ? (
                     <SessionSidePanel
-                      key={activeSession.id}
+                      key={`panel:${activeSession.id}`}
                       session={activeSession}
                       tab={activeDock}
                       sharedVersion={sharedVersion}

@@ -27,7 +27,7 @@ Runs a plain shell. It has no agent, branch or worktree. The folder can be a Git
 3. Choose **Agent** or **Terminal**.
 4. For an agent session, choose an AI config. The config brings its provider, client, model, effort, extra arguments, environment variables and config settings into this launch. You can change the filled-in default. The closed field keeps the provider's remaining usage visible.
 5. Choose the AI configs the session may use. The configs of the starting client are selected by default. Add configs of other clients, or remove any config except the one in use. The app switches automatically only between these configs.
-6. Set the repository folder if you want a different one. The list shows the repositories earlier sessions started from, even after those sessions moved to another project; pick one, or type a path. When GitHub is connected, type in the same box to search your GitHub repositories. A repository that is not on this computer is cloned into the clone folder you choose, and the session starts in the cloned folder.
+6. Set the repository folder if you want a different one. The list shows the repositories earlier sessions started from, even after those sessions moved to another project; pick one, or type a path. When GitHub is connected, type in the same box to search your GitHub repositories. A repository that a project already holds is marked **Added** and opens that project's folder. The match uses the git remote, so two checkouts with the same folder name stay apart. A repository that is not on this computer is cloned into the clone folder you choose, and the session starts in the cloned folder.
 7. For an agent session, optionally choose a source branch. The app fetches the remote first, so the new session branch starts from the latest commit. When the branch tracks a remote branch, the app also moves that local branch forward when it is not checked out. It never changes your own checkout and never forces a branch. With no choice, the session starts from the current branch.
 8. Optionally enter a name.
 9. Open **Additional settings** to enter the first prompt, add environment variables for this session, and choose what to do with uncommitted changes. Use one `NAME=value` per line for the variables. When the repository has uncommitted changes, it asks whether to copy them into the new session or leave them out. The choice applies to this launch only.
@@ -73,7 +73,7 @@ An agent can also use the session browser through its tools: open a page, read t
 
 ## Tabs and the sidebar
 
-Choose a session in the sidebar to open it in a tab. Each project keeps its own tab strip, and the app restores the last active tab when you return to the project.
+Choose a session in the sidebar to open it in a tab. Each project keeps its own tab strip, and the app restores the last active tab when you return to the project. The plus after the last tab starts a new session in that project.
 
 A tab is a view, not the session itself. The session keeps running when you move to another tab.
 
@@ -167,11 +167,9 @@ Right-click a session in the sidebar or its tab, or use the menu button in the s
 - **Rename…**
 - **Move to project…** when another project exists
 - **Switch AI config…** for an active agent session
-- **Copy folder path**
-- **Copy branch name**
 - **Close…** for an active session, or **Delete…** for a closed one
 
-The branch chip in the session header has a separate menu with **Copy branch name**, **Copy folder path**, **Open folder** and **Open in Terminal**.
+The branch chip in the session header has the only copy actions: **Copy branch name**, **Copy folder path**, **Open folder** and **Open in Terminal**.
 
 ## Next steps
 

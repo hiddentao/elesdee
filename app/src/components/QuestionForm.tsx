@@ -6,12 +6,16 @@ interface QuestionFormProps {
   question: Question;
   onAnswer: (answer: string) => Promise<void>;
   compact?: boolean;
+  autoFocus?: boolean;
+  primaryOptions?: boolean;
 }
 
 export function QuestionForm({
   question,
   onAnswer,
   compact = false,
+  autoFocus = false,
+  primaryOptions = false,
 }: QuestionFormProps) {
   const { t } = useLanguage();
   const [answer, setAnswer] = useState('');
@@ -39,11 +43,12 @@ export function QuestionForm({
       <p className="question-text">{question.text}</p>
       {question.options.length > 0 ? (
         <div className="question-options">
-          {question.options.map((option) => (
+          {question.options.map((option, index) => (
             <button
               key={option}
               type="button"
-              className="btn btn-ghost"
+              className={primaryOptions ? 'btn btn-primary' : 'btn btn-ghost'}
+              autoFocus={autoFocus && index === 0}
               disabled={submitting}
               onClick={() => void submit(option)}
             >
@@ -62,6 +67,7 @@ export function QuestionForm({
           <input
             className="text-input"
             value={answer}
+            autoFocus={autoFocus}
             aria-label={t('question.answerLabel')}
             placeholder={t('question.answerPlaceholder')}
             disabled={submitting}

@@ -38,11 +38,13 @@ export function QuestionsDialog({
         {questions.length === 0 ? (
           <p className="empty-text">{t('question.nonePending')}</p>
         ) : (
-          questions.map((question) => (
+          questions.map((question, index) => (
             <section className="question-card" key={question.id}>
               <span className="question-session">{question.sessionName}</span>
               <QuestionForm
                 question={question}
+                autoFocus={index === 0}
+                primaryOptions
                 onAnswer={(answer) => onAnswer(question.id, answer)}
               />
             </section>
@@ -50,7 +52,7 @@ export function QuestionsDialog({
         )}
       </div>
       <div className="dialog-foot">
-        <button type="button" className="btn btn-ghost" onClick={onClose} autoFocus>
+        <button type="button" className="btn btn-ghost" onClick={onClose}>
           {t('common.close')}
         </button>
       </div>

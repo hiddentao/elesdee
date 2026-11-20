@@ -42,7 +42,9 @@ export function SessionHeader({
     <header className="session-head">
       <div className="session-head-main">
         <div className="session-title-line">
-          <h1 className="session-title">{session.name}</h1>
+          <h1 className="session-title" title={session.name}>
+            {session.name}
+          </h1>
           <StatusBadge session={session} />
         </div>
 

@@ -58,6 +58,7 @@ const repos: GitHubRepo[] = [
     description: 'The web app',
     updatedAt: null,
     added: true,
+    localFolder: '/dev/web',
   },
   {
     id: 2,
@@ -70,6 +71,7 @@ const repos: GitHubRepo[] = [
     description: '',
     updatedAt: null,
     added: false,
+    localFolder: null,
   },
 ];
 

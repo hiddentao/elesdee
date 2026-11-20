@@ -414,11 +414,20 @@ async fn repository_search_matches_name_and_owner_and_marks_added() {
         .expect("web repository");
     assert_eq!(web["cloneUrl"], clone_url);
     assert_eq!(web["added"], true);
+    assert_eq!(
+        web["localFolder"],
+        fs::canonicalize(&existing)
+            .expect("canonical project folder")
+            .to_string_lossy()
+            .as_ref(),
+        "the marked repository returns its own project folder"
+    );
     let api = repos
         .iter()
         .find(|repo| repo["fullName"] == "acme/api")
         .expect("api repository");
     assert_eq!(api["added"], false);
+    assert_eq!(api["localFolder"], serde_json::Value::Null);
 
     let (status, repos) = call(&app, "GET", "/api/github/repos?q=web", None).await;
     assert_eq!(status, StatusCode::OK);

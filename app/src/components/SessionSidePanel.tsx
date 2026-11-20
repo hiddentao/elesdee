@@ -657,7 +657,9 @@ export function SessionSidePanel({
           data-status={session.status}
           aria-hidden="true"
         />
-        <span className="dock-context-name">{session.name}</span>
+        <span className="dock-context-name" title={session.name}>
+          {session.name}
+        </span>
         <span className="dock-context-branch" title={session.branch ?? session.folder}>
           {session.branch ?? session.folder}
         </span>
@@ -724,6 +726,7 @@ export function SessionSidePanel({
                                 key={address}
                                 className="demo-address"
                                 href={address}
+                                title={address}
                                 target="_blank"
                                 rel="noreferrer"
                                 aria-label={t('panel.demoServerOpenLabel', {
@@ -741,6 +744,7 @@ export function SessionSidePanel({
                               <span
                                 key={address}
                                 className="demo-address is-inert"
+                                title={address}
                               >
                                 {address}
                               </span>

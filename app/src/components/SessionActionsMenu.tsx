@@ -16,7 +16,6 @@ import { Combobox, type ComboboxLoader } from './Combobox';
 import { Dialog } from './Dialog';
 import {
   AgentIcon,
-  BranchIcon,
   CloseIcon,
   FolderIcon,
   PencilIcon,
@@ -28,8 +27,6 @@ export type SessionMenuAction =
   | 'rename'
   | 'move'
   | 'switch-account'
-  | 'copy-folder'
-  | 'copy-branch'
   | 'close'
   | 'reopen'
   | 'delete';
@@ -84,14 +81,6 @@ export function menuItems(
     });
   }
 
-  if (session.folder.trim() !== '') {
-    items.push({ action: 'copy-folder', label: t('session.copyFolder') });
-  }
-
-  if (session.branch) {
-    items.push({ action: 'copy-branch', label: t('session.copyBranch') });
-  }
-
   if (closed) {
     items.push({
       action: 'delete',
@@ -119,10 +108,6 @@ function actionIcon(action: SessionMenuAction) {
       return <FolderIcon />;
     case 'switch-account':
       return <AgentIcon />;
-    case 'copy-folder':
-      return <FolderIcon />;
-    case 'copy-branch':
-      return <BranchIcon />;
     case 'close':
       return <CloseIcon />;
     case 'reopen':
