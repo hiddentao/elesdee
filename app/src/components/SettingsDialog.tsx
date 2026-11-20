@@ -17,12 +17,14 @@ import type {
   UpdateConfigInput,
   UpdateProviderInput,
 } from '../api/types';
+import type { UpdateSnapshot } from '../api/updater';
 import { formatDateTime, LANGUAGES, type Language } from '../i18n';
 import { useLanguage } from '../i18n/LanguageProvider';
 import { providerUsage } from '../state/usage';
 import { AiConfigDialog } from './AiConfigDialog';
 import { Dialog } from './Dialog';
 import { ProviderDialog } from './ProviderDialog';
+import { UpdatePanel } from './UpdatePanel';
 import {
   CloseIcon,
   DeviceIcon,
@@ -56,6 +58,7 @@ interface SettingsDialogProps {
   onInstallClient: (client: Client) => Promise<ClientInstall>;
   onGetClientInstall: (id: string) => Promise<ClientInstall>;
   onClientInstalled: (agent: AgentCheck) => void;
+  update: UpdateSnapshot | null;
   settings: AppSettings;
   startAtLoginActual: boolean | null;
   startAtLoginError: string | null;
@@ -88,6 +91,8 @@ interface SettingsDialogProps {
   onLoadDevices: () => Promise<PairedDevice[]>;
   onRemoveDevice: (endpointId: string) => Promise<void>;
   onExportDiagnostics: () => Promise<string | null>;
+  onCheckForUpdate: () => void;
+  onInstallUpdate: () => void;
   onClose: () => void;
 }
 
@@ -101,6 +106,7 @@ export function SettingsDialog({
   onInstallClient,
   onGetClientInstall,
   onClientInstalled,
+  update,
   settings,
   startAtLoginActual,
   startAtLoginError,
@@ -122,6 +128,8 @@ export function SettingsDialog({
   onLoadDevices,
   onRemoveDevice,
   onExportDiagnostics,
+  onCheckForUpdate,
+  onInstallUpdate,
   onClose,
 }: SettingsDialogProps) {
   const { t, language, setLanguage } = useLanguage();
@@ -415,11 +423,6 @@ export function SettingsDialog({
               <SparkIcon />
               <span>{t('settings.about')}</span>
             </button>
-            {version ? (
-              <span className="settings-nav-version">
-                {t('settings.versionLabel', { version })}
-              </span>
-            ) : null}
           </nav>
 
           <div className="settings-content">
@@ -948,6 +951,11 @@ export function SettingsDialog({
                     </span>
                   ) : null}
                 </div>
+                <UpdatePanel
+                  update={update}
+                  onCheck={onCheckForUpdate}
+                  onInstall={onInstallUpdate}
+                />
               </section>
             )}
           </div>

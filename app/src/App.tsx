@@ -51,6 +51,14 @@ import {
   subscribeNotificationClicks,
 } from './api/notifications';
 import {
+  checkForUpdate as checkDesktopUpdate,
+  deferUpdate as deferDesktopUpdate,
+  getUpdateState,
+  installUpdate as installDesktopUpdate,
+  subscribeUpdateChanges,
+  type UpdateSnapshot,
+} from './api/updater';
+import {
   getStartAtLogin,
   isTauri,
   openFolder,
@@ -103,6 +111,7 @@ import { SettingsDialog } from './components/SettingsDialog';
 import { Sidebar } from './components/Sidebar';
 import { SwitchConfigDialog } from './components/SwitchConfigDialog';
 import { TabStrip } from './components/TabStrip';
+import { UpdateInstallDialog } from './components/UpdateInstallDialog';
 import { PlusIcon, SparkIcon, TerminalIcon } from './components/icons';
 import { useLanguage } from './i18n/LanguageProvider';
 import type { Translate } from './i18n';
@@ -157,6 +166,8 @@ export default function App() {
   const [agents, setAgents] = useState<AgentCheck[]>([]);
   const [agentsChecked, setAgentsChecked] = useState(false);
   const [version, setVersion] = useState<string | null>(null);
+  const [update, setUpdate] = useState<UpdateSnapshot | null>(null);
+  const [updateInstallOpen, setUpdateInstallOpen] = useState(false);
   const [tabsByProject, setTabsByProject] = useState<TabsByProject>({});
   const [docks, setDocks] = useState<Record<string, DockTab | null>>({});
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
@@ -199,6 +210,7 @@ export default function App() {
   const requestsOpenRef = useRef(false);
   const activeStatusRef = useRef<Session['status'] | null>(null);
   const allowCloseRef = useRef(false);
+  const autoInstallRef = useRef(false);
   const activeSessionCount = sessions.filter(
     (session) => session.status === 'active',
   ).length;
@@ -595,6 +607,88 @@ export default function App() {
       await getCurrentWindow().destroy();
     }
   }, []);
+
+  const checkUpdates = useCallback(() => {
+    void checkDesktopUpdate()
+      .then((snapshot) => setUpdate(snapshot))
+      .catch(() => {
+        // The page keeps the last state and offers another check.
+      });
+  }, []);
+
+  const requestInstallUpdate = useCallback(() => {
+    if (sessionsRef.current.some((session) => session.status === 'active')) {
+      setUpdateInstallOpen(true);
+      return;
+    }
+    void installDesktopUpdate(false, false)
+      .then((snapshot) => setUpdate(snapshot))
+      .catch(() => {
+        // The page keeps the last state and offers another install.
+      });
+  }, []);
+
+  const confirmInstallUpdate = useCallback(async () => {
+    const snapshot = await installDesktopUpdate(true, true);
+    setUpdate(snapshot);
+    setUpdateInstallOpen(false);
+  }, []);
+
+  const deferInstallUpdate = useCallback(async () => {
+    const snapshot = await deferDesktopUpdate();
+    setUpdate(snapshot);
+    setUpdateInstallOpen(false);
+  }, []);
+
+  useEffect(() => {
+    if (!tauri) {
+      return;
+    }
+    let disposed = false;
+    let stop: () => void = () => {};
+    void (async () => {
+      const current = await getUpdateState();
+      if (disposed) {
+        return;
+      }
+      if (current) {
+        setUpdate(current);
+      }
+      const unsubscribe = await subscribeUpdateChanges((snapshot) => {
+        if (!disposed) {
+          setUpdate(snapshot);
+        }
+      });
+      if (disposed) {
+        unsubscribe();
+        return;
+      }
+      stop = unsubscribe;
+    })();
+    return () => {
+      disposed = true;
+      stop();
+    };
+  }, [tauri]);
+
+  useEffect(() => {
+    if (update?.state !== 'deferred') {
+      autoInstallRef.current = false;
+      return;
+    }
+    if (autoInstallRef.current) {
+      return;
+    }
+    if (sessionsRef.current.some((session) => session.status === 'active')) {
+      return;
+    }
+    autoInstallRef.current = true;
+    void installDesktopUpdate(false, false)
+      .then((snapshot) => setUpdate(snapshot))
+      .catch(() => {
+        autoInstallRef.current = false;
+      });
+  }, [update, activeSessionCount]);
 
   useEffect(() => {
     if (!tauri) {
@@ -1389,6 +1483,7 @@ export default function App() {
           onInstallClient={installClient}
           onGetClientInstall={getClientInstall}
           onClientInstalled={handleClientInstalled}
+          update={update}
           settings={settings}
           startAtLoginActual={startAtLoginActual}
           startAtLoginError={startAtLoginError}
@@ -1398,6 +1493,8 @@ export default function App() {
           onLoadDevices={loadPairedDevices}
           onRemoveDevice={removePairedDevice}
           onExportDiagnostics={exportDiagnosticsBundle}
+          onCheckForUpdate={checkUpdates}
+          onInstallUpdate={requestInstallUpdate}
           onCreateProvider={createProvider}
           onUpdateProvider={(id: string, input: UpdateProviderInput) =>
             updateProvider(id, input)
@@ -1423,6 +1520,15 @@ export default function App() {
           sessionCount={activeSessionCount}
           onConfirm={quitNow}
           onClose={() => setQuitOpen(false)}
+        />
+      ) : null}
+
+      {updateInstallOpen ? (
+        <UpdateInstallDialog
+          sessionCount={activeSessionCount}
+          onConfirm={confirmInstallUpdate}
+          onLater={deferInstallUpdate}
+          onClose={() => setUpdateInstallOpen(false)}
         />
       ) : null}
 

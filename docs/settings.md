@@ -69,15 +69,17 @@ The core service writes a local log to `logs/core.log` in its data folder, by de
 
 ## About
 
-The About page shows the app name and version.
+The About page shows the app name and version, and the update state.
+
+elesdee checks this repository's releases at launch and every few hours. When a newer version exists, it downloads the package in the background and checks its signature. The page then says that the version is ready and offers **Install and restart**. The app installs only the package that passed the signature check.
+
+If a session is running, **Install and restart** asks first. Choose **Later** to install the update when every session is closed. The update saves the sessions, stops the core service, installs, starts again and resumes the sessions. An agent that was mid-task resumes its conversation after the restart.
+
+The page also shows when the check failed, when the download failed, when the signature check failed, and when this build has no update signing key. In that last case, in-app updates are unavailable, and you install a newer release by hand.
 
 ## Theme
 
 The window follows the system light or dark setting. The terminal follows it too.
-
-## Version
-
-The version also appears at the bottom of the Settings navigation.
 
 ## Next steps
 

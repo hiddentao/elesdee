@@ -146,6 +146,7 @@ describe('LanguageProvider', () => {
           onInstallClient={vi.fn()}
           onGetClientInstall={vi.fn()}
           onClientInstalled={vi.fn()}
+          update={null}
           settings={{ startAtLogin: false, keepAwake: false }}
           startAtLoginActual={null}
           startAtLoginError={null}
@@ -167,6 +168,8 @@ describe('LanguageProvider', () => {
           onLoadDevices={vi.fn()}
           onRemoveDevice={vi.fn()}
           onExportDiagnostics={vi.fn()}
+          onCheckForUpdate={vi.fn()}
+          onInstallUpdate={vi.fn()}
           onClose={vi.fn()}
         />
       </LanguageProvider>,

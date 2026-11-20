@@ -25,6 +25,7 @@ function renderSettings(overrides: Partial<Parameters<typeof SettingsDialog>[0]>
     onInstallClient: vi.fn(),
     onGetClientInstall: vi.fn(),
     onClientInstalled: vi.fn(),
+    update: null,
     settings: { startAtLogin: false, keepAwake: false },
     startAtLoginActual: null,
     startAtLoginError: null,
@@ -46,6 +47,8 @@ function renderSettings(overrides: Partial<Parameters<typeof SettingsDialog>[0]>
     onLoadDevices: vi.fn().mockResolvedValue([]),
     onRemoveDevice: vi.fn().mockResolvedValue(undefined),
     onExportDiagnostics: vi.fn().mockResolvedValue(null),
+    onCheckForUpdate: vi.fn(),
+    onInstallUpdate: vi.fn(),
     onClose: vi.fn(),
     ...overrides,
   };
@@ -201,5 +204,28 @@ describe('SettingsDialog Diagnostics', () => {
 
     expect(props.onExportDiagnostics).toHaveBeenCalledOnce();
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+});
+
+describe('SettingsDialog About', () => {
+  it('shows the version once and the update state', async () => {
+    const user = userEvent.setup();
+    renderSettings({
+      update: {
+        state: 'ready',
+        currentVersion: '0.1.0',
+        version: '0.2.0',
+        progress: null,
+        error: null,
+      },
+    });
+
+    await user.click(screen.getByRole('button', { name: 'About' }));
+
+    expect(screen.getAllByText('Version 0.1.0')).toHaveLength(1);
+    expect(screen.queryByText('elesdee 0.1.0')).not.toBeInTheDocument();
+    expect(
+      screen.getByText('Version 0.2.0 is ready to install.'),
+    ).toBeVisible();
   });
 });

@@ -12,6 +12,7 @@ use tauri_plugin_autostart::ManagerExt as AutostartExt;
 use tauri_plugin_keepawake::{KeepAwakeConfig, TauriPluginKeepawakeExt};
 
 mod notifications;
+mod updater;
 
 const AUTOSTART_ARG: &str = "--autostart";
 
@@ -126,6 +127,27 @@ fn stop_core(child: &mut Child) {
     }
     let _ = child.kill();
     let _ = child.wait();
+}
+
+/// Saves the sessions and stops the core before its bundle is replaced.
+pub(crate) fn stop_core_for_update(app: &tauri::AppHandle) {
+    let state = app.state::<CoreProcess>();
+    let child = state.0.lock().ok().and_then(|mut guard| guard.take());
+    if let Some(mut child) = child {
+        stop_core(&mut child);
+    }
+}
+
+/// Starts the core again when an update could not be installed.
+pub(crate) fn start_core_after_update(app: &tauri::AppHandle) {
+    let state = app.state::<CoreProcess>();
+    let mut guard = match state.0.lock() {
+        Ok(guard) => guard,
+        Err(_) => return,
+    };
+    if guard.is_none() {
+        *guard = start_core();
+    }
 }
 
 impl Drop for CoreProcess {
@@ -271,6 +293,7 @@ fn main() {
             Some(vec![AUTOSTART_ARG]),
         ))
         .plugin(tauri_plugin_keepawake::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(QuitState::default())
         .manage(AwakeState::default())
         .invoke_handler(tauri::generate_handler![
@@ -283,11 +306,16 @@ fn main() {
             set_keep_awake,
             notifications::notification_permission_state,
             notifications::request_notification_permission,
-            notifications::show_notification
+            notifications::show_notification,
+            updater::get_update_state,
+            updater::check_for_update,
+            updater::defer_update,
+            updater::install_update
         ])
         .setup(move |app| {
             notifications::register_click_handler(app.handle());
             app.manage(CoreProcess(Mutex::new(start_core())));
+            updater::setup(app.handle());
             if !at_login {
                 show_main_window(app.handle());
             }

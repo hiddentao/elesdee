@@ -239,11 +239,14 @@ routes, phone shell. Size: M.
 log file and no Export diagnostics action. Files: `core/src/main.rs`, new diagnostics module,
 `api.rs`, `SettingsDialog.tsx`, `src-tauri`. Size: M.
 
-**20. Desktop updater.** Spec: Update checks; Update while sessions run. The release workflow
-builds, signs and notarizes a macOS zip and copies the core into the app bundle. There is no
-`tauri-plugin-updater`, no `latest.json`, no update check and no install flow. Files:
-`src-tauri/Cargo.toml`, `tauri.conf.json`, `src-tauri/src/main.rs`, update UI, release workflow.
-Size: L.
+**20. Desktop updater. Built.** The shell checks this repository's latest release
+through `tauri-plugin-updater` at launch and every few hours, downloads the
+package in the background, verifies its signature and offers Install on the
+About page. A running session asks before the restart; choosing Later installs
+the update when every session is closed. A build without the update public key
+reports that updates are unavailable. The release workflow publishes the signed
+`.app.tar.gz` and `latest.json`. Real checks, downloads and installs need a
+packaged, signed app and a release signed with the update key.
 
 **21. Notifications. Built.** The desktop shell uses the Tauri notification plugin. A session that
 waits for input, a permission answer or a new-session approval, an agent that reports done, and the
