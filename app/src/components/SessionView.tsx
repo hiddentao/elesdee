@@ -1,8 +1,9 @@
 import { lazy, Suspense } from 'react';
-import type { PermissionDecision, Session } from '../api/types';
+import type { PermissionDecision, Question, Session } from '../api/types';
 import { waitingForDetail } from '../state/sessionStatus';
 import { AlertIcon, ChevronRightIcon } from './icons';
 import { PermissionCard } from './PermissionCard';
+import { QuestionForm } from './QuestionForm';
 
 const TerminalPane = lazy(() =>
   import('./TerminalPane').then((module) => ({
@@ -15,6 +16,8 @@ interface SessionViewProps {
   onRespondPermission: (decision: PermissionDecision) => Promise<void>;
   onReopen: () => void;
   onResume: () => void;
+  question?: Question | null;
+  onAnswerQuestion?: (answer: string) => Promise<void>;
 }
 
 export function SessionView({
@@ -22,6 +25,8 @@ export function SessionView({
   onRespondPermission,
   onReopen,
   onResume,
+  question,
+  onAnswerQuestion,
 }: SessionViewProps) {
   const closed = session.status === 'closed';
   const paused =
@@ -67,6 +72,14 @@ export function SessionView({
             Resume
           </button>
         </div>
+      ) : question ? (
+        <section className="question-card session-question">
+          <span className="question-session">Question from the agent</span>
+          <QuestionForm
+            question={question}
+            onAnswer={onAnswerQuestion ?? (() => Promise.resolve())}
+          />
+        </section>
       ) : session.waitingFor && !permission ? (
         <div className="waiting-note" role="status">
           <AlertIcon />

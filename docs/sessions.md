@@ -53,6 +53,12 @@ The sidebar shows two states:
 - **Active**, with a short preview of recent output, or **Waiting for you** when the session needs an answer.
 - **Closed**, when **Show closed sessions** is on.
 
+## Questions
+
+An agent can ask you a question through the session tools. The question appears as a card above its terminal and in the sidebar **Questions** list. Answer it there. The session stays marked as waiting until you answer, the agent withdraws the question, or you close the session.
+
+See [Session tools](session-tools.md).
+
 ## Switch account
 
 Open the session menu and choose **Switch account…**. Choose another account and confirm. The session keeps its worktree and restarts with the new account. The same client continues its conversation. A different client starts again in the same worktree.

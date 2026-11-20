@@ -94,6 +94,14 @@ export function AlertIcon({ className }: IconProps) {
   );
 }
 
+export function ChatIcon({ className }: IconProps) {
+  return (
+    <svg {...base} className={className}>
+      <path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2Z" />
+    </svg>
+  );
+}
+
 export function MoreIcon({ className }: IconProps) {
   return (
     <svg {...base} className={className}>

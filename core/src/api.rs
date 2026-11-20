@@ -36,8 +36,8 @@ use crate::shortcuts;
 use crate::slug::slugify;
 use crate::state::{
     Account, AppState, Auth, Bootstrap, Client, DeleteSessionFailure, HealthResponse,
-    PendingPermission, PermissionDecision, Project, Session, SessionEvent, SessionKind,
-    SessionState, WorkState,
+    PendingPermission, PermissionDecision, Project, Question, QuestionFailure, Session,
+    SessionEvent, SessionKind, SessionState, WorkState,
 };
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
@@ -216,6 +216,11 @@ struct UsageRequest {
 }
 
 #[derive(Debug, Deserialize)]
+struct AnswerRequest {
+    answer: String,
+}
+
+#[derive(Debug, Deserialize)]
 struct RenameRequest {
     name: String,
 }
@@ -275,6 +280,7 @@ pub fn router(state: AppState) -> Router {
     let streaming = Router::new()
         .route("/api/sessions/{id}/output", get(session_output))
         .route("/api/events", get(events))
+        .route("/api/questions/events", get(question_events))
         .route("/internal/hooks/claude/{id}", post(claude_hook));
 
     let regular = Router::new()
@@ -285,6 +291,9 @@ pub fn router(state: AppState) -> Router {
         .route("/api/providers", get(list_providers))
         .route("/api/accounts", get(list_accounts).post(create_account))
         .route("/api/accounts/{id}/usage", post(update_account_usage))
+        .route("/api/questions", get(list_questions))
+        .route("/api/questions/{id}/answer", post(answer_question))
+        .route("/api/questions/{id}/withdraw", post(withdraw_question))
         .route("/api/sessions", post(create_session))
         .route(
             "/api/sessions/{id}",
@@ -297,6 +306,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/sessions/{id}/account", post(switch_session_account))
         .route("/api/sessions/{id}/resume", post(resume_session))
         .route("/api/sessions/{id}/permission", post(answer_permission))
+        .route("/internal/mcp/{id}", post(mcp_request))
         .layer(middleware::from_fn(request_timeout));
 
     regular
@@ -906,6 +916,37 @@ async fn create_session(
                 return Err(error);
             }
         }
+        if let Some(data_dir) = state.data_dir() {
+            match crate::mcp::write_claude_config(data_dir, &session_id, state.port()) {
+                Ok(path) => {
+                    if state.command_override().is_none() && state.agent_bin().is_none() {
+                        prepared.command.arg("--mcp-config");
+                        prepared.command.arg(path.as_os_str());
+                    }
+                    entry.set_mcp_config(path);
+                }
+                Err(error) => {
+                    tracing::error!(session = %session_id, %error, "could not write MCP config");
+                    rollback_created_session(&state, &entry, &session_id, worktree_cleanup)
+                        .await;
+                    return Err(ApiError::unprocessable("Could not prepare session tools."));
+                }
+            }
+            match crate::mcp::write_skill_plugin(data_dir) {
+                Ok(plugin) => {
+                    if state.command_override().is_none() && state.agent_bin().is_none() {
+                        prepared.command.arg("--plugin-dir");
+                        prepared.command.arg(plugin.as_os_str());
+                    }
+                }
+                Err(error) => {
+                    tracing::error!(session = %session_id, %error, "could not write the skill");
+                    rollback_created_session(&state, &entry, &session_id, worktree_cleanup)
+                        .await;
+                    return Err(ApiError::unprocessable("Could not prepare session tools."));
+                }
+            }
+        }
     }
 
     let mut environment = session_environment;
@@ -1022,6 +1063,7 @@ async fn close_session(
     };
 
     let session = entry.finish_close(preview.as_deref());
+    state.withdraw_questions_for_session(&id);
     state.release_activation();
     state.emit(SessionEvent::updated(session.clone()));
     state.save();
@@ -1161,6 +1203,28 @@ async fn reopen_session(
         let settings_path = install_claude_settings(&state, &entry, &id)?;
         if state.command_override().is_none() && state.agent_bin().is_none() {
             claude::add_settings_argument(&mut command, &settings_path);
+        }
+        if let Some(data_dir) = state.data_dir() {
+            match crate::mcp::write_claude_config(data_dir, &id, state.port()) {
+                Ok(path) => {
+                    if state.command_override().is_none() && state.agent_bin().is_none() {
+                        command.arg("--mcp-config");
+                        command.arg(path.as_os_str());
+                    }
+                    entry.set_mcp_config(path);
+                }
+                Err(error) => {
+                    tracing::error!(session = %id, %error, "could not write MCP config");
+                    return Err(ApiError::unprocessable("Could not prepare session tools."));
+                }
+            }
+            if let Ok(plugin) = crate::mcp::write_skill_plugin(data_dir)
+                && state.command_override().is_none()
+                && state.agent_bin().is_none()
+            {
+                command.arg("--plugin-dir");
+                command.arg(plugin.as_os_str());
+            }
         }
     }
     if suspended.kind == SessionKind::Agent && suspended.client == Some(Client::Antigravity) {
@@ -1329,6 +1393,31 @@ async fn relaunch_with_account(
                 state.emit(SessionEvent::updated(failed));
                 state.save();
                 return Err(error);
+            }
+        }
+        if let Some(data_dir) = state.data_dir() {
+            match crate::mcp::write_claude_config(data_dir, &session.id, state.port()) {
+                Ok(path) => {
+                    if state.command_override().is_none() && state.agent_bin().is_none() {
+                        command.arg("--mcp-config");
+                        command.arg(path.as_os_str());
+                    }
+                    entry.set_mcp_config(path);
+                }
+                Err(error) => {
+                    tracing::error!(session = %session.id, %error, "could not write MCP config");
+                    let failed = entry.mark_switch_failed("The account switch failed.");
+                    state.emit(SessionEvent::updated(failed));
+                    state.save();
+                    return Err(ApiError::unprocessable("Could not prepare session tools."));
+                }
+            }
+            if let Ok(plugin) = crate::mcp::write_skill_plugin(data_dir)
+                && state.command_override().is_none()
+                && state.agent_bin().is_none()
+            {
+                command.arg("--plugin-dir");
+                command.arg(plugin.as_os_str());
             }
         }
     }
@@ -1704,6 +1793,109 @@ async fn session_output(
     Ok(Sse::new(stream))
 }
 
+async fn list_questions(State(state): State<AppState>) -> Json<Vec<Question>> {
+    Json(state.pending_questions())
+}
+
+async fn answer_question(
+    State(state): State<AppState>,
+    UrlPath(id): UrlPath<String>,
+    body: Result<Json<AnswerRequest>, JsonRejection>,
+) -> Result<Json<Question>, ApiError> {
+    let Json(request) = body.map_err(invalid_json)?;
+    let answer = request.answer.trim();
+    if answer.is_empty() || answer.chars().count() > 2000 {
+        return Err(ApiError::bad_request(
+            "The answer must be between 1 and 2000 characters.",
+        ));
+    }
+    state
+        .answer_question(&id, answer.to_owned())
+        .map(Json)
+        .map_err(question_error)
+}
+
+async fn withdraw_question(
+    State(state): State<AppState>,
+    UrlPath(id): UrlPath<String>,
+    body: Result<Json<CloseRequest>, JsonRejection>,
+) -> Result<Json<Question>, ApiError> {
+    let _ = body.map_err(invalid_json)?;
+    state
+        .withdraw_question(&id)
+        .map(Json)
+        .map_err(question_error)
+}
+
+fn question_error(failure: QuestionFailure) -> ApiError {
+    match failure {
+        QuestionFailure::NotFound => ApiError::not_found("Unknown question."),
+        QuestionFailure::NotPending => {
+            ApiError::conflict("This question is no longer pending.")
+        }
+        QuestionFailure::Closed => ApiError::conflict("The session is closed."),
+    }
+}
+
+async fn mcp_request(
+    State(state): State<AppState>,
+    UrlPath(id): UrlPath<String>,
+    body: Result<Json<crate::mcp::RpcRequest>, JsonRejection>,
+) -> Response {
+    let Ok(Json(request)) = body else {
+        return Json(serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": null,
+            "error": { "code": -32700, "message": "Invalid JSON-RPC request." }
+        }))
+        .into_response();
+    };
+    if state.session(&id).is_none() {
+        return Json(serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": request.id,
+            "error": { "code": -32602, "message": "Unknown session." }
+        }))
+        .into_response();
+    }
+    if request.method.starts_with("notifications/") {
+        return StatusCode::ACCEPTED.into_response();
+    }
+
+    let response = match request.method.as_str() {
+        "initialize" => crate::mcp::initialize(request.id),
+        "ping" => serde_json::json!({ "jsonrpc": "2.0", "id": request.id, "result": {} }),
+        "tools/list" => crate::mcp::tools_list(request.id),
+        "tools/call" => {
+            let params = request.params.unwrap_or_default();
+            let name = params
+                .get("name")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default();
+            let arguments = params
+                .get("arguments")
+                .cloned()
+                .unwrap_or_else(|| serde_json::json!({}));
+            let (text, is_error) = crate::mcp::call_tool(&state, &id, name, arguments).await;
+            serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": request.id,
+                "result": {
+                    "content": [{ "type": "text", "text": text }],
+                    "isError": is_error
+                }
+            })
+        }
+        other => serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": request.id,
+            "error": { "code": -32601, "message": format!("Unknown method: {other}") }
+        }),
+    };
+
+    Json(response).into_response()
+}
+
 async fn events(
     State(state): State<AppState>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, ApiError> {
@@ -1711,6 +1903,47 @@ async fn events(
         .try_acquire_events_sse()
         .ok_or_else(|| ApiError::too_many_requests("Too many open event streams."))?;
     let mut receiver = state.subscribe_events();
+
+    let stream = async_stream::stream! {
+        let _permit = permit;
+        yield Ok(Event::default().comment("connected"));
+
+        let mut heartbeat = interval_at(
+            tokio::time::Instant::now() + SSE_HEARTBEAT,
+            SSE_HEARTBEAT,
+        );
+        heartbeat.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
+        loop {
+            tokio::select! {
+                _ = heartbeat.tick() => {
+                    yield Ok(Event::default().comment("heartbeat"));
+                }
+                received = receiver.recv() => {
+                    match received {
+                        Ok(event) => {
+                            if let Some(event) = json_event(&event) {
+                                yield Ok(event);
+                            }
+                        }
+                        Err(broadcast::error::RecvError::Lagged(_)) => break,
+                        Err(broadcast::error::RecvError::Closed) => break,
+                    }
+                }
+            }
+        }
+    };
+
+    Ok(Sse::new(stream))
+}
+
+async fn question_events(
+    State(state): State<AppState>,
+) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, ApiError> {
+    let permit = state
+        .try_acquire_events_sse()
+        .ok_or_else(|| ApiError::too_many_requests("Too many open event streams."))?;
+    let mut receiver = state.subscribe_aux();
 
     let stream = async_stream::stream! {
         let _permit = permit;

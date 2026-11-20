@@ -1424,6 +1424,320 @@ async fn wait_for_session(
 }
 
 #[tokio::test]
+async fn claude_sessions_get_and_clean_up_their_mcp_config() {
+    let data_dir = TempDirectory::new("mcp-config-data");
+    let repo = TempDirectory::new("mcp-config-repo");
+    init_git_repo(&repo.path);
+    let app = router(AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    ));
+    ensure_test_project(&app, &repo.path).await;
+    let (status, session) = call(
+        &app,
+        "POST",
+        "/api/sessions",
+        Some(json!({
+            "projectId": "web",
+            "kind": "agent",
+            "accountId": "max",
+            "name": "MCP config",
+            "folder": repo.path.to_string_lossy()
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let id = session["id"].as_str().expect("session id");
+    let config_path = data_dir.path.join("mcp").join(format!("{id}.json"));
+    assert!(config_path.is_file(), "the MCP config was not written");
+    let config: Value =
+        serde_json::from_slice(&fs::read(&config_path).expect("read MCP config"))
+            .expect("parse MCP config");
+    let url = config["mcpServers"]["elesdee"]["url"]
+        .as_str()
+        .expect("MCP URL");
+    assert_eq!(url, format!("http://127.0.0.1:4319/internal/mcp/{id}"));
+    let skill = data_dir
+        .path
+        .join("plugin")
+        .join("skills")
+        .join("elesdee")
+        .join("SKILL.md");
+    assert!(skill.is_file(), "the elesdee skill was not written");
+    assert!(
+        fs::read_to_string(&skill)
+            .expect("read skill")
+            .contains("ask_me")
+    );
+
+    let (status, _) = close_session(&app, id).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!config_path.exists(), "the MCP config was not removed");
+}
+
+#[tokio::test]
+async fn mcp_session_tools_ask_answer_notify_and_report_done() {
+    let data_dir = TempDirectory::new("mcp-data");
+    let repo = TempDirectory::new("mcp-repo");
+    init_git_repo(&repo.path);
+    let app = router(AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    ));
+    ensure_test_project(&app, &repo.path).await;
+    let (status, session) = call(
+        &app,
+        "POST",
+        "/api/sessions",
+        Some(json!({
+            "projectId": "web",
+            "kind": "agent",
+            "accountId": "max",
+            "name": "MCP session",
+            "folder": repo.path.to_string_lossy()
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let id = session["id"].as_str().expect("session id").to_owned();
+    let mcp = format!("/internal/mcp/{id}");
+
+    let (status, init) = call(
+        &app,
+        "POST",
+        &mcp,
+        Some(json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{init}");
+    assert_eq!(init["result"]["serverInfo"]["name"], "elesdee");
+
+    let (status, tools) = call(
+        &app,
+        "POST",
+        &mcp,
+        Some(json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{tools}");
+    let names = tools["result"]["tools"]
+        .as_array()
+        .expect("tools")
+        .iter()
+        .map(|tool| tool["name"].as_str().unwrap_or_default())
+        .collect::<Vec<_>>();
+    for name in [
+        "ask_me",
+        "wait_for_answer",
+        "withdraw_question",
+        "notify_me",
+        "report_done",
+        "list_sessions",
+        "read_session",
+        "send_message",
+        "check_usage",
+    ] {
+        assert!(names.contains(&name), "missing tool {name}");
+    }
+
+    let (status, asked) = call(
+        &app,
+        "POST",
+        &mcp,
+        Some(json!({
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "tools/call",
+            "params": {
+                "name": "ask_me",
+                "arguments": { "text": "Deploy now?", "options": ["Yes", "No"] }
+            }
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{asked}");
+    let text = asked["result"]["content"][0]["text"]
+        .as_str()
+        .expect("tool text");
+    let question_id = text
+        .strip_prefix("Question asked: ")
+        .expect("question id")
+        .to_owned();
+
+    let (status, questions) = call(&app, "GET", "/api/questions", None).await;
+    assert_eq!(status, StatusCode::OK, "{questions}");
+    assert_eq!(questions.as_array().expect("questions").len(), 1);
+    assert_eq!(questions[0]["id"], question_id);
+    assert_eq!(questions[0]["options"][1], "No");
+
+    let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    let waiting = bootstrap["sessions"]
+        .as_array()
+        .expect("sessions")
+        .iter()
+        .find(|session| session["id"] == id)
+        .expect("session");
+    assert_eq!(waiting["waitingFor"], "question");
+
+    let (status, answered) = call(
+        &app,
+        "POST",
+        &format!("/api/questions/{question_id}/answer"),
+        Some(json!({"answer": "Yes"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{answered}");
+    assert_eq!(answered["status"], "answered");
+    assert_eq!(answered["answer"], "Yes");
+
+    let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    let cleared = bootstrap["sessions"]
+        .as_array()
+        .expect("sessions")
+        .iter()
+        .find(|session| session["id"] == id)
+        .expect("session");
+    assert!(cleared["waitingFor"].is_null());
+    assert_eq!(
+        bootstrap["questions"].as_array().expect("questions").len(),
+        0
+    );
+
+    let (_, second) = call(
+        &app,
+        "POST",
+        &mcp,
+        Some(json!({
+            "jsonrpc": "2.0",
+            "id": 4,
+            "method": "tools/call",
+            "params": { "name": "ask_me", "arguments": { "text": "And now?" } }
+        })),
+    )
+    .await;
+    let second_id = second["result"]["content"][0]["text"]
+        .as_str()
+        .expect("tool text")
+        .strip_prefix("Question asked: ")
+        .expect("question id")
+        .to_owned();
+    let (status, _) = call(
+        &app,
+        "POST",
+        &format!("/api/questions/{second_id}/withdraw"),
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    let (_, waited) = call(
+        &app,
+        "POST",
+        &mcp,
+        Some(json!({
+            "jsonrpc": "2.0",
+            "id": 5,
+            "method": "tools/call",
+            "params": {
+                "name": "wait_for_answer",
+                "arguments": { "questionId": second_id, "timeoutSeconds": 1 }
+            }
+        })),
+    )
+    .await;
+    assert_eq!(
+        waited["result"]["content"][0]["text"],
+        "The question was withdrawn."
+    );
+
+    let (_, notified) = call(
+        &app,
+        "POST",
+        &mcp,
+        Some(json!({
+            "jsonrpc": "2.0",
+            "id": 6,
+            "method": "tools/call",
+            "params": { "name": "notify_me", "arguments": { "message": "Build finished." } }
+        })),
+    )
+    .await;
+    assert_eq!(notified["result"]["isError"], false);
+
+    let (_, done) = call(
+        &app,
+        "POST",
+        &mcp,
+        Some(json!({
+            "jsonrpc": "2.0",
+            "id": 7,
+            "method": "tools/call",
+            "params": { "name": "report_done", "arguments": {} }
+        })),
+    )
+    .await;
+    assert_eq!(done["result"]["isError"], false);
+    let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    let finished = bootstrap["sessions"]
+        .as_array()
+        .expect("sessions")
+        .iter()
+        .find(|session| session["id"] == id)
+        .expect("session");
+    assert_eq!(finished["workState"], "done");
+
+    let (status, _) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn closing_a_session_withdraws_its_questions() {
+    let data_dir = TempDirectory::new("mcp-close-data");
+    let repo = TempDirectory::new("mcp-close-repo");
+    init_git_repo(&repo.path);
+    let app = router(AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    ));
+    ensure_test_project(&app, &repo.path).await;
+    let (status, session) = call(
+        &app,
+        "POST",
+        "/api/sessions",
+        Some(json!({
+            "projectId": "web",
+            "kind": "agent",
+            "accountId": "max",
+            "name": "MCP close",
+            "folder": repo.path.to_string_lossy()
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let id = session["id"].as_str().expect("session id");
+    let (status, asked) = call(
+        &app,
+        "POST",
+        &format!("/internal/mcp/{id}"),
+        Some(json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": { "name": "ask_me", "arguments": { "text": "Still there?" } }
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{asked}");
+    let (_, questions) = call(&app, "GET", "/api/questions", None).await;
+    assert_eq!(questions.as_array().expect("questions").len(), 1);
+
+    let (status, _) = close_session(&app, id).await;
+    assert_eq!(status, StatusCode::OK);
+    let (_, questions) = call(&app, "GET", "/api/questions", None).await;
+    assert_eq!(questions.as_array().expect("questions").len(), 0);
+}
+
+#[tokio::test]
 async fn cors_preflight_and_allowed_origin_headers() {
     let app = router(AppState::ephemeral());
     let origins = [

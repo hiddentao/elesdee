@@ -9,6 +9,7 @@ import {
 import { accountUsage } from '../state/usage';
 import {
   AlertIcon,
+  ChatIcon,
   ChevronDownIcon,
   ChevronRightIcon,
   LayersIcon,
@@ -37,6 +38,8 @@ interface SidebarProps {
   onAddProject: () => void;
   onNewSession: (projectId: string) => void;
   onOpenSettings: () => void;
+  questions?: number;
+  onOpenQuestions?: () => void;
 }
 
 interface SessionRowProps {
@@ -135,6 +138,8 @@ export function Sidebar({
   onAddProject,
   onNewSession,
   onOpenSettings,
+  questions = 0,
+  onOpenQuestions,
 }: SidebarProps) {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [manualCollapsed, setManualCollapsed] = useState<Set<string>>(new Set());
@@ -275,6 +280,19 @@ export function Sidebar({
           </button>
         ) : null}
       </div>
+
+      {questions > 0 ? (
+        <div className="sidebar-questions">
+          <button
+            type="button"
+            className="chip questions-chip"
+            onClick={onOpenQuestions}
+          >
+            <ChatIcon />
+            Questions <span className="chip-count">{questions}</span>
+          </button>
+        </div>
+      ) : null}
 
       {hasProjects ? (
         <div

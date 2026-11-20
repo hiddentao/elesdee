@@ -1,7 +1,7 @@
 ---
 title: Troubleshooting
 description: Fix common problems with agents, sessions and the app.
-order: 8
+order: 9
 ---
 
 # Troubleshooting

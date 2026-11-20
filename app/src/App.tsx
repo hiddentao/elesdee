@@ -10,6 +10,7 @@ import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import {
   ApiError,
+  answerQuestion,
   bootstrap,
   closeSession,
   createAccount,
@@ -23,13 +24,14 @@ import {
   resumeSession,
   switchSessionAccount,
 } from './api/client';
-import { subscribeEvents } from './api/events';
+import { subscribeAux, subscribeEvents } from './api/events';
 import { isTauri, openFolder, openTerminal } from './api/shell';
 import type {
   Account,
   AgentCheck,
   PermissionDecision,
   Project,
+  Question,
   Session,
 } from './api/types';
 import { AddProjectDialog } from './components/AddProjectDialog';
@@ -42,6 +44,7 @@ import { DeleteSessionDialog } from './components/DeleteSessionDialog';
 import { FirstLaunch } from './components/FirstLaunch';
 import { NewSessionDialog } from './components/NewSessionDialog';
 import { QuitDialog } from './components/QuitDialog';
+import { QuestionsDialog } from './components/QuestionsDialog';
 import { RenameSessionDialog } from './components/RenameSessionDialog';
 import {
   SessionActionsMenu,
@@ -92,6 +95,8 @@ export default function App() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
+  const [questions, setQuestions] = useState<Question[]>([]);
+  const [questionsOpen, setQuestionsOpen] = useState(false);
   const [agents, setAgents] = useState<AgentCheck[]>([]);
   const [agentsChecked, setAgentsChecked] = useState(false);
   const [version, setVersion] = useState<string | null>(null);
@@ -137,6 +142,7 @@ export default function App() {
       setProjects(data.projects);
       setAccounts(data.accounts);
       setSessions(data.sessions);
+      setQuestions(data.questions ?? []);
       setAgents(report?.agents ?? []);
       setAgentsChecked(report !== null);
       setVersion(report?.version ?? null);
@@ -161,6 +167,10 @@ export default function App() {
   const activeSessionId = projectTabs?.active ?? null;
   const activeSession =
     tabSessions.find((session) => session.id === activeSessionId) ?? null;
+  const activeQuestion = activeSession
+    ? questions.find((question) => question.sessionId === activeSession.id) ??
+      null
+    : null;
   const closeTarget = closeSessionId
     ? sessions.find((session) => session.id === closeSessionId) ?? null
     : null;
@@ -187,6 +197,7 @@ export default function App() {
     deleteTarget !== null ||
     switchTarget !== null ||
     settingsOpen ||
+    questionsOpen ||
     quitOpen;
 
   activeSessionIdRef.current = activeSessionId;
@@ -240,6 +251,30 @@ export default function App() {
       () => setEventsPaused(true),
       () => setEventsPaused(false),
     );
+  }, [loadState, eventAttempt]);
+
+  useEffect(() => {
+    if (loadState !== 'ready') {
+      return;
+    }
+
+    return subscribeAux((event) => {
+      if (event.type === 'question.updated') {
+        setQuestions((current) => {
+          const others = current.filter(
+            (question) => question.id !== event.question.id,
+          );
+          return event.question.status === 'pending'
+            ? [...others, event.question]
+            : others;
+        });
+        return;
+      }
+      setToast({
+        message: `${event.notification.sessionName}: ${event.notification.message}`,
+        error: false,
+      });
+    });
   }, [loadState, eventAttempt]);
 
   const quitNow = useCallback(async () => {
@@ -611,6 +646,14 @@ export default function App() {
     }
   }
 
+  async function answerOpenQuestion(id: string, answer: string) {
+    await answerQuestion(id, answer);
+    setQuestions((current) =>
+      current.filter((question) => question.id !== id),
+    );
+    setToast({ message: 'Answer sent.', error: false });
+  }
+
   async function confirmDelete() {
     if (!deleteTarget) {
       return;
@@ -714,6 +757,8 @@ export default function App() {
             onAddProject={() => setProjectDialogOpen(true)}
             onNewSession={(projectId) => openNewSession(projectId)}
             onOpenSettings={() => setSettingsOpen(true)}
+            questions={questions.length}
+            onOpenQuestions={() => setQuestionsOpen(true)}
           />
 
           <main
@@ -769,6 +814,12 @@ export default function App() {
                   }
                   onReopen={() => void handleReopen(activeSession)}
                   onResume={() => void handleResume(activeSession)}
+                  question={activeQuestion}
+                  onAnswerQuestion={(answer) =>
+                    activeQuestion
+                      ? answerOpenQuestion(activeQuestion.id, answer)
+                      : Promise.resolve()
+                  }
                 />
               </div>
             ) : (
@@ -863,6 +914,14 @@ export default function App() {
           sessionCount={activeSessionCount}
           onConfirm={quitNow}
           onClose={() => setQuitOpen(false)}
+        />
+      ) : null}
+
+      {questionsOpen ? (
+        <QuestionsDialog
+          questions={questions}
+          onAnswer={answerOpenQuestion}
+          onClose={() => setQuestionsOpen(false)}
         />
       ) : null}
 

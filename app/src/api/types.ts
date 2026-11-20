@@ -98,7 +98,31 @@ export interface BootstrapResponse {
   projects: Project[];
   accounts: Account[];
   sessions: Session[];
+  questions?: Question[];
 }
+
+export interface Question {
+  id: string;
+  sessionId: string;
+  sessionName: string;
+  text: string;
+  options: string[];
+  status: 'pending' | 'answered' | 'withdrawn';
+  answer: string | null;
+  createdAt: string;
+}
+
+export interface Notification {
+  id: string;
+  sessionId: string;
+  sessionName: string;
+  message: string;
+  createdAt: string;
+}
+
+export type AuxEvent =
+  | { type: 'question.updated'; question: Question }
+  | { type: 'notification'; notification: Notification };
 
 export interface HealthResponse {
   ok: boolean;

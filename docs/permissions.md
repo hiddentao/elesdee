@@ -1,7 +1,7 @@
 ---
 title: Permissions
 description: Answer Claude Code permission requests from the app.
-order: 6
+order: 7
 ---
 
 # Permissions

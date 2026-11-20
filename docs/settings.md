@@ -1,7 +1,7 @@
 ---
 title: Settings
 description: Manage accounts and read the app version.
-order: 7
+order: 8
 ---
 
 # Settings

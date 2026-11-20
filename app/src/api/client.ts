@@ -11,6 +11,7 @@ import type {
   PermissionDecision,
   Project,
   ProviderInfo,
+  Question,
   Session,
 } from './types';
 
@@ -65,6 +66,24 @@ export function health(): Promise<HealthResponse> {
 
 export function listProviders(): Promise<ProviderInfo[]> {
   return request<ProviderInfo[]>('/api/providers');
+}
+
+export function listQuestions(): Promise<Question[]> {
+  return request<Question[]>('/api/questions');
+}
+
+export function answerQuestion(id: string, answer: string): Promise<Question> {
+  return request<Question>(
+    `/api/questions/${encodeURIComponent(id)}/answer`,
+    post({ answer }),
+  );
+}
+
+export function withdrawQuestion(id: string): Promise<Question> {
+  return request<Question>(
+    `/api/questions/${encodeURIComponent(id)}/withdraw`,
+    post({}),
+  );
 }
 
 export function listProjects(

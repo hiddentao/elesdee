@@ -2682,3 +2682,82 @@ button:disabled {
     width: 264px;
   }
 }
+
+.sidebar-questions {
+  padding: 0 12px 8px;
+}
+
+.questions-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.questions-chip svg {
+  width: 13px;
+  height: 13px;
+}
+
+.question-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 12px;
+}
+
+.session-question {
+  margin: 10px 12px 0;
+}
+
+.question-session {
+  display: block;
+  color: var(--text-2);
+  font-size: var(--fs-small);
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.question-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.question-form.is-compact {
+  gap: 6px;
+}
+
+.question-text {
+  margin: 0;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.question-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.question-answer {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.question-answer .text-input {
+  flex: 1;
+}
+
+.questions-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.questions-dialog {
+  width: min(560px, calc(100vw - 32px));
+}

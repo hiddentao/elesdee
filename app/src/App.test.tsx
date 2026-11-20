@@ -44,6 +44,7 @@ vi.mock('./api/client', async (importOriginal) => {
 });
 
 vi.mock('./api/events', () => ({
+  subscribeAux: vi.fn(),
   subscribeEvents: vi.fn(),
 }));
 

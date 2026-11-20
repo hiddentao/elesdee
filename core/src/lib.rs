@@ -3,6 +3,7 @@ pub mod api;
 mod claude;
 mod clients;
 mod git;
+mod mcp;
 mod persist;
 mod private_fs;
 mod providers;

@@ -1,5 +1,6 @@
 import { API_BASE } from './base';
 import type {
+  AuxEvent,
   OutputChunk,
   OutputGap,
   Session,
@@ -24,6 +25,41 @@ export function subscribeEvents(
       const payload = JSON.parse(event.data) as Partial<SessionUpdatedEvent>;
       if (payload.type === 'session.updated' && payload.session) {
         onSession(payload.session);
+      }
+    } catch {
+      // Ignore malformed events and keep the stream open.
+    }
+  };
+
+  source.onerror = () => {
+    onError?.();
+  };
+
+  return () => {
+    source.close();
+  };
+}
+
+/**
+ * Streams questions and notifications. The browser reconnects on its own, so a
+ * dropped stream does not lose the pending list; the app reloads it on mount.
+ */
+export function subscribeAux(
+  onEvent: (event: AuxEvent) => void,
+  onError?: () => void,
+): Unsubscribe {
+  const source = new EventSource(API_BASE + '/api/questions/events');
+
+  source.onmessage = (event) => {
+    try {
+      const payload = JSON.parse(event.data) as Partial<AuxEvent>;
+      if (payload.type === 'question.updated' && payload.question) {
+        onEvent({ type: 'question.updated', question: payload.question });
+      } else if (payload.type === 'notification' && payload.notification) {
+        onEvent({
+          type: 'notification',
+          notification: payload.notification,
+        });
       }
     } catch {
       // Ignore malformed events and keep the stream open.

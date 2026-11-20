@@ -146,6 +146,7 @@ pub struct SessionEntry {
     preview_throttle: Duration,
     claude: Mutex<Option<ClaudeRuntime>>,
     home: Mutex<Option<PathBuf>>,
+    mcp_config: Mutex<Option<PathBuf>>,
     redactions: Mutex<Vec<String>>,
 }
 
@@ -333,8 +334,13 @@ impl SessionEntry {
             preview_throttle: config.preview_throttle,
             claude: Mutex::new(None),
             home: Mutex::new(None),
+            mcp_config: Mutex::new(None),
             redactions: Mutex::new(Vec::new()),
         }
+    }
+
+    pub fn set_mcp_config(&self, path: PathBuf) {
+        *lock(&self.mcp_config) = Some(path);
     }
 
     pub fn set_redactions(&self, secrets: Vec<String>) {
@@ -424,6 +430,9 @@ impl SessionEntry {
     pub fn remove_session_files(&self) {
         self.remove_claude_settings();
         self.remove_home();
+        if let Some(path) = lock(&self.mcp_config).take() {
+            let _ = std::fs::remove_file(path);
+        }
     }
 
     pub fn try_lifecycle(&self) -> Option<tokio::sync::MutexGuard<'_, ()>> {
@@ -546,6 +555,37 @@ impl SessionEntry {
         state.preview_tail.clear();
         state.last_preview_at = None;
         state.session.clone()
+    }
+
+    pub fn mark_question(&self, text: &str) -> Option<Session> {
+        let mut state = lock(&self.data);
+        if state.session.status != SessionState::Active {
+            return None;
+        }
+        state.session.waiting_for = Some(WaitingFor::Question);
+        state.session.work_state = Some(WorkState::Waiting);
+        state.session.preview = format!("Question: {text}");
+        Some(state.session.clone())
+    }
+
+    pub fn clear_question(&self) -> Option<Session> {
+        let mut state = lock(&self.data);
+        if state.session.waiting_for != Some(WaitingFor::Question) {
+            return None;
+        }
+        state.session.waiting_for = None;
+        state.session.work_state = Some(WorkState::Working);
+        Some(state.session.clone())
+    }
+
+    pub fn report_done(&self) -> Option<Session> {
+        let mut state = lock(&self.data);
+        if state.session.status != SessionState::Active {
+            return None;
+        }
+        state.session.work_state = Some(WorkState::Done);
+        state.session.waiting_for = None;
+        Some(state.session.clone())
     }
 
     pub fn rename(&self, name: String) -> Session {

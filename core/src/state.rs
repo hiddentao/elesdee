@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
+use chrono::{SecondsFormat, Utc};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{Mutex as AsyncMutex, broadcast};
 
@@ -160,6 +161,46 @@ pub struct Session {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Question {
+    pub id: String,
+    pub session_id: String,
+    pub session_name: String,
+    pub text: String,
+    pub options: Vec<String>,
+    pub status: QuestionStatus,
+    pub answer: Option<String>,
+    pub created_at: String,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum QuestionStatus {
+    Pending,
+    Answered,
+    Withdrawn,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Notification {
+    pub id: String,
+    pub session_id: String,
+    pub session_name: String,
+    pub message: String,
+    pub created_at: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(tag = "type")]
+pub enum AuxEvent {
+    #[serde(rename = "question.updated")]
+    Question { question: Question },
+    #[serde(rename = "notification")]
+    Notification { notification: Notification },
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Project {
     pub id: String,
     pub name: String,
@@ -217,6 +258,7 @@ pub struct Bootstrap {
     pub projects: Vec<Project>,
     pub accounts: Vec<Account>,
     pub sessions: Vec<Session>,
+    pub questions: Vec<Question>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -246,6 +288,13 @@ pub struct DuplicateProjectFolder;
 pub enum DeleteSessionFailure {
     NotFound,
     Active,
+}
+
+#[derive(Debug)]
+pub enum QuestionFailure {
+    NotFound,
+    NotPending,
+    Closed,
 }
 
 struct CachedHealth {
@@ -310,6 +359,8 @@ struct Inner {
     secrets: Arc<dyn SecretStore>,
     sessions: Mutex<SessionStore>,
     events: broadcast::Sender<SessionEvent>,
+    questions: Mutex<Vec<Question>>,
+    aux_events: broadcast::Sender<AuxEvent>,
     command_override: Option<Vec<String>>,
     agent_bin: Option<PathBuf>,
     session_cap: usize,
@@ -458,16 +509,18 @@ impl AppState {
         session_cap: usize,
         stall_writer: bool,
     ) -> Self {
-        let (projects, accounts, sessions) = match store.as_ref().map(|store| store.load()) {
-            Some(LoadResult::Loaded(state)) => (
-                state.projects,
-                state.accounts.unwrap_or_else(seed::accounts),
-                state.sessions,
-            ),
-            Some(LoadResult::Missing | LoadResult::Corrupt) | None => {
-                (Vec::new(), seed::accounts(), Vec::new())
-            }
-        };
+        let (projects, accounts, sessions, questions) =
+            match store.as_ref().map(|store| store.load()) {
+                Some(LoadResult::Loaded(state)) => (
+                    state.projects,
+                    state.accounts.unwrap_or_else(seed::accounts),
+                    state.sessions,
+                    state.questions.unwrap_or_default(),
+                ),
+                Some(LoadResult::Missing | LoadResult::Corrupt) | None => {
+                    (Vec::new(), seed::accounts(), Vec::new(), Vec::new())
+                }
+            };
         let mut accounts = accounts;
         let seed_ids = seed::accounts()
             .into_iter()
@@ -491,6 +544,16 @@ impl AppState {
         for session in sessions {
             state.restore_session(session);
         }
+        let pending = questions
+            .into_iter()
+            .filter(|question| {
+                question.status == QuestionStatus::Pending
+                    && state
+                        .session(&question.session_id)
+                        .is_some_and(|entry| entry.session().status == SessionState::Active)
+            })
+            .collect();
+        *lock(&state.inner.questions) = pending;
         if let Some(directory) = state.data_dir() {
             crate::claude::sweep(directory);
         }
@@ -508,6 +571,7 @@ impl AppState {
         store: Option<Arc<StateStore>>,
     ) -> Self {
         let (events, _) = broadcast::channel(EVENT_CHANNEL_CAPACITY);
+        let (aux_events, _) = broadcast::channel(EVENT_CHANNEL_CAPACITY);
         Self {
             inner: Arc::new(Inner {
                 projects: Mutex::new(projects),
@@ -515,6 +579,8 @@ impl AppState {
                 secrets,
                 sessions: Mutex::new(SessionStore::new()),
                 events,
+                questions: Mutex::new(Vec::new()),
+                aux_events,
                 command_override,
                 agent_bin: None,
                 session_cap,
@@ -639,6 +705,164 @@ impl AppState {
         Some(account.clone())
     }
 
+    pub fn pending_questions(&self) -> Vec<Question> {
+        lock(&self.inner.questions)
+            .iter()
+            .filter(|question| question.status == QuestionStatus::Pending)
+            .cloned()
+            .collect()
+    }
+
+    pub fn question(&self, id: &str) -> Option<Question> {
+        lock(&self.inner.questions)
+            .iter()
+            .find(|question| question.id == id)
+            .cloned()
+    }
+
+    pub fn add_question(
+        &self,
+        session_id: &str,
+        text: String,
+        options: Vec<String>,
+    ) -> Result<Question, QuestionFailure> {
+        let entry = self
+            .session(session_id)
+            .ok_or(QuestionFailure::NotFound)?;
+        let session = entry.session();
+        if session.status != SessionState::Closed {
+            let question = Question {
+                id: uuid::Uuid::new_v4().to_string(),
+                session_id: session.id.clone(),
+                session_name: session.name.clone(),
+                text,
+                options,
+                status: QuestionStatus::Pending,
+                answer: None,
+                created_at: timestamp(),
+            };
+            lock(&self.inner.questions).push(question.clone());
+            if let Some(updated) = entry.mark_question(&question.text) {
+                self.emit(SessionEvent::updated(updated));
+            }
+            self.emit_aux(AuxEvent::Question {
+                question: question.clone(),
+            });
+            self.save();
+            Ok(question)
+        } else {
+            Err(QuestionFailure::Closed)
+        }
+    }
+
+    pub fn answer_question(
+        &self,
+        id: &str,
+        answer: String,
+    ) -> Result<Question, QuestionFailure> {
+        let question = {
+            let mut questions = lock(&self.inner.questions);
+            let question = questions
+                .iter_mut()
+                .find(|question| question.id == id)
+                .ok_or(QuestionFailure::NotFound)?;
+            if question.status != QuestionStatus::Pending {
+                return Err(QuestionFailure::NotPending);
+            }
+            question.status = QuestionStatus::Answered;
+            question.answer = Some(answer);
+            question.clone()
+        };
+        self.finish_question(&question);
+        Ok(question)
+    }
+
+    pub fn withdraw_question(&self, id: &str) -> Result<Question, QuestionFailure> {
+        let question = {
+            let mut questions = lock(&self.inner.questions);
+            let question = questions
+                .iter_mut()
+                .find(|question| question.id == id)
+                .ok_or(QuestionFailure::NotFound)?;
+            if question.status != QuestionStatus::Pending {
+                return Err(QuestionFailure::NotPending);
+            }
+            question.status = QuestionStatus::Withdrawn;
+            question.clone()
+        };
+        self.finish_question(&question);
+        Ok(question)
+    }
+
+    fn finish_question(&self, question: &Question) {
+        let still_pending = lock(&self.inner.questions)
+            .iter()
+            .any(|other| {
+                other.session_id == question.session_id
+                    && other.status == QuestionStatus::Pending
+            });
+        if !still_pending
+            && let Some(entry) = self.session(&question.session_id)
+            && let Some(updated) = entry.clear_question()
+        {
+            self.emit(SessionEvent::updated(updated));
+        }
+        self.emit_aux(AuxEvent::Question {
+            question: question.clone(),
+        });
+        self.save();
+    }
+
+    pub fn withdraw_questions_for_session(&self, session_id: &str) {
+        let withdrawn = {
+            let mut questions = lock(&self.inner.questions);
+            questions
+                .iter_mut()
+                .filter(|question| {
+                    question.session_id == session_id
+                        && question.status == QuestionStatus::Pending
+                })
+                .map(|question| {
+                    question.status = QuestionStatus::Withdrawn;
+                    question.clone()
+                })
+                .collect::<Vec<_>>()
+        };
+        for question in withdrawn {
+            self.emit_aux(AuxEvent::Question { question });
+        }
+    }
+
+    pub fn has_pending_question(&self, session_id: &str) -> bool {
+        lock(&self.inner.questions).iter().any(|question| {
+            question.session_id == session_id && question.status == QuestionStatus::Pending
+        })
+    }
+
+    pub fn notify(&self, session_id: &str, message: String) -> Option<Notification> {
+        let entry = self.session(session_id)?;
+        let session = entry.session();
+        let notification = Notification {
+            id: uuid::Uuid::new_v4().to_string(),
+            session_id: session.id.clone(),
+            session_name: session.name.clone(),
+            message,
+            created_at: timestamp(),
+        };
+        self.emit_aux(AuxEvent::Notification {
+            notification: notification.clone(),
+        });
+        Some(notification)
+    }
+
+    pub fn subscribe_aux(&self) -> broadcast::Receiver<AuxEvent> {
+        self.inner.aux_events.subscribe()
+    }
+
+    fn emit_aux(&self, event: AuxEvent) {
+        let _ = self.inner.aux_events.send(event);
+    }
+
     pub fn project(&self, id: &str) -> Option<Project> {
         lock(&self.inner.projects)
             .iter()
@@ -695,6 +919,7 @@ impl AppState {
             projects: lock(&self.inner.projects).clone(),
             accounts: self.accounts(),
             sessions,
+            questions: self.pending_questions(),
         }
     }
 
@@ -789,7 +1014,12 @@ impl AppState {
                 }
             })
             .collect();
-        let state = PersistedState::new(projects, Some(self.accounts()), sessions);
+        let state = PersistedState::new(
+            projects,
+            Some(self.accounts()),
+            Some(self.pending_questions()),
+            sessions,
+        );
         if let Err(error) = store.save(&state) {
             tracing::error!(%error, "could not save state");
         }
@@ -946,4 +1176,8 @@ impl Default for AppState {
 
 pub(crate) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+fn timestamp() -> String {
+    Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true)
 }
