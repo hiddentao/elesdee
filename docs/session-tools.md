@@ -53,13 +53,16 @@ A session started this way shows the session it came from in the sidebar.
 
 ## Demo servers
 
-**Register demo server** tells the app that a demo server runs on a loopback port. The agent gives a short name and the port, and the tool returns the address to print, such as `http://localhost:3000`. Start the server before you register its port.
+**Register demo server** tells the app that a demo server runs on a loopback port. The agent gives a short name and the port, and the tool returns the address to print, such as `http://localhost:3000`. When Tailscale is installed and running, the tool also returns a tailnet address, such as `https://machine.tailnet.ts.net:3000` or `http://100.x.y.z:3000`, for devices that are on the tailnet but do not have the app. Start the server before you register its port.
 
 The session's Files panel lists each registered server with its address and state:
 
-- **Active** servers show an **Open** link and a **Stop** button. Open the address on this computer, or the same port on a paired phone.
+- **Active** servers show an **Open** link and a **Stop** button. Open the address on this computer, or the same port on a paired phone. When the server has a tailnet address, the panel shows and opens that too.
+- The panel opens only a loopback address or a tailnet address. It never opens another address.
 - **Stop** removes the server from the phone's list and closes its tunnels. The process is not the app's to stop; the agent stops it.
 - Close and pause stop every server in the session. Register the port again after you resume.
+
+Tailscale is optional. Without a running Tailscale client, a server has only its local address and the phone forwarding. A failed read never blocks a registration.
 
 Limits and rules:
 

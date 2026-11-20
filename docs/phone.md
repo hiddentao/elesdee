@@ -49,9 +49,9 @@ Antigravity and terminal sessions have no structured source, so they open on the
 
 ## Demo servers on the phone
 
-A demo server is a loopback port that an agent registers for its session. The session's Files panel on the computer lists it with the local address and a Stop action.
+A demo server is a loopback port that an agent registers for its session. The session's Files panel on the computer lists it with the local address and a Stop action. When Tailscale is installed and running, the panel also lists the server's tailnet address, which a device on the tailnet can open without the app.
 
-A paired phone shell opens the session's active demo servers as a list. Each row shows the server's name, its address on the phone, a state and an **Open** action. The phone listens on `127.0.0.1` at the same port when it is free, or at a free port, and forwards the connection over the link to `127.0.0.1` on the computer. Only a registered port is allowed. There is one tunnel per port and at most eight at once. A tunnel closes when its server stops, the session closes or pauses, the phone disconnects, the pairing is removed or the app exits.
+A paired phone shell opens the session's active demo servers as a list. Each row shows the server's name, its address on the phone, the tailnet address when the computer recorded one, a state and an **Open** action. The phone listens on `127.0.0.1` at the same port when it is free, or at a free port, and forwards the connection over the link to `127.0.0.1` on the computer. Only a registered port is allowed. There is one tunnel per port and at most eight at once. A tunnel closes when its server stops, the session closes or pauses, the phone disconnects, the pairing is removed or the app exits.
 
 The installable app is not released. The computer side and the phone shell listener are built and tested on the host. No device or emulator test has run, so the browser handoff and background behavior are unchecked. Android may pause the app after you switch to the browser; this build does not request a foreground service. The phone stops forwarding only when the platform stops the app.
 

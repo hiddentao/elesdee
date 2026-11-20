@@ -1,6 +1,6 @@
 ---
 name: demo-servers
-description: Start a demo server for the work, register its loopback port, and give the user an address that opens on this computer and on the paired phone.
+description: Start a demo server for the work, register its loopback port, and give the user an address that opens on this computer, on the paired phone, and on the tailnet when Tailscale runs.
 ---
 
 # Demo servers
@@ -12,7 +12,7 @@ A demo server shows the work in a browser: a page to review, a live preview, or 
 1. Start the server on a loopback address, such as `127.0.0.1` or `localhost`, on a fixed port. Choose a free port between 1024 and 65535.
 2. Wait until the server answers before you register it.
 3. Call `register_demo_server` with a short `name` and the `port`.
-4. Print the address that the tool returns, such as `http://localhost:3000`. The same address works in a browser on this computer. On the paired phone, the app forwards the same port.
+4. Print the addresses that the tool returns. The local address, such as `http://localhost:3000`, works in a browser on this computer. On the paired phone, the app forwards the same port. When the tool also returns a Tailscale address, print it for devices on the tailnet that do not have the app.
 
 The tool refuses a privileged port, the elesdee service port, a port that another active session registered, a closed session, and a ninth server.
 

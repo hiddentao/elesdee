@@ -614,6 +614,7 @@ Account keys never cross the link. The existing account response omits them.
 - The phone sends a port from the registered demo-server list. The desktop checks the active list; any other port is refused. The forward handler checks the paired device list like the app handler.
 - The handshake is two big-endian port bytes from the phone, then one status byte from the computer: `0` open, `1` refused, `2` approved but nothing listens. The bytes are defined in `link/src/forward.rs` and the statuses are shared.
 - The phone shell asks the computer for `demoServers.list` before it binds, and it refuses a port that no active session registered. It then binds `127.0.0.1` only. It uses the same port when free, otherwise a free port, and shows the address on the session screen.
+- A row also shows the server's tailnet address when the computer recorded one. That address is for another device on the tailnet without the app; the phone still opens its own loopback address. The row does not open the tailnet address itself.
 - The computer side connects to `127.0.0.1:<port>` only. The port request carries no address, so the phone cannot ask for another host.
 - At most 8 tunnels per phone, one per port. A duplicate port or a ninth tunnel is refused. Closing a tunnel frees its slot.
 - The session screen starts a listener for each active server and shows its address. The listener stays while the tunnel is healthy, even after another screen opens, until its server stops, its session closes, the phone disconnects or the app exits. The session's refresh and update events start a tunnel for a new server and stop the tunnel of a server that leaves the active list.
@@ -632,11 +633,12 @@ Account keys never cross the link. The existing account response omits them.
 | `core/src/link/hub.rs` | One permit per port and tunnel cancellation. |
 | `core/src/api.rs` | `GET /api/demo-servers` and the stop route. |
 | `core/src/demo.rs` | Demo-server records and validation. |
+| `core/src/tailscale.rs` | Tailscale client discovery, the cached status read, and the tailnet address. |
 | `core/src/mcp.rs` | The `register_demo_server` tool. |
 | `phone-shell/src-tauri/src/forward.rs` | Loopback listener, same-or-free port choice, the 8-tunnel registry, and the socket-to-stream bridge. |
 | `phone-shell/src-tauri/src/commands.rs` | `phone_forward_start` and `phone_forward_stop`, the registered-port check, and teardown on disconnect, forget and exit. |
 | `phone-shell/ui/src/demo.ts` | Session server selection and the listener state of each row. |
-| `phone-shell/ui/src/app.ts` | The demo-server list on the session screen, with the local address, state and Open action. |
+| `phone-shell/ui/src/app.ts` | The demo-server list on the session screen, with the local and tailnet addresses, state and Open action. |
 
 ### 6.5 Logging and storage
 

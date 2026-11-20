@@ -28,7 +28,9 @@ test('terminal session create, echo, close, reopen and delete', async ({
   await projectCombo.fill(label);
   await page.getByRole('option', { name: new RegExp(label) }).click();
   await dialog.getByRole('radio', { name: 'Terminal' }).click();
-  await expect(dialog.getByLabel('Folder')).toHaveValue(folder);
+  await expect(
+    dialog.getByRole('textbox', { name: 'Folder' }),
+  ).toHaveValue(folder);
 
   const sessionName = uniqueName('e2e-terminal');
   await dialog.getByLabel('Session name (optional)').fill(sessionName);

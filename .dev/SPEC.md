@@ -508,7 +508,7 @@ The agent starts the server and registers its loopback port with the Register de
 - Stop stops the server and closes its tunnels. Close and pause stop every server in the session.
 - The app forwards only a port that an active session registered. It never exposes another port.
 
-The first build keeps the registration and the forwarding through the phone app. The Tailscale address arrives later.
+The app registers the server, forwards its port through the phone app, and adds a Tailscale address when Tailscale is available.
 
 **Main way: forwarding through the phone app**
 
@@ -523,12 +523,14 @@ The first build keeps the registration and the forwarding through the phone app.
 
 If Tailscale runs, the IDE also gives each demo server a Tailscale address. This helps for devices that do not have the elesdee app, such as another computer or a tablet, and for sharing with other people.
 
-1. The IDE checks if Tailscale runs. `tailscale status --json` returns a `BackendState` field, which is `Running` when Tailscale is up ([check](https://alexwlchan.net/til/2025/check-tailscale-is-running/)). The same output gives the machine's Tailscale name ([forum](https://forum.tailscale.com/t/find-out-tailnet-name-from-script/5271)).
-2. If Tailscale runs, the IDE runs `tailscale serve <port>` for each demo server. This gives an HTTPS address that only devices in my Tailscale network can open ([Tailscale docs](https://tailscale.com/docs/use-cases/application-testing/share-local-dev-server-with-team)).
-3. If Tailscale is not installed or not running, demo servers use only the forwarding through the phone app.
-4. The IDE tells the agent which addresses to use, so links the agent prints work on my phone.
+1. The IDE finds the Tailscale CLI in `PATH` or a fixed install location and runs `tailscale status --json`. It never runs a login shell and never takes an executable path from a setting or from the agent.
+2. The read gives no address unless `BackendState` is `Running`. The device's MagicDNS name gives `https://<machine>.<tailnet>.ts.net:<port>`. When the name is missing, the device's IPv4 address on the tailnet gives `http://100.x.y.z:<port>`.
+3. The IDE caches the read briefly and records the address with the demo server at registration. Registering the same port again refreshes it.
+4. If Tailscale is not installed, not running or the read fails, the demo server keeps only the local address and the phone forwarding. A failed read never blocks a registration.
+5. The session's side panel shows the local address and the tailnet address, and opens either one. It opens only a loopback address or a tailnet address, never another address.
+6. The paired phone lists the tailnet address for the same server. A device on the tailnet can open it without the app.
 
-To share a demo with people outside my Tailscale network, Tailscale Funnel can make it public ([Tailscale docs](https://tailscale.com/docs/use-cases/application-testing/share-local-dev-server-with-internet)). The IDE does this only when I ask.
+The IDE changes no Tailscale setting. To share a demo with people outside my Tailscale network, Tailscale Funnel can make it public ([Tailscale docs](https://tailscale.com/docs/use-cases/application-testing/share-local-dev-server-with-internet)). The IDE does this only when I ask.
 
 ## Mobile companion app
 

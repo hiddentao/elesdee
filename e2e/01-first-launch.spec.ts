@@ -21,7 +21,7 @@ test('first launch welcomes the user and a new project is selected', async ({
 
   const dialog = page.getByRole('dialog');
   await dialog.getByLabel('Name').fill(name);
-  await dialog.getByLabel('Folder').fill(folder);
+  await dialog.getByRole('textbox', { name: 'Folder' }).fill(folder);
   await dialog.getByRole('button', { name: 'Add project' }).click();
 
   await expect(dialog).not.toBeVisible();

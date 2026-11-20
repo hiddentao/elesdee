@@ -2384,6 +2384,14 @@ export class ShellApp {
               class: 'demo-address',
               text: row.address ?? this.t('demoServer.pending'),
             }),
+            ...(row.server.tailscaleAddress
+              ? [
+                  el('span', {
+                    class: 'demo-address is-tailnet',
+                    text: row.server.tailscaleAddress,
+                  }),
+                ]
+              : []),
           ]),
           el('span', {
             class: demoStateClass(row.state),

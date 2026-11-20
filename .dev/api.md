@@ -346,7 +346,8 @@ interface DemoServer {
   sessionId: string;
   name: string;
   port: number;
-  address: string;     // "http://localhost:3000"
+  address: string;          // "http://localhost:3000"
+  tailscaleAddress?: string; // "https://machine.tailnet.ts.net:3000" or "http://100.x.y.z:3000"
   state: DemoServerState;
   createdAt: string;   // RFC 3339
 }
@@ -361,14 +362,15 @@ interface DemoServerListEntry extends DemoServer {
 | GET | `/api/demo-servers` | | `DemoServerListEntry[]` for active servers |
 | POST | `/api/sessions/{id}/demo-servers/{serverId}/stop` | `{}` | `Session` |
 
-- `register_demo_server` is an MCP tool, not a local route. It takes a name and a port and returns the local address. The tool refuses with `isError` when the session is closed, the name is empty, the port is outside 1024–65535, the port is the core service's port, another active session registered the port, or the session already holds 8 servers.
+- `register_demo_server` is an MCP tool, not a local route. It takes a name and a port and returns the local address, plus a tailnet address when Tailscale is installed and running. The tool refuses with `isError` when the session is closed, the name is empty, the port is outside 1024–65535, the port is the core service's port, another active session registered the port, or the session already holds 8 servers.
+- The tailnet address is read once per registration from the local Tailscale client. The MagicDNS name gives `https://<machine>.<tailnet>.ts.net:<port>`; without a usable name, the tailnet IPv4 gives `http://100.x.y.z:<port>`. A missing, stopped or failing client leaves the field out. A failed read never blocks the registration. The record holds the address that the registration saw; a repeated port refreshes it.
 - The name is cleaned of control and invisible characters and capped at 64 characters. A repeated port in the same session updates its name and makes it active again. The record id and creation time stay.
 - `GET /api/demo-servers` returns only active records. The array is empty when no server is registered. Records are ordered by session order and then registration order.
 - The stop route returns the updated session with `state: "stopped"`, emits `session.updated`, and closes that port's forward tunnels. A second stop returns the same stopped record.
 - An unknown session or server returns 404. A closed session refuses a registration through the tool, not through the stop route.
 - The records live with the session and appear in `bootstrap`. They are saved in `state.json`. On restart every saved record becomes `stopped`, because the agent process and its servers no longer run.
 - Close and pause set every server in the session to `stopped` and close its tunnels. Delete removes the session and its records.
-- The link method `demoServers.list` maps to `GET /api/demo-servers`. The phone receives only active ports. Forwarding itself uses the separate `elesdee/forward/1` ALPN; it is not an RPC method.
+- The link method `demoServers.list` maps to `GET /api/demo-servers`. The phone receives only active ports, with each record's local and tailnet addresses. Forwarding itself uses the separate `elesdee/forward/1` ALPN; it is not an RPC method.
 
 ## Switching AI configs and context
 

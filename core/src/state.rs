@@ -823,6 +823,7 @@ struct Inner {
     store: Option<Arc<StateStore>>,
     persist_lock: Mutex<()>,
     demo_lock: Mutex<()>,
+    tailscale: crate::tailscale::Resolver,
     usage_gates: Mutex<HashMap<String, Arc<AsyncMutex<()>>>>,
     usage_last_attempt: Mutex<HashMap<String, Instant>>,
     usage_last_save: Mutex<HashMap<String, Instant>>,
@@ -1186,6 +1187,7 @@ impl AppState {
                 store,
                 persist_lock: Mutex::new(()),
                 demo_lock: Mutex::new(()),
+                tailscale: crate::tailscale::Resolver::new(),
                 usage_gates: Mutex::new(HashMap::new()),
                 usage_last_attempt: Mutex::new(HashMap::new()),
                 usage_last_save: Mutex::new(HashMap::new()),
@@ -1518,6 +1520,15 @@ impl AppState {
     pub fn with_test_sign_in(mut self, overrides: crate::auth::SignInOverrides) -> Self {
         if let Some(inner) = Arc::get_mut(&mut self.inner) {
             inner.sign_in = Some(overrides);
+        }
+        self
+    }
+
+    /// Reads the tailnet address from one executable instead of discovery.
+    #[doc(hidden)]
+    pub fn with_test_tailscale_binary(mut self, binary: impl Into<PathBuf>) -> Self {
+        if let Some(inner) = Arc::get_mut(&mut self.inner) {
+            inner.tailscale = crate::tailscale::Resolver::with_binary(binary.into());
         }
         self
     }
@@ -1996,7 +2007,8 @@ impl AppState {
         if in_use {
             return Err(DemoFailure::PortInUse);
         }
-        let session = entry.register_demo_server(name, port)?;
+        let tailscale_address = self.inner.tailscale.address(port);
+        let session = entry.register_demo_server(name, port, tailscale_address)?;
         let server = session
             .demo_servers
             .iter()

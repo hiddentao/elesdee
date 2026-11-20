@@ -14,6 +14,15 @@ const chromePath = process.env.ELESDEE_E2E_CHROME ?? chromium.executablePath();
 const agentStub = path.join(runDir, 'agent-stub.sh');
 const signInStub = path.join(runDir, 'sign-in-stub.sh');
 const signInControl = path.join(runDir, 'sign-in-control.txt');
+const tailscaleBin = path.join(runDir, 'tailscale-bin');
+
+fs.mkdirSync(tailscaleBin, { recursive: true });
+fs.writeFileSync(
+  path.join(tailscaleBin, 'tailscale'),
+  '#!/bin/sh\nif [ "$1 $2" = "status --json" ]; then\n  printf \'{"BackendState":"Running","Self":{"DNSName":"elesdee-e2e.tailnet.ts.net.","TailscaleIPs":["100.101.102.103","fd7a:115c:a1e0::1"]}}\'\n  exit 0\nfi\nexit 1\n',
+);
+fs.chmodSync(path.join(tailscaleBin, 'tailscale'), 0o755);
+const corePath = `${tailscaleBin}${path.delimiter}${process.env.PATH ?? ''}`;
 
 fs.writeFileSync(
   agentStub,
@@ -71,7 +80,7 @@ export default defineConfig({
   globalTeardown: './e2e/global-teardown.ts',
   webServer: [
     {
-      command: `ELESDEE_PORT=${corePort} ELESDEE_DATA_DIR=${JSON.stringify(path.join(runDir, 'data'))} ELESDEE_AGENT_BIN=${JSON.stringify(agentStub)} ELESDEE_SIGNIN_BIN=${JSON.stringify(signInStub)} SIGNIN_CONTROL=${JSON.stringify(signInControl)} ELESDEE_SIGNIN_TIMEOUT_SECS=20 ELESDEE_MEMORY_SECRETS=1 ELESDEE_OPENCODE_PORT=${opencodePort} ELESDEE_CODEX_WS=ws://127.0.0.1:${codexPort} ELESDEE_GITHUB_CLIENT_ID=test-client ELESDEE_GITHUB_API_BASE=http://127.0.0.1:${githubPort} ELESDEE_GITHUB_LOGIN_BASE=http://127.0.0.1:${githubPort} ELESDEE_GITHUB_DEFAULT_PARENT=${JSON.stringify(path.join(runDir, 'github-clones'))} CHROME=${JSON.stringify(chromePath)} cargo run --manifest-path core/Cargo.toml`,
+      command: `PATH=${JSON.stringify(corePath)} ELESDEE_PORT=${corePort} ELESDEE_DATA_DIR=${JSON.stringify(path.join(runDir, 'data'))} ELESDEE_AGENT_BIN=${JSON.stringify(agentStub)} ELESDEE_SIGNIN_BIN=${JSON.stringify(signInStub)} SIGNIN_CONTROL=${JSON.stringify(signInControl)} ELESDEE_SIGNIN_TIMEOUT_SECS=20 ELESDEE_MEMORY_SECRETS=1 ELESDEE_OPENCODE_PORT=${opencodePort} ELESDEE_CODEX_WS=ws://127.0.0.1:${codexPort} ELESDEE_GITHUB_CLIENT_ID=test-client ELESDEE_GITHUB_API_BASE=http://127.0.0.1:${githubPort} ELESDEE_GITHUB_LOGIN_BASE=http://127.0.0.1:${githubPort} ELESDEE_GITHUB_DEFAULT_PARENT=${JSON.stringify(path.join(runDir, 'github-clones'))} CHROME=${JSON.stringify(chromePath)} cargo run --manifest-path core/Cargo.toml`,
       url: `http://127.0.0.1:${corePort}/api/health`,
       timeout: 300_000,
       reuseExistingServer: false,
