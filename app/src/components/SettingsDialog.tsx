@@ -11,11 +11,12 @@ import type {
   CreateAccountInput,
   CreatePresetInput,
   LaunchPreset,
+  RemoveAccountResult,
 } from '../api/types';
 import { LANGUAGES, type Language } from '../i18n';
 import { useLanguage } from '../i18n/LanguageProvider';
 import { accountUsage } from '../state/usage';
-import { AddAccountDialog } from './AddAccountDialog';
+import { AccountDialog } from './AccountDialog';
 import { Dialog } from './Dialog';
 import { PresetDialog } from './PresetDialog';
 import {
@@ -36,6 +37,11 @@ interface SettingsDialogProps {
   version: string | null;
   onCreateAccount: (input: CreateAccountInput) => Promise<Account>;
   onAccountCreated: (account: Account) => void;
+  onUpdateAccount: (
+    id: string,
+    input: CreateAccountInput,
+  ) => Promise<Account>;
+  onRemoveAccount: (id: string) => Promise<RemoveAccountResult>;
   onClose: () => void;
 }
 
@@ -44,6 +50,8 @@ export function SettingsDialog({
   version,
   onCreateAccount,
   onAccountCreated,
+  onUpdateAccount,
+  onRemoveAccount,
   onClose,
 }: SettingsDialogProps) {
   const { t, language, setLanguage } = useLanguage();
@@ -58,6 +66,10 @@ export function SettingsDialog({
   const [deleteTarget, setDeleteTarget] = useState<LaunchPreset | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [editTarget, setEditTarget] = useState<Account | null>(null);
+  const [removeTarget, setRemoveTarget] = useState<Account | null>(null);
+  const [removeError, setRemoveError] = useState<string | null>(null);
+  const [removing, setRemoving] = useState(false);
 
   const refreshPresets = useCallback(async () => {
     setPresetsLoading(true);
@@ -100,6 +112,27 @@ export function SettingsDialog({
     }
   }
 
+  async function confirmRemove() {
+    if (!removeTarget) {
+      return;
+    }
+    setRemoving(true);
+    setRemoveError(null);
+    try {
+      await onRemoveAccount(removeTarget.id);
+      setRemoveTarget(null);
+      await refreshPresets();
+    } catch (error) {
+      setRemoveError(
+        error instanceof ApiError
+          ? error.message
+          : t('removeAccount.error'),
+      );
+    } finally {
+      setRemoving(false);
+    }
+  }
+
   return (
     <>
       <Dialog
@@ -108,7 +141,11 @@ export function SettingsDialog({
         className="settings-dialog"
         onClose={onClose}
         inert={
-          addOpen || presetEditor !== undefined || deleteTarget !== null
+          addOpen ||
+          editTarget !== null ||
+          removeTarget !== null ||
+          presetEditor !== undefined ||
+          deleteTarget !== null
         }
       >
         <div className="settings-head">
@@ -255,6 +292,31 @@ export function SettingsDialog({
                           >
                             {usage.summary}
                           </span>
+                          <div className="settings-account-actions">
+                            <button
+                              type="button"
+                              className="btn btn-ghost"
+                              aria-label={t('settings.editAccount', {
+                                name: account.name,
+                              })}
+                              onClick={() => setEditTarget(account)}
+                            >
+                              <PencilIcon />
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-ghost"
+                              aria-label={t('settings.removeAccount', {
+                                name: account.name,
+                              })}
+                              onClick={() => {
+                                setRemoveError(null);
+                                setRemoveTarget(account);
+                              }}
+                            >
+                              <TrashIcon />
+                            </button>
+                          </div>
                         </li>
                       );
                     })}
@@ -443,15 +505,73 @@ export function SettingsDialog({
       </Dialog>
 
       {addOpen ? (
-        <AddAccountDialog
-          onCreate={onCreateAccount}
-          onCreated={(account) => {
+        <AccountDialog
+          onSubmit={onCreateAccount}
+          onSaved={(account) => {
             onAccountCreated(account);
             setAddOpen(false);
             void refreshPresets();
           }}
           onClose={() => setAddOpen(false)}
         />
+      ) : null}
+
+      {editTarget ? (
+        <AccountDialog
+          account={editTarget}
+          onSubmit={(input) => onUpdateAccount(editTarget.id, input)}
+          onSaved={() => {
+            setEditTarget(null);
+            void refreshPresets();
+          }}
+          onClose={() => setEditTarget(null)}
+        />
+      ) : null}
+
+      {removeTarget ? (
+        <Dialog
+          titleId="remove-account-title"
+          descriptionId="remove-account-description"
+          busyLabel={t('removeAccount.removing')}
+          onClose={() => setRemoveTarget(null)}
+          busy={removing}
+        >
+          <div className="dialog-head">
+            <h2 className="dialog-title" id="remove-account-title">
+              {t('removeAccount.title')}
+            </h2>
+            <p className="dialog-sub" id="remove-account-description">
+              {t('removeAccount.text', { name: removeTarget.name })}
+            </p>
+          </div>
+          <div className="dialog-body">
+            {removeError ? (
+              <p className="form-error" role="alert">
+                {removeError}
+              </p>
+            ) : null}
+          </div>
+          <div className="dialog-foot">
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={() => setRemoveTarget(null)}
+              disabled={removing}
+            >
+              {t('common.cancel')}
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => void confirmRemove()}
+              disabled={removing}
+            >
+              {removing
+                ? t('removeAccount.removing')
+                : t('removeAccount.confirm')}
+            </button>
+          </div>
+        </Dialog>
       ) : null}
 
       {presetEditor !== undefined ? (

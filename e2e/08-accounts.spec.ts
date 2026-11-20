@@ -30,7 +30,7 @@ test('adds an API-key provider and gives the session its environment', async ({
 
   await add.getByLabel('Provider').selectOption('deepseek');
   await add.getByLabel('Account name').fill('DeepSeek e2e');
-  await add.locator('#add-account-key').fill('sk-e2e-deepseek');
+  await add.locator('#account-key').fill('sk-e2e-deepseek');
   await add.getByRole('button', { name: 'Add account' }).click();
 
   await expect(add).not.toBeVisible();

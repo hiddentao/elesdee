@@ -132,6 +132,8 @@ export const sv = {
   'settings.providersNote':
     'Konton på den här datorn och deras användning.',
   'settings.addAccount': 'Lägg till konto',
+  'settings.editAccount': 'Redigera kontot {name}',
+  'settings.removeAccount': 'Ta bort kontot {name}',
   'settings.noAccounts': 'Inga konton ännu.',
   'settings.aboutVersion': 'Version {version}',
   'settings.languageLabel': 'Gränssnittsspråk',
@@ -167,6 +169,27 @@ export const sv = {
     'Det gick inte att läsa in leverantörslistan.',
   'addAccount.errorAdd':
     'Kontot lades inte till. Försök igen.',
+
+  'editAccount.title': 'Redigera konto',
+  'editAccount.subtitle':
+    'Ändra det här kontot. Lämna nyckelfältet tomt för att behålla den sparade nyckeln.',
+  'editAccount.busyLabel': 'Kontot sparas…',
+  'editAccount.submitting': 'Sparar…',
+  'editAccount.submit': 'Spara',
+  'editAccount.errorSave':
+    'Kontot sparades inte. Försök igen.',
+  'editAccount.apiKeyLabel':
+    'API-nyckel (lämna tomt för att behålla den sparade nyckeln)',
+  'editAccount.apiKeyHint':
+    'Lämna det här fältet tomt för att behålla den sparade nyckeln.',
+
+  'removeAccount.title': 'Ta bort konto',
+  'removeAccount.text':
+    'Ta bort ”{name}”? Nyckeln och den sparade användningen raderas. Förval och projektstandarder som använder kontot rensas.',
+  'removeAccount.confirm': 'Ta bort konto',
+  'removeAccount.removing': 'Tar bort…',
+  'removeAccount.error':
+    'Kontot togs inte bort. Försök igen.',
 
   'addProject.title': 'Lägg till projekt',
   'addProject.subtitle': 'Ge projektet ett namn och en mapp.',

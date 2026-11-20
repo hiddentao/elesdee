@@ -128,6 +128,8 @@ export const en = {
   'settings.presetsNote':
     'Launch presets on this computer. Every account is also a preset.',
   'settings.addAccount': 'Add account',
+  'settings.editAccount': 'Edit account {name}',
+  'settings.removeAccount': 'Remove account {name}',
   'settings.addPreset': 'Add preset',
   'settings.noAccounts': 'No accounts yet.',
   'settings.noPresets': 'No presets yet.',
@@ -163,6 +165,25 @@ export const en = {
   'addAccount.errorServer': 'Enter the server URL.',
   'addAccount.errorProviders': 'Could not load the provider list.',
   'addAccount.errorAdd': 'The account was not added. Try again.',
+
+  'editAccount.title': 'Edit account',
+  'editAccount.subtitle':
+    'Change this account. Leave the key blank to keep the saved key.',
+  'editAccount.busyLabel': 'Saving account…',
+  'editAccount.submitting': 'Saving…',
+  'editAccount.submit': 'Save',
+  'editAccount.errorSave': 'The account was not saved. Try again.',
+  'editAccount.apiKeyLabel':
+    'API key (leave blank to keep the saved key)',
+  'editAccount.apiKeyHint':
+    'Leave this field blank to keep the saved key.',
+
+  'removeAccount.title': 'Remove account',
+  'removeAccount.text':
+    'Remove “{name}”? Its key and saved usage are deleted. Presets and project defaults that use it are cleared.',
+  'removeAccount.confirm': 'Remove account',
+  'removeAccount.removing': 'Removing…',
+  'removeAccount.error': 'The account was not removed. Try again.',
 
   'addProject.title': 'Add project',
   'addProject.subtitle': 'Give the project a name and a folder.',

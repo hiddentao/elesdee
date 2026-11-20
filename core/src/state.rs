@@ -338,6 +338,13 @@ pub struct Account {
     pub api_style: Option<String>,
 }
 
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemovedAccount {
+    pub cleared_project_defaults: Vec<String>,
+    pub removed_presets: usize,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Preset {
@@ -736,17 +743,6 @@ impl AppState {
                     Vec::new(),
                 ),
             };
-        let mut accounts = accounts;
-        let seed_ids = seed::accounts()
-            .into_iter()
-            .map(|account| account.id)
-            .collect::<HashSet<_>>();
-        for account in &mut accounts {
-            if seed_ids.contains(&account.id) {
-                account.sample = true;
-            }
-        }
-
         let state = Self::from_parts(
             projects,
             accounts,
@@ -1000,8 +996,55 @@ impl AppState {
         account
     }
 
+    /// Replaces the account with the same id and returns the stored record.
+    pub fn replace_account(&self, account: Account) -> Option<Account> {
+        let mut accounts = lock(&self.inner.accounts);
+        let slot = accounts
+            .iter_mut()
+            .find(|existing| existing.id == account.id)?;
+        *slot = account.clone();
+        Some(account)
+    }
+
     pub fn remove_account(&self, id: &str) {
-        lock(&self.inner.accounts).retain(|account| account.id != id);
+        self.remove_account_with_references(id);
+    }
+
+    /// Removes an account together with every stored reference to it.
+    ///
+    /// The keychain entry is removed by the caller before this runs. Detached
+    /// presets live only in memory and disappear with the account, so they need
+    /// no cleanup.
+    pub fn remove_account_with_references(&self, id: &str) -> Option<RemovedAccount> {
+        {
+            let mut accounts = lock(&self.inner.accounts);
+            let position = accounts.iter().position(|account| account.id == id)?;
+            accounts.remove(position);
+        }
+        let cleared_project_defaults = {
+            let mut projects = lock(&self.inner.projects);
+            let mut cleared = Vec::new();
+            for project in projects.iter_mut() {
+                if project.default_account_id.as_deref() == Some(id) {
+                    project.default_account_id = None;
+                    cleared.push(project.id.clone());
+                }
+            }
+            cleared
+        };
+        let removed_presets = {
+            let mut presets = lock(&self.inner.presets);
+            let before = presets.len();
+            presets.retain(|preset| preset.account_id != id);
+            before - presets.len()
+        };
+        lock(&self.inner.usage_gates).remove(id);
+        lock(&self.inner.usage_last_attempt).remove(id);
+        lock(&self.inner.usage_last_save).remove(id);
+        Some(RemovedAccount {
+            cleared_project_defaults,
+            removed_presets,
+        })
     }
 
     pub fn set_account_usage(

@@ -11,11 +11,16 @@ import { useLanguage } from '../i18n/LanguageProvider';
 import { Dialog } from './Dialog';
 import { AlertIcon } from './icons';
 
-interface AddAccountDialogProps {
-  onCreate: (input: CreateAccountInput) => Promise<Account>;
-  onCreated: (account: Account) => void;
+interface AccountDialogProps {
+  /** The account to change. Absent adds a new account. */
+  account?: Account | null;
+  onSubmit: (input: CreateAccountInput) => Promise<Account>;
+  onSaved: (account: Account) => void;
   onClose: () => void;
 }
+
+type AuthMode = 'subscription' | 'key' | 'local';
+type ApiStyle = 'openai' | 'anthropic';
 
 interface FormErrors {
   name?: string;
@@ -47,23 +52,30 @@ function needsServer(provider: ProviderInfo | null, auth: string): boolean {
   );
 }
 
-export function AddAccountDialog({
-  onCreate,
-  onCreated,
+function styleFor(account: Account | null | undefined): ApiStyle {
+  if (account?.apiStyle === 'openai' || account?.apiStyle === 'anthropic') {
+    return account.apiStyle;
+  }
+  return account?.client === 'Claude Code' ? 'anthropic' : 'openai';
+}
+
+export function AccountDialog({
+  account = null,
+  onSubmit,
+  onSaved,
   onClose,
-}: AddAccountDialogProps) {
+}: AccountDialogProps) {
   const { t } = useLanguage();
+  const editing = account !== null;
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
-  const [providerId, setProviderId] = useState('anthropic');
-  const [auth, setAuth] = useState<'subscription' | 'key' | 'local'>(
-    'subscription',
-  );
-  const [client, setClient] = useState<Client>('Claude Code');
-  const [apiStyle, setApiStyle] = useState<'openai' | 'anthropic'>('anthropic');
-  const [name, setName] = useState('');
+  const [providerId, setProviderId] = useState(account?.provider ?? 'anthropic');
+  const [auth, setAuth] = useState<AuthMode>(account?.auth ?? 'subscription');
+  const [client, setClient] = useState<Client>(account?.client ?? 'Claude Code');
+  const [apiStyle, setApiStyle] = useState<ApiStyle>(styleFor(account));
+  const [name, setName] = useState(account?.name ?? '');
   const [apiKey, setApiKey] = useState('');
-  const [server, setServer] = useState('');
-  const [model, setModel] = useState('');
+  const [server, setServer] = useState(account?.server ?? '');
+  const [model, setModel] = useState(account?.model ?? '');
   const [errors, setErrors] = useState<FormErrors>({});
   const [submitting, setSubmitting] = useState(false);
   const [focusTarget, setFocusTarget] = useState<string | null>(null);
@@ -76,6 +88,9 @@ export function AddAccountDialog({
           return;
         }
         setProviders(list);
+        if (editing) {
+          return;
+        }
         const first = list.find((provider) => !provider.custom) ?? list[0];
         if (first) {
           setProviderId(first.id);
@@ -91,7 +106,7 @@ export function AddAccountDialog({
     return () => {
       active = false;
     };
-  }, [t]);
+  }, [editing, t]);
 
   useEffect(() => {
     if (!focusTarget) {
@@ -126,12 +141,12 @@ export function AddAccountDialog({
     setServer('');
   }
 
-  function chooseAuth(next: 'subscription' | 'key' | 'local') {
+  function chooseAuth(next: AuthMode) {
     setAuth(next);
     setErrors((current) => ({ ...current, key: undefined, server: undefined }));
   }
 
-  function chooseStyle(next: 'openai' | 'anthropic') {
+  function chooseStyle(next: ApiStyle) {
     setApiStyle(next);
     if (!CUSTOM_CLIENTS[next]?.includes(client)) {
       setClient(CUSTOM_CLIENTS[next]?.[0] ?? 'OpenCode 2');
@@ -145,7 +160,8 @@ export function AddAccountDialog({
     if (name.trim() === '') {
       nextErrors.name = t('addAccount.errorName');
     }
-    if (showKey && apiKey.trim() === '') {
+    // A saved account already has a key. A blank field keeps it.
+    if (showKey && !editing && apiKey.trim() === '') {
       nextErrors.key = t('addAccount.errorKey');
     }
     if (showServer && server.trim() === '') {
@@ -156,10 +172,10 @@ export function AddAccountDialog({
       setErrors(nextErrors);
       setFocusTarget(
         nextErrors.name
-          ? 'add-account-name'
+          ? 'account-name'
           : nextErrors.key
-            ? 'add-account-key'
-            : 'add-account-server',
+            ? 'account-key'
+            : 'account-server',
       );
       return;
     }
@@ -173,7 +189,7 @@ export function AddAccountDialog({
       input.client = client;
       input.apiStyle = apiStyle;
     }
-    if (showKey) {
+    if (showKey && apiKey.trim() !== '') {
       input.key = apiKey.trim();
     }
     if (showServer) {
@@ -187,48 +203,50 @@ export function AddAccountDialog({
     setSubmitting(true);
 
     try {
-      const account = await onCreate(input);
-      onCreated(account);
+      const saved = await onSubmit(input);
+      onSaved(saved);
     } catch (error) {
       setErrors({
         form:
           error instanceof ApiError
             ? error.message
-            : t('addAccount.errorAdd'),
+            : t(editing ? 'editAccount.errorSave' : 'addAccount.errorAdd'),
       });
       setSubmitting(false);
     }
   }
 
   function describedBy(field: 'name' | 'key' | 'server') {
-    return errors[field] ? `add-account-${field}-error` : undefined;
+    return errors[field] ? `account-${field}-error` : undefined;
   }
 
   return (
     <Dialog
-      titleId="add-account-title"
-      descriptionId="add-account-description"
-      busyLabel={t('addAccount.busyLabel')}
+      titleId="account-dialog-title"
+      descriptionId="account-dialog-description"
+      busyLabel={t(
+        editing ? 'editAccount.busyLabel' : 'addAccount.busyLabel',
+      )}
       onClose={onClose}
       busy={submitting}
     >
       <div className="dialog-head">
-        <h2 className="dialog-title" id="add-account-title">
-          {t('addAccount.title')}
+        <h2 className="dialog-title" id="account-dialog-title">
+          {t(editing ? 'editAccount.title' : 'addAccount.title')}
         </h2>
-        <p className="dialog-sub" id="add-account-description">
-          {t('addAccount.subtitle')}
+        <p className="dialog-sub" id="account-dialog-description">
+          {t(editing ? 'editAccount.subtitle' : 'addAccount.subtitle')}
         </p>
       </div>
 
       <form className="dialog-form" onSubmit={handleSubmit} noValidate>
         <div className="dialog-body">
           <div className="field">
-            <label htmlFor="add-account-provider">
+            <label htmlFor="account-provider">
               {t('addAccount.provider')}
             </label>
             <select
-              id="add-account-provider"
+              id="account-provider"
               className="text-input"
               value={providerId}
               onChange={(event) => chooseProvider(event.target.value)}
@@ -244,7 +262,7 @@ export function AddAccountDialog({
           <fieldset className="field">
             <legend>{t('addAccount.signIn')}</legend>
             <div className="segmented">
-              {(provider?.auth ?? ['key']).map((option) => (
+              {(provider?.auth ?? [auth]).map((option) => (
                 <label className="segment" key={option}>
                   <input
                     type="radio"
@@ -311,11 +329,9 @@ export function AddAccountDialog({
           ) : null}
 
           <div className="field">
-            <label htmlFor="add-account-name">
-              {t('addAccount.accountName')}
-            </label>
+            <label htmlFor="account-name">{t('addAccount.accountName')}</label>
             <input
-              id="add-account-name"
+              id="account-name"
               className="text-input"
               value={name}
               autoFocus
@@ -328,7 +344,7 @@ export function AddAccountDialog({
               }}
             />
             {errors.name ? (
-              <p className="field-error" id="add-account-name-error" role="alert">
+              <p className="field-error" id="account-name-error" role="alert">
                 {errors.name}
               </p>
             ) : null}
@@ -336,16 +352,20 @@ export function AddAccountDialog({
 
           {showKey ? (
             <div className="field">
-              <label htmlFor="add-account-key">
-                {t('addAccount.apiKeyLabel')}
+              <label htmlFor="account-key">
+                {t(
+                  editing
+                    ? 'editAccount.apiKeyLabel'
+                    : 'addAccount.apiKeyLabel',
+                )}
               </label>
               <input
-                id="add-account-key"
+                id="account-key"
                 className="text-input"
                 type="password"
                 value={apiKey}
                 autoComplete="off"
-                required
+                required={!editing}
                 aria-invalid={errors.key ? true : undefined}
                 aria-describedby={describedBy('key')}
                 onChange={(event) => {
@@ -353,8 +373,11 @@ export function AddAccountDialog({
                   setErrors((current) => ({ ...current, key: undefined }));
                 }}
               />
+              {editing ? (
+                <p className="field-hint">{t('editAccount.apiKeyHint')}</p>
+              ) : null}
               {errors.key ? (
-                <p className="field-error" id="add-account-key-error" role="alert">
+                <p className="field-error" id="account-key-error" role="alert">
                   {errors.key}
                 </p>
               ) : null}
@@ -363,11 +386,11 @@ export function AddAccountDialog({
 
           {showServer ? (
             <div className="field">
-              <label htmlFor="add-account-server">
+              <label htmlFor="account-server">
                 {t('addAccount.serverUrl')}
               </label>
               <input
-                id="add-account-server"
+                id="account-server"
                 className="text-input"
                 value={server}
                 placeholder="https://gateway.example/v1"
@@ -381,11 +404,7 @@ export function AddAccountDialog({
                 }}
               />
               {errors.server ? (
-                <p
-                  className="field-error"
-                  id="add-account-server-error"
-                  role="alert"
-                >
+                <p className="field-error" id="account-server-error" role="alert">
                   {errors.server}
                 </p>
               ) : null}
@@ -393,11 +412,9 @@ export function AddAccountDialog({
           ) : null}
 
           <div className="field">
-            <label htmlFor="add-account-model">
-              {t('addAccount.model')}
-            </label>
+            <label htmlFor="account-model">{t('addAccount.model')}</label>
             <input
-              id="add-account-model"
+              id="account-model"
               className="text-input"
               value={model}
               placeholder={
@@ -426,7 +443,9 @@ export function AddAccountDialog({
             {t('common.cancel')}
           </button>
           <button type="submit" className="btn btn-primary" disabled={submitting}>
-            {submitting ? t('addAccount.submitting') : t('addAccount.submit')}
+            {submitting
+              ? t(editing ? 'editAccount.submitting' : 'addAccount.submitting')
+              : t(editing ? 'editAccount.submit' : 'addAccount.submit')}
           </button>
         </div>
       </form>

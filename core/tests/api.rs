@@ -8679,3 +8679,263 @@ async fn claude_status_line_updates_usage_and_switches_the_session() {
     let (status, _) = close_session(&app, &id).await;
     assert_eq!(status, StatusCode::OK);
 }
+
+#[tokio::test]
+async fn edit_account_without_a_key_change_keeps_the_saved_key() {
+    let data_dir = TempDirectory::new("account-edit-data");
+    let secrets = Arc::new(MemorySecretStore::default());
+    let state = AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    )
+    .with_test_secret_store(secrets.clone());
+    let app = router(state);
+    let id = create_test_account_for(&app, "Edit me", "deepseek", "sk-edit-secret").await;
+
+    let (status, updated) = call(
+        &app,
+        "PATCH",
+        &format!("/api/accounts/{id}"),
+        Some(json!({
+            "name": "Edited account",
+            "providerId": "deepseek",
+            "auth": "key",
+            "model": "deepseek-chat"
+        })),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK, "{updated}");
+    assert_eq!(updated["name"], "Edited account");
+    assert_eq!(updated["model"], "deepseek-chat");
+    assert_eq!(updated["id"], id);
+    assert!(updated.get("key").is_none(), "the response leaked the key");
+    assert_eq!(
+        secrets.get_key(&id).expect("read key").as_deref(),
+        Some("sk-edit-secret"),
+        "a blank key field must keep the saved key"
+    );
+
+    let state_text = fs::read_to_string(data_dir.path.join("state.json")).expect("state file");
+    assert!(
+        !state_text.contains("sk-edit-secret"),
+        "state leaked the key"
+    );
+    assert!(state_text.contains("Edited account"));
+}
+
+#[tokio::test]
+async fn edit_account_with_a_key_change_replaces_the_key() {
+    let data_dir = TempDirectory::new("account-rekey-data");
+    let secrets = Arc::new(MemorySecretStore::default());
+    let state = AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    )
+    .with_test_secret_store(secrets.clone());
+    let app = router(state);
+    let id = create_test_account_for(&app, "Rekey", "anthropic", "sk-old").await;
+    let (status, _) = call(
+        &app,
+        "POST",
+        &format!("/api/accounts/{id}/usage"),
+        Some(json!({ "rows": [{ "label": "5-hour", "used": 20 }] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    let (status, updated) = call(
+        &app,
+        "PATCH",
+        &format!("/api/accounts/{id}"),
+        Some(json!({
+            "name": "Rekey",
+            "providerId": "anthropic",
+            "auth": "key",
+            "key": "sk-new"
+        })),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK, "{updated}");
+    assert!(updated.get("key").is_none(), "the response leaked the key");
+    assert_eq!(
+        secrets.get_key(&id).expect("read key").as_deref(),
+        Some("sk-new")
+    );
+    assert_eq!(
+        updated["rows"].as_array().expect("rows").len(),
+        1,
+        "a key change keeps the stored usage"
+    );
+    let state_text = fs::read_to_string(data_dir.path.join("state.json")).expect("state file");
+    assert!(!state_text.contains("sk-new"), "state leaked the key");
+    assert!(!state_text.contains("sk-old"), "state leaked the old key");
+}
+
+#[tokio::test]
+async fn editing_a_sample_account_stops_it_being_a_sample() {
+    let data_dir = TempDirectory::new("account-sample-data");
+    let state = AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    );
+    let app = router(state);
+    let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    let seed = bootstrap["accounts"]
+        .as_array()
+        .expect("accounts")
+        .iter()
+        .find(|account| account["id"] == "max")
+        .cloned()
+        .expect("seed account");
+    assert_eq!(seed["sample"], true);
+
+    let (status, updated) = call(
+        &app,
+        "PATCH",
+        "/api/accounts/max",
+        Some(json!({
+            "name": "My Claude",
+            "providerId": "anthropic",
+            "auth": "subscription"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{updated}");
+    assert_eq!(
+        updated["sample"], false,
+        "an edited sample is a real account"
+    );
+    assert_eq!(updated["name"], "My Claude");
+    drop(app);
+
+    let reloaded = router(AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    ));
+    let (_, bootstrap) = call(&reloaded, "GET", "/api/bootstrap", None).await;
+    let account = bootstrap["accounts"]
+        .as_array()
+        .expect("accounts")
+        .iter()
+        .find(|account| account["id"] == "max")
+        .expect("edited account");
+    assert_eq!(account["name"], "My Claude");
+    assert_eq!(account["sample"], false, "the sample mark must not return");
+}
+
+#[tokio::test]
+async fn removing_an_account_clears_its_key_usage_presets_and_project_defaults() {
+    let data_dir = TempDirectory::new("account-remove-data");
+    let folder = TempDirectory::new("account-remove-project");
+    let secrets = Arc::new(MemorySecretStore::default());
+    let state = AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    )
+    .with_test_secret_store(secrets.clone());
+    let app = router(state);
+    ensure_test_project(&app, &folder.path).await;
+    let id = create_test_account(&app, "Remove me", "sk-remove-secret").await;
+
+    let (status, _) = call(
+        &app,
+        "POST",
+        &format!("/api/accounts/{id}/usage"),
+        Some(json!({ "rows": [{ "label": "5-hour", "used": 20 }] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, preset) = call(
+        &app,
+        "POST",
+        "/api/presets",
+        Some(json!({ "name": "Remove me preset", "accountId": id })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{preset}");
+    let (status, project) = call(
+        &app,
+        "PATCH",
+        "/api/projects/web",
+        Some(json!({ "defaultAccountId": id })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{project}");
+    assert_eq!(project["defaultAccountId"], id);
+
+    let (status, removed) = call(&app, "DELETE", &format!("/api/accounts/{id}"), None).await;
+    assert_eq!(status, StatusCode::OK, "{removed}");
+    assert_eq!(removed["clearedProjectDefaults"], json!(["web"]));
+    assert_eq!(removed["removedPresets"], 1);
+
+    assert_eq!(secrets.get_key(&id).expect("read key"), None);
+    let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    assert!(
+        !bootstrap["accounts"]
+            .as_array()
+            .expect("accounts")
+            .iter()
+            .any(|account| account["id"] == id),
+        "the account is still in bootstrap"
+    );
+    let web = bootstrap["projects"]
+        .as_array()
+        .expect("projects")
+        .iter()
+        .find(|project| project["id"] == "web")
+        .expect("project");
+    assert!(web["defaultAccountId"].is_null());
+    let (_, presets) = call(&app, "GET", "/api/presets?q=", None).await;
+    assert!(
+        !presets
+            .as_array()
+            .expect("presets")
+            .iter()
+            .any(|preset| preset["accountId"] == id),
+        "a preset still points at the removed account"
+    );
+    let state_text = fs::read_to_string(data_dir.path.join("state.json")).expect("state file");
+    assert!(!state_text.contains("sk-remove-secret"));
+}
+
+#[tokio::test]
+async fn removing_an_account_used_by_an_active_session_is_refused() {
+    let data_dir = TempDirectory::new("account-busy-data");
+    let repo = TempDirectory::new("account-busy-repo");
+    init_git_repo(&repo.path);
+    let secrets = Arc::new(MemorySecretStore::default());
+    let state = AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    )
+    .with_test_secret_store(secrets.clone());
+    let app = router(state);
+    ensure_test_project(&app, &repo.path).await;
+    let account_id = create_test_account(&app, "Busy account", "sk-busy-secret").await;
+    let session_id = create_agent_session(&app, &repo.path, &account_id, "Busy session").await;
+
+    let (status, refused) =
+        call(&app, "DELETE", &format!("/api/accounts/{account_id}"), None).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{refused}");
+    assert!(
+        refused["error"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("Busy session"),
+        "the refusal must name the session: {refused}"
+    );
+    assert_eq!(
+        secrets.get_key(&account_id).expect("read key").as_deref(),
+        Some("sk-busy-secret"),
+        "a refused removal must keep the key"
+    );
+
+    let (status, _) = close_session(&app, &session_id).await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, removed) =
+        call(&app, "DELETE", &format!("/api/accounts/{account_id}"), None).await;
+    assert_eq!(status, StatusCode::OK, "{removed}");
+    assert_eq!(secrets.get_key(&account_id).expect("read key"), None);
+}

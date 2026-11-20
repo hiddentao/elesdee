@@ -127,6 +127,8 @@ export const zhCN = {
   'settings.versionLabel': 'elesdee {version}',
   'settings.providersNote': '此电脑上的账户及其用量。',
   'settings.addAccount': '添加账户',
+  'settings.editAccount': '编辑账户 {name}',
+  'settings.removeAccount': '移除账户 {name}',
   'settings.noAccounts': '暂无账户。',
   'settings.aboutVersion': '版本 {version}',
   'settings.languageLabel': '界面语言',
@@ -158,6 +160,22 @@ export const zhCN = {
   'addAccount.errorServer': '请输入服务器 URL。',
   'addAccount.errorProviders': '无法加载提供商列表。',
   'addAccount.errorAdd': '账户未能添加。请重试。',
+
+  'editAccount.title': '编辑账户',
+  'editAccount.subtitle': '更改此账户。将密钥字段留空以保留已保存的密钥。',
+  'editAccount.busyLabel': '正在保存账户…',
+  'editAccount.submitting': '正在保存…',
+  'editAccount.submit': '保存',
+  'editAccount.errorSave': '账户未保存。请重试。',
+  'editAccount.apiKeyLabel': 'API 密钥（留空以保留已保存的密钥）',
+  'editAccount.apiKeyHint': '将此字段留空以保留已保存的密钥。',
+
+  'removeAccount.title': '移除账户',
+  'removeAccount.text':
+    '移除“{name}”？其密钥和已保存的用量将被删除。使用该账户的预设和项目默认值将被清除。',
+  'removeAccount.confirm': '移除账户',
+  'removeAccount.removing': '正在移除…',
+  'removeAccount.error': '账户未移除。请重试。',
 
   'addProject.title': '添加项目',
   'addProject.subtitle': '为项目命名并选择一个文件夹。',

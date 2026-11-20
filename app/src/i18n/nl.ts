@@ -132,6 +132,8 @@ export const nl = {
   'settings.providersNote':
     'Accounts op deze computer en hun gebruik.',
   'settings.addAccount': 'Account toevoegen',
+  'settings.editAccount': 'Account {name} bewerken',
+  'settings.removeAccount': 'Account {name} verwijderen',
   'settings.noAccounts': 'Nog geen accounts.',
   'settings.aboutVersion': 'Versie {version}',
   'settings.languageLabel': 'Interfacetaal',
@@ -167,6 +169,27 @@ export const nl = {
     'De providerlijst kon niet worden geladen.',
   'addAccount.errorAdd':
     'Het account is niet toegevoegd. Probeer het opnieuw.',
+
+  'editAccount.title': 'Account bewerken',
+  'editAccount.subtitle':
+    'Wijzig dit account. Laat het sleutelveld leeg om de opgeslagen sleutel te behouden.',
+  'editAccount.busyLabel': 'Account wordt opgeslagen…',
+  'editAccount.submitting': 'Opslaan…',
+  'editAccount.submit': 'Opslaan',
+  'editAccount.errorSave':
+    'Het account is niet opgeslagen. Probeer het opnieuw.',
+  'editAccount.apiKeyLabel':
+    'API-sleutel (leeg laten om de opgeslagen sleutel te behouden)',
+  'editAccount.apiKeyHint':
+    'Laat dit veld leeg om de opgeslagen sleutel te behouden.',
+
+  'removeAccount.title': 'Account verwijderen',
+  'removeAccount.text':
+    '“{name}” verwijderen? De sleutel en het opgeslagen gebruik worden gewist. Presets en projectstandaarden die het account gebruiken, worden gewist.',
+  'removeAccount.confirm': 'Account verwijderen',
+  'removeAccount.removing': 'Verwijderen…',
+  'removeAccount.error':
+    'Het account is niet verwijderd. Probeer het opnieuw.',
 
   'addProject.title': 'Project toevoegen',
   'addProject.subtitle': 'Geef het project een naam en een map.',

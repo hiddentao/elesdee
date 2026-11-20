@@ -132,6 +132,8 @@ export const it = {
   'settings.providersNote':
     'Account su questo computer e il loro utilizzo.',
   'settings.addAccount': 'Aggiungi account',
+  'settings.editAccount': 'Modifica account {name}',
+  'settings.removeAccount': 'Rimuovi account {name}',
   'settings.noAccounts': 'Nessun account per ora.',
   'settings.aboutVersion': 'Versione {version}',
   'settings.languageLabel': 'Lingua dell’interfaccia',
@@ -168,6 +170,27 @@ export const it = {
     'Impossibile caricare l’elenco dei provider.',
   'addAccount.errorAdd':
     'L’account non è stato aggiunto. Riprova.',
+
+  'editAccount.title': 'Modifica account',
+  'editAccount.subtitle':
+    'Modifica questo account. Lascia vuoto il campo della chiave per mantenere la chiave salvata.',
+  'editAccount.busyLabel': 'Salvataggio dell’account…',
+  'editAccount.submitting': 'Salvataggio…',
+  'editAccount.submit': 'Salva',
+  'editAccount.errorSave':
+    'L’account non è stato salvato. Riprova.',
+  'editAccount.apiKeyLabel':
+    'Chiave API (lascia vuoto per mantenere la chiave salvata)',
+  'editAccount.apiKeyHint':
+    'Lascia vuoto questo campo per mantenere la chiave salvata.',
+
+  'removeAccount.title': 'Rimuovi account',
+  'removeAccount.text':
+    'Rimuovere «{name}»? La chiave e l’utilizzo salvato vengono eliminati. Le preimpostazioni e i valori predefiniti dei progetti che lo usano vengono cancellati.',
+  'removeAccount.confirm': 'Rimuovi account',
+  'removeAccount.removing': 'Rimozione…',
+  'removeAccount.error':
+    'L’account non è stato rimosso. Riprova.',
 
   'addProject.title': 'Aggiungi progetto',
   'addProject.subtitle': 'Dai al progetto un nome e una cartella.',

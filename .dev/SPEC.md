@@ -311,6 +311,8 @@ I can switch provider inside a running session with one button, and the IDE can 
 - API keys and subscription tokens are stored in the macOS Keychain. The app writes API keys; each agent writes its own subscription token. No secret is written into your repos.
 - Each account is a provider choice in a session.
 - A new install shows sample accounts, marked as samples, so the interface is not empty. They have no usage data. Accounts I add are not samples.
+- I can edit an account's name, model, sign-in method, server address and custom provider, and replace its key. A blank key field keeps the saved key. An edited sample account stops being a sample.
+- I can remove an account. The app asks first. Removal deletes the key and the saved usage, and clears presets and project defaults that use the account. An active session that uses the account blocks removal until I switch it or close it.
 
 Supported providers:
 

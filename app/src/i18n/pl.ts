@@ -132,6 +132,8 @@ export const pl = {
   'settings.providersNote':
     'Konta na tym komputerze i ich użycie.',
   'settings.addAccount': 'Dodaj konto',
+  'settings.editAccount': 'Edytuj konto {name}',
+  'settings.removeAccount': 'Usuń konto {name}',
   'settings.noAccounts': 'Brak kont.',
   'settings.aboutVersion': 'Wersja {version}',
   'settings.languageLabel': 'Język interfejsu',
@@ -168,6 +170,27 @@ export const pl = {
     'Nie można wczytać listy dostawców.',
   'addAccount.errorAdd':
     'Konto nie zostało dodane. Spróbuj ponownie.',
+
+  'editAccount.title': 'Edytuj konto',
+  'editAccount.subtitle':
+    'Zmień to konto. Pozostaw pole klucza puste, aby zachować zapisany klucz.',
+  'editAccount.busyLabel': 'Zapisywanie konta…',
+  'editAccount.submitting': 'Zapisywanie…',
+  'editAccount.submit': 'Zapisz',
+  'editAccount.errorSave':
+    'Konto nie zostało zapisane. Spróbuj ponownie.',
+  'editAccount.apiKeyLabel':
+    'Klucz API (pozostaw puste, aby zachować zapisany klucz)',
+  'editAccount.apiKeyHint':
+    'Pozostaw to pole puste, aby zachować zapisany klucz.',
+
+  'removeAccount.title': 'Usuń konto',
+  'removeAccount.text':
+    'Usunąć „{name}”? Klucz i zapisane użycie zostaną usunięte. Presety i domyślne ustawienia projektów, które go używają, zostaną wyczyszczone.',
+  'removeAccount.confirm': 'Usuń konto',
+  'removeAccount.removing': 'Usuwanie…',
+  'removeAccount.error':
+    'Konto nie zostało usunięte. Spróbuj ponownie.',
 
   'addProject.title': 'Dodaj projekt',
   'addProject.subtitle': 'Nadaj projektowi nazwę i folder.',
