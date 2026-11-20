@@ -1051,6 +1051,7 @@ impl AppState {
             store,
             fake_browser,
         );
+        let migrated = migration.is_some();
         for mut session in sessions {
             if session.session.config_id.is_none() {
                 migrate_session_config(&mut session.session, migration.as_ref(), &state.configs());
@@ -1094,6 +1095,9 @@ impl AppState {
             crate::mcp::sweep(directory);
         }
         state.inner.output_budget.enforce();
+        if migrated {
+            state.save();
+        }
         state
     }
 
