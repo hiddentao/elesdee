@@ -26,6 +26,8 @@ const MAX_COLS: u16 = 500;
 const MIN_ROWS: u16 = 5;
 const MAX_ROWS: u16 = 300;
 const RESTART_PREVIEW: &str = "Paused. The app restarted. Resume to continue.";
+const HANDOFF_LOG_TAIL_CHARS: usize = 4000;
+const HANDOFF_CONTEXT_MAX_CHARS: usize = 6000;
 pub(crate) const GROUP_KILL_GRACE: Duration = Duration::from_millis(200);
 
 type SharedWriter = Arc<Mutex<Box<dyn Write + Send>>>;
@@ -722,6 +724,53 @@ impl SessionEntry {
         state.session.clone()
     }
 
+    pub fn set_handoff_note(&self, note: String) -> Option<Session> {
+        let mut state = lock(&self.data);
+        if state.session.status != SessionState::Active {
+            return None;
+        }
+        state.session.handoff_note = Some(note);
+        Some(state.session.clone())
+    }
+
+    /// Builds the starting context for an agent that takes over the session.
+    ///
+    /// The context holds the saved handoff note and the end of the output log.
+    /// It returns `None` when the session has neither.
+    pub fn handoff_context(&self) -> Option<String> {
+        let state = lock(&self.data);
+        let note = state
+            .session
+            .handoff_note
+            .as_deref()
+            .map(|note| collapse_handoff_text(note, HANDOFF_CONTEXT_MAX_CHARS))
+            .filter(|note| !note.is_empty());
+        let log = state.output.tail_text(HANDOFF_LOG_TAIL_CHARS);
+        if note.is_none() && log.is_empty() {
+            return None;
+        }
+
+        let mut context = String::from("Handoff from the previous agent. ");
+        if let Some(note) = note {
+            context.push_str("Note: ");
+            context.push_str(&note);
+            context.push_str(". ");
+        }
+        if !log.is_empty() {
+            context.push_str("End of the previous log: ");
+            context.push_str(&log);
+            context.push_str(". ");
+        }
+        context.push_str("Continue the work. Do not repeat steps that are already done.");
+        context.truncate(
+            context
+                .char_indices()
+                .nth(HANDOFF_CONTEXT_MAX_CHARS)
+                .map_or(context.len(), |(index, _)| index),
+        );
+        Some(context)
+    }
+
     pub fn stored_command(&self) -> Option<CommandBuilder> {
         lock(&self.command).clone()
     }
@@ -1276,6 +1325,28 @@ impl OutputLog {
 
         Ok(OutputSnapshot { chunks, newest_seq })
     }
+
+    /// Returns the end of the log as one line of plain text.
+    fn tail_text(&self, limit_chars: usize) -> String {
+        let mut parts = Vec::new();
+        let mut bytes = 0;
+        for chunk in self.chunks.iter().rev() {
+            if bytes >= limit_chars {
+                break;
+            }
+            bytes = bytes.saturating_add(chunk.data.len());
+            parts.push(chunk.data.as_str());
+        }
+        parts.reverse();
+        let text = strip_terminal_sequences(&parts.concat());
+        let count = text.chars().count();
+        let tail = if count > limit_chars {
+            text.chars().skip(count - limit_chars).collect()
+        } else {
+            text
+        };
+        collapse_handoff_text(&tail, limit_chars)
+    }
 }
 
 impl OutputBudget {
@@ -1608,6 +1679,12 @@ fn append_preview_tail(tail: &mut String, data: &str) {
     }
 }
 
+/// Collapses text to one line so a terminal client receives it as a single prompt.
+fn collapse_handoff_text(text: &str, limit_chars: usize) -> String {
+    let collapsed = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    collapsed.chars().take(limit_chars).collect()
+}
+
 fn preview_from_output(text: &str) -> Option<String> {
     let clean = strip_terminal_sequences(text);
     for line in clean.lines().rev() {
@@ -1832,6 +1909,7 @@ mod tests {
             model: None,
             config: BTreeMap::new(),
             agent_session_id: None,
+            handoff_note: None,
             started_at: "2026-01-01T00:00:00Z".to_owned(),
             shortcuts: Vec::new(),
         };
@@ -1874,6 +1952,7 @@ mod tests {
             model: None,
             config: BTreeMap::new(),
             agent_session_id: None,
+            handoff_note: None,
             started_at: "2026-01-01T00:00:00Z".to_owned(),
             shortcuts: Vec::new(),
         };

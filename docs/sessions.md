@@ -76,9 +76,9 @@ A session can ask to start another session. The request appears in the parent se
 
 ## Switch account
 
-Open the session menu and choose **Switch account…**. Choose another account and confirm. The session keeps its worktree and restarts with the new account. The same client continues its conversation. A different client starts again in the same worktree.
+Open the session menu and choose **Switch account…**. Choose another account and confirm. The session keeps its worktree and restarts with the new account. The same client continues its conversation. A different client starts again in the same worktree, and it gets the handoff note and the end of the previous log as its first message.
 
-The app switches by itself when an account is near its usage limit and another account has room. If none has room, the session pauses. Choose **Resume** when an account has room, or wait for the app to resume it.
+The app switches by itself when an account is near its usage limit and another account has room. If none has room, the session pauses. A pause keeps the handoff note, and a later switch to a different client passes it on. Choose **Resume** when an account has room, or wait for the app to resume it.
 
 ## Rename
 
@@ -90,10 +90,12 @@ Open the session menu and choose **Close…**. Confirm in the dialog.
 
 For an agent session, close does this:
 
-1. Commits any uncommitted work in the worktree.
+1. Commits any uncommitted work in the worktree. If the agent saved a handoff note, the commit message carries it.
 2. Pushes the branch when the repository has a remote.
 3. Removes the worktree folder.
 4. Keeps the branch.
+
+A clean worktree keeps its last commit. When that commit does not carry the handoff note, the app adds an empty commit for the note. The note is never written as a file in the repository.
 
 If a step fails, the worktree stays and the reason appears in the session preview. The branch stays in all cases.
 
@@ -105,7 +107,7 @@ Closing a session ends its process. The session moves to the closed list.
 
 Turn on **Show closed sessions**, open the session menu and choose **Reopen**.
 
-The app opens the session in a new tab, restores its log, and starts the agent again. A Git session gets its worktree back from the saved branch. The app resumes the agent's saved conversation when it has one; otherwise it continues the most recent conversation in that folder.
+The app opens the session in a new tab, restores its log, and starts the agent again. A Git session gets its worktree back from the saved branch. The app resumes the agent's saved conversation when it has one; otherwise it continues the most recent conversation in that folder. When the agent cannot resume its conversation, it also gets the handoff note and the end of the log.
 
 ## Quit
 

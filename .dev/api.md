@@ -130,11 +130,15 @@ interface PairedDevice {
 - OpenCode 2 gets `<data dir>/mcp/opencode-<session id>.json`. Its `skills` array lists `<kit>/skills`, and `OPENCODE_CONFIG` points at the file. The file is removed with the session.
 - Codex gets `CODEX_HOME=<kit>/codex` in its launch environment. Its skills are written under `<kit>/codex/skills`. When the user's Codex home has `auth.json` or `config.toml`, the launch links the file into the private home so the client sign-in and configuration still apply. The private home is removed with the kit.
 - The launch does not write into the repository or change the user's global agent files.
+- The `write_handoff_note` tool saves the handoff note on the session. The note is at most 8000 characters. A closed session refuses the tool. Saving the note emits `session.updated` and writes the state file.
+- A switch to a different client sends the saved note and the end of the output log to the new agent as its first input. A switch inside the same client resumes the conversation and sends no context. The log tail is plain text, capped at 4000 characters; the whole context is capped at 6000 characters.
+- A pause keeps the note. A later cross-client switch from the paused session sends it with the log tail.
+- Reopening a closed agent session without a saved conversation ID sends the note and the log tail after the client starts.
 
 ## Persistence
 
 - State lives in `ELESDEE_DATA_DIR`, default `~/.elesdee`, in `state.json`. The directory is created with mode 0700 and files with mode 0600. Writes use a temporary file, fsync and rename.
-- Projects and their default account and source branch, accounts, launch presets, sessions, each session's desired columns and rows, its output log, an agent's repository root, an agent's own conversation ID, and the paired device list are saved. Account keys and pairing secrets are not saved. No runtime handles are saved.
+- Projects and their default account and source branch, accounts, launch presets, sessions, each session's desired columns and rows, its output log, an agent's repository root, an agent's own conversation ID, the session's handoff note, and the paired device list are saved. Account keys and pairing secrets are not saved. No runtime handles are saved.
 - The desktop link identity is a separate 32-byte key in `<data dir>/link.key`, with mode 0600, written once and reused. It is never in `state.json` and never logged. A missing key creates a new identity; every paired phone must pair again.
 - The paired device list is written on pair, removal and graceful shutdown. `lastSeen` updates in memory at most once a minute.
 - State is saved on project create, account create, session create, rename, close, reopen, delete, resize, graceful shutdown, and when an agent reports its conversation ID. It is not written for each output chunk.
@@ -177,6 +181,7 @@ interface Session {
   client: Client | null;
   accountId: string | null;
   agentSessionId: string | null; // the client's own conversation ID
+  handoffNote?: string | null;   // kept for the next agent that works on the session
   branch: string | null;
   folder: string;
   preview: string;
@@ -353,6 +358,7 @@ Errors use `{ "error": "message" }`. Pairing returns 503 when the link endpoint 
 ## Rules
 
 - A terminal session runs a real shell in its folder through a PTY. Closing the session stops the process group and keeps the folder.
+- Close commits leftover work on the session branch and pushes it. When the session has a handoff note, the commit message body carries the note. A clean tree keeps its last commit; if that commit does not carry the note, Close adds an empty commit that does. The note is never written as a file.
 - The file and change routes use the session folder: the worktree for an agent, the chosen folder for a terminal. A missing folder returns 404.
 - A file path is relative to the session folder and is canonicalized. An absolute path, a `..` component and a symlink that resolves outside the folder return 400. A folder where a file is expected returns 422. A path with a `.git` component is refused, as is a hard-linked file and a named pipe or other special file. The listing skips `.git` folders, symlinks and names that are not UTF-8; a skipped name marks the listing truncated.
 - One folder listing returns at most 2000 entries and sets `truncated` when more exist. A file read or write is UTF-8 text of at most 1 MiB. A larger file or request body returns 413. Binary content, meaning a NUL byte in the first 8 KiB, returns 422.

@@ -90,6 +90,17 @@ fn tools() -> Vec<Value> {
             "inputSchema": { "type": "object", "properties": {} }
         }),
         json!({
+            "name": "write_handoff_note",
+            "description": "Save a handoff note for this session. Write it before a switch to a different client, a usage stop, or a close. The app keeps the note and gives it to the next agent that works on the session.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "note": { "type": "string", "description": "The handoff note, with the standard headings." }
+                },
+                "required": ["note"]
+            }
+        }),
+        json!({
             "name": "list_sessions",
             "description": "List the sessions on this computer with their project, status and branch.",
             "inputSchema": { "type": "object", "properties": {} }
@@ -153,6 +164,7 @@ pub async fn call_tool(
         "withdraw_question" => withdraw_question(state, arguments),
         "notify_me" => notify_me(state, session_id, arguments),
         "report_done" => report_done(state, session_id),
+        "write_handoff_note" => write_handoff_note(state, session_id, arguments),
         "list_sessions" => list_sessions(state),
         "read_session" => read_session(state, arguments),
         "send_message" => send_message(state, arguments).await,
@@ -276,6 +288,31 @@ fn report_done(state: &AppState, session_id: &str) -> (String, bool) {
             state.emit(crate::state::SessionEvent::updated(session));
             state.save();
             ("Reported done.".to_owned(), false)
+        }
+        None => ("The session is closed.".to_owned(), true),
+    }
+}
+
+fn write_handoff_note(state: &AppState, session_id: &str, arguments: Value) -> (String, bool) {
+    let Some(note) = arguments
+        .get("note")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|note| !note.is_empty())
+    else {
+        return ("The handoff note is required.".to_owned(), true);
+    };
+    if note.chars().count() > 8000 {
+        return ("The handoff note is too long.".to_owned(), true);
+    }
+    let Some(entry) = state.session(session_id) else {
+        return ("Unknown session.".to_owned(), true);
+    };
+    match entry.set_handoff_note(note.to_owned()) {
+        Some(session) => {
+            state.emit(crate::state::SessionEvent::updated(session));
+            state.save();
+            ("Handoff note saved.".to_owned(), false)
         }
         None => ("The session is closed.".to_owned(), true),
     }

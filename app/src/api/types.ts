@@ -36,6 +36,7 @@ export interface Session {
   client: Client | null;
   accountId: string | null;
   branch: string | null;
+  handoffNote?: string | null;
   folder: string;
   preview: string;
   waitingFor: WaitingFor | null;

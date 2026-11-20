@@ -129,6 +129,42 @@ async fn close_session(app: &Router, id: &str) -> (StatusCode, Value) {
     .await
 }
 
+async fn write_handoff_note(app: &Router, id: &str, note: &str) {
+    let (status, body) = call(
+        app,
+        "POST",
+        &format!("/internal/mcp/{id}"),
+        Some(json!({
+            "jsonrpc": "2.0",
+            "id": 91,
+            "method": "tools/call",
+            "params": {
+                "name": "write_handoff_note",
+                "arguments": { "note": note }
+            }
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["result"]["isError"], false, "{body}");
+}
+
+async fn wait_for_file_contains(path: &Path, needle: &str) -> String {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        let text = fs::read_to_string(path).unwrap_or_default();
+        if text.contains(needle) {
+            return text;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "file {} did not contain {needle:?}: {text:?}",
+            path.display()
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
 async fn read_sse_until(mut body: Body, ready: impl Fn(&str) -> bool) -> String {
     let mut text = String::new();
     let deadline = tokio::time::Instant::now() + TIMEOUT;
@@ -1384,14 +1420,273 @@ async fn usage_near_the_limit_switches_then_pauses_without_room() {
     assert_eq!(status, StatusCode::OK);
 }
 
+#[tokio::test]
+async fn cross_client_switch_gives_the_note_and_the_end_of_the_log() {
+    let data_dir = TempDirectory::new("handoff-switch-data");
+    let repo = TempDirectory::new("handoff-switch-repo");
+    init_git_repo(&repo.path);
+    let app = router(AppState::with_test_command_and_data_dir(
+        vec![
+            "/bin/sh".to_owned(),
+            "-c".to_owned(),
+            "cat >> handoff-input.txt".to_owned(),
+        ],
+        data_dir.path.clone(),
+    ));
+    ensure_test_project(&app, &repo.path).await;
+    let claude = create_test_account(&app, "Handoff Claude", "sk-handoff-claude").await;
+    let codex = create_test_account_for(&app, "Handoff Codex", "openai", "sk-handoff-codex").await;
+
+    let (status, session) = call(
+        &app,
+        "POST",
+        "/api/sessions",
+        Some(json!({
+            "projectId": "web",
+            "kind": "agent",
+            "accountId": claude,
+            "name": "Handoff switch",
+            "folder": repo.path.to_string_lossy()
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let id = session["id"].as_str().expect("session id").to_owned();
+    let worktree = PathBuf::from(session["folder"].as_str().expect("folder"));
+    let input_file = worktree.join("handoff-input.txt");
+
+    let (status, _) = call(
+        &app,
+        "POST",
+        &format!("/api/sessions/{id}/input"),
+        Some(json!({ "data": "previous work line\n" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let note = "Goal: finish the parser.\nDone: the lexer.\nNext: add the tests.";
+    write_handoff_note(&app, &id, note).await;
+
+    let (status, switched) = call(
+        &app,
+        "POST",
+        &format!("/api/sessions/{id}/account"),
+        Some(json!({ "accountId": codex })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{switched}");
+    assert_eq!(switched["client"], "Codex");
+    assert_eq!(switched["handoffNote"], note);
+
+    let text = wait_for_file_contains(&input_file, "Handoff from the previous agent").await;
+    assert!(text.contains("Goal: finish the parser."), "{text}");
+    assert!(text.contains("End of the previous log:"), "{text}");
+    assert!(text.contains("previous work line"), "{text}");
+}
+
+#[tokio::test]
+async fn same_client_switch_sends_no_handoff_context() {
+    let data_dir = TempDirectory::new("handoff-same-data");
+    let repo = TempDirectory::new("handoff-same-repo");
+    init_git_repo(&repo.path);
+    let app = router(AppState::with_test_command_and_data_dir(
+        vec![
+            "/bin/sh".to_owned(),
+            "-c".to_owned(),
+            "cat >> handoff-input.txt".to_owned(),
+        ],
+        data_dir.path.clone(),
+    ));
+    ensure_test_project(&app, &repo.path).await;
+    let first = create_test_account(&app, "Same A", "sk-same-a").await;
+    let second = create_test_account(&app, "Same B", "sk-same-b").await;
+
+    let (status, session) = call(
+        &app,
+        "POST",
+        "/api/sessions",
+        Some(json!({
+            "projectId": "web",
+            "kind": "agent",
+            "accountId": first,
+            "name": "Same client",
+            "folder": repo.path.to_string_lossy()
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let id = session["id"].as_str().expect("session id").to_owned();
+    let worktree = PathBuf::from(session["folder"].as_str().expect("folder"));
+    let input_file = worktree.join("handoff-input.txt");
+
+    write_handoff_note(&app, &id, "Goal: keep the conversation.").await;
+
+    let (status, switched) = call(
+        &app,
+        "POST",
+        &format!("/api/sessions/{id}/account"),
+        Some(json!({ "accountId": second })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{switched}");
+    assert_eq!(switched["handoffNote"], "Goal: keep the conversation.");
+
+    let (status, _) = call(
+        &app,
+        "POST",
+        &format!("/api/sessions/{id}/input"),
+        Some(json!({ "data": "same client marker\n" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    wait_for_file_contains(&input_file, "same client marker").await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    let text = fs::read_to_string(&input_file).unwrap_or_default();
+    assert!(
+        !text.contains("Handoff from the previous agent"),
+        "the same-client switch sent a handoff context: {text}"
+    );
+}
+
+#[tokio::test]
+async fn pause_keeps_the_handoff_note_and_resume_keeps_it() {
+    let data_dir = TempDirectory::new("handoff-pause-data");
+    let repo = TempDirectory::new("handoff-pause-repo");
+    init_git_repo(&repo.path);
+    let app = router(AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    ));
+    ensure_test_project(&app, &repo.path).await;
+    let first = create_test_account(&app, "Pause A", "sk-pause-a").await;
+    let second = create_test_account(&app, "Pause B", "sk-pause-b").await;
+
+    let (status, _) = call(
+        &app,
+        "POST",
+        &format!("/api/accounts/{second}/usage"),
+        Some(json!({ "rows": [{ "label": "Weekly", "used": 20 }] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    let (status, session) = call(
+        &app,
+        "POST",
+        "/api/sessions",
+        Some(json!({
+            "projectId": "web",
+            "kind": "agent",
+            "accountId": first,
+            "name": "Pause handoff",
+            "folder": repo.path.to_string_lossy()
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let id = session["id"].as_str().expect("session id").to_owned();
+    let note = "Goal: survive the usage pause.";
+    write_handoff_note(&app, &id, note).await;
+
+    let (status, _) = call(
+        &app,
+        "POST",
+        &format!("/api/accounts/{first}/usage"),
+        Some(json!({ "rows": [{ "label": "Weekly", "used": 95 }] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let switched =
+        wait_for_session(&app, id.as_str(), |session| session["accountId"] == second).await;
+    assert_eq!(switched["handoffNote"], note);
+
+    let (status, _) = call(
+        &app,
+        "POST",
+        &format!("/api/accounts/{second}/usage"),
+        Some(json!({ "rows": [{ "label": "Weekly", "used": 95 }] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let paused = wait_for_session(&app, id.as_str(), |session| {
+        session["workState"] == "paused"
+    })
+    .await;
+    assert_eq!(paused["handoffNote"], note);
+
+    let (status, _) = call(
+        &app,
+        "POST",
+        &format!("/api/accounts/{first}/usage"),
+        Some(json!({ "rows": [{ "label": "Weekly", "used": 30 }] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let resumed = wait_for_session(&app, id.as_str(), |session| {
+        session["workState"] == "working"
+    })
+    .await;
+    assert_eq!(resumed["handoffNote"], note);
+
+    let (status, _) = close_session(&app, id.as_str()).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn handoff_note_survives_a_reload() {
+    let data_dir = TempDirectory::new("handoff-reload-data");
+    let repo = TempDirectory::new("handoff-reload-repo");
+    init_git_repo(&repo.path);
+    let command = vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()];
+    let app = router(AppState::with_test_command_and_data_dir(
+        command.clone(),
+        data_dir.path.clone(),
+    ));
+    ensure_test_project(&app, &repo.path).await;
+
+    let (status, session) = call(
+        &app,
+        "POST",
+        "/api/sessions",
+        Some(json!({
+            "projectId": "web",
+            "kind": "agent",
+            "accountId": "max",
+            "name": "Reload note",
+            "folder": repo.path.to_string_lossy()
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let id = session["id"].as_str().expect("session id").to_owned();
+    let note = "Goal: survive a reload.";
+    write_handoff_note(&app, &id, note).await;
+    drop(app);
+
+    let app = router(AppState::with_test_command_and_data_dir(
+        command,
+        data_dir.path.clone(),
+    ));
+    let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    let restored = bootstrap["sessions"]
+        .as_array()
+        .and_then(|sessions| sessions.iter().find(|session| session["id"] == id))
+        .expect("restored session");
+    assert_eq!(restored["handoffNote"], note);
+}
+
 async fn create_test_account(app: &Router, name: &str, key: &str) -> String {
+    create_test_account_for(app, name, "anthropic", key).await
+}
+
+async fn create_test_account_for(app: &Router, name: &str, provider: &str, key: &str) -> String {
     let (status, account) = call(
         app,
         "POST",
         "/api/accounts",
         Some(json!({
             "name": name,
-            "providerId": "anthropic",
+            "providerId": provider,
             "auth": "key",
             "key": key
         })),
@@ -1775,6 +2070,7 @@ async fn mcp_session_tools_ask_answer_notify_and_report_done() {
         "withdraw_question",
         "notify_me",
         "report_done",
+        "write_handoff_note",
         "list_sessions",
         "read_session",
         "send_message",
@@ -3907,6 +4203,106 @@ async fn dirty_agent_close_commits_and_removes_the_worktree() {
     assert_eq!(
         git_stdout(&repo.path, &["show", &format!("{branch}:new.txt")]),
         "hello"
+    );
+}
+
+#[tokio::test]
+async fn close_puts_the_handoff_note_in_the_last_commit_message() {
+    let data_dir = TempDirectory::new("close-note-data");
+    let repo = TempDirectory::new("close-note-repo");
+    init_git_repo(&repo.path);
+    let app = router(AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    ));
+    ensure_test_project(&app, &repo.path).await;
+
+    let (status, session) = call(
+        &app,
+        "POST",
+        "/api/sessions",
+        Some(json!({
+            "projectId": "web",
+            "kind": "agent",
+            "accountId": "max",
+            "name": "Close Note",
+            "folder": repo.path.to_string_lossy()
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let id = session["id"].as_str().expect("session id").to_owned();
+    let branch = session["branch"].as_str().expect("branch").to_owned();
+    let worktree = PathBuf::from(session["folder"].as_str().expect("folder"));
+
+    let note = "Goal: ship the close note.\nDone: the parser.\nNext: run the checks.";
+    write_handoff_note(&app, &id, note).await;
+    fs::write(worktree.join("new.txt"), "hello\n").expect("write worktree file");
+
+    let (status, closed) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+    assert_eq!(closed["preview"], "Closed. The worktree was removed.");
+    assert_eq!(closed["handoffNote"], note);
+    assert!(!worktree.exists());
+
+    let message = git_stdout(&repo.path, &["log", "-1", "--format=%B", &branch]);
+    assert!(
+        message.starts_with("elesdee: close Close Note"),
+        "{message}"
+    );
+    assert!(message.contains(note), "{message}");
+    assert_eq!(
+        git_stdout(&repo.path, &["show", "--name-only", "--format=", &branch]),
+        "new.txt",
+        "the note became a file in the repository"
+    );
+}
+
+#[tokio::test]
+async fn close_on_a_clean_tree_keeps_the_note_on_the_last_commit() {
+    let data_dir = TempDirectory::new("close-clean-note-data");
+    let repo = TempDirectory::new("close-clean-note-repo");
+    init_git_repo(&repo.path);
+    let app = router(AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    ));
+    ensure_test_project(&app, &repo.path).await;
+
+    let (status, session) = call(
+        &app,
+        "POST",
+        "/api/sessions",
+        Some(json!({
+            "projectId": "web",
+            "kind": "agent",
+            "accountId": "max",
+            "name": "Clean Note",
+            "folder": repo.path.to_string_lossy()
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let id = session["id"].as_str().expect("session id").to_owned();
+    let branch = session["branch"].as_str().expect("branch").to_owned();
+
+    let note = "Goal: carry the note on a clean tree.";
+    write_handoff_note(&app, &id, note).await;
+
+    let (status, closed) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+    assert_eq!(closed["handoffNote"], note);
+
+    let message = git_stdout(&repo.path, &["log", "-1", "--format=%B", &branch]);
+    assert!(
+        message.starts_with("elesdee: close Clean Note"),
+        "{message}"
+    );
+    assert!(message.contains(note), "{message}");
+    assert_eq!(
+        git_stdout(&repo.path, &["show", "--name-only", "--format=", &branch]),
+        "",
+        "the note commit changed a file"
     );
 }
 

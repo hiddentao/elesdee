@@ -252,10 +252,18 @@ pub async fn close_worktree(
     worktree: PathBuf,
     branch: String,
     name: String,
+    handoff_note: Option<String>,
     timeouts: GitTimeouts,
 ) -> CloseOutcome {
     tokio::task::spawn_blocking(move || {
-        close_blocking(&repo_root, &worktree, &branch, &name, timeouts)
+        close_blocking(
+            &repo_root,
+            &worktree,
+            &branch,
+            &name,
+            handoff_note.as_deref(),
+            timeouts,
+        )
     })
     .await
     .unwrap_or(CloseOutcome::Timeout)
@@ -300,6 +308,7 @@ fn close_blocking(
     worktree: &Path,
     branch: &str,
     name: &str,
+    handoff_note: Option<&str>,
     timeouts: GitTimeouts,
 ) -> CloseOutcome {
     if !worktree.exists() {
@@ -312,14 +321,30 @@ fn close_blocking(
         _ => return CloseOutcome::StatusFailed,
     };
 
+    let note = handoff_note.map(str::trim).filter(|note| !note.is_empty());
+    let message = close_commit_message(name, note);
+
     if !status.stdout.is_empty() {
         match run_git(worktree, ["add", "-A"], timeouts.local) {
             GitRun::Output(output) if output.status.success() => {}
             GitRun::Timeout => return CloseOutcome::Timeout,
             _ => return CloseOutcome::CommitFailed,
         }
-        let message = format!("elesdee: close {name}");
         match run_git(worktree, ["commit", "-m", message.as_str()], timeouts.local) {
+            GitRun::Output(output) if output.status.success() => {}
+            GitRun::Timeout => return CloseOutcome::Timeout,
+            _ => return CloseOutcome::CommitFailed,
+        }
+    } else if let Some(note) = note
+        && !last_commit_has_note(worktree, note, timeouts.local)
+    {
+        // Keep the note on the last commit when the agent left the tree clean
+        // without putting the note into a commit of its own.
+        match run_git(
+            worktree,
+            ["commit", "--allow-empty", "-m", message.as_str()],
+            timeouts.local,
+        ) {
             GitRun::Output(output) if output.status.success() => {}
             GitRun::Timeout => return CloseOutcome::Timeout,
             _ => return CloseOutcome::CommitFailed,
@@ -355,6 +380,22 @@ fn close_blocking(
         GitRun::Output(output) if output.status.success() => CloseOutcome::Cleaned,
         GitRun::Timeout => CloseOutcome::Timeout,
         _ => CloseOutcome::RemoveFailed,
+    }
+}
+
+fn close_commit_message(name: &str, note: Option<&str>) -> String {
+    match note {
+        Some(note) => format!("elesdee: close {name}\n\n{note}"),
+        None => format!("elesdee: close {name}"),
+    }
+}
+
+fn last_commit_has_note(worktree: &Path, note: &str, timeout: Duration) -> bool {
+    match run_git(worktree, ["log", "-1", "--format=%B"], timeout) {
+        GitRun::Output(output) if output.status.success() => {
+            String::from_utf8_lossy(&output.stdout).contains(note)
+        }
+        _ => false,
     }
 }
 
