@@ -102,7 +102,9 @@ Claude Code, Codex and OpenCode 2 send permission requests to the app, so those 
 
 Account usage appears where the provider reports a number. A Google account has no official usage source, so it shows **No usage data**. Usage belongs to the computer and is not part of a session.
 
-When a usage report shows 90% or more used, the app moves the session to another account of the same client that has room. It skips sample accounts and accounts without usage data. If no account has room, the session pauses and keeps its worktree. It resumes by itself when an account has room again. You can also choose **Resume** in the session.
+When a usage report shows 90% or more used, or a prepaid balance falls below its minimum, the app moves the session to an allowed account that has room. Subscription accounts come first, then pay-per-use accounts; within each group it takes the account with the most room, and a tie keeps the current client. It skips sample accounts and accounts without usage data. If no allowed account has room, the session pauses and keeps its worktree. It resumes by itself when an allowed account has room again. You can also choose **Resume** in the session.
+
+Set the accounts a session may use in the launch form, or edit them in the switch chooser while it runs. A new session allows the accounts of its starting client. The account in use always stays allowed.
 
 ## Next steps
 

@@ -398,6 +398,17 @@ export const ptBR = {
   'switchAccount.busyLabel': 'Trocando conta…',
   'switchAccount.submitting': 'Trocando…',
   'switchAccount.submit': 'Trocar conta',
+
+  'allowedAccounts.label': "Permitido para esta sessão",
+  'allowedAccounts.add': "Adicionar uma conta",
+  'allowedAccounts.placeholder': "Buscar uma conta",
+  'allowedAccounts.remove': "Remover {name}",
+  'allowedAccounts.current': "Atual",
+  'allowedAccounts.hint':
+    "A troca automática usa apenas estas contas. A conta atual sempre continua permitida.",
+  'allowedAccounts.errorEmpty': "Permita pelo menos uma conta.",
+  'allowedAccounts.saveFailed':
+    "As contas permitidas não foram salvas. Tente novamente.",
   'switchAccount.nextAuto': 'Próxima troca automática',
   'switchAccount.handoffSame':
       'Uma troca dentro de {client} continua a conversa.',

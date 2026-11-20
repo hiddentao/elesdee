@@ -11,19 +11,22 @@ import {
 } from '../api/client';
 import type { Account, Session, SwitchOptions } from '../api/types';
 import { useLanguage } from '../i18n/LanguageProvider';
-import { accountUsage } from '../state/usage';
+import { AccountMultiSelect } from './AccountMultiSelect';
+import { accountOption } from './accountOption';
 import { Combobox, type ComboboxLoader } from './Combobox';
 import { Dialog } from './Dialog';
 
 interface SwitchAccountDialogProps {
   session: Session;
   onSwitch: (accountId: string) => Promise<void>;
+  onAllowedChange: (accountIds: string[]) => Promise<void>;
   onClose: () => void;
 }
 
 export function SwitchAccountDialog({
   session,
   onSwitch,
+  onAllowedChange,
   onClose,
 }: SwitchAccountDialogProps) {
   const { t, language } = useLanguage();
@@ -32,7 +35,9 @@ export function SwitchAccountDialog({
   const [attempt, setAttempt] = useState(0);
   const [accountId, setAccountId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [savingAllowed, setSavingAllowed] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [allowedError, setAllowedError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -54,22 +59,37 @@ export function SwitchAccountDialog({
     };
   }, [session.id, attempt]);
 
+  const allowed = options?.allowedAccountIds ?? [];
+  const allowedSet = new Set(allowed);
+  const switchable = (options?.accounts ?? []).filter(
+    (account) =>
+      allowedSet.has(account.id) && account.id !== session.accountId,
+  );
+
+  useEffect(() => {
+    if (
+      accountId &&
+      options &&
+      !options.allowedAccountIds.includes(accountId)
+    ) {
+      setAccountId(null);
+    }
+  }, [accountId, options]);
+
   const loadAccounts = useCallback<ComboboxLoader>(
     async (query, signal) => {
       if (!options) {
         return [];
       }
-      const allowed = new Set(options.accounts.map((account) => account.id));
+      const allowedIds = new Set(options.allowedAccountIds);
       const list = await listAccounts(query, signal);
       return list
         .filter(
           (account) =>
-            allowed.has(account.id) && account.id !== session.accountId,
+            allowedIds.has(account.id) && account.id !== session.accountId,
         )
         .map((account) => ({
-          id: account.id,
-          label: account.name,
-          meta: `${account.client} · ${accountUsage(account, language).summary}`,
+          ...accountOption(account, language),
           tag:
             account.id === options.nextAccountId
               ? t('switchAccount.nextAuto')
@@ -89,6 +109,38 @@ export function SwitchAccountDialog({
       ? t('switchAccount.handoffSame', { client: selectedAccount.client })
       : t('switchAccount.handoffOther', { client: selectedAccount.client })
     : t('switchAccount.hint');
+
+  async function changeAllowed(ids: string[]) {
+    if (!options || savingAllowed) {
+      return;
+    }
+    const previous = options.allowedAccountIds;
+    const nextAllowed = ids.slice();
+    setOptions({
+      ...options,
+      allowedAccountIds: nextAllowed,
+      nextAccountId:
+        options.nextAccountId && nextAllowed.includes(options.nextAccountId)
+          ? options.nextAccountId
+          : null,
+    });
+    setAllowedError(null);
+    setSavingAllowed(true);
+    try {
+      await onAllowedChange(nextAllowed);
+    } catch (failure) {
+      setOptions((current) =>
+        current ? { ...current, allowedAccountIds: previous } : current,
+      );
+      setAllowedError(
+        failure instanceof ApiError
+          ? failure.message
+          : t('allowedAccounts.saveFailed'),
+      );
+    } finally {
+      setSavingAllowed(false);
+    }
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -165,7 +217,7 @@ export function SwitchAccountDialog({
                 setError(null);
               }}
               placeholder={
-                options.accounts.length <= 1
+                switchable.length === 0
                   ? t('switchAccount.noOther')
                   : t('switchAccount.placeholder')
               }
@@ -173,6 +225,19 @@ export function SwitchAccountDialog({
               error={error ?? undefined}
               required
               autoFocus
+              disabled={savingAllowed}
+            />
+
+            <AccountMultiSelect
+              id="switch-allowed"
+              label={t('allowedAccounts.label')}
+              accounts={options.accounts}
+              value={options.allowedAccountIds}
+              requiredId={session.accountId}
+              onChange={(ids) => void changeAllowed(ids)}
+              hint={t('allowedAccounts.hint')}
+              error={allowedError ?? undefined}
+              disabled={submitting || savingAllowed}
             />
           </div>
 
@@ -189,7 +254,10 @@ export function SwitchAccountDialog({
               type="submit"
               className="btn btn-primary"
               disabled={
-                submitting || !accountId || options.accounts.length <= 1
+                submitting ||
+                savingAllowed ||
+                !accountId ||
+                switchable.length === 0
               }
             >
               {submitting

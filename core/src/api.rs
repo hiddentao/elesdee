@@ -179,6 +179,8 @@ struct CreateSessionRequest {
     project_id: String,
     kind: SessionKind,
     account_id: Option<String>,
+    #[serde(default)]
+    allowed_account_ids: Option<Vec<String>>,
     name: Option<String>,
     folder: Option<String>,
     source_branch: Option<String>,
@@ -249,6 +251,37 @@ fn cleaned_optional(value: Option<String>) -> Option<String> {
         .filter(|text| !text.is_empty())
 }
 
+fn validated_allowed_accounts(
+    state: &AppState,
+    raw: &[String],
+    current_account_id: &str,
+) -> Result<Vec<String>, ApiError> {
+    let mut ids: Vec<String> = Vec::new();
+    for value in raw {
+        let id = value.trim();
+        if id.is_empty() {
+            return Err(ApiError::bad_request("An allowed account id is empty."));
+        }
+        if !ids.iter().any(|existing| existing == id) {
+            ids.push(id.to_owned());
+        }
+    }
+    if ids.is_empty() {
+        return Err(ApiError::bad_request("Allow at least one account."));
+    }
+    for id in &ids {
+        if state.account(id).is_none() {
+            return Err(ApiError::unprocessable("Unknown account."));
+        }
+    }
+    if !ids.iter().any(|id| id == current_account_id) {
+        return Err(ApiError::unprocessable(
+            "The current account must stay allowed.",
+        ));
+    }
+    Ok(ids)
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct CreateAccountRequest {
@@ -307,10 +340,13 @@ struct UsageRequest {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SwitchOptions {
-    /// Every account the switch endpoint accepts. The per-session allowed
-    /// list from the spec is not stored yet.
+    /// Every account on this computer. The allowed list says which ones the
+    /// session may use.
     accounts: Vec<Account>,
-    /// The account the automatic switch would move to next, if one has room.
+    /// The account ids the session may use, including the current one.
+    allowed_account_ids: Vec<String>,
+    /// The allowed account the automatic switch would move to next, if one
+    /// has room.
     next_account_id: Option<String>,
 }
 
@@ -333,8 +369,11 @@ struct ApproveResponse {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct RenameRequest {
-    name: String,
+    name: Option<String>,
+    #[serde(default)]
+    allowed_account_ids: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1407,6 +1446,11 @@ async fn create_session(
             "Presets apply to agent sessions only.",
         ));
     }
+    if request.kind == SessionKind::Terminal && request.allowed_account_ids.is_some() {
+        return Err(ApiError::bad_request(
+            "Allowed accounts apply to agent sessions only.",
+        ));
+    }
     if let Some(preset) = &preset {
         match request
             .account_id
@@ -1782,26 +1826,67 @@ async fn rename_session(
     body: Result<Json<RenameRequest>, JsonRejection>,
 ) -> Result<Json<Session>, ApiError> {
     let Json(request) = body.map_err(invalid_json)?;
-    let name = request.name.trim();
-    if name.is_empty() || name.chars().count() > 64 {
+    if request.name.is_none() && request.allowed_account_ids.is_none() {
         return Err(ApiError::bad_request(
-            "Session name must be between 1 and 64 characters.",
+            "Send a session name or allowed accounts.",
         ));
     }
+    let name = match request.name.as_deref() {
+        Some(name) => {
+            let name = name.trim();
+            if name.is_empty() || name.chars().count() > 64 {
+                return Err(ApiError::bad_request(
+                    "Session name must be between 1 and 64 characters.",
+                ));
+            }
+            Some(name.to_owned())
+        }
+        None => None,
+    };
 
     let entry = state
         .session(&id)
         .ok_or_else(|| ApiError::not_found("Unknown session."))?;
+    let session = entry.session();
+    let allowed = match request.allowed_account_ids.as_ref() {
+        Some(ids) => {
+            if session.kind != SessionKind::Agent {
+                return Err(ApiError::unprocessable(
+                    "Only agent sessions have accounts.",
+                ));
+            }
+            if session.status != SessionState::Active {
+                return Err(ApiError::conflict(
+                    "Reopen the session before changing its accounts.",
+                ));
+            }
+            let current = session
+                .account_id
+                .as_deref()
+                .ok_or_else(|| ApiError::unprocessable("The session has no account."))?;
+            Some(validated_allowed_accounts(&state, ids, current)?)
+        }
+        None => None,
+    };
+
     let _guard = entry
         .try_lifecycle()
         .ok_or_else(|| ApiError::conflict("Session is closing."))?;
     if entry.is_closing() {
         return Err(ApiError::conflict("Session is closing."));
     }
-    let session = entry.rename(name.to_owned());
-    state.emit(SessionEvent::updated(session.clone()));
+    let mut updated = match name {
+        Some(name) => entry.rename(name),
+        None => entry.session(),
+    };
+    if let Some(allowed) = allowed {
+        updated = entry
+            .set_allowed_accounts(allowed)
+            .ok_or_else(|| ApiError::conflict("The session is busy."))?;
+    }
+    state.emit(SessionEvent::updated(updated.clone()));
     state.save();
-    Ok(Json(session))
+    Ok(Json(updated))
 }
 
 async fn reopen_session(
@@ -2012,11 +2097,15 @@ async fn switch_options(
         ));
     }
     let accounts = state.accounts();
-    let next = session.client.and_then(|client| {
-        crate::providers::auto_switch_target(&accounts, client, session.account_id.as_deref())
-    });
+    let next = crate::providers::auto_switch_target(
+        &accounts,
+        &session.allowed_account_ids,
+        session.client,
+        session.account_id.as_deref(),
+    );
     Ok(Json(SwitchOptions {
         accounts,
+        allowed_account_ids: session.allowed_account_ids.clone(),
         next_account_id: next.map(|account| account.id),
     }))
 }
@@ -2046,6 +2135,15 @@ async fn switch_session_account(
     let account = state
         .account(account_id)
         .ok_or_else(|| ApiError::not_found("Unknown account."))?;
+    if !session
+        .allowed_account_ids
+        .iter()
+        .any(|allowed| allowed == account_id)
+    {
+        return Err(ApiError::unprocessable(
+            "The account is not allowed for this session.",
+        ));
+    }
     let same_client = session.client == Some(account.client);
     let _guard = entry
         .try_lifecycle()
@@ -2075,27 +2173,18 @@ async fn resume_session(
     let Some(client) = session.client else {
         return Err(ApiError::unprocessable("The session has no client."));
     };
-    let account = state
-        .accounts()
-        .into_iter()
-        .filter(|account| {
-            !account.sample
-                && account.client == client
-                && crate::providers::usage_state(account) == crate::providers::UsageState::Room
-        })
-        .max_by_key(crate::providers::remaining_percent)
-        .or_else(|| {
-            session
-                .account_id
-                .as_deref()
-                .and_then(|id| state.account(id))
-                .filter(|account| account.client == client)
-        })
-        .ok_or_else(|| ApiError::unprocessable("No account has usage left."))?;
+    let account = crate::providers::auto_switch_target(
+        &state.accounts(),
+        &session.allowed_account_ids,
+        Some(client),
+        None,
+    )
+    .ok_or_else(|| ApiError::unprocessable("No allowed account has usage left."))?;
     let _guard = entry
         .try_lifecycle()
         .ok_or_else(|| ApiError::conflict("The session is busy."))?;
-    relaunch_with_account(&state, &entry, &account, true).await
+    let same_client = session.client == Some(account.client);
+    relaunch_with_account(&state, &entry, &account, same_client).await
 }
 
 async fn relaunch_with_account(
@@ -2370,7 +2459,7 @@ async fn claude_statusline(
 pub(crate) async fn auto_switch_account(state: &AppState, account: &Account) {
     let usage = crate::providers::usage_state(account);
     if usage == crate::providers::UsageState::Room {
-        resume_paused_sessions(state, account).await;
+        resume_paused_sessions(state).await;
         return;
     }
     if usage != crate::providers::UsageState::NearLimit {
@@ -2386,13 +2475,11 @@ pub(crate) async fn auto_switch_account(state: &AppState, account: &Account) {
         {
             continue;
         }
-        let Some(client) = session.client else {
-            continue;
-        };
 
         let target = crate::providers::auto_switch_target(
             &state.accounts(),
-            client,
+            &session.allowed_account_ids,
+            session.client,
             Some(account.id.as_str()),
         );
 
@@ -2400,14 +2487,28 @@ pub(crate) async fn auto_switch_account(state: &AppState, account: &Account) {
             let Ok(_guard) = entry.try_lifecycle().ok_or(()) else {
                 continue;
             };
-            let _ = pause_session(state, &entry, "Paused. No account has usage left.").await;
+            let current = entry.session();
+            if current.account_id.as_deref() != Some(account.id.as_str())
+                || current.work_state == Some(WorkState::Paused)
+            {
+                continue;
+            }
+            let _ =
+                pause_session(state, &entry, "Paused. No allowed account has usage left.").await;
             continue;
         };
 
+        let same_client = session.client == Some(target.client);
         let Ok(_guard) = entry.try_lifecycle().ok_or(()) else {
             continue;
         };
-        if relaunch_with_account(state, &entry, &target, true)
+        let current = entry.session();
+        if current.account_id.as_deref() != Some(account.id.as_str())
+            || current.work_state == Some(WorkState::Paused)
+        {
+            continue;
+        }
+        if relaunch_with_account(state, &entry, &target, same_client)
             .await
             .is_err()
         {
@@ -2416,23 +2517,32 @@ pub(crate) async fn auto_switch_account(state: &AppState, account: &Account) {
     }
 }
 
-async fn resume_paused_sessions(state: &AppState, account: &Account) {
+async fn resume_paused_sessions(state: &AppState) {
+    let accounts = state.accounts();
     for entry in state.sessions() {
         let session = entry.session();
         if session.status != SessionState::Active
             || session.kind != SessionKind::Agent
             || session.work_state != Some(WorkState::Paused)
-            || session.client != Some(account.client)
         {
             continue;
         }
+        let Some(target) = crate::providers::auto_switch_target(
+            &accounts,
+            &session.allowed_account_ids,
+            session.client,
+            None,
+        ) else {
+            continue;
+        };
+        let same_client = session.client == Some(target.client);
         let Ok(_guard) = entry.try_lifecycle().ok_or(()) else {
             continue;
         };
         if entry.session().work_state != Some(WorkState::Paused) {
             continue;
         }
-        if relaunch_with_account(state, &entry, account, true)
+        if relaunch_with_account(state, &entry, &target, same_client)
             .await
             .is_err()
         {
@@ -3506,6 +3616,7 @@ fn prepare_terminal(
         work_state: Some(WorkState::Working),
         client: None,
         account_id: None,
+        allowed_account_ids: Vec::new(),
         branch: None,
         folder: path_string(&folder),
         preview: "Terminal ready.".to_owned(),
@@ -3550,6 +3661,14 @@ async fn prepare_agent(
     let account = state
         .account(account_id)
         .ok_or_else(|| ApiError::not_found("Unknown account."))?;
+    let allowed_account_ids = match request.allowed_account_ids.as_ref() {
+        Some(ids) => validated_allowed_accounts(state, ids, &account.id)?,
+        None => crate::providers::default_allowed_accounts(
+            &state.accounts(),
+            Some(account.client),
+            Some(&account.id),
+        ),
+    };
 
     let command = session_command(state, SessionKind::Agent, Some(account.client))?;
     let environment = account_environment(state, &account).await?;
@@ -3597,6 +3716,7 @@ async fn prepare_agent(
         work_state: Some(WorkState::Working),
         client: Some(account.client),
         account_id: Some(account.id.clone()),
+        allowed_account_ids,
         branch: None,
         folder: path_string(&repo_root),
         preview: format!("{} is starting.", account.client),

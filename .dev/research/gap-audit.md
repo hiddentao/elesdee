@@ -21,8 +21,9 @@ The list below is a snapshot at `a33b77a`. These items have since closed and are
 longer gaps: crash recovery, the handoff note, the skill pack, Wait for session and
 Share file, real usage sources for Claude Code, Codex and DeepSeek, launch fetch and
 pull with the uncommitted-changes choice, launch presets, the phone Languages sheet,
-the phone shell skeleton, the phone app connection step in progress, and the manual
-switch from the usage pill with the context-left value. Register demo server stays
+the phone shell skeleton, the phone app connection step in progress, the manual
+switch from the usage pill with the context-left value, and the allowed-provider
+list with the spec's auto-switch order. Register demo server stays
 open until demo servers exist.
 
 ## Verdict
@@ -128,7 +129,7 @@ panel therefore shows sample accounts with no rows, and auto-switch never sees `
 `core/src/claude.rs`, `codex.rs`, a new usage module or `providers.rs`, `api.rs`, `state.rs`, and
 the usage components for "last read" text. Size: L.
 
-**6. Allowed providers and auto-switch rules.**
+**6. Allowed providers and auto-switch rules. Closed.**
 Spec: Allowed providers per session; Auto-switch rules. `Session` has no allowed-provider list
 (`core/src/state.rs`). Auto-switch targets only accounts with the same client as the
 current one, filters out samples, and picks the highest remaining percent
@@ -150,8 +151,8 @@ remote / plain-folder source choice. Files: `core/src/git.rs`, `api.rs`,
 Spec: Manual switch; Usage panel. Clicking the provider pill now opens the chooser. It lists
 every account the switch endpoint accepts with its remaining usage and marks the automatic
 switch target. The pill tooltip shows the session's context left. A different-client switch
-sends the handoff note and the end of the log. Remaining: the per-session allowed-provider
-list (gap 6), the spec's subscription-first cross-client switch order (gap 6), and a context
+sends the handoff note and the end of the log. The allowed-provider list and the
+subscription-first cross-client switch order are now built (gap 6). Remaining: a context
 figure for Codex, OpenCode 2 and Antigravity, whose clients expose no official field yet.
 
 **9. Subscription sign-in.**

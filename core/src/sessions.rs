@@ -15,8 +15,8 @@ use tokio::sync::{Mutex as AsyncMutex, broadcast, oneshot, watch};
 
 use crate::claude;
 use crate::state::{
-    Client, PendingPermission, PermissionDecision, Session, SessionEvent, SessionState, Shortcut,
-    WaitingFor, WorkState, lock,
+    Client, PendingPermission, PermissionDecision, Session, SessionEvent, SessionKind,
+    SessionState, Shortcut, WaitingFor, WorkState, lock,
 };
 
 const OUTPUT_LOG_LIMIT: usize = 256 * 1024;
@@ -739,6 +739,16 @@ impl SessionEntry {
         let mut state = lock(&self.data);
         state.session.name = name;
         state.session.clone()
+    }
+
+    pub fn set_allowed_accounts(&self, account_ids: Vec<String>) -> Option<Session> {
+        let mut state = lock(&self.data);
+        if state.session.status != SessionState::Active || state.session.kind != SessionKind::Agent
+        {
+            return None;
+        }
+        state.session.allowed_account_ids = account_ids;
+        Some(state.session.clone())
     }
 
     pub fn set_handoff_note(&self, note: String) -> Option<Session> {
@@ -1899,7 +1909,6 @@ fn drain_complete_utf8(pending: &mut Vec<u8>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::SessionKind;
 
     #[test]
     fn closed_session_does_not_update_its_preview() {
@@ -1913,6 +1922,7 @@ mod tests {
             work_state: None,
             client: None,
             account_id: None,
+            allowed_account_ids: Vec::new(),
             branch: None,
             folder: "/tmp".to_owned(),
             preview: "keep me".to_owned(),
@@ -1957,6 +1967,7 @@ mod tests {
             work_state: Some(WorkState::Working),
             client: None,
             account_id: None,
+            allowed_account_ids: Vec::new(),
             branch: None,
             folder: "/tmp".to_owned(),
             preview: String::new(),

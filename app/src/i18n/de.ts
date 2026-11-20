@@ -392,6 +392,17 @@ export const de = {
   'switchAccount.busyLabel': 'Konto wird gewechselt…',
   'switchAccount.submitting': 'Wird gewechselt…',
   'switchAccount.submit': 'Konto wechseln',
+
+  'allowedAccounts.label': "Für diese Sitzung erlaubt",
+  'allowedAccounts.add': "Konto hinzufügen",
+  'allowedAccounts.placeholder': "Konto suchen",
+  'allowedAccounts.remove': "{name} entfernen",
+  'allowedAccounts.current': "Aktuell",
+  'allowedAccounts.hint':
+    "Die automatische Umschaltung nutzt nur diese Konten. Das aktuelle Konto bleibt immer erlaubt.",
+  'allowedAccounts.errorEmpty': "Erlauben Sie mindestens ein Konto.",
+  'allowedAccounts.saveFailed':
+    "Die erlaubten Konten wurden nicht gespeichert. Versuchen Sie es erneut.",
   'switchAccount.nextAuto': 'Nächste automatische Umschaltung',
   'switchAccount.handoffSame':
       'Ein Wechsel innerhalb von {client} setzt das Gespräch fort.',

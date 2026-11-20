@@ -393,6 +393,17 @@ export const sv = {
   'switchAccount.busyLabel': 'Byter konto…',
   'switchAccount.submitting': 'Byter…',
   'switchAccount.submit': 'Byt konto',
+
+  'allowedAccounts.label': "Tillåtna för den här sessionen",
+  'allowedAccounts.add': "Lägg till ett konto",
+  'allowedAccounts.placeholder': "Sök ett konto",
+  'allowedAccounts.remove': "Ta bort {name}",
+  'allowedAccounts.current': "Aktuellt",
+  'allowedAccounts.hint':
+    "Automatiskt byte använder bara dessa konton. Det aktuella kontot är alltid tillåtet.",
+  'allowedAccounts.errorEmpty': "Tillåt minst ett konto.",
+  'allowedAccounts.saveFailed':
+    "De tillåtna kontona sparades inte. Försök igen.",
   'switchAccount.nextAuto': 'Nästa automatiska byte',
   'switchAccount.handoffSame':
       'Ett byte inom {client} fortsätter samtalet.',

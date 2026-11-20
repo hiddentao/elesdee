@@ -395,6 +395,17 @@ export const ko = {
   'switchAccount.busyLabel': '계정 전환 중…',
   'switchAccount.submitting': '전환 중…',
   'switchAccount.submit': '계정 전환',
+
+  'allowedAccounts.label': "이 세션에서 허용된 계정",
+  'allowedAccounts.add': "계정 추가",
+  'allowedAccounts.placeholder': "계정 검색",
+  'allowedAccounts.remove': "{name} 제거",
+  'allowedAccounts.current': "현재",
+  'allowedAccounts.hint':
+    "자동 전환은 이 계정만 사용합니다. 현재 계정은 항상 허용됩니다.",
+  'allowedAccounts.errorEmpty': "계정을 하나 이상 허용하세요.",
+  'allowedAccounts.saveFailed':
+    "허용된 계정을 저장하지 못했습니다. 다시 시도하세요.",
   'switchAccount.nextAuto': '다음 자동 전환',
   'switchAccount.handoffSame':
       '{client} 내에서 전환하면 대화가 이어집니다.',

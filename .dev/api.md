@@ -21,6 +21,7 @@ The service binds `127.0.0.1` only. It accepts requests only for loopback hostna
 - A preset model must fit the account's client. Antigravity uses lowercase slugs of letters, digits, `.`, `_` and `-`; other clients also accept uppercase letters and `:`, `/`, `@` and `+`. A model that does not fit returns 422. An unknown account returns 422. An invalid name, environment variable, config key or config value returns 400.
 - `POST /api/presets` uses the account name when `name` is absent or empty. `PATCH` keeps a field when it is absent and replaces `env` or `config` when it is present. Sending `model: null` clears the model. An unknown stored preset returns 404.
 - A session with `presetId` resolves a stored preset or an `account:<id>` entry. If `accountId` is absent, the preset's account is used; if both are present and differ, the request returns 422. An unknown preset returns 422. A terminal session with a preset returns 400.
+- An agent launch may send `allowedAccountIds`. An absent list allows every non-sample account of the starting client plus the starting account. A terminal session with a list returns 400. The list must hold existing accounts and include the starting account.
 - Preset environment variables apply first, then the session's `env` values. A per-launch value wins. The effective environment is stored on the session and applied again on reopen, account switch and restart. The model and config overrides are also applied again on restart.
 - Config overrides apply to one launch. Claude Code writes them into its private settings file, Codex passes `-c key=value` arguments, OpenCode merges them into its launch config file, and Antigravity writes them into its private settings file. The model uses the same mechanism for each client. Values parse as JSON when possible, otherwise as text. Dotted keys create nested objects. Claude hooks and the OpenCode MCP and skill entries are added after the overrides and cannot be replaced. Nothing is written into the repository.
 - Presets are saved in `state.json`. Account keys are never part of a preset.
@@ -155,9 +156,10 @@ interface PairedDevice {
 
 ## Switching accounts and context
 
-- A switch needs an active agent session and a known account. A switch inside the same client resumes the client's conversation. A switch to a different client starts the new client with the saved handoff note and the end of the output log. A switch clears `contextLeft` because the new process reports its own figure later.
-- `GET /api/sessions/{id}/switch-options` returns every account the switch endpoint accepts. The spec's per-session allowed-provider list is not stored yet, so the list is every account on the computer, including samples. It also returns `nextAccountId`: the account the automatic switch would pick under the current rule. That rule stays inside the session's client, skips the current account, samples and accounts without a known usage figure, and picks the account with the most usage left. The rule is narrower than the spec's subscription-first, cross-client order.
-- A terminal session returns 422 for the options route. An unknown session returns 404. The options route does not check whether the session is closed; the UI offers no switch for a closed session.
+- `GET /api/sessions/{id}/switch-options` returns every account on the computer, the session's allowed account ids and `nextAccountId`: the allowed account the automatic switch would pick next. A terminal session returns 422; an unknown session returns 404. The route does not check whether the session is closed; the UI offers no switch for a closed session.
+- A switch needs an active agent session, a known account and an account in the session's allowed list. An account outside the list returns 422. A switch inside the same client resumes the client's conversation. A switch to a different client starts the new client with the saved handoff note and the end of the output log. A switch clears `contextLeft` because the new process reports its own figure later.
+- Automatic switch runs when an account reaches 90% of a plan limit or falls below its prepaid minimum. It picks only allowed accounts with room and never a sample. Subscription accounts come first, then pay-per-use accounts. Within a group, the account with the most room wins; a tie keeps the session on its current client. A different client gets the handoff note and the end of the log. If no allowed account has room, the session pauses with a note, and it resumes when an allowed account has room again.
+- A new agent session with no `allowedAccountIds` allows every non-sample account of its starting client, plus the starting account. The launch form sends its own list. The list holds existing account ids, has no duplicates, and must include the current account. A terminal session may not send a list. `PATCH /api/sessions/{id}` changes the list on an active agent session; removing the current account returns 422, an empty list returns 400, and an unknown account returns 422.
 - `contextLeft` is the percentage of the client's context window that is still free. For Claude Code it comes from the status line JSON, field `context_window.remaining_percentage`, rounded and clamped to 0–100. Other clients report no figure yet, so the value stays `null`.
 - The Claude settings file adds a `statusLine` command that sends the JSON to `POST /internal/statusline/claude/{id}?token=...`. The route uses the same per-session token as the hooks. A wrong token or a non-Claude session returns 403. The route accepts `{ session_id?, context_window? }`, updates the session only when the rounded value changes, sends `session.updated`, and returns 204.
 - A missing or null `remaining_percentage` sets `contextLeft` to `null`. A switch, resume or restart recovery clears the value. The value is saved with the session but the client replaces it after it starts.
@@ -165,7 +167,7 @@ interface PairedDevice {
 ## Persistence
 
 - State lives in `ELESDEE_DATA_DIR`, default `~/.elesdee`, in `state.json`. The directory is created with mode 0700 and files with mode 0600. Writes use a temporary file, fsync and rename.
-- Projects and their default account and source branch, accounts, launch presets, sessions, each session's desired columns and rows, its output log, an agent's repository root, an agent's own conversation ID, the session's handoff note and last context-left figure, and the paired device list are saved. Account keys and pairing secrets are not saved. No runtime handles are saved.
+- Projects and their default account and source branch, accounts, launch presets, sessions, each session's desired columns and rows, its output log, an agent's repository root, an agent's own conversation ID, the session's handoff note and last context-left figure, the session's allowed account ids, and the paired device list are saved. Account keys and pairing secrets are not saved. No runtime handles are saved.
 - The desktop link identity is a separate 32-byte key in `<data dir>/link.key`, with mode 0600, written once and reused. It is never in `state.json` and never logged. A missing key creates a new identity; every paired phone must pair again.
 - The paired device list is written on pair, removal and graceful shutdown. `lastSeen` updates in memory at most once a minute.
 - Shared files live in `<data dir>/shared/<session id>/`, directories 0700 and files 0600. Each copy has a metadata record beside it with the original relative path, name, caption, size and content type. The stored copy stays after the session closes. Account keys are compared with the content and are never copied.
@@ -208,6 +210,7 @@ interface Session {
   workState: WorkState | null;   // detail inside active
   client: Client | null;
   accountId: string | null;
+  allowedAccountIds: string[];   // the accounts the session may use, including the current one
   agentSessionId: string | null; // the client's own conversation ID
   handoffNote?: string | null;   // kept for the next agent that works on the session
   contextLeft: number | null;    // percent of the context window free, or null when unknown
@@ -272,8 +275,9 @@ interface Project {
 }
 
 interface SwitchOptions {
-  accounts: Account[];           // every account the switch endpoint accepts
-  nextAccountId: string | null;  // the account auto-switch would pick next
+  accounts: Account[];           // every account on this computer
+  allowedAccountIds: string[];   // the accounts the session may use
+  nextAccountId: string | null;  // the allowed account auto-switch would pick next
 }
 
 interface FileEntry {
@@ -397,9 +401,9 @@ interface OutputEvent {
 | POST | `/api/presets` | `{ name?, accountId, model?, env?, config? }` | `LaunchPreset` |
 | PATCH | `/api/presets/{id}` | `{ name?, accountId?, model?, env?, config? }` | `LaunchPreset` |
 | DELETE | `/api/presets/{id}` | | `204` |
-| POST | `/api/sessions` | `{ projectId, kind, accountId?, presetId?, name?, folder?, sourceBranch?, copyUncommittedChanges?, env?, cols?, rows? }` | `Session` |
+| POST | `/api/sessions` | `{ projectId, kind, accountId?, allowedAccountIds?, presetId?, name?, folder?, sourceBranch?, copyUncommittedChanges?, env?, cols?, rows? }` | `Session` |
 | POST | `/api/sessions/{id}/close` | `{}` | `Session` |
-| PATCH | `/api/sessions/{id}` | `{ name }` | `Session` |
+| PATCH | `/api/sessions/{id}` | `{ name?, allowedAccountIds? }` | `Session` |
 | POST | `/api/sessions/{id}/reopen` | `{}` | `Session` |
 | POST | `/api/sessions/{id}/account` | `{ accountId }` | `Session` |
 | GET | `/api/sessions/{id}/switch-options` | | `SwitchOptions` |
@@ -416,7 +420,7 @@ interface OutputEvent {
 | GET | `/api/sessions/{id}/output?after={seq}` | | SSE: `data: {"seq":n,"data":"..."}` and an optional `gap` |
 | GET | `/api/events` | | SSE: `data: {"type":"session.updated","session":Session}` |
 
-Errors use `{ "error": "message" }`. Pairing returns 503 when the link endpoint is not running, and 409 when no phone waits for approval or the device limit is reached. Removing an unknown device returns 404. Unknown sessions return 404. A session that is closed, or whose process has exited, returns 409 for input. An invalid session name or terminal size returns 400. An agent session in a non-Git folder returns 422. Reopening an active session, deleting an active session, or reopening or deleting while a close is running returns 409; reopening with a missing folder, repository, branch or client returns 422. A permission answer returns 404 for an unknown session and 409 when the session is closed, there is no pending request, the request id does not match, or the request was already answered. An empty project name returns 400, a bad project folder returns 422, and a duplicate project folder returns 409. An unknown project returns 404. A project change that cannot be written to disk returns 500 and is rolled back in memory. A default account that does not exist, a default branch that does not exist, or a project folder that is not a Git repository returns 422. An unsafe branch name returns 400. An empty account name, empty key or overlong model returns 400; an unsupported provider and client pair or an unsupported auth mode returns 422; a keychain failure returns 500. An unknown preset account or a model that does not fit the client returns 422; an invalid preset name, environment variable or config key returns 400; a secret-like environment variable or config key returns 422; an unknown stored preset returns 404. A blocked Host or Origin returns 403, a bad POST or PATCH content type returns 415, a full session list or stream list returns 429, a request that exceeds the 30-second timeout returns 408, and a wrong non-OPTIONS method returns 405. A file path outside the session folder returns 400, a binary file returns 422, and content above 1 MiB returns 413.
+Errors use `{ "error": "message" }`. Pairing returns 503 when the link endpoint is not running, and 409 when no phone waits for approval or the device limit is reached. Removing an unknown device returns 404. Unknown sessions return 404. A session that is closed, or whose process has exited, returns 409 for input. An invalid session name or terminal size returns 400. An agent session in a non-Git folder returns 422. Reopening an active session, deleting an active session, or reopening or deleting while a close is running returns 409; reopening with a missing folder, repository, branch or client returns 422. A permission answer returns 404 for an unknown session and 409 when the session is closed, there is no pending request, the request id does not match, or the request was already answered. An empty project name returns 400, a bad project folder returns 422, and a duplicate project folder returns 409. An unknown project returns 404. A project change that cannot be written to disk returns 500 and is rolled back in memory. A default account that does not exist, a default branch that does not exist, or a project folder that is not a Git repository returns 422. An unsafe branch name returns 400. An empty account name, empty key or overlong model returns 400; an unsupported provider and client pair or an unsupported auth mode returns 422; a keychain failure returns 500. An unknown preset account or a model that does not fit the client returns 422; an invalid preset name, environment variable or config key returns 400; a secret-like environment variable or config key returns 422; an unknown stored preset returns 404. An allowed account list that is empty returns 400; an unknown account, a list without the current account, or a switch to an account outside the list returns 422; changing the list on a closed session returns 409. A blocked Host or Origin returns 403, a bad POST or PATCH content type returns 415, a full session list or stream list returns 429, a request that exceeds the 30-second timeout returns 408, and a wrong non-OPTIONS method returns 405. A file path outside the session folder returns 400, a binary file returns 422, and content above 1 MiB returns 413.
 
 ## Rules
 

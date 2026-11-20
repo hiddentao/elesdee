@@ -26,6 +26,7 @@ import {
   resumeSession,
   switchSessionAccount,
   updateProjectDefaults,
+  updateSessionAllowedAccounts,
 } from './api/client';
 import { subscribeAux, subscribeEvents } from './api/events';
 import { isTauri, openFolder, openTerminal } from './api/shell';
@@ -722,6 +723,20 @@ export default function App() {
     setToast({ message: t('app.accountSwitched'), error: false });
   }
 
+  async function performAllowedChange(accountIds: string[]) {
+    if (!switchTarget) {
+      return;
+    }
+
+    const updated = await updateSessionAllowedAccounts(
+      switchTarget.id,
+      accountIds,
+    );
+    setSessions((current) =>
+      current.map((item) => (item.id === updated.id ? updated : item)),
+    );
+  }
+
   async function answerPermission(
     session: Session,
     decision: PermissionDecision,
@@ -1076,6 +1091,7 @@ export default function App() {
         <SwitchAccountDialog
           session={switchTarget}
           onSwitch={performSwitch}
+          onAllowedChange={performAllowedChange}
           onClose={() => setSwitchSessionId(null)}
         />
       ) : null}

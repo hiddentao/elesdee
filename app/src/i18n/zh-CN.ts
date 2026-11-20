@@ -364,6 +364,17 @@ export const zhCN = {
   'switchAccount.busyLabel': '正在切换账户…',
   'switchAccount.submitting': '正在切换…',
   'switchAccount.submit': '切换账户',
+
+  'allowedAccounts.label': "此会话允许的账户",
+  'allowedAccounts.add': "添加账户",
+  'allowedAccounts.placeholder': "搜索账户",
+  'allowedAccounts.remove': "移除 {name}",
+  'allowedAccounts.current': "当前",
+  'allowedAccounts.hint':
+    "自动切换只使用这些账户。当前账户始终保持允许。",
+  'allowedAccounts.errorEmpty': "至少允许一个账户。",
+  'allowedAccounts.saveFailed':
+    "允许的账户未保存。请重试。",
   'switchAccount.nextAuto': '下次自动切换',
   'switchAccount.handoffSame':
       '在 {client} 内切换会继续对话。',

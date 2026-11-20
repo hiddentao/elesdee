@@ -422,6 +422,7 @@ mod tests {
                 work_state: Some(WorkState::Working),
                 client: Some(Client::Codex),
                 account_id: Some(account.id.clone()),
+                allowed_account_ids: vec![account.id.clone()],
                 branch: None,
                 folder: "/tmp".to_owned(),
                 preview: String::new(),
