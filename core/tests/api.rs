@@ -10154,3 +10154,549 @@ async fn closing_or_pausing_a_session_stops_its_demo_servers() {
         .expect("session");
     assert_eq!(demo_servers(listed)[0]["state"], "stopped");
 }
+
+async fn create_agent_with_config(app: &Router, repo: &Path, config_id: &str, name: &str) -> Value {
+    ensure_test_project(app, repo).await;
+    let (status, session) = call(
+        app,
+        "POST",
+        "/api/sessions",
+        Some(json!({
+            "projectId": "web",
+            "kind": "agent",
+            "configId": config_id,
+            "name": name,
+            "folder": repo.to_string_lossy()
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "create agent: {session}");
+    session
+}
+
+#[tokio::test]
+async fn one_provider_serves_two_configs_on_two_clients() {
+    let data_dir = TempDirectory::new("reuse-data");
+    let repo = TempDirectory::new("reuse-repo");
+    init_git_repo(&repo.path);
+    let app = router(AppState::with_test_command_and_data_dir(
+        vec![
+            "/bin/sh".to_owned(),
+            "-c".to_owned(),
+            "printf 'A=%s O=%s\\n' \"$ANTHROPIC_BASE_URL\" \"$OPENAI_BASE_URL\"; sleep 30"
+                .to_owned(),
+        ],
+        data_dir.path.clone(),
+    ));
+    ensure_test_project(&app, &repo.path).await;
+
+    let (status, provider) = call(
+        &app,
+        "POST",
+        "/api/providers",
+        Some(json!({
+            "name": "Shared DeepSeek",
+            "vendor": "deepseek",
+            "auth": "key",
+            "key": "sk-shared-secret"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{provider}");
+    let provider_id = provider["id"].as_str().expect("provider id").to_owned();
+
+    let (status, claude) = call(
+        &app,
+        "POST",
+        "/api/configs",
+        Some(json!({
+            "providerId": provider_id,
+            "client": "Claude Code",
+            "model": "deepseek-chat"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{claude}");
+    let (status, codex) = call(
+        &app,
+        "POST",
+        "/api/configs",
+        Some(json!({
+            "providerId": provider_id,
+            "client": "Codex",
+            "model": "deepseek-chat"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{codex}");
+    assert_eq!(claude["providerId"], provider_id);
+    assert_eq!(codex["providerId"], provider_id);
+    assert_eq!(claude["client"], "Claude Code");
+    assert_eq!(codex["client"], "Codex");
+
+    let claude_id = claude["id"].as_str().expect("claude config id");
+    let codex_id = codex["id"].as_str().expect("codex config id");
+    let first = create_agent_with_config(&app, &repo.path, claude_id, "Claude reuse").await;
+    let first_id = first["id"].as_str().expect("session id");
+    assert_eq!(first["providerId"], provider_id);
+    let request = request_builder("GET", &format!("/api/sessions/{first_id}/output?after=0"))
+        .body(Body::empty())
+        .expect("output request");
+    let response = app.clone().oneshot(request).await.expect("output");
+    let text = read_sse_until(response.into_body(), |text| {
+        text.contains("A=https://api.deepseek.com/anthropic")
+    })
+    .await;
+    assert!(sse_data_text(&text).contains("A=https://api.deepseek.com/anthropic"));
+    assert!(!sse_data_text(&text).contains("sk-shared-secret"));
+
+    let second = create_agent_with_config(&app, &repo.path, codex_id, "Codex reuse").await;
+    let second_id = second["id"].as_str().expect("session id");
+    assert_eq!(second["providerId"], provider_id);
+    let request = request_builder("GET", &format!("/api/sessions/{second_id}/output?after=0"))
+        .body(Body::empty())
+        .expect("output request");
+    let response = app.clone().oneshot(request).await.expect("output");
+    let text = read_sse_until(response.into_body(), |text| {
+        text.contains("O=https://api.deepseek.com")
+    })
+    .await;
+    assert!(sse_data_text(&text).contains("O=https://api.deepseek.com"));
+
+    let (status, _) = close_session(&app, first_id).await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _) = close_session(&app, second_id).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn model_effort_and_extra_arguments_reach_each_client() {
+    let data_dir = TempDirectory::new("launch-flags-data");
+    let repo = TempDirectory::new("launch-flags-repo");
+    init_git_repo(&repo.path);
+    let args_file = data_dir.path.join("args.txt");
+    let script = format!(
+        "printf '%s\\n' \"$@\" > {}; sleep 30",
+        args_file.to_string_lossy()
+    );
+    let app = router(AppState::with_test_command_and_data_dir(
+        vec![
+            "/bin/sh".to_owned(),
+            "-c".to_owned(),
+            script,
+            "stub".to_owned(),
+        ],
+        data_dir.path.clone(),
+    ));
+    ensure_test_project(&app, &repo.path).await;
+
+    let (status, provider) = call(
+        &app,
+        "POST",
+        "/api/providers",
+        Some(json!({
+            "name": "Flags",
+            "vendor": "deepseek",
+            "auth": "key",
+            "key": "sk-flags"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{provider}");
+    let provider_id = provider["id"].as_str().expect("provider id");
+
+    let (status, config) = call(
+        &app,
+        "POST",
+        "/api/configs",
+        Some(json!({
+            "providerId": provider_id,
+            "client": "Codex",
+            "model": "gpt-5.2",
+            "effort": "high",
+            "args": ["--foo", "bar"]
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{config}");
+    let config_id = config["id"].as_str().expect("config id");
+    let session = create_agent_with_config(&app, &repo.path, config_id, "Codex flags").await;
+    let id = session["id"].as_str().expect("session id");
+    wait_for_args_file(&args_file).await;
+    let arguments = fs::read_to_string(&args_file).expect("read arguments");
+    let lines = arguments.lines().collect::<Vec<_>>();
+    assert!(
+        arguments.contains("model_reasoning_effort=\"high\""),
+        "effort missing: {arguments}"
+    );
+    assert!(
+        arguments.contains("model=\"gpt-5.2\""),
+        "model missing: {arguments}"
+    );
+    assert_eq!(&lines[lines.len() - 2..], ["--foo", "bar"]);
+    let (status, _) = close_session(&app, id).await;
+    assert_eq!(status, StatusCode::OK);
+    let _ = fs::remove_file(&args_file);
+
+    let (status, claude) = call(
+        &app,
+        "POST",
+        "/api/configs",
+        Some(json!({
+            "providerId": provider_id,
+            "client": "Claude Code",
+            "model": "claude-sonnet-4-5",
+            "effort": "max",
+            "args": ["--verbose"]
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{claude}");
+    let claude_id = claude["id"].as_str().expect("claude config id");
+    let session = create_agent_with_config(&app, &repo.path, claude_id, "Claude flags").await;
+    let id = session["id"].as_str().expect("session id");
+    wait_for_args_file(&args_file).await;
+    let arguments = fs::read_to_string(&args_file).expect("read arguments");
+    assert!(
+        arguments.contains("--model\nclaude-sonnet-4-5"),
+        "{arguments}"
+    );
+    assert!(arguments.contains("--effort\nmax"), "{arguments}");
+    assert!(arguments.trim_end().ends_with("--verbose"), "{arguments}");
+    let (status, _) = close_session(&app, id).await;
+    assert_eq!(status, StatusCode::OK);
+    let _ = fs::remove_file(&args_file);
+
+    let (status, opencode) = call(
+        &app,
+        "POST",
+        "/api/configs",
+        Some(json!({
+            "providerId": provider_id,
+            "client": "OpenCode 2",
+            "model": "deepseek-chat",
+            "effort": "high"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{opencode}");
+    let opencode_id = opencode["id"].as_str().expect("opencode config id");
+    let session = create_agent_with_config(&app, &repo.path, opencode_id, "OpenCode flags").await;
+    let id = session["id"].as_str().expect("session id");
+    let path = data_dir
+        .path
+        .join("mcp")
+        .join(format!("opencode-{id}.json"));
+    let config: Value =
+        serde_json::from_slice(&fs::read(&path).expect("read opencode config")).expect("json");
+    assert_eq!(config["model"], "deepseek-chat");
+    assert_eq!(config["reasoningEffort"], "high");
+    let (status, _) = close_session(&app, id).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[derive(Clone)]
+struct ModelsServer {
+    calls: Arc<AtomicUsize>,
+    status: StatusCode,
+    body: Value,
+}
+
+async fn models_handler(AxumState(server): AxumState<ModelsServer>) -> Response {
+    server.calls.fetch_add(1, Ordering::SeqCst);
+    (server.status, axum::Json(server.body.clone())).into_response()
+}
+
+async fn start_models_server(status: StatusCode, body: Value) -> (String, Arc<AtomicUsize>) {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let server = ModelsServer {
+        calls: Arc::clone(&calls),
+        status,
+        body,
+    };
+    let app = Router::new()
+        .route("/v1/models", get(models_handler))
+        .route("/models", get(models_handler))
+        .with_state(server);
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+        .await
+        .expect("bind models server");
+    let address = listener.local_addr().expect("models address");
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    (format!("http://{address}/v1"), calls)
+}
+
+#[tokio::test]
+async fn provider_models_are_read_cached_coalesced_and_fall_back() {
+    let (server, calls) = start_models_server(
+        StatusCode::OK,
+        json!({
+            "data": [
+                { "id": "gateway-large", "display_name": "Gateway Large" },
+                { "id": "gateway-small" }
+            ]
+        }),
+    )
+    .await;
+    let app = router(AppState::ephemeral());
+    let (status, provider) = call(
+        &app,
+        "POST",
+        "/api/providers",
+        Some(json!({
+            "name": "Gateway",
+            "vendor": "custom",
+            "auth": "key",
+            "apiStyle": "openai",
+            "server": server,
+            "key": "sk-model-secret"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{provider}");
+    let provider_id = provider["id"].as_str().expect("provider id").to_owned();
+
+    let first = tokio::spawn({
+        let app = app.clone();
+        let provider_id = provider_id.clone();
+        async move {
+            call(
+                &app,
+                "GET",
+                &format!("/api/providers/{provider_id}/models?client=Codex"),
+                None,
+            )
+            .await
+        }
+    });
+    let second = tokio::spawn({
+        let app = app.clone();
+        let provider_id = provider_id.clone();
+        async move {
+            call(
+                &app,
+                "GET",
+                &format!("/api/providers/{provider_id}/models?client=Codex"),
+                None,
+            )
+            .await
+        }
+    });
+    let (first, second) = tokio::join!(first, second);
+    let (status, first) = first.expect("first call");
+    assert_eq!(status, StatusCode::OK, "{first}");
+    let (status, second) = second.expect("second call");
+    assert_eq!(status, StatusCode::OK, "{second}");
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        1,
+        "the reads were not coalesced"
+    );
+    let models = first["models"].as_array().expect("models");
+    assert!(models.iter().any(|model| model["id"] == "gateway-large"));
+    assert_eq!(first["source"], "provider");
+    assert_eq!(first["fallback"], false);
+    assert!(!first.to_string().contains("sk-model-secret"));
+
+    let (status, cached) = call(
+        &app,
+        "GET",
+        &format!("/api/providers/{provider_id}/models?client=Codex"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{cached}");
+    assert_eq!(cached["source"], "cache");
+    assert_eq!(calls.load(Ordering::SeqCst), 1, "the cache missed");
+
+    let closed = {
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .expect("bind");
+        let address = listener.local_addr().expect("address");
+        drop(listener);
+        format!("http://{address}/v1")
+    };
+    let (status, fallback_provider) = call(
+        &app,
+        "POST",
+        "/api/providers",
+        Some(json!({
+            "name": "Broken Gateway",
+            "vendor": "deepseek",
+            "auth": "key",
+            "server": closed,
+            "key": "sk-broken-secret"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{fallback_provider}");
+    let fallback_id = fallback_provider["id"].as_str().expect("id");
+    let (status, fallback) = call(
+        &app,
+        "GET",
+        &format!("/api/providers/{fallback_id}/models?client=Codex"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{fallback}");
+    assert_eq!(fallback["fallback"], true);
+    assert_eq!(fallback["source"], "known");
+    assert!(
+        fallback["models"]
+            .as_array()
+            .expect("models")
+            .iter()
+            .any(|model| model["id"] == "deepseek-chat")
+    );
+    assert!(!fallback.to_string().contains("sk-broken-secret"));
+}
+
+#[tokio::test]
+async fn a_state_with_accounts_and_presets_migrates_to_providers_and_configs() {
+    let data_dir = TempDirectory::new("migrate-state");
+    let state = json!({
+        "version": 1,
+        "projects": [],
+        "accounts": [
+            {
+                "id": "max",
+                "name": "Max plan",
+                "plan": "subscription",
+                "client": "Claude Code",
+                "provider": "anthropic",
+                "auth": "subscription",
+                "sample": true,
+                "rows": [],
+                "foot": "No official usage source.",
+                "server": null,
+                "model": null
+            },
+            {
+                "id": "codex",
+                "name": "Codex plan",
+                "plan": "subscription",
+                "client": "Codex",
+                "provider": "openai",
+                "auth": "subscription",
+                "sample": true,
+                "rows": [],
+                "foot": "No official usage source.",
+                "server": null,
+                "model": null
+            }
+        ],
+        "presets": [{
+            "id": "fast",
+            "name": "Fast",
+            "accountId": "max",
+            "model": "claude-sonnet-4-5",
+            "env": [],
+            "config": {},
+            "createdAt": "2026-01-01T00:00:00Z",
+            "updatedAt": "2026-01-01T00:00:00Z"
+        }],
+        "sessions": [
+            {
+                "session": {
+                    "id": "s1", "name": "From account", "short": "s1",
+                    "projectId": "web", "kind": "agent", "status": "closed",
+                    "workState": null, "client": "Claude Code",
+                    "accountId": "max", "allowedAccountIds": ["max"],
+                    "branch": null, "folder": "/tmp", "preview": "Closed.",
+                    "waitingFor": null, "startedAt": "2026-01-01T00:00:00Z",
+                    "shortcuts": []
+                },
+                "cols": 80, "rows": 24, "output": [], "nextSeq": 1
+            },
+            {
+                "session": {
+                    "id": "s2", "name": "From preset", "short": "s2",
+                    "projectId": "web", "kind": "agent", "status": "closed",
+                    "workState": null, "client": "Claude Code",
+                    "accountId": "max", "presetId": "fast",
+                    "allowedAccountIds": ["max", "codex"],
+                    "branch": null, "folder": "/tmp", "preview": "Closed.",
+                    "waitingFor": null, "startedAt": "2026-01-01T00:00:00Z",
+                    "shortcuts": []
+                },
+                "cols": 80, "rows": 24, "output": [], "nextSeq": 1
+            },
+            {
+                "session": {
+                    "id": "s3", "name": "Missing account", "short": "s3",
+                    "projectId": "web", "kind": "agent", "status": "closed",
+                    "workState": null, "client": "Claude Code",
+                    "accountId": "ghost", "branch": null, "folder": "/tmp",
+                    "preview": "Closed.", "waitingFor": null,
+                    "startedAt": "2026-01-01T00:00:00Z", "shortcuts": []
+                },
+                "cols": 80, "rows": 24, "output": [], "nextSeq": 1
+            }
+        ]
+    });
+    fs::write(
+        data_dir.path.join("state.json"),
+        serde_json::to_vec_pretty(&state).expect("serialize state"),
+    )
+    .expect("write state");
+
+    let app = router(AppState::with_data_dir(data_dir.path.clone()));
+    let (status, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    assert_eq!(status, StatusCode::OK, "{bootstrap}");
+    let providers = bootstrap["providers"].as_array().expect("providers");
+    assert_eq!(providers.len(), 2);
+    assert_eq!(
+        providers[0]["supportedClients"],
+        json!(["Claude Code", "OpenCode 2"])
+    );
+    let configs = bootstrap["configs"].as_array().expect("configs");
+    assert_eq!(configs.len(), 3);
+    assert!(
+        configs
+            .iter()
+            .any(|config| config["id"] == "max" && config["name"] == "Max plan (Claude Code)")
+    );
+    let preset = configs
+        .iter()
+        .find(|config| config["id"] == "fast")
+        .expect("preset config");
+    assert_eq!(preset["name"], "Fast");
+    assert_eq!(preset["providerId"], "max");
+    assert_eq!(preset["model"], "claude-sonnet-4-5");
+
+    let sessions = bootstrap["sessions"].as_array().expect("sessions");
+    let from_account = sessions
+        .iter()
+        .find(|session| session["id"] == "s1")
+        .expect("s1");
+    assert_eq!(from_account["configId"], "max");
+    assert_eq!(from_account["providerId"], "max");
+    let from_preset = sessions
+        .iter()
+        .find(|session| session["id"] == "s2")
+        .expect("s2");
+    assert_eq!(from_preset["configId"], "fast");
+    assert_eq!(
+        from_preset["allowedConfigIds"],
+        json!(["max", "codex", "fast"])
+    );
+    let missing = sessions
+        .iter()
+        .find(|session| session["id"] == "s3")
+        .expect("s3");
+    assert_eq!(missing["configId"], Value::Null);
+    assert!(
+        missing["preview"]
+            .as_str()
+            .is_some_and(|preview| preview.contains("Migration"))
+    );
+
+    let state_text = fs::read_to_string(data_dir.path.join("state.json")).expect("state file");
+    let reloaded: Value = serde_json::from_str(&state_text).expect("state json");
+    assert_eq!(reloaded["version"], 2);
+    assert!(reloaded.get("accounts").is_none());
+    assert!(reloaded.get("presets").is_none());
+}

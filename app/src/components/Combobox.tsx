@@ -109,15 +109,20 @@ export function Combobox({
     closedLabel !== '' &&
     (normalized === closedLabel.toLowerCase() ||
       normalized === selectedLabel.toLowerCase());
-  const listOptions = async
-    ? asyncOptions
-    : normalized === '' || queryIsSelection
-      ? options
-      : options.filter(
+  const filterOptions = (candidates: ComboboxOption[]) =>
+    normalized === '' || queryIsSelection
+      ? candidates
+      : candidates.filter(
           (option) =>
             option.label.toLowerCase().includes(normalized) ||
-            (option.meta ? option.meta.toLowerCase().includes(normalized) : false),
+            option.id.toLowerCase().includes(normalized) ||
+            (option.meta
+              ? option.meta.toLowerCase().includes(normalized)
+              : false),
         );
+  const listOptions = async
+    ? filterOptions(asyncOptions)
+    : filterOptions(options);
   const showLoading = async && (loading || !asyncLoaded);
   const filtered = showLoading ? [] : listOptions;
 
