@@ -387,12 +387,13 @@ interface DemoServerListEntry extends DemoServer {
 - The tailnet address is read once per registration from the local Tailscale client. The MagicDNS name gives `https://<machine>.<tailnet>.ts.net:<port>`; without a usable name, the tailnet IPv4 gives `http://100.x.y.z:<port>`. A missing, stopped or failing client leaves the field out. A failed read never blocks the registration. The record holds the address that the registration saw; a repeated port refreshes it.
 - The Funnel enable route takes `{ confirmed: true }`. Without it the route returns 400 and runs nothing. The confirmation is the app's dialog: the core cannot tell a user from another local caller, so the boolean is the contract, and a caller that sends it directly bypasses the dialog. The route accepts only a demo-server id, never a port or a path, and the server must be active in an active session; a stopped server returns 422. The app runs the discovered Tailscale client as `tailscale funnel --bg <port>` and records `https://<machine>.<tailnet>.ts.net/` in `funnelAddress`. Only one demo server in the app is public at a time; enabling another first turns the previous one off. If that turn-off or the new enable fails, the route returns 422 with the reason, the new server stays local, and any earlier server that was already turned off stays local too. A session that starts closing or pausing while the command runs turns Funnel off again and refuses the request.
 - The Funnel disable route runs `tailscale funnel --https=443 localhost:<port> off` and clears `funnelAddress` only after the client accepts the command. Stop, close, pause, delete and app startup turn Funnel off before the record changes. Stop clears `funnelAddress` with the stopped state. When the client refuses, Stop returns 422 with the reason and leaves the server active and public, so Stop can be retried; close, pause and startup log the refusal and keep the address on the record for a later retry.
+- `DELETE /api/sessions/{id}` turns every public address off before it removes the worktree, the session files or the record. When the client refuses, the route returns 422 with the reason, removes nothing, and keeps the closed session and its address, so the user can retry. A session that still holds a public address is never removed.
 - The name is cleaned of control and invisible characters and capped at 64 characters. A repeated port in the same session updates its name and makes it active again. The record id and creation time stay.
 - `GET /api/demo-servers` returns only active records. The array is empty when no server is registered. Records are ordered by session order and then registration order.
 - The stop route returns the updated session with `state: "stopped"`, emits `session.updated`, and closes that port's forward tunnels. A second stop returns the same stopped record. When a public address cannot be turned off, the route returns 422 and the record keeps its state and address.
 - An unknown session or server returns 404. A closed session refuses a registration through the tool, not through the stop route.
 - The records live with the session and appear in `bootstrap`. They are saved in `state.json`. On restart every saved record becomes `stopped`, because the agent process and its servers no longer run. A public address that the client refuses to turn off stays on the record until a later retry succeeds.
-- Close and pause set every server in the session to `stopped` and close its tunnels. Delete removes the session and its records.
+- Close and pause set every server in the session to `stopped` and close its tunnels. Delete removes the session and its records only after every public address is off.
 - The link method `demoServers.list` maps to `GET /api/demo-servers`. The phone receives only active ports, with each record's local and tailnet addresses. Forwarding itself uses the separate `elesdee/forward/1` ALPN; it is not an RPC method.
 
 ## Switching AI configs and context
@@ -748,7 +749,7 @@ interface HistoryEvent {
 | POST | `/api/sessions/{id}/reopen` | `{}` | `Session` |
 | POST | `/api/sessions/{id}/config` | `{ configId }` | `Session` |
 | GET | `/api/sessions/{id}/switch-options` | | `SwitchOptions` |
-| DELETE | `/api/sessions/{id}` | | `204` |
+| DELETE | `/api/sessions/{id}` | | `204`; `422` while a public demo address remains |
 | POST | `/api/sessions/{id}/input` | `{ data }` (UTF-8 text) | `204` |
 | POST | `/api/sessions/{id}/resize` | `{ cols, rows }` | `204` |
 | POST | `/api/sessions/{id}/permission` | `{ requestId, decision: "allow" \| "deny" }` | `204` |

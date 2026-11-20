@@ -71,7 +71,8 @@ fn turn_off_saved_funnels(state: &AppState) -> bool {
         {
             continue;
         }
-        if let Some(updated) = state.disable_demo_funnels(&entry.id()) {
+        let cleanup = state.disable_demo_funnels(&entry.id());
+        if let Some(updated) = cleanup.updated {
             state.emit(SessionEvent::updated(updated));
             changed = true;
         }

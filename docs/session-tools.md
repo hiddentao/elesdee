@@ -78,8 +78,9 @@ The session's Files panel has a **Make public** action for an active server. It 
 
 - This needs Tailscale, installed, running and signed in, and Funnel allowed for the tailnet. Without it the server stays local and the panel shows the reason.
 - Only one demo server is public at a time. Making another server public turns the first one off.
-- **Stop public**, closing the session and pausing the session turn it off. An app restart also turns off an address that was left on.
+- **Stop public**, closing the session, pausing the session and deleting a closed session turn it off. An app restart also turns off an address that was left on.
 - If Tailscale refuses to turn the address off, the app keeps the address on the record and shows the reason, because the address may still be public. Choose **Stop public** again to retry. The next app start also retries.
+- Delete tries the turn-off before it removes anything. If the address is still on, the app refuses the delete and keeps the session and its address, so you can choose **Delete** again after Tailscale accepts the command.
 - The app uses the Tailscale client it found. It never exposes another port and never takes an address from the agent.
 
 ## Browser
