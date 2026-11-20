@@ -47,6 +47,12 @@ Antigravity and terminal sessions have no structured source, so they open on the
 - Approval requests, agent questions and session requests appear as cards. Answer or approve them there.
 - The back button returns to the session list.
 
+## Notifications
+
+The phone app sends a notification while it is open when a session waits for you: it needs input, a permission answer or an approval. It also sends one when an agent reports its task done or uses the Notify me tool. Tap the notification to open that session. The app stays quiet for a waiting session or a done status that its screen already shows.
+
+The app asks for the phone's notification permission on first use. If you refuse, the app says that notifications are off and the session list keeps working. There are no push notifications when the app is closed. The browser layout raises no system notification; its cards and action notices are the in-app path.
+
 ## Files, images, uploads and changes
 
 **Files** and **Changes** sit beside the session actions.
@@ -67,7 +73,7 @@ The installable app is not released. The computer side and the phone shell liste
 
 ## What is not built yet
 
-There is no phone app you can install. The repository has the phone shell, its pairing screens, the live session list, the structured message view and output, terminal input and the key rail, the session actions, the file list with text and image previews, the diff view, the upload action, and the demo-server list with its forwarding listener, but no released build. The downloaded phone interface comes later. The core service starts the link, creates a pairing ticket, stores paired devices and answers the allowlisted methods for a paired phone, including terminal input, session start, close, AI config switch, the structured conversation stream, upload, the file and image reads, the change list and the demo-server list and both sides of demo forwarding. The phone shell's own screens show the same message view and file and change views as the browser layout, with the same one button to the read-only terminal, and they keep the composer and the key rail. The phone's system browser handoff, the native keychain, the camera, the file picker and behavior in the background need a device test, and the message view, the image preview and the upload have not run on a device. The current browser layout still opens on this computer, next to the desktop app.
+There is no phone app you can install. The repository has the phone shell, its pairing screens, the live session list, the structured message view and output, terminal input and the key rail, the session actions, the file list with text and image previews, the diff view, the upload action, and the demo-server list with its forwarding listener, but no released build. The downloaded phone interface comes later. The core service starts the link, creates a pairing ticket, stores paired devices and answers the allowlisted methods for a paired phone, including terminal input, session start, close, AI config switch, the structured conversation stream, upload, the file and image reads, the change list and the demo-server list and both sides of demo forwarding. The phone shell's own screens show the same message view and file and change views as the browser layout, with the same one button to the read-only terminal, and they keep the composer and the key rail. The phone's system browser handoff, the native keychain, the camera, the file picker, the notification permission and delivery, and behavior in the background need a device test, and the message view, the image preview and the upload have not run on a device. The current browser layout still opens on this computer, next to the desktop app.
 
 ## Next steps
 

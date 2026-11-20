@@ -200,5 +200,16 @@
   "changes.truncated": "변경 목록이 커서 일부 파일이나 차이가 표시되지 않습니다.",
   "changes.open": "{path}의 차이 열기",
   "changes.binary": "바이너리 파일에는 텍스트 차이가 없습니다.",
-  "changes.diffTruncated": "이 차이는 너무 커서 전체를 표시할 수 없습니다."
+  "changes.diffTruncated": "이 차이는 너무 커서 전체를 표시할 수 없습니다.",
+  "notifications.waitingTitle": "{name} 님이 기다립니다",
+  "notifications.permissionBody": "요청을 승인하거나 거부하세요.",
+  "notifications.questionBody": "질문에 답하세요.",
+  "notifications.inputBody": "세션이 입력을 기다리고 있습니다.",
+  "notifications.requestTitle": "새 세션 요청",
+  "notifications.requestBody": "{name} 님이 세션을 시작하려고 합니다.",
+  "notifications.doneTitle": "{name} 님이 완료했습니다",
+  "notifications.doneBody": "작업이 완료되었습니다.",
+  "notifications.messageTitle": "{name} 님의 메시지",
+  "notifications.denied": "알림이 꺼져 있습니다. 휴대폰 설정에서 elesdee 알림을 허용하세요.",
+  "notifications.unavailable": "이 휴대폰에서는 알림을 사용할 수 없습니다."
 }

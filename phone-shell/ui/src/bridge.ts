@@ -8,6 +8,8 @@ import type {
   ConnectionState,
   ForwardAddress,
   ImagePayload,
+  NotificationState,
+  NotificationTarget,
   PairConfirm,
   PhoneInfo,
   SubscriptionOpened,
@@ -95,6 +97,22 @@ export const phone = {
     call<UploadedFile>('phone_pick_upload', { computerId, sessionId }),
   readImage: (computerId: string, sessionId: string, path: string) =>
     call<ImagePayload>('phone_read_image', { computerId, sessionId, path }),
+  notificationState: () =>
+    call<NotificationState>('phone_notification_state'),
+  requestNotificationPermission: () =>
+    call<NotificationState>('phone_notification_request'),
+  showNotification: (
+    computerId: string,
+    sessionId: string,
+    title: string,
+    body: string,
+  ) =>
+    call<boolean>('phone_notification_show', {
+      computerId,
+      sessionId,
+      title,
+      body,
+    }),
 };
 
 /** Opens a demo-server address in the phone's browser. */
@@ -158,6 +176,15 @@ export function onConnection(
   listener: (state: ConnectionState) => void,
 ): Promise<UnlistenFn> {
   return listen<ConnectionState>('phone:connection', (event) =>
+    listener(event.payload),
+  );
+}
+
+/** Listens for a tap on a local notification. */
+export function onNotificationClick(
+  listener: (target: NotificationTarget) => void,
+): Promise<UnlistenFn> {
+  return listen<NotificationTarget>('phone:notification-click', (event) =>
     listener(event.payload),
   );
 }

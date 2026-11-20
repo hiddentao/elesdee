@@ -200,5 +200,16 @@
   "changes.truncated": "変更一覧が大きいため、一部のファイルや差分は表示されません。",
   "changes.open": "{path} の差分を開く",
   "changes.binary": "バイナリファイルにはテキスト差分がありません。",
-  "changes.diffTruncated": "この差分は大きすぎるため、全体を表示できません。"
+  "changes.diffTruncated": "この差分は大きすぎるため、全体を表示できません。",
+  "notifications.waitingTitle": "{name} があなたを待っています",
+  "notifications.permissionBody": "リクエストを承認または拒否します。",
+  "notifications.questionBody": "質問に回答します。",
+  "notifications.inputBody": "セッションが入力待ちです。",
+  "notifications.requestTitle": "新しいセッションのリクエスト",
+  "notifications.requestBody": "{name} がセッションを開始しようとしています。",
+  "notifications.doneTitle": "{name} が完了しました",
+  "notifications.doneBody": "タスクは完了しました。",
+  "notifications.messageTitle": "{name} のメッセージ",
+  "notifications.denied": "通知はオフです。スマートフォンの設定で elesdee の通知を許可してください。",
+  "notifications.unavailable": "このスマートフォンでは通知を利用できません。"
 }

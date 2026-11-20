@@ -6,12 +6,16 @@
 
 mod commands;
 mod forward;
+mod notifications;
 mod store;
 
 use commands::{
     phone_computers, phone_connect, phone_disconnect, phone_forget, phone_forward_start,
     phone_forward_stop, phone_info, phone_pair_cancel, phone_pair_finish, phone_pair_start,
     phone_pick_upload, phone_read_image, phone_request, phone_subscribe, phone_unsubscribe,
+};
+use notifications::{
+    phone_notification_request, phone_notification_show, phone_notification_state,
 };
 use tauri::Manager;
 
@@ -28,9 +32,12 @@ pub fn run() {
     let app = builder
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             let state = commands::init_state(app.handle());
             app.manage(state);
+            app.manage(notifications::NotificationRoutes::default());
+            notifications::register_click_handler(app.handle());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -49,6 +56,9 @@ pub fn run() {
             phone_unsubscribe,
             phone_forward_start,
             phone_forward_stop,
+            phone_notification_state,
+            phone_notification_request,
+            phone_notification_show,
         ])
         .build(tauri::generate_context!())
         .expect("the elesdee phone shell failed to start");

@@ -200,5 +200,16 @@
   "changes.truncated": "Die Änderungsliste ist groß. Einige Dateien oder Diffs werden nicht gezeigt.",
   "changes.open": "Diff für {path} öffnen",
   "changes.binary": "Eine Binärdatei hat keinen Text-Diff.",
-  "changes.diffTruncated": "Dieser Diff ist zu groß, um ihn vollständig zu zeigen."
+  "changes.diffTruncated": "Dieser Diff ist zu groß, um ihn vollständig zu zeigen.",
+  "notifications.waitingTitle": "{name} braucht dich",
+  "notifications.permissionBody": "Genehmige oder lehne eine Anfrage ab.",
+  "notifications.questionBody": "Beantworte eine Frage.",
+  "notifications.inputBody": "Die Sitzung wartet auf eine Eingabe.",
+  "notifications.requestTitle": "Anfrage für eine neue Sitzung",
+  "notifications.requestBody": "{name} möchte eine Sitzung starten.",
+  "notifications.doneTitle": "{name} ist fertig",
+  "notifications.doneBody": "Die Aufgabe ist abgeschlossen.",
+  "notifications.messageTitle": "{name} sagt",
+  "notifications.denied": "Benachrichtigungen sind aus. Erlaube elesdee-Benachrichtigungen in den Einstellungen des Telefons.",
+  "notifications.unavailable": "Benachrichtigungen sind auf diesem Telefon nicht verfügbar."
 }
