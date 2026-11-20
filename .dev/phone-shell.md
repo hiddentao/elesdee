@@ -795,7 +795,7 @@ Not run: `tauri android init`, `tauri ios init`, an Android or iOS build, an emu
 Checks run on macOS with no Android or iOS SDK:
 
 - `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings` and `cargo test` in `phone-shell/src-tauri/`: 41 Rust tests pass, including the allowlist, upload decode and cap, subscription parameters, image cap, notice decisions and the marker injection.
-- `npm test` at the root: 270 tests pass, including the 17 transport adapter tests. The existing event stream tests pass unchanged.
+- `npm test` at the root: 271 tests pass, including the 18 transport adapter tests. The existing event stream tests pass unchanged.
 - `npm run typecheck` and `npm run build`: pass. The phone package build and its 4 package tests pass.
 - `npm --prefix phone-shell run test`: 101 tests pass. `typecheck` and `build` pass.
 - Playwright runs the six phone specs unchanged at 390 width against the local HTTP transport: 6 pass.

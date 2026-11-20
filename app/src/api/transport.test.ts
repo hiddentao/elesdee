@@ -108,6 +108,83 @@ describe('HTTP transport', () => {
     expect(calls[1].url).toBe('/api/branches?folder=a%20b&q=main');
   });
 
+  it('maps every phone method to its local route', async () => {
+    const { fetch, calls } = fetchStub(() => jsonResponse({}));
+    const transport = createHttpTransport({ fetch });
+    const cases: [string, unknown, string, string][] = [
+      ['health', undefined, 'GET', '/api/health'],
+      ['projects.list', { q: 'web' }, 'GET', '/api/projects?q=web'],
+      ['providers.list', undefined, 'GET', '/api/providers'],
+      ['accounts.list', { q: '' }, 'GET', '/api/accounts'],
+      ['sessions.create', { projectId: 'p', kind: 'terminal' }, 'POST', '/api/sessions'],
+      ['sessions.close', { sessionId: 's1' }, 'POST', '/api/sessions/s1/close'],
+      ['sessions.input', { sessionId: 's1', data: 'x' }, 'POST', '/api/sessions/s1/input'],
+      [
+        'sessions.permission',
+        { sessionId: 's1', requestId: 'r1', decision: 'allow' },
+        'POST',
+        '/api/sessions/s1/permission',
+      ],
+      [
+        'sessions.account',
+        { sessionId: 's1', accountId: 'a1' },
+        'POST',
+        '/api/sessions/s1/account',
+      ],
+      [
+        'sessions.config',
+        { sessionId: 's1', configId: 'c1' },
+        'POST',
+        '/api/sessions/s1/config',
+      ],
+      ['sessions.resume', { sessionId: 's1' }, 'POST', '/api/sessions/s1/resume'],
+      ['questions.list', undefined, 'GET', '/api/questions'],
+      [
+        'questions.answer',
+        { id: 'q1', answer: 'yes' },
+        'POST',
+        '/api/questions/q1/answer',
+      ],
+      [
+        'sessionRequests.approve',
+        { id: 'r1', allowFurther: true },
+        'POST',
+        '/api/session-requests/r1/approve',
+      ],
+      [
+        'sessionRequests.deny',
+        { id: 'r1' },
+        'POST',
+        '/api/session-requests/r1/deny',
+      ],
+      [
+        'files.list',
+        { sessionId: 's1', path: 'a/b' },
+        'GET',
+        '/api/sessions/s1/files?path=a%2Fb',
+      ],
+      [
+        'files.read',
+        { sessionId: 's1', path: 'a.txt' },
+        'GET',
+        '/api/sessions/s1/file?path=a.txt',
+      ],
+      ['diff.read', { sessionId: 's1' }, 'GET', '/api/sessions/s1/changes'],
+      ['demoServers.list', undefined, 'GET', '/api/demo-servers'],
+    ];
+
+    for (const [method, params] of cases) {
+      await transport.request(method, params);
+    }
+
+    expect(calls.map((call) => call.url)).toEqual(
+      cases.map(([, , , path]) => path),
+    );
+    expect(calls.map((call) => call.init?.method ?? 'GET')).toEqual(
+      cases.map(([, , verb]) => verb),
+    );
+  });
+
   it('turns a link method error into an ApiError', async () => {
     const { fetch } = fetchStub(
       jsonResponse({ error: 'The session is closed.' }, 409),
