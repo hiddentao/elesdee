@@ -1,6 +1,6 @@
 # Phone shell, pairing and remote connection
 
-Status: design. Step 1, the shared `link` crate; step 2, the core endpoint and pairing; step 3, the phone shell skeleton, link client and pairing screens; and step 4, the app connection, live events, output and session RPC, are implemented. The shell has not run on a device or an emulator, and the Android and iOS projects are not generated.
+Status: design. Step 1, the shared `link` crate; step 2, the core endpoint and pairing; step 3, the phone shell skeleton, link client and pairing screens; step 4, the app connection, live events, output and session RPC; and step 8, demo-server forwarding on both the computer and the phone, are implemented. The shell has not run on a device or an emulator, and the Android and iOS projects are not generated.
 
 Read this with `.dev/SPEC.md` (Mobile companion app, Connection technology), `.dev/api.md` and `docs/phone.md`.
 
@@ -138,7 +138,7 @@ let router = Router::builder(endpoint)
 - Start the endpoint after the state loads. If the UDP socket cannot bind, log the error and keep the local API running. Pairing returns 503 until the endpoint is up.
 - On shutdown, `router.shutdown().await` and `endpoint.close().await`.
 
-Step 2 implements this in `core/src/link/mod.rs`. The identity load happens before the bind. The bind uses the production preset and registers the three ALPNs. A forward connection is closed at once because forwarding is not built. A bind failure leaves the hub unavailable, and the local API still starts.
+Step 2 implements this in `core/src/link/mod.rs`. The identity load happens before the bind. The bind uses the production preset and registers the three ALPNs. Step 8 adds the forward handler, so a forward connection is authenticated against the paired device list and carries demo-server tunnels. A bind failure leaves the hub unavailable, and the local API still starts.
 
 ### 3.4 Framing
 
@@ -611,24 +611,30 @@ Account keys never cross the link. The existing account response omits them.
 
 - The phone sends a port from the registered demo-server list. The desktop checks the active list; any other port is refused. The forward handler checks the paired device list like the app handler.
 - The handshake is two big-endian port bytes from the phone, then one status byte from the computer: `0` open, `1` refused, `2` approved but nothing listens. The bytes are defined in `link/src/forward.rs` and the statuses are shared.
-- The phone shell binds `127.0.0.1` only. It uses the same port when free, otherwise a free port, and shows the address.
+- The phone shell asks the computer for `demoServers.list` before it binds, and it refuses a port that no active session registered. It then binds `127.0.0.1` only. It uses the same port when free, otherwise a free port, and shows the address on the session screen.
 - The computer side connects to `127.0.0.1:<port>` only. The port request carries no address, so the phone cannot ask for another host.
-- At most 8 tunnels, one per port. A duplicate port or a ninth tunnel is refused. Closing a tunnel frees its slot.
-- The tunnel closes when the session stops the server, closes or pauses, when the phone connection drops, or when the app shuts down. Android may kill the app in the background. The test build checks this.
-- The computer side is implemented and covered by a loopback test with a real local HTTP server. The phone shell listener is not implemented, so a device build cannot yet open the tunnel.
+- At most 8 tunnels per phone, one per port. A duplicate port or a ninth tunnel is refused. Closing a tunnel frees its slot.
+- The session screen starts a listener for each active server and shows its address. The listener stays while the tunnel is healthy, even after another screen opens, until its server stops, its session closes, the phone disconnects or the app exits. The session's refresh and update events start a tunnel for a new server and stop the tunnel of a server that leaves the active list.
+- The tunnel closes when the session stops the server, closes or pauses, when the phone connection drops, when the pairing is revoked, or when the app exits. The desktop closes a revoked phone's forward connection; the phone listener then stops and frees its port.
+- Android may suspend the app after the user switches to the browser. This build does not start a foreground service and does not stop forwarding on background by itself: the platform decides whether the process keeps running. A foreground service is added only if a device test shows that Android suspends the tunnels during a normal review. iOS applies its own background limits. Neither behavior is tested here.
+- The computer side is covered by a core loopback test with a real local HTTP server. The link crate has a loopback test for the phone-side forward connection and the status byte. The phone shell has unit tests for port choice, refusal of an unregistered port and a socket bridged over a fake forward ALPN server. No device or emulator has run the listener.
 
 **Implementation files**
 
 | Path | Contents |
 | --- | --- |
-| `link/src/forward.rs` | Port encoding, port range, status bytes and the local address. |
+| `link/src/forward.rs` | Port encoding, port range, status bytes, the local addresses, and the phone-side `ForwardConnection` and `ForwardTunnel`. |
 | `link/src/limits.rs` | `MAX_FORWARD_TUNNELS`. |
+| `link/src/client.rs` | The forward ALPN on the phone endpoint and `LinkClient::forward`. |
 | `core/src/link/forward.rs` | Forward ALPN handler, registry check, loopback connect and teardown. |
 | `core/src/link/hub.rs` | One permit per port and tunnel cancellation. |
 | `core/src/api.rs` | `GET /api/demo-servers` and the stop route. |
 | `core/src/demo.rs` | Demo-server records and validation. |
 | `core/src/mcp.rs` | The `register_demo_server` tool. |
-| `phone-shell/src-tauri/src/forward.rs` | Not built. It will bind `127.0.0.1`, pick a free port and bridge accepted sockets through the forward ALPN. |
+| `phone-shell/src-tauri/src/forward.rs` | Loopback listener, same-or-free port choice, the 8-tunnel registry, and the socket-to-stream bridge. |
+| `phone-shell/src-tauri/src/commands.rs` | `phone_forward_start` and `phone_forward_stop`, the registered-port check, and teardown on disconnect, forget and exit. |
+| `phone-shell/ui/src/demo.ts` | Session server selection and the listener state of each row. |
+| `phone-shell/ui/src/app.ts` | The demo-server list on the session screen, with the local address, state and Open action. |
 
 ### 6.5 Logging and storage
 
@@ -660,7 +666,7 @@ Each step ends with an end-to-end test.
 | 5. UI package build and delivery | Vite phone config, packaging script, manifest, download, hash check, safe unzip, custom protocol serving, version gates. Files: `app/vite.phone.config.ts`, `scripts/package-phone-ui.mjs`, `core/src/link/ui.rs`, `phone-shell/src/`. | Node test: deterministic zip and matching hash. Rust test: hash mismatch rejected, traversal zip rejected, oversize rejected, atomic swap. Android: first download, desktop upgrade then phone update on connect, offline restart uses the stored build. |
 | 6. Reconnect and revocation | **Implemented in part.** Backoff, output resume and the revocation close code exist. Network change and foreground reconnect controls remain. Files: `link/src/reconnect.rs`, `phone-shell/src-tauri/src/commands.rs`. | **Implemented in part.** Rust tests cover the backoff sequence on a fake clock, output replay from a requested sequence and close code 3. The shell subscription stores the last sequence and reopens from it after a reconnect. A full reconnect test on a device remains. |
 | 7. Mobile actions | New-session form, close, switch account, usage, upload, files, images, diffs. Files: `core/src/link/`, `core/src/api.rs`, `app/src/phone/`. | One Rust test per method. Upload tests: bad name, duplicate name, oversize, path outside the session. File read tests: `..`, absolute path, symlink. Playwright: permission card, question form and composer. |
-| 8. Demo forwarding | **Implemented on the computer.** Forward ALPN, registered-port check, loopback connect, one tunnel per port, teardown. The phone shell listener remains. Files: `link/src/forward.rs`, `core/src/link/forward.rs`, `core/src/link/hub.rs`, `core/src/api.rs`, `core/src/demo.rs`, `core/src/mcp.rs`. | **Run:** the link-crate forward and allowlist tests, and the core loopback test that registers a port, fetches a local HTTP server through the tunnel, refuses an unregistered port and refuses an unpaired phone. **Not run:** the phone shell listener and any device build. |
+| 8. Demo forwarding | **Implemented on the computer and the phone shell.** Forward ALPN, registered-port check, loopback connect, one tunnel per port, teardown. On the phone: loopback listener, same-or-free port choice, 8-tunnel registry, socket bridge, session list with local address, state and Open. Files: `link/src/forward.rs`, `link/src/client.rs`, `core/src/link/forward.rs`, `core/src/link/hub.rs`, `core/src/api.rs`, `core/src/demo.rs`, `core/src/mcp.rs`, `phone-shell/src-tauri/src/forward.rs`, `phone-shell/src-tauri/src/commands.rs`, `phone-shell/ui/src/demo.ts`, `phone-shell/ui/src/app.ts`, `phone-shell/ui/src/bridge.ts`. | **Run:** the link-crate forward tests, the core loopback test that registers a port, fetches a local HTTP server through the tunnel, refuses an unregistered port and refuses an unpaired phone, and the phone shell tests for port choice, refusal and a bridged socket. **Not run:** a device or emulator build, the phone's browser handoff, and any background behavior. |
 | 9. CI and release | Android job with JDK, SDK, NDK and Rust targets. Shell version and APK artifact. Signing secrets. Path filters. | CI builds the APK on a phone-shell change, runs the Rust and JS tests, and uploads the artifact. Install the artifact on a device and check the version screen. |
 
 First three steps in order: link crate, core endpoint and pairing, phone shell and pairing screen. They prove the riskiest parts first: the ticket format, the pairing handshake, and Tauri mobile on a real phone.
@@ -708,6 +714,26 @@ Checks run on macOS with no Android or iOS SDK:
 - `npm --prefix phone-shell run test`: 44 tests pass. `typecheck` and `build` pass.
 - Playwright is not used for the link. The native bridge needs the Tauri shell and a paired phone key, so a browser test would not exercise it. The existing browser phone layout tests still run against the local HTTP API.
 
+### Step 8 files and checks
+
+| Path | Contents |
+| --- | --- |
+| `link/src/forward.rs` | `ForwardConnection`, `ForwardTunnel`, `ForwardError`, `phone_address`, and the port handshake helpers. |
+| `link/tests/client.rs` | A loopback test that opens a tunnel over the forward ALPN, echoes bytes and reads a refusal. |
+| `phone-shell/src-tauri/src/forward.rs` | `ForwardRegistry`, `bind_local`, `check_port`, the accept loop and the bridge. |
+| `phone-shell/src-tauri/src/commands.rs` | `registered_ports` and the two forward commands. |
+| `phone-shell/ui/src/demo.ts` | `sessionDemoServers`, `demoServerRows`, `demoStateClass` and `forwardPhaseFor`. |
+| `phone-shell/test/demo.test.mjs` | Four tests for session filtering, the 8-server cap, row addresses and error mapping. |
+
+Checks run on macOS with no Android or iOS SDK:
+
+- `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings` and `cargo test` in `link/`: 78 tests pass, including the forward loopback test.
+- The same three in `phone-shell/src-tauri/`: 7 Rust tests pass, including port choice, refusal of an unregistered port and a socket bridged over a fake forward server.
+- `npm --prefix phone-shell run test`: 48 tests pass. `typecheck` and `build` pass.
+- The screens render in Chromium at 390 width in both themes with a stubbed native bridge. This checks layout only.
+
+Not run: an Android or iOS build, an emulator, a real device, the camera, the platform keychain, the system browser handoff, and background or lock-screen behavior. The Open action uses the official opener plugin; its permission scope is `http://127.0.0.1:*` and needs a device check.
+
 ### Test harness
 
 - Rust link tests use `presets::Minimal` and direct addresses on loopback. They do not need the public relay or the internet.
@@ -721,7 +747,7 @@ Checks run on macOS with no Android or iOS SDK:
 | Risk | Why it matters | Test |
 | --- | --- | --- |
 | iroh on Android | QUIC over UDP, battery use, relay reconnect and app backgrounding may behave differently from the desktop. | Run the test build on a real Android phone on Wi-Fi and mobile data for a full day. Check relay fallback and reconnect. |
-| Phone shell has no device run yet | Step 3 proves the client on loopback and the screens in Chromium. The native keychain, the scanner and the mobile build are untested. | Generate the Android project, install on an emulator, pair with a pasted ticket against a core on the host, then repeat on a phone with the camera. |
+| Phone shell has no device run yet | Steps 3, 4 and 8 prove the client, the listener and the screens on the host. The native keychain, the scanner, the mobile build, the browser handoff and background behavior are untested. | Generate the Android project, install on an emulator, pair with a pasted ticket against a core on the host, register and open a demo server, then repeat on a phone with the camera. |
 | Tauri mobile maturity | The build toolchain is heavy, plugins may lag, and the mobile developer experience is young. | Build the shell in CI early. If a blocker appears, use the spec's fallback: React Native with a web view and a uniffi bridge. |
 | Barcode scanner and ML Kit | The Tauri plugin uses the Play Services model, which downloads on first use. Pairing must work on a fresh or offline device. | Override Gradle to use the bundled `com.google.mlkit:barcode-scanning` artifact. Test on a fresh device without Play Services. |
 | UI package is executable code | The phone runs JavaScript authored by the computer. A compromised computer can use the bridge. | Review the bridge command set. Test that the package cannot reach the fs, shell or HTTP plugins. |
@@ -729,7 +755,8 @@ Checks run on macOS with no Android or iOS SDK:
 | Public relays | Rate limits, no uptime guarantee, and n0 can drop old iroh versions. | Test a long session over mobile data. Keep direct LAN connections working without a relay. |
 | mDNS on Android | Android drops multicast frames unless the app holds a multicast lock and has `CHANGE_WIFI_MULTICAST_STATE`. | Hold the lock on resume and release it on pause. Test same-Wi-Fi discovery with the relay blocked. |
 | Pairing code photographed | Someone can pair within the 120-second window if they see the QR. | Keep the window short. Show the phone name and code on the computer. Test approve and deny. |
-| Android background limits | Demo forwarding stops when Android suspends the app. | Test with Chrome in front. Add a foreground service only if the test proves it is needed. |
+| Android background limits | Android may suspend the app when the user switches to the browser, so a demo tunnel can stop. This build does not request a foreground service and does not stop forwarding on pause by itself. | Test with Chrome in front on a real device. Add a foreground service only if the test proves it is needed. |
+| Phone listener and browser handoff | The loopback listener and the Open action use mobile APIs that no CI job runs. | Install the shell on a device, pair, register a demo server, open its local address, and check that the page loads and live reload works. |
 | Package size and startup | A large bundle slows the first connect and uses phone storage. | Measure the phone build. Cap the zip at 64 MiB and keep one previous build. |
 | iroh API churn and MSRV | iroh 1.5.0 is new and needs Rust 1.91. The core and link now require it; the desktop shell keeps its own MSRV. Upgrades may break the build. | Pin exact versions, commit the lock file, and run the core and link tests on every upgrade. |
 | iPhone and store rules | Apple's rules on downloaded code are a risk for the iPhone app. | Out of scope for version 1. Decide the iPhone route later, as the spec says. |

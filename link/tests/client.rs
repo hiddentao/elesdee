@@ -8,10 +8,10 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use elesdee_link::{
-    APP_ALPN, AppHello, ComputerRecord, DeviceIdentity, LinkClient, MAX_APP_FRAME_BYTES,
-    MAX_HEADER_BYTES, MAX_PAIR_FRAME_BYTES, Method, PAIR_ALPN, PROTOCOL_VERSION, PairReply,
-    PairTicket, PhoneStore, Request, Response, StoreError, StreamEvent, Welcome, read_app_frame,
-    write_app_frame,
+    APP_ALPN, AppHello, ComputerRecord, DeviceIdentity, FORWARD_ALPN, FORWARD_OK, FORWARD_REFUSED,
+    ForwardError, LinkClient, MAX_APP_FRAME_BYTES, MAX_HEADER_BYTES, MAX_PAIR_FRAME_BYTES, Method,
+    PAIR_ALPN, PROTOCOL_VERSION, PairReply, PairTicket, PhoneStore, Request, Response, StoreError,
+    StreamEvent, Welcome, decode_port, read_app_frame, write_app_frame,
 };
 use iroh::endpoint::presets;
 use iroh::endpoint::{RecvStream, SendStream};
@@ -63,7 +63,11 @@ fn loopback() -> SocketAddr {
 
 async fn server_endpoint() -> Endpoint {
     Endpoint::builder(presets::Minimal)
-        .alpns(vec![PAIR_ALPN.to_vec(), APP_ALPN.to_vec()])
+        .alpns(vec![
+            PAIR_ALPN.to_vec(),
+            APP_ALPN.to_vec(),
+            FORWARD_ALPN.to_vec(),
+        ])
         .bind_addr(loopback())
         .expect("server bind address")
         .bind()
@@ -600,4 +604,72 @@ fn unknown_method_names_stay_outside_the_allowlist() {
     assert!(Method::parse("sessions.delete").is_none());
     assert!(Method::parse("projects.create").is_none());
     assert_eq!(Method::parse("bootstrap"), Some(Method::Bootstrap));
+}
+
+#[tokio::test]
+async fn the_forward_alpn_carries_a_tunnel_and_reports_a_refusal() {
+    tokio::time::timeout(TIMEOUT, async {
+        let server = server_endpoint().await;
+        let server_id = server.id();
+        let server_addr = server.addr();
+
+        let server_task = tokio::spawn(async move {
+            let incoming = server.accept().await.expect("forward connection");
+            let connection = incoming.await.expect("forward completes");
+
+            let (mut send, mut recv) = connection.accept_bi().await.expect("tunnel stream");
+            let mut request = [0u8; 2];
+            recv.read_exact(&mut request).await.expect("port bytes");
+            assert_eq!(decode_port(request), Some(3000));
+            send.write_all(&[FORWARD_OK]).await.expect("status");
+            let mut bytes = [0u8; 5];
+            recv.read_exact(&mut bytes).await.expect("tunnel bytes");
+            assert_eq!(&bytes, b"hello");
+            send.write_all(&bytes).await.expect("echo");
+            send.finish().expect("tunnel finishes");
+
+            let (mut send, mut recv) = connection.accept_bi().await.expect("refused tunnel stream");
+            let mut request = [0u8; 2];
+            recv.read_exact(&mut request).await.expect("port bytes");
+            assert_eq!(decode_port(request), Some(4000));
+            send.write_all(&[FORWARD_REFUSED])
+                .await
+                .expect("refusal status");
+            send.finish().expect("refusal finishes");
+
+            let _ = connection.closed().await;
+            server.close().await;
+        });
+
+        let store = Arc::new(MemoryStore::default());
+        let store_trait: Arc<dyn PhoneStore> = Arc::clone(&store) as Arc<dyn PhoneStore>;
+        let identity = DeviceIdentity::generate();
+        let endpoint = client_endpoint(&identity).await;
+        let client = LinkClient::from_endpoint(store_trait, identity, endpoint);
+        let computer = ComputerRecord {
+            id: server_id.to_z32(),
+            name: "Studio computer".to_owned(),
+            addr: server_addr,
+            protocol_version: PROTOCOL_VERSION,
+            min_bridge_version: 1,
+            paired_at: 0,
+        };
+
+        let forward = client.forward(&computer).await.expect("forward connects");
+        let tunnel = forward.open(3000).await.expect("tunnel opens");
+        let (mut send, mut recv) = tunnel.split();
+        send.write_all(b"hello").await.expect("tunnel write");
+        let mut echo = [0u8; 5];
+        recv.read_exact(&mut echo).await.expect("tunnel read");
+        assert_eq!(&echo, b"hello");
+
+        let refused = forward.open(4000).await;
+        assert!(matches!(refused, Err(ForwardError::Refused)));
+
+        forward.close();
+        client.shutdown().await;
+        server_task.await.expect("server task");
+    })
+    .await
+    .expect("forward test timed out");
 }

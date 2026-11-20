@@ -5,7 +5,7 @@
 //! drop with bounded delays, resumes each output stream from the last sequence
 //! and stops on a revoked device. No state lock is held across a network wait.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 use elesdee_link::{
     AppConnection, BRIDGE_VERSION, ClientError, ComputerRecord, EventStream, LinkClient, Method,
     OutputStream, PROTOCOL_VERSION, PairingCancel, PairingStart, ReconnectPolicy, Response,
-    is_terminal,
+    is_terminal, port_allowed,
 };
 use serde::Serialize;
 use serde_json::Value;
@@ -21,6 +21,7 @@ use tauri::async_runtime::JoinHandle;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::{Mutex, watch};
 
+use crate::forward::{ForwardAddress, ForwardRegistry, check_port};
 use crate::store::ShellStore;
 
 /// Reports a boolean field only when it is true.
@@ -124,6 +125,7 @@ pub struct ShellState {
     inner: Mutex<PhoneShell>,
     pairing_gate: Mutex<()>,
     pairing_cancelled: AtomicBool,
+    forwards: ForwardRegistry,
 }
 
 struct PhoneShell {
@@ -153,6 +155,7 @@ impl ShellState {
             }),
             pairing_gate: Mutex::new(()),
             pairing_cancelled: AtomicBool::new(false),
+            forwards: ForwardRegistry::new(),
         }
     }
 
@@ -168,6 +171,7 @@ impl ShellState {
             }),
             pairing_gate: Mutex::new(()),
             pairing_cancelled: AtomicBool::new(false),
+            forwards: ForwardRegistry::new(),
         }
     }
 }
@@ -385,6 +389,7 @@ pub async fn phone_forget(
     state: State<'_, ShellState>,
     computer_id: String,
 ) -> Result<(), CommandError> {
+    state.forwards.stop_for_computer(&computer_id);
     let (manager, client) = {
         let mut shell = state.inner.lock().await;
         shell.cancel_subscriptions(&computer_id);
@@ -445,6 +450,7 @@ pub async fn phone_disconnect(
     state: State<'_, ShellState>,
     computer_id: String,
 ) -> Result<(), CommandError> {
+    state.forwards.stop_for_computer(&computer_id);
     let manager = {
         let mut shell = state.inner.lock().await;
         shell.cancel_subscriptions(&computer_id);
@@ -573,6 +579,100 @@ pub async fn phone_unsubscribe(
         subscription.handle.abort();
     }
     Ok(())
+}
+
+/// Starts the phone listener for one registered demo-server port.
+///
+/// The port is checked against the computer's active list before the listener
+/// binds, so the screens cannot forward another port.
+#[tauri::command]
+pub async fn phone_forward_start(
+    state: State<'_, ShellState>,
+    computer_id: String,
+    port: u16,
+) -> Result<ForwardAddress, CommandError> {
+    let (client, record, connection) = {
+        let shell = state.inner.lock().await;
+        let client = shell.client()?;
+        let record = client
+            .computers()
+            .map_err(CommandError::from)?
+            .into_iter()
+            .find(|computer| computer.id == computer_id)
+            .ok_or_else(|| CommandError::new("not_found", "This computer is not in the list."))?;
+        let manager = shell
+            .managers
+            .get(&computer_id)
+            .map(Arc::clone)
+            .ok_or_else(|| CommandError::new("not_connected", "Connect to this computer first."))?;
+        (client, record, manager)
+    };
+    let connection = connection.connection().await.ok_or_else(|| {
+        CommandError::new("not_connected", "The computer connection is not ready.")
+    })?;
+    let response = connection
+        .request(Method::DemoServersList, None, Vec::new())
+        .await
+        .map_err(CommandError::from)?;
+    let list = match response {
+        Response::Ok { result, .. } => result,
+        Response::Error(body) => {
+            return Err(CommandError::new(
+                body.code().as_str(),
+                body.message().to_owned(),
+            ));
+        }
+        Response::StreamStart => {
+            return Err(CommandError::new(
+                "streaming",
+                "The demo-server list must not stream.",
+            ));
+        }
+    };
+    let registered = registered_ports(&list);
+    check_port(port, &registered).map_err(|error| {
+        CommandError::new(error.code(), "That port is not an active demo server.")
+    })?;
+    if let Some(address) = state.forwards.address(&computer_id, port) {
+        return Ok(address);
+    }
+    let forward = client.forward(&record).await.map_err(CommandError::from)?;
+    state
+        .forwards
+        .start(&computer_id, port, &registered, forward)
+        .await
+        .map_err(|error| CommandError::new(error.code(), "The demo-server link did not start."))
+}
+
+/// Stops one demo-server listener.
+#[tauri::command]
+pub async fn phone_forward_stop(
+    state: State<'_, ShellState>,
+    port: u16,
+) -> Result<(), CommandError> {
+    state.forwards.stop(port);
+    Ok(())
+}
+
+/// Selects the active demo-server ports from a `demoServers.list` result.
+fn registered_ports(value: &Value) -> HashSet<u16> {
+    value
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| {
+            if entry.get("state").and_then(Value::as_str) != Some("active") {
+                return None;
+            }
+            let port = u16::try_from(entry.get("port").and_then(Value::as_u64)?).ok()?;
+            port_allowed(port).then_some(port)
+        })
+        .collect()
+}
+
+/// Stops every demo-server listener at app exit.
+pub fn shutdown(state: &ShellState) {
+    state.forwards.close_all();
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -934,5 +1034,21 @@ mod tests {
         assert!(is_terminal(&ClientError::Revoked));
         assert!(is_terminal(&ClientError::NotPaired));
         assert!(!is_terminal(&ClientError::ConnectionClosed));
+    }
+
+    #[test]
+    fn only_active_demo_server_ports_are_forwardable() {
+        let list = serde_json::json!([
+            {"sessionId": "s1", "port": 3000, "state": "active"},
+            {"sessionId": "s1", "port": 4000, "state": "stopped"},
+            {"sessionId": "s2", "port": 5000, "state": "active"},
+            {"sessionId": "s2", "port": 80, "state": "active"},
+            {"sessionId": "s2", "port": "6000", "state": "active"}
+        ]);
+        let ports = registered_ports(&list);
+        assert_eq!(ports, HashSet::from([3000, 5000]));
+        assert!(!ports.contains(&4000));
+        assert!(!ports.contains(&80));
+        assert_eq!(registered_ports(&serde_json::json!({})), HashSet::new());
     }
 }

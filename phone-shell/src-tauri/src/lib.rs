@@ -5,11 +5,13 @@
 //! from `phone-shell/ui` and talk to this crate through a small command set.
 
 mod commands;
+mod forward;
 mod store;
 
 use commands::{
-    phone_computers, phone_connect, phone_disconnect, phone_forget, phone_info, phone_pair_cancel,
-    phone_pair_finish, phone_pair_start, phone_request, phone_subscribe, phone_unsubscribe,
+    phone_computers, phone_connect, phone_disconnect, phone_forget, phone_forward_start,
+    phone_forward_stop, phone_info, phone_pair_cancel, phone_pair_finish, phone_pair_start,
+    phone_request, phone_subscribe, phone_unsubscribe,
 };
 use tauri::Manager;
 
@@ -23,7 +25,8 @@ pub fn run() {
     #[cfg(mobile)]
     let builder = builder.plugin(tauri_plugin_barcode_scanner::init());
 
-    builder
+    let app = builder
+        .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let state = commands::init_state(app.handle());
             app.manage(state);
@@ -41,7 +44,17 @@ pub fn run() {
             phone_request,
             phone_subscribe,
             phone_unsubscribe,
+            phone_forward_start,
+            phone_forward_stop,
         ])
-        .run(tauri::generate_context!())
+        .build(tauri::generate_context!())
         .expect("the elesdee phone shell failed to start");
+
+    app.run(|handle, event| {
+        if matches!(event, tauri::RunEvent::Exit)
+            && let Some(state) = handle.try_state::<commands::ShellState>()
+        {
+            commands::shutdown(&state);
+        }
+    });
 }

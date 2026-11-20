@@ -36,13 +36,13 @@ Swipe a row left to reveal **Close**. No matter how far you swipe, it stops at t
 
 A demo server is a loopback port that an agent registers for its session. The session's Files panel on the computer lists it with the local address and a Stop action.
 
-A paired phone can ask for a port from the active list and forward it over the link to `127.0.0.1` on the computer. Only a registered port is allowed. There is one tunnel per port and at most eight at once. The tunnel closes when the server stops, the session closes or pauses, or the phone disconnects.
+A paired phone shell opens the session's active demo servers as a list. Each row shows the server's name, its address on the phone, a state and an **Open** action. The phone listens on `127.0.0.1` at the same port when it is free, or at a free port, and forwards the connection over the link to `127.0.0.1` on the computer. Only a registered port is allowed. There is one tunnel per port and at most eight at once. A tunnel closes when its server stops, the session closes or pauses, the phone disconnects, the pairing is removed or the app exits.
 
-The installable app is not released. The desktop side of this path is built and tested. The phone shell's listener is not built, so no device test has run.
+The installable app is not released. The computer side and the phone shell listener are built and tested on the host. No device or emulator test has run, so the browser handoff and background behavior are unchecked. Android may pause the app after you switch to the browser; this build does not request a foreground service. The phone stops forwarding only when the platform stops the app.
 
 ## What is not built yet
 
-There is no phone app you can install. The repository has the phone shell, its pairing screens, the live session list and the session output view, but no released build. The downloaded phone interface and the phone shell's demo-forward listener come later. The core service starts the link, creates a pairing ticket, stores paired devices and answers the allowlisted methods for a paired phone, including the demo-server list and the computer side of demo forwarding. The current browser layout still opens on this computer, next to the desktop app.
+There is no phone app you can install. The repository has the phone shell, its pairing screens, the live session list, the session output view and the demo-server list with its forwarding listener, but no released build. The downloaded phone interface comes later. The core service starts the link, creates a pairing ticket, stores paired devices and answers the allowlisted methods for a paired phone, including the demo-server list and both sides of demo forwarding. The phone's system browser handoff and its behavior in the background need a device test. The current browser layout still opens on this computer, next to the desktop app.
 
 ## Next steps
 
