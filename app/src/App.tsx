@@ -24,7 +24,9 @@ import {
   denySessionRequest,
   exportDiagnostics,
   getProviderSignIn,
+  getClientInstall,
   health,
+  installClient,
   listDevices,
   listProviderOptions,
   removeDevice,
@@ -734,6 +736,18 @@ export default function App() {
     openSession(session);
   }
 
+  function handleClientInstalled(agent: AgentCheck) {
+    setAgents((current) => {
+      const index = current.findIndex((item) => item.name === agent.name);
+      if (index === -1) {
+        return [...current, agent];
+      }
+      const next = [...current];
+      next[index] = agent;
+      return next;
+    });
+  }
+
   function handleProviderSaved(provider: Provider) {
     setProviders((current) => {
       const index = current.findIndex((item) => item.id === provider.id);
@@ -1370,6 +1384,11 @@ export default function App() {
           configs={configs}
           options={providerOptions}
           version={version}
+          agents={agents}
+          agentsChecked={agentsChecked}
+          onInstallClient={installClient}
+          onGetClientInstall={getClientInstall}
+          onClientInstalled={handleClientInstalled}
           settings={settings}
           startAtLoginActual={startAtLoginActual}
           startAtLoginError={startAtLoginError}

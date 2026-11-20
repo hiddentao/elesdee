@@ -7768,6 +7768,124 @@ async fn concurrent_answers_accept_exactly_one() {
     close_session(&app, &id).await;
 }
 
+struct EnvGuard {
+    key: &'static str,
+    previous: Option<std::ffi::OsString>,
+}
+
+impl EnvGuard {
+    fn set(key: &'static str, value: &Path) -> Self {
+        let previous = std::env::var_os(key);
+        unsafe { std::env::set_var(key, value) };
+        Self { key, previous }
+    }
+}
+
+impl Drop for EnvGuard {
+    fn drop(&mut self) {
+        unsafe {
+            match self.previous.take() {
+                Some(value) => std::env::set_var(self.key, value),
+                None => std::env::remove_var(self.key),
+            }
+        }
+    }
+}
+
+fn write_installer(directory: &Path, succeed: bool) -> PathBuf {
+    let path = directory.join(if succeed {
+        "install-ok.sh"
+    } else {
+        "install-fail.sh"
+    });
+    let body = if succeed {
+        "#!/bin/sh\nset -eu\nmkdir -p \"$2/bin\"\nprintf '#!/bin/sh\\nprintf \"9.9.9\\\\n\"\\n' > \"$2/bin/$3\"\nchmod 755 \"$2/bin/$3\"\n"
+    } else {
+        "#!/bin/sh\nset -eu\nmkdir -p \"$2/bin\"\nprintf 'partial' > \"$2/bin/$3\"\necho 'the download failed' >&2\nexit 1\n"
+    };
+    fs::write(&path, body).expect("write fake installer");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o755))
+            .expect("make fake installer executable");
+    }
+    path
+}
+
+async fn poll_install(app: &Router, id: &str) -> Value {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    while tokio::time::Instant::now() < deadline {
+        let (status, body) = call(app, "GET", &format!("/api/clients/install/{id}"), None).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        if body["state"] != "running" {
+            return body;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    panic!("the install did not finish");
+}
+
+#[tokio::test]
+async fn client_install_verifies_the_version_and_leaves_no_partial_copy() {
+    let data_dir = TempDirectory::new("client-install");
+    let ok_installer = write_installer(&data_dir.path, true);
+    let fail_installer = write_installer(&data_dir.path, false);
+    let app = router(AppState::with_data_dir(data_dir.path.clone()));
+
+    let guard = EnvGuard::set("ELESDEE_INSTALL_BIN", &ok_installer);
+    let (status, started) = call(&app, "POST", "/api/clients/codex/install", Some(json!({}))).await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{started}");
+    assert_eq!(started["state"], "running");
+    assert_eq!(started["client"], "Codex");
+    let id = started["id"].as_str().expect("install id").to_owned();
+    let finished = poll_install(&app, &id).await;
+    assert_eq!(finished["state"], "done", "{finished}");
+    assert_eq!(finished["version"], "9.9.9");
+    let installed = PathBuf::from(finished["path"].as_str().expect("install path"));
+    assert!(installed.is_file(), "{}", installed.display());
+    assert!(installed.starts_with(data_dir.path.join("clients/codex")));
+    drop(guard);
+
+    let guard = EnvGuard::set("ELESDEE_INSTALL_BIN", &fail_installer);
+    let (status, started) = call(
+        &app,
+        "POST",
+        "/api/clients/opencode-2/install",
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{started}");
+    let id = started["id"].as_str().expect("install id").to_owned();
+    let failed = poll_install(&app, &id).await;
+    assert_eq!(failed["state"], "failed", "{failed}");
+    assert!(
+        failed["error"]
+            .as_str()
+            .is_some_and(|error| error.contains("the download failed")),
+        "{failed}"
+    );
+    assert!(!data_dir.path.join("clients/opencode-2").exists());
+    drop(guard);
+
+    let (status, unknown) = call(
+        &app,
+        "POST",
+        "/api/clients/unknown/install",
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{unknown}");
+    let (status, unknown) = call(&app, "GET", "/api/clients/install/missing", None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{unknown}");
+
+    let (status, health) = call(&app, "GET", "/api/health", None).await;
+    assert_eq!(status, StatusCode::OK, "{health}");
+    let agents = health["agents"].as_array().expect("agents");
+    assert_eq!(agents.len(), 4);
+    assert!(agents.iter().all(|agent| agent.get("path").is_some()));
+}
+
 #[tokio::test]
 async fn health_lists_antigravity() {
     let app = router(AppState::ephemeral());

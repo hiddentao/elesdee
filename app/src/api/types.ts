@@ -122,6 +122,28 @@ export interface AgentCheck {
   name: Client;
   installed: boolean;
   version: string | null;
+  path: string | null;
+}
+
+export type InstallState = 'running' | 'done' | 'failed';
+
+export type InstallStage =
+  | 'preparing'
+  | 'downloading'
+  | 'installing'
+  | 'verifying'
+  | 'finishing';
+
+export interface ClientInstall {
+  id: string;
+  client: Client;
+  state: InstallState;
+  stage: InstallStage;
+  step: number;
+  total: number;
+  version: string | null;
+  path: string | null;
+  error: string | null;
 }
 
 export interface ProviderOption {

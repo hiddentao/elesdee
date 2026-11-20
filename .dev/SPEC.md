@@ -197,6 +197,27 @@ Version 1 supports four coding agents: Claude Code, Codex, OpenCode 2 and Antigr
 - If one is missing, elesdee installs its own copy.
 - A provider does not name a client. An AI config names one client that the provider supports. A vendor with more than one client, such as DeepSeek, can run a config on each.
 
+**Agent check**
+
+- The app finds each client without a login shell. It checks these places, in this order:
+  1. Each `PATH` folder, in order. A relative folder is ignored.
+  2. My user folders: `~/.local/bin`, `~/.npm-global/bin`, `~/.npm/bin`, `~/.volta/bin`, the Node versions under `~/.nvm`, and the Node versions under fnm.
+  3. The Antigravity folders: `~/.antigravity/bin`, `~/.gemini/antigravity-cli/bin` and `~/.gemini/antigravity-cli`.
+  4. Homebrew: `/opt/homebrew/bin` on Apple Silicon and `/usr/local/bin` on Intel.
+  5. A copy inside the app bundle.
+  6. The app's own copy under its data folder.
+- An executable runs only from one of these known folders. The app never takes a client path from a request.
+- The health check returns each client's installed state, the path it runs, and its version.
+
+**Installing a client**
+
+- The client list in the AI config form shows which clients are installed and which are missing. A missing client has one Install action.
+- Install always asks first. The confirmation names the client, says that the app will download it from its vendor, and says that it needs an internet connection. Nothing installs without that action.
+- The app uses the vendor's own install method and puts the copy in a private folder under its data folder. The install reports its stage and progress.
+- After the install, the app runs the copy's version command. A copy that does not run or does not report a version is not accepted.
+- A successful install replaces an older app copy. A failed install keeps the older copy and leaves no partial copy behind. The error stays visible, and I can try again.
+- The app uses the copy it installed only when it finds no copy in the earlier places.
+
 **Permission prompts**
 
 - When Claude Code, Codex or OpenCode 2 asks for permission before an action (for example running a command or editing a file), the prompt appears in the session view on the Mac and on the phone.

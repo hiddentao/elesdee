@@ -30,7 +30,7 @@ The core service listens on `127.0.0.1:4319`. Vite serves the UI and forwards `/
 
 A new install has no projects. The welcome screen checks for the four supported agents and shows which ones are installed, with their versions.
 
-Install any missing agent before you start a session with it. The app uses the copy that is already on your computer.
+The app uses a copy that is already on your computer. When you add an AI config and a client is missing, choose **Install** next to it. The app asks first, downloads the client from its vendor and keeps a private copy in its data folder. It checks the version before it uses the copy. You can also install the agent yourself and open the app again.
 
 ## Add a project
 

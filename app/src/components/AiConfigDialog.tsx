@@ -1,17 +1,22 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { ApiError, listProviderModels, listProviders } from '../api/client';
 import type {
+  AgentCheck,
   AiConfig,
   Client,
+  ClientInstall,
   CreateConfigInput,
   CreateProviderInput,
+  InstallStage,
   Provider,
   ProviderOption,
   ProviderSignIn,
   StartProviderSignInInput,
   UpdateConfigInput,
 } from '../api/types';
+import type { MessageKey } from '../i18n';
 import { useLanguage } from '../i18n/LanguageProvider';
+import { agentFor, shortVersion } from '../state/clients';
 import { providerUsage } from '../state/usage';
 import { Combobox, type ComboboxLoader } from './Combobox';
 import { Dialog } from './Dialog';
@@ -22,6 +27,11 @@ interface AiConfigDialogProps {
   config?: AiConfig | null;
   providers: Provider[];
   options: ProviderOption[];
+  agents: AgentCheck[];
+  agentsChecked: boolean;
+  onInstallClient: (client: Client) => Promise<ClientInstall>;
+  onGetClientInstall: (id: string) => Promise<ClientInstall>;
+  onClientInstalled: (agent: AgentCheck) => void;
   initialProviderId?: string | null;
   onSaveConfig: (
     id: string | null,
@@ -50,6 +60,14 @@ interface FormErrors {
   config?: string;
   form?: string;
 }
+
+const INSTALL_STAGE_KEYS: Record<InstallStage, MessageKey> = {
+  preparing: 'configs.installStagePreparing',
+  downloading: 'configs.installStageDownloading',
+  installing: 'configs.installStageInstalling',
+  verifying: 'configs.installStageVerifying',
+  finishing: 'configs.installStageFinishing',
+};
 
 function parseEnv(text: string): Array<{ name: string; value: string }> | null {
   const env = [];
@@ -100,6 +118,11 @@ export function AiConfigDialog({
   config = null,
   providers,
   options,
+  agents,
+  agentsChecked,
+  onInstallClient,
+  onGetClientInstall,
+  onClientInstalled,
   initialProviderId = null,
   onSaveConfig,
   onCreateProvider,
@@ -138,6 +161,9 @@ export function AiConfigDialog({
   const [providerOpen, setProviderOpen] = useState(false);
   const [errors, setErrors] = useState<FormErrors>({});
   const [submitting, setSubmitting] = useState(false);
+  const [installs, setInstalls] = useState<Record<string, ClientInstall>>({});
+  const [installTarget, setInstallTarget] = useState<Client | null>(null);
+  const [installError, setInstallError] = useState<string | null>(null);
 
   const provider = providers.find((item) => item.id === providerId) ?? null;
   const option = options.find((item) => item.id === provider?.vendor) ?? null;
@@ -152,6 +178,62 @@ export function AiConfigDialog({
     }
     setClient(clients[0] ?? null);
   }, [client, clients]);
+
+  useEffect(() => {
+    const running = Object.values(installs).filter(
+      (job) => job.state === 'running',
+    );
+    if (running.length === 0) {
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      for (const job of running) {
+        onGetClientInstall(job.id)
+          .then((next) => {
+            if (cancelled) {
+              return;
+            }
+            setInstalls((current) => ({ ...current, [next.client]: next }));
+            if (next.state === 'done') {
+              onClientInstalled({
+                name: next.client,
+                installed: true,
+                version: next.version,
+                path: next.path,
+              });
+            }
+          })
+          .catch(() => {
+            if (cancelled) {
+              return;
+            }
+            setInstalls((current) => {
+              const existing = current[job.client];
+              if (
+                !existing ||
+                existing.id !== job.id ||
+                existing.state !== 'running'
+              ) {
+                return current;
+              }
+              return {
+                ...current,
+                [job.client]: {
+                  ...existing,
+                  state: 'failed',
+                  error: t('configs.installReasonInternal'),
+                },
+              };
+            });
+          });
+      }
+    }, 400);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [installs, onClientInstalled, onGetClientInstall, t]);
 
   const loadProviderOptions = useCallback<ComboboxLoader>(
     async (query, signal) => {
@@ -198,6 +280,25 @@ export function AiConfigDialog({
     setFallback(false);
     setClient(next?.supportedClients[0] ?? null);
     setErrors((current) => ({ ...current, provider: undefined }));
+  }
+
+  async function confirmInstall() {
+    if (!installTarget) {
+      return;
+    }
+    const target = installTarget;
+    setInstallTarget(null);
+    setInstallError(null);
+    try {
+      const job = await onInstallClient(target);
+      setInstalls((current) => ({ ...current, [job.client]: job }));
+    } catch (error) {
+      setInstallError(
+        error instanceof ApiError
+          ? error.message
+          : t('configs.installReasonInternal'),
+      );
+    }
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -262,7 +363,7 @@ export function AiConfigDialog({
         busyLabel={t(editing ? 'configs.saving' : 'configs.adding')}
         onClose={onClose}
         busy={submitting}
-        inert={providerOpen}
+        inert={providerOpen || installTarget !== null}
       >
         <div className="dialog-head">
           <h2 className="dialog-title" id="config-dialog-title">
@@ -306,27 +407,97 @@ export function AiConfigDialog({
             {provider ? (
               <fieldset className="field">
                 <legend>{t('configs.client')}</legend>
-                <div className="segmented">
-                  {clients.map((item) => (
-                    <label className="segment" key={item}>
-                      <input
-                        type="radio"
-                        name="config-client"
-                        value={item}
-                        checked={client === item}
-                        onChange={() => {
-                          setClient(item);
-                          setModel(null);
-                          setFallback(false);
-                        }}
-                      />
-                      <span>{item}</span>
-                    </label>
-                  ))}
+                <div className="agent-rows">
+                  {clients.map((item) => {
+                    const agent = agentFor(agents, item);
+                    const job = installs[item];
+                    const running = job?.state === 'running';
+                    const failed = job?.state === 'failed';
+                    const done = job?.state === 'done';
+                    const installed = agent?.installed === true || done;
+                    const version = done ? job?.version : agent?.version;
+                    return (
+                      <div
+                        className={`agent-row${client === item ? ' is-selected' : ''}`}
+                        key={item}
+                      >
+                        <label className="agent-choice">
+                          <input
+                            type="radio"
+                            name="config-client"
+                            value={item}
+                            checked={client === item}
+                            disabled={running}
+                            onChange={() => {
+                              setClient(item);
+                              setModel(null);
+                              setFallback(false);
+                            }}
+                          />
+                          <span>{item}</span>
+                        </label>
+                        <div className="agent-state-line">
+                          {running && job ? (
+                            <>
+                              <span className="agent-stage" role="status">
+                                {t(INSTALL_STAGE_KEYS[job.stage])}
+                              </span>
+                              <progress
+                                className="agent-progress"
+                                max={job.total}
+                                value={job.step}
+                                aria-label={t('configs.installProgress', {
+                                  client: item,
+                                })}
+                              />
+                            </>
+                          ) : installed ? (
+                            <span className="agent-state">
+                              {version
+                                ? t('firstRun.installedWithVersion', {
+                                    version: shortVersion(version),
+                                  })
+                                : t('firstRun.installed')}
+                            </span>
+                          ) : agentsChecked && agent ? (
+                            <>
+                              <span className="agent-state is-missing">
+                                {t('firstRun.notInstalled')}
+                              </span>
+                              <button
+                                type="button"
+                                className="btn btn-ghost agent-install-button"
+                                aria-label={t('configs.installClient', {
+                                  client: item,
+                                })}
+                                onClick={() => {
+                                  setInstallError(null);
+                                  setInstallTarget(item);
+                                }}
+                              >
+                                {t('configs.install')}
+                              </button>
+                            </>
+                          ) : null}
+                        </div>
+                        {failed && job ? (
+                          <p className="agent-install-error" role="alert">
+                            {t('configs.installFailed', { client: item })}
+                            {job.error ? ` ${job.error}` : ''}
+                          </p>
+                        ) : null}
+                      </div>
+                    );
+                  })}
                 </div>
                 {errors.client ? (
                   <p className="field-error" role="alert">
                     {errors.client}
+                  </p>
+                ) : null}
+                {installError ? (
+                  <p className="field-error" role="alert">
+                    {installError}
                   </p>
                 ) : null}
               </fieldset>
@@ -496,6 +667,39 @@ export function AiConfigDialog({
           </div>
         </form>
       </Dialog>
+
+      {installTarget ? (
+        <Dialog
+          titleId="install-client-title"
+          descriptionId="install-client-description"
+          onClose={() => setInstallTarget(null)}
+        >
+          <div className="dialog-head">
+            <h2 className="dialog-title" id="install-client-title">
+              {t('configs.installTitle', { client: installTarget })}
+            </h2>
+            <p className="dialog-sub" id="install-client-description">
+              {t('configs.installConfirm', { client: installTarget })}
+            </p>
+          </div>
+          <div className="dialog-foot">
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={() => setInstallTarget(null)}
+            >
+              {t('common.cancel')}
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => void confirmInstall()}
+            >
+              {t('configs.installStart', { client: installTarget })}
+            </button>
+          </div>
+        </Dialog>
+      ) : null}
 
       {providerOpen ? (
         <ProviderDialog

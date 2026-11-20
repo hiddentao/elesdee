@@ -1,15 +1,12 @@
 import type { AgentCheck } from '../api/types';
 import { useLanguage } from '../i18n/LanguageProvider';
+import { shortVersion } from '../state/clients';
 import { PlusIcon, SparkIcon } from './icons';
 
 interface FirstLaunchProps {
   agents: AgentCheck[];
   agentsChecked: boolean;
   onAddProject: () => void;
-}
-
-function shortVersion(version: string): string {
-  return version.replace(/\s*\([^)]*\)\s*$/, '').trim();
 }
 
 export function FirstLaunch({

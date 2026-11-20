@@ -1424,6 +1424,88 @@ button:disabled {
   line-height: 1.4;
 }
 
+.agent-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.agent-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface-2);
+}
+
+.agent-row.is-selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.agent-choice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.agent-choice input {
+  flex: 0 0 auto;
+}
+
+.agent-choice span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-state-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.agent-state {
+  overflow-wrap: anywhere;
+  color: var(--text-2);
+  font-size: 11px;
+  text-align: right;
+}
+
+.agent-state.is-missing,
+.agent-stage {
+  color: var(--waiting);
+  font-size: 11px;
+}
+
+.agent-install-button {
+  flex: 0 0 auto;
+  padding: 2px 8px;
+  font-size: 11px;
+}
+
+.agent-progress {
+  width: 84px;
+  height: 6px;
+  accent-color: var(--accent);
+}
+
+.agent-install-error {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--waiting);
+  font-size: 11px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
 .boot-retry {
   margin-top: 16px;
 }

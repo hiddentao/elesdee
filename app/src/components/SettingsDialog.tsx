@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react';
 import { ApiError } from '../api/client';
 import type {
+  AgentCheck,
   AiConfig,
   AppSettings,
+  Client,
+  ClientInstall,
   CreateConfigInput,
   CreateProviderInput,
   PairedDevice,
@@ -48,6 +51,11 @@ interface SettingsDialogProps {
   configs: AiConfig[];
   options: ProviderOption[];
   version: string | null;
+  agents: AgentCheck[];
+  agentsChecked: boolean;
+  onInstallClient: (client: Client) => Promise<ClientInstall>;
+  onGetClientInstall: (id: string) => Promise<ClientInstall>;
+  onClientInstalled: (agent: AgentCheck) => void;
   settings: AppSettings;
   startAtLoginActual: boolean | null;
   startAtLoginError: string | null;
@@ -88,6 +96,11 @@ export function SettingsDialog({
   configs,
   options,
   version,
+  agents,
+  agentsChecked,
+  onInstallClient,
+  onGetClientInstall,
+  onClientInstalled,
   settings,
   startAtLoginActual,
   startAtLoginError,
@@ -1073,6 +1086,11 @@ export function SettingsDialog({
           config={configEditor}
           providers={providers}
           options={options}
+          agents={agents}
+          agentsChecked={agentsChecked}
+          onInstallClient={onInstallClient}
+          onGetClientInstall={onGetClientInstall}
+          onClientInstalled={onClientInstalled}
           initialProviderId={configProviderId}
           onSaveConfig={(id, input) =>
             id
