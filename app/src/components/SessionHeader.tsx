@@ -21,6 +21,7 @@ interface SessionHeaderProps {
   onOpenBranchMenu: (trigger: HTMLElement) => void;
   panelOpen: boolean;
   onTogglePanel: () => void;
+  onOpenSwitch: () => void;
 }
 
 export function SessionHeader({
@@ -32,6 +33,7 @@ export function SessionHeader({
   onOpenBranchMenu,
   panelOpen,
   onTogglePanel,
+  onOpenSwitch,
 }: SessionHeaderProps) {
   const { t } = useLanguage();
   const account = accountFor(accounts, session.accountId);
@@ -46,7 +48,12 @@ export function SessionHeader({
 
         <div className="session-meta-line">
           {session.kind === 'agent' && account ? (
-            <UsagePill account={account} />
+            <UsagePill
+              session={session}
+              account={account}
+              canSwitch={session.status === 'active'}
+              onOpenSwitch={onOpenSwitch}
+            />
           ) : (
             <span className="chip-meta">
               {session.kind === 'terminal' ? <TerminalIcon /> : <AgentIcon />}

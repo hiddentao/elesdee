@@ -7,6 +7,7 @@ import {
   createProject,
   getSession,
   openApp,
+  readClaudeStatusLineUrl,
   setUsage,
   uniqueName,
 } from './helpers';
@@ -99,6 +100,84 @@ test('auto-switches near the limit and pauses when no account has room', async (
     .poll(async () => (await getSession(request, session.id))?.workState)
     .toBe('working');
   await expect(page.locator('.status-badge')).toContainText('Working');
+
+  await closeSession(request, session.id);
+});
+
+test('switches from the usage pill and shows the context left', async ({
+  page,
+  request,
+}) => {
+  const label = uniqueName('pill-project');
+  const repo = createGitRepo(label);
+  const project = await createProject(request, label, repo);
+  const first = await createAccount(request, {
+    name: uniqueName('Pill A'),
+    key: 'sk-pill-a',
+  });
+  const second = await createAccount(request, {
+    name: uniqueName('Pill B'),
+    key: 'sk-pill-b',
+  });
+  await setUsage(request, second.id, [{ label: 'Weekly', used: 5 }]);
+
+  const session = await createAgentSession(request, {
+    projectId: project.id,
+    name: uniqueName('Pill session'),
+    folder: repo,
+    accountId: first.id,
+  });
+
+  const statusLineUrl = await readClaudeStatusLineUrl(session.id);
+  const report = await request.post(statusLineUrl, {
+    data: {
+      session_id: 'e2e-pill-context',
+      context_window: { remaining_percentage: 63.4 },
+    },
+  });
+  expect(report.ok()).toBeTruthy();
+  await expect
+    .poll(async () => (await getSession(request, session.id))?.contextLeft)
+    .toBe(63);
+
+  await openApp(page);
+  await page.getByRole('button', { name: new RegExp(session.name) }).click();
+
+  const pill = page.locator('.session-head .provider-pill');
+  await expect(pill).toContainText(first.name);
+  await pill.hover();
+  const tip = page.getByRole('tooltip');
+  await expect(tip).toContainText('Context left');
+  await expect(tip).toContainText('63% left');
+
+  await pill.click();
+  const dialog = page.getByRole('dialog', { name: 'Switch account' });
+  await expect(dialog).toBeVisible();
+  const combo = dialog.getByRole('combobox', { name: 'Account' });
+  await combo.click();
+  await combo.fill(second.name);
+  const option = page.getByRole('option', { name: new RegExp(second.name) });
+  await expect(option).toContainText('95% left');
+  await expect(option).toContainText('Next auto-switch');
+  await option.click();
+  await dialog.getByRole('button', { name: 'Switch account' }).click();
+
+  await expect(dialog).not.toBeVisible();
+  await expect(page.getByText('Account switched.')).toBeVisible();
+  await expect
+    .poll(async () => (await getSession(request, session.id))?.accountId)
+    .toBe(second.id);
+  await expect
+    .poll(async () => (await getSession(request, session.id))?.contextLeft)
+    .toBeNull();
+  await expect(page.locator('.session-head .provider-account')).toContainText(
+    second.name,
+  );
+
+  await pill.hover();
+  await expect(page.getByRole('tooltip')).toContainText(
+    'Context left unknown',
+  );
 
   await closeSession(request, session.id);
 });

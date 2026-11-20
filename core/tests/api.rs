@@ -1784,6 +1784,19 @@ async fn account_switch_relaunches_the_session_and_keeps_it_active() {
     assert_eq!(status, StatusCode::OK, "{session}");
     let id = session["id"].as_str().expect("session id");
 
+    let (_, settings) = claude_settings(&data_dir.path, id);
+    let token = settings_token(&settings);
+    let (status, body) = send_statusline(
+        &app,
+        id,
+        Some(&token),
+        json!({ "context_window": { "remaining_percentage": 71 } }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+    let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    assert_eq!(bootstrap_session(&bootstrap, id)["contextLeft"], 71);
+
     let (status, switched) = call(
         &app,
         "POST",
@@ -1795,8 +1808,173 @@ async fn account_switch_relaunches_the_session_and_keeps_it_active() {
     assert_eq!(switched["accountId"], second);
     assert_eq!(switched["status"], "active");
     assert_eq!(switched["client"], "Claude Code");
+    assert_eq!(switched["contextLeft"], Value::Null);
 
     let (status, _) = close_session(&app, id).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn status_line_reports_context_left_for_claude_sessions_only() {
+    let data_dir = TempDirectory::new("context-data");
+    let repo = TempDirectory::new("context-repo");
+    init_git_repo(&repo.path);
+    let app = router(AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    ));
+    let session = create_claude_agent(&app, &repo.path, "Context left").await;
+    let id = session["id"].as_str().expect("session id").to_owned();
+    let (_, settings) = claude_settings(&data_dir.path, &id);
+    let token = settings_token(&settings);
+
+    let (status, body) = send_statusline(
+        &app,
+        &id,
+        Some(&token),
+        json!({
+            "session_id": "claude-context",
+            "context_window": {
+                "context_window_size": 200000,
+                "used_percentage": 36.6,
+                "remaining_percentage": 63.4
+            }
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+
+    let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    assert_eq!(bootstrap_session(&bootstrap, &id)["contextLeft"], 63);
+
+    let (status, body) = send_statusline(
+        &app,
+        &id,
+        Some(&token),
+        json!({
+            "session_id": "claude-context",
+            "context_window": { "remaining_percentage": null }
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+    let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    assert_eq!(
+        bootstrap_session(&bootstrap, &id)["contextLeft"],
+        Value::Null
+    );
+
+    let (status, body) = send_statusline(
+        &app,
+        &id,
+        Some(&token),
+        json!({ "context_window": { "remaining_percentage": 140 } }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+    let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    assert_eq!(bootstrap_session(&bootstrap, &id)["contextLeft"], 100);
+
+    let (status, body) = send_statusline(
+        &app,
+        &id,
+        Some("wrong-token"),
+        json!({ "context_window": { "remaining_percentage": 40 } }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+
+    let codex = create_agent(&app, &repo.path, "codex", "Context codex").await;
+    let codex_id = codex["id"].as_str().expect("codex session id");
+    let (status, body) = send_statusline(
+        &app,
+        codex_id,
+        Some(&token),
+        json!({ "context_window": { "remaining_percentage": 40 } }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+
+    let (status, _) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn switch_options_list_every_account_and_the_next_automatic_target() {
+    let data_dir = TempDirectory::new("switch-options-data");
+    let repo = TempDirectory::new("switch-options-repo");
+    init_git_repo(&repo.path);
+    let app = router(AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    ));
+    ensure_test_project(&app, &repo.path).await;
+    let first = create_test_account(&app, "Options A", "sk-options-a").await;
+    let second = create_test_account(&app, "Options B", "sk-options-b").await;
+    let codex = create_test_account_for(&app, "Options Codex", "openai", "sk-options-codex").await;
+
+    let (status, _) = call(
+        &app,
+        "POST",
+        &format!("/api/accounts/{second}/usage"),
+        Some(json!({ "rows": [{ "label": "Weekly", "used": 20 }] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    let id = create_agent_session(&app, &repo.path, &first, "Options session").await;
+    let (status, options) = call(
+        &app,
+        "GET",
+        &format!("/api/sessions/{id}/switch-options"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{options}");
+    assert_eq!(options["nextAccountId"], second);
+    let ids = options["accounts"]
+        .as_array()
+        .expect("accounts")
+        .iter()
+        .filter_map(|account| account["id"].as_str())
+        .collect::<Vec<_>>();
+    for expected in [first.as_str(), second.as_str(), codex.as_str()] {
+        assert!(ids.contains(&expected), "missing {expected} in {ids:?}");
+    }
+
+    let (status, _) = call(
+        &app,
+        "POST",
+        &format!("/api/accounts/{second}/usage"),
+        Some(json!({ "rows": [{ "label": "Weekly", "used": 95 }] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, options) = call(
+        &app,
+        "GET",
+        &format!("/api/sessions/{id}/switch-options"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{options}");
+    assert_eq!(options["nextAccountId"], Value::Null);
+
+    let terminal = create_terminal(&app, &repo.path).await;
+    let terminal_id = terminal["id"].as_str().expect("terminal id");
+    let (status, body) = call(
+        &app,
+        "GET",
+        &format!("/api/sessions/{terminal_id}/switch-options"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+
+    let (status, body) = call(&app, "GET", "/api/sessions/unknown/switch-options", None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+
+    let (status, _) = close_session(&app, &id).await;
     assert_eq!(status, StatusCode::OK);
 }
 

@@ -64,7 +64,7 @@ The service binds `127.0.0.1` only. It accepts requests only for loopback hostna
 
 ## Usage sources
 
-- Claude Code reports plan limits through a status line command that the core writes into the session's private settings file. The command posts the JSON that Claude Code sends on standard input to `/internal/statusline/claude/{id}` with the session's hook token. The core reads `rate_limits.five_hour` and `rate_limits.seven_day`, each with `used_percentage` and `resets_at`, and ignores the rest of the payload.
+- Claude Code reports plan limits through a status line command that the core writes into the session's private settings file. The command posts the JSON that Claude Code sends on standard input to `/internal/statusline/claude/{id}` with the session's hook token. The core reads `rate_limits.five_hour` and `rate_limits.seven_day`, each with `used_percentage` and `resets_at`, for the account usage. It also reads `context_window.remaining_percentage` for the session's context-left value and `session_id` for the agent's conversation ID.
 - Codex reports plan limits over the session's app-server websocket. The core sends `initialize`, `initialized` and `account/rateLimits/read`, then applies `account/rateLimits/updated` notifications. Windows are told apart by length: 300 minutes is the 5-hour window and 10,080 minutes is the weekly window.
 - DeepSeek reports a prepaid balance from `GET https://api.deepseek.com/user/balance` with the account key from the keychain. The key is sent only in the request's `Authorization` header. It is never logged, returned or written to `state.json`.
 - Other providers have no official source. The account keeps `foot: "No official usage source."`, has no usage status and is skipped by auto-switch.
@@ -127,7 +127,7 @@ interface PairedDevice {
 ## Agent permissions
 
 - Antigravity has no hooks and no permission card. Its own terminal handles prompts.
-- A Claude Code agent starts with a private settings file under the data directory, mode 0600. The file carries a random per-session token and loopback hook URLs. The token is never sent to the UI.
+- A Claude Code agent starts with a private settings file under the data directory, mode 0600. The file carries a random per-session token, loopback hook URLs and a status line command that reports the context window to the same token. The token is never sent to the UI.
 - The internal hook route needs the exact token. A wrong or missing token, a foreign Host, or a non-Claude session returns 403.
 - A `PreToolUse` hook sets `pendingPermission` and `waitingFor: "permission"`, sends `session.updated`, and holds the hook response. The answer endpoint releases it. If another request is already held, the new hook gets `permissionDecision: "ask"` and the first request stays held.
 - `summary` is a short single-line text taken from the command, path, query or URL, capped at 80 characters. Control, bidi and zero-width format characters are removed. Raw tool input is never stored in the session or written to logs.
@@ -153,10 +153,19 @@ interface PairedDevice {
 - A pause keeps the note. A later cross-client switch from the paused session sends it with the log tail.
 - Reopening a closed agent session without a saved conversation ID sends the note and the log tail after the client starts.
 
+## Switching accounts and context
+
+- A switch needs an active agent session and a known account. A switch inside the same client resumes the client's conversation. A switch to a different client starts the new client with the saved handoff note and the end of the output log. A switch clears `contextLeft` because the new process reports its own figure later.
+- `GET /api/sessions/{id}/switch-options` returns every account the switch endpoint accepts. The spec's per-session allowed-provider list is not stored yet, so the list is every account on the computer, including samples. It also returns `nextAccountId`: the account the automatic switch would pick under the current rule. That rule stays inside the session's client, skips the current account, samples and accounts without a known usage figure, and picks the account with the most usage left. The rule is narrower than the spec's subscription-first, cross-client order.
+- A terminal session returns 422 for the options route. An unknown session returns 404. The options route does not check whether the session is closed; the UI offers no switch for a closed session.
+- `contextLeft` is the percentage of the client's context window that is still free. For Claude Code it comes from the status line JSON, field `context_window.remaining_percentage`, rounded and clamped to 0–100. Other clients report no figure yet, so the value stays `null`.
+- The Claude settings file adds a `statusLine` command that sends the JSON to `POST /internal/statusline/claude/{id}?token=...`. The route uses the same per-session token as the hooks. A wrong token or a non-Claude session returns 403. The route accepts `{ session_id?, context_window? }`, updates the session only when the rounded value changes, sends `session.updated`, and returns 204.
+- A missing or null `remaining_percentage` sets `contextLeft` to `null`. A switch, resume or restart recovery clears the value. The value is saved with the session but the client replaces it after it starts.
+
 ## Persistence
 
 - State lives in `ELESDEE_DATA_DIR`, default `~/.elesdee`, in `state.json`. The directory is created with mode 0700 and files with mode 0600. Writes use a temporary file, fsync and rename.
-- Projects and their default account and source branch, accounts, launch presets, sessions, each session's desired columns and rows, its output log, an agent's repository root, an agent's own conversation ID, the session's handoff note, and the paired device list are saved. Account keys and pairing secrets are not saved. No runtime handles are saved.
+- Projects and their default account and source branch, accounts, launch presets, sessions, each session's desired columns and rows, its output log, an agent's repository root, an agent's own conversation ID, the session's handoff note and last context-left figure, and the paired device list are saved. Account keys and pairing secrets are not saved. No runtime handles are saved.
 - The desktop link identity is a separate 32-byte key in `<data dir>/link.key`, with mode 0600, written once and reused. It is never in `state.json` and never logged. A missing key creates a new identity; every paired phone must pair again.
 - The paired device list is written on pair, removal and graceful shutdown. `lastSeen` updates in memory at most once a minute.
 - Shared files live in `<data dir>/shared/<session id>/`, directories 0700 and files 0600. Each copy has a metadata record beside it with the original relative path, name, caption, size and content type. The stored copy stays after the session closes. Account keys are compared with the content and are never copied.
@@ -201,6 +210,7 @@ interface Session {
   accountId: string | null;
   agentSessionId: string | null; // the client's own conversation ID
   handoffNote?: string | null;   // kept for the next agent that works on the session
+  contextLeft: number | null;    // percent of the context window free, or null when unknown
   branch: string | null;
   folder: string;
   preview: string;
@@ -259,6 +269,11 @@ interface Project {
   folder: string;
   defaultAccountId: string | null;
   defaultSourceBranch: string | null;
+}
+
+interface SwitchOptions {
+  accounts: Account[];           // every account the switch endpoint accepts
+  nextAccountId: string | null;  // the account auto-switch would pick next
 }
 
 interface FileEntry {
@@ -386,6 +401,8 @@ interface OutputEvent {
 | POST | `/api/sessions/{id}/close` | `{}` | `Session` |
 | PATCH | `/api/sessions/{id}` | `{ name }` | `Session` |
 | POST | `/api/sessions/{id}/reopen` | `{}` | `Session` |
+| POST | `/api/sessions/{id}/account` | `{ accountId }` | `Session` |
+| GET | `/api/sessions/{id}/switch-options` | | `SwitchOptions` |
 | DELETE | `/api/sessions/{id}` | | `204` |
 | POST | `/api/sessions/{id}/input` | `{ data }` (UTF-8 text) | `204` |
 | POST | `/api/sessions/{id}/resize` | `{ cols, rows }` | `204` |

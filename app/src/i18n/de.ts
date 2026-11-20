@@ -96,6 +96,9 @@ export const de = {
   'session.newSession': 'Neue Sitzung',
   'session.closeMenu': 'Menü schließen',
   'session.menuLabel': 'Aktionen für {name}',
+  'session.contextLeft': 'Verbleibender Kontext',
+  'session.contextLeftUnknown': 'Verbleibender Kontext unbekannt',
+  'session.contextCompacts': 'Wird automatisch komprimiert.',
   'session.reopen': 'Wieder öffnen',
   'session.resume': 'Fortsetzen',
   'session.renameMenu': 'Umbenennen…',
@@ -389,6 +392,13 @@ export const de = {
   'switchAccount.busyLabel': 'Konto wird gewechselt…',
   'switchAccount.submitting': 'Wird gewechselt…',
   'switchAccount.submit': 'Konto wechseln',
+  'switchAccount.nextAuto': 'Nächste automatische Umschaltung',
+  'switchAccount.handoffSame':
+      'Ein Wechsel innerhalb von {client} setzt das Gespräch fort.',
+  'switchAccount.handoffOther':
+      'Ein Wechsel zu {client} schreibt zuerst eine Übergabenotiz.',
+  'switchAccount.loading': 'Konten werden geladen…',
+  'switchAccount.loadFailed': 'Die Konten wurden nicht geladen.',
 
   'terminal.disconnected': 'Die Ausgabe ist getrennt.',
   'terminal.reconnected': 'Ausgabe wieder verbunden.',

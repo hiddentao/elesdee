@@ -1803,6 +1803,29 @@ button:disabled {
   color: var(--text-3);
 }
 
+.usage-tip-context {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+
+.usage-tip-context-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.usage-tip-context-head strong {
+  font-weight: 600;
+}
+
+.usage-tip-context-head span {
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+
 .usage-limit {
   display: grid;
   grid-template-columns: 52px minmax(0, 1fr) auto;

@@ -96,6 +96,9 @@ export const ja = {
   'session.newSession': '新しいセッション',
   'session.closeMenu': 'メニューを閉じる',
   'session.menuLabel': '{name} の操作',
+  'session.contextLeft': '残りのコンテキスト',
+  'session.contextLeftUnknown': '残りのコンテキストは不明',
+  'session.contextCompacts': '自動的に圧縮されます。',
   'session.reopen': '再度開く',
   'session.resume': '再開',
   'session.renameMenu': '名前を変更…',
@@ -390,6 +393,13 @@ export const ja = {
   'switchAccount.busyLabel': 'アカウントを切り替えています…',
   'switchAccount.submitting': '切り替えています…',
   'switchAccount.submit': 'アカウントを切り替え',
+  'switchAccount.nextAuto': '次回の自動切り替え',
+  'switchAccount.handoffSame':
+      '{client} 内の切り替えでは会話が続きます。',
+  'switchAccount.handoffOther':
+      '{client} への切り替えでは先に引き継ぎメモを書き込みます。',
+  'switchAccount.loading': 'アカウントを読み込んでいます…',
+  'switchAccount.loadFailed': 'アカウントを読み込めませんでした。',
 
   'terminal.disconnected': '出力が切断されました。',
   'terminal.reconnected': '出力が再接続されました。',

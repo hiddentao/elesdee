@@ -22,6 +22,7 @@ import type {
   SessionChanges,
   SessionRequest,
   SharedFile,
+  SwitchOptions,
   UpdatePresetInput,
   UpdateProjectDefaultsInput,
 } from './types';
@@ -237,6 +238,12 @@ export function switchSessionAccount(
   return request<Session>(`/api/sessions/${encodeURIComponent(id)}/account`, post({
     accountId,
   }));
+}
+
+export function getSwitchOptions(id: string): Promise<SwitchOptions> {
+  return request<SwitchOptions>(
+    `/api/sessions/${encodeURIComponent(id)}/switch-options`,
+  );
 }
 
 export function resumeSession(id: string): Promise<Session> {

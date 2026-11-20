@@ -96,6 +96,9 @@ export const pl = {
   'session.newSession': 'Nowa sesja',
   'session.closeMenu': 'Zamknij menu',
   'session.menuLabel': 'Akcje dla {name}',
+  'session.contextLeft': 'Pozostały kontekst',
+  'session.contextLeftUnknown': 'Pozostały kontekst nieznany',
+  'session.contextCompacts': 'Kompaktuje się automatycznie.',
   'session.reopen': 'Otwórz ponownie',
   'session.resume': 'Wznów',
   'session.renameMenu': 'Zmień nazwę…',
@@ -392,6 +395,13 @@ export const pl = {
   'switchAccount.busyLabel': 'Zmienianie konta…',
   'switchAccount.submitting': 'Zmienianie…',
   'switchAccount.submit': 'Zmień konto',
+  'switchAccount.nextAuto': 'Następne automatyczne przełączenie',
+  'switchAccount.handoffSame':
+      'Przełączenie w ramach {client} kontynuuje rozmowę.',
+  'switchAccount.handoffOther':
+      'Przełączenie na {client} najpierw zapisuje notatkę przekazania.',
+  'switchAccount.loading': 'Ładowanie kont…',
+  'switchAccount.loadFailed': 'Konta nie zostały wczytane.',
 
   'terminal.disconnected': 'Dane wyjściowe są rozłączone.',
   'terminal.reconnected': 'Dane wyjściowe połączone ponownie.',

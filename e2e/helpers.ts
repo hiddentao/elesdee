@@ -28,6 +28,7 @@ export interface Session {
   preview: string;
   waitingFor: string | null;
   firstPrompt: string | null;
+  contextLeft?: number | null;
   pendingPermission: {
     requestId: string;
     tool: string;
@@ -273,6 +274,16 @@ export async function readClaudeHookUrl(sessionId: string): Promise<string> {
   };
 
   return settings.hooks.PreToolUse[0].hooks[0].url;
+}
+
+export async function readClaudeStatusLineUrl(
+  sessionId: string,
+): Promise<string> {
+  const hookUrl = await readClaudeHookUrl(sessionId);
+  return hookUrl.replace(
+    '/internal/hooks/claude/',
+    '/internal/statusline/claude/',
+  );
 }
 
 export async function waitForPreviewChange(
