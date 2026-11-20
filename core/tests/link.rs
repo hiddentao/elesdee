@@ -1,6 +1,7 @@
 //! Pairing and the authenticated app path over two real loopback iroh endpoints.
 
 use std::fs;
+use std::io::{Cursor, Write};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -19,14 +20,17 @@ use tower::ServiceExt;
 
 use elesdee_core::api::router;
 use elesdee_core::history::{HistoryChange, HistoryState};
-use elesdee_core::link::{PairReply, PairRequest, read_pair_frame, write_pair_frame};
+use elesdee_core::link::{
+    PairReply, PairRequest, UI_ARCHIVE_FILE, UI_MANIFEST_FILE, UI_SCHEMA, UiManifest,
+    UiPackageState, read_pair_frame, write_pair_frame,
+};
 use elesdee_core::state::PairedDevice;
 use elesdee_core::{AppState, LinkService};
 use elesdee_link::{
     APP_ALPN, AppHello, CLOSE_REVOKED, ErrorCode, FORWARD_ALPN, FORWARD_OK, FORWARD_REFUSED,
-    MAX_APP_FRAME_BYTES, MAX_HEADER_BYTES, MAX_UPLOAD_BYTES, Method, PAIR_ALPN, PairTicket,
-    Request, Response, SecretKey, StreamEvent, Welcome, encode_port, pairing_code, read_app_frame,
-    write_app_frame,
+    MAX_APP_FRAME_BYTES, MAX_HEADER_BYTES, MAX_UI_PACKAGE_BYTES, MAX_UPLOAD_BYTES, Method,
+    PAIR_ALPN, PairTicket, Request, Response, SecretKey, StreamEvent, Welcome, encode_port,
+    pairing_code, read_app_frame, write_app_frame,
 };
 
 const TEST_HOST: &str = "127.0.0.1:4319";
@@ -1506,4 +1510,189 @@ async fn an_unpaired_phone_cannot_forward() {
     })
     .await
     .expect("unpaired forward test timed out");
+}
+
+fn write_ui_package(directory: &Path) -> (UiManifest, Vec<u8>) {
+    let mut output = Cursor::new(Vec::new());
+    {
+        let mut writer = zip::ZipWriter::new(&mut output);
+        let options = zip::write::SimpleFileOptions::default();
+        writer.start_file("index.html", options).expect("index");
+        writer
+            .write_all(b"<!doctype html><div id=\"root\"></div>")
+            .expect("write index");
+        writer.start_file("assets/app.js", options).expect("asset");
+        writer
+            .write_all(b"console.log('phone');")
+            .expect("write asset");
+        writer.finish().expect("finish archive");
+    }
+    let archive = output.into_inner();
+    let manifest = UiManifest {
+        schema: UI_SCHEMA,
+        build_id: format!("blake3:{}", blake3::hash(&archive).to_hex()),
+        app_version: "0.1.0".to_owned(),
+        protocol_version: 1,
+        min_bridge_version: 1,
+        bytes: archive.len() as u64,
+        files: 2,
+    };
+    fs::write(
+        directory.join(UI_MANIFEST_FILE),
+        serde_json::to_vec(&manifest).expect("manifest json"),
+    )
+    .expect("write manifest");
+    fs::write(directory.join(UI_ARCHIVE_FILE), &archive).expect("write archive");
+    (manifest, archive)
+}
+
+async fn pair_a_phone(
+    app: &Router,
+    state: &AppState,
+    phone: &Endpoint,
+) -> iroh::endpoint::Connection {
+    let ticket = PairTicket::decode_string(
+        &state
+            .link()
+            .create_ticket_at(elesdee_core::link::now_unix() + 120, false)
+            .expect("ticket")
+            .ticket,
+    )
+    .expect("decode ticket");
+    let (connection, _device) = approve_and_read(app, phone, &ticket).await;
+    connection
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_phone_reads_the_ui_package_manifest_and_archive() {
+    tokio::time::timeout(TIMEOUT, async {
+        let directory = TempDirectory::new("ui-package");
+        let package = directory.path.join("package");
+        fs::create_dir_all(&package).expect("create package folder");
+        let (manifest, archive) = write_ui_package(&package);
+
+        let state = test_state(&directory.path);
+        let app = router(state.clone());
+        let ui = UiPackageState::from_directory(Some(&package));
+        assert!(ui.error().is_none(), "the package did not load");
+        let service =
+            LinkService::start_with_endpoint_and_ui(state.clone(), loopback_endpoint().await, ui);
+        let addr = service.addr();
+        let phone = loopback_endpoint().await;
+        let pair_connection = pair_a_phone(&app, &state, &phone).await;
+        pair_connection.close(0u32.into(), b"done");
+
+        let (connection, welcome) = app_connect(&phone, &addr).await;
+        let ui_value = welcome.ui.expect("the welcome carries the manifest");
+        assert_eq!(ui_value["buildId"], manifest.build_id);
+        assert_eq!(ui_value["bytes"], manifest.bytes);
+        assert_eq!(ui_value["files"], manifest.files);
+
+        let response = request_on(&connection, Request::new(Method::UiManifest, None)).await;
+        let result = response.result().expect("manifest result");
+        assert_eq!(result["buildId"], manifest.build_id);
+        assert_eq!(result["minBridgeVersion"], manifest.min_bridge_version);
+        assert!(response.body().is_empty());
+
+        let response = request_on(&connection, Request::new(Method::UiDownload, None)).await;
+        let result = response.result().expect("download result");
+        assert_eq!(result["buildId"], manifest.build_id);
+        assert_eq!(response.body(), archive.as_slice());
+
+        connection.close(0u32.into(), b"done");
+        phone.close().await;
+        service.shutdown().await;
+        assert!(state.shutdown_all());
+    })
+    .await
+    .expect("UI package integration test timed out");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_computer_without_a_ui_package_says_so() {
+    tokio::time::timeout(TIMEOUT, async {
+        let directory = TempDirectory::new("ui-missing");
+        let state = test_state(&directory.path);
+        let app = router(state.clone());
+        let service = LinkService::start_with_endpoint(state.clone(), loopback_endpoint().await);
+        let addr = service.addr();
+        let phone = loopback_endpoint().await;
+        let pair_connection = pair_a_phone(&app, &state, &phone).await;
+        pair_connection.close(0u32.into(), b"done");
+
+        let (connection, welcome) = app_connect(&phone, &addr).await;
+        assert!(welcome.ui.is_none());
+
+        for method in [Method::UiManifest, Method::UiDownload] {
+            let response = request_on(&connection, Request::new(method, None)).await;
+            assert_eq!(
+                response.error_body().expect("error body").code(),
+                ErrorCode::NotFound
+            );
+        }
+
+        connection.close(0u32.into(), b"done");
+        phone.close().await;
+        service.shutdown().await;
+        assert!(state.shutdown_all());
+    })
+    .await
+    .expect("missing UI package test timed out");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_ui_package_refuses_a_path_and_an_oversized_archive() {
+    tokio::time::timeout(TIMEOUT, async {
+        let directory = TempDirectory::new("ui-refusal");
+        let package = directory.path.join("package");
+        fs::create_dir_all(&package).expect("create package folder");
+        write_ui_package(&package);
+        let archive = package.join(UI_ARCHIVE_FILE);
+        let file = fs::OpenOptions::new()
+            .write(true)
+            .open(&archive)
+            .expect("open archive");
+        file.set_len(MAX_UI_PACKAGE_BYTES as u64 + 1)
+            .expect("size archive");
+
+        let state = test_state(&directory.path);
+        let app = router(state.clone());
+        let ui = UiPackageState::from_directory(Some(&package));
+        assert_eq!(
+            ui.error(),
+            Some(&elesdee_core::link::UiPackageError::TooLarge)
+        );
+        let service =
+            LinkService::start_with_endpoint_and_ui(state.clone(), loopback_endpoint().await, ui);
+        let addr = service.addr();
+        let phone = loopback_endpoint().await;
+        let pair_connection = pair_a_phone(&app, &state, &phone).await;
+        pair_connection.close(0u32.into(), b"done");
+
+        let (connection, welcome) = app_connect(&phone, &addr).await;
+        assert!(welcome.ui.is_none());
+
+        let response = request_on(&connection, Request::new(Method::UiDownload, None)).await;
+        assert_eq!(
+            response.error_body().expect("error body").code(),
+            ErrorCode::TooLarge
+        );
+
+        let response = request_on(
+            &connection,
+            Request::new(Method::UiDownload, Some(json!({"path": "../state.json"}))),
+        )
+        .await;
+        assert_eq!(
+            response.error_body().expect("error body").code(),
+            ErrorCode::BadRequest
+        );
+
+        connection.close(0u32.into(), b"done");
+        phone.close().await;
+        service.shutdown().await;
+        assert!(state.shutdown_all());
+    })
+    .await
+    .expect("UI package refusal test timed out");
 }

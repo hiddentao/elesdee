@@ -6,13 +6,19 @@ order: 10
 
 # Phone layout
 
-The app has a phone-sized layout at `/phone.html`. It uses the same core service and the same sessions as the desktop window. It is a preview of the phone experience. The core service can hold the phone link identity and pair a phone that speaks the link protocol. A paired phone app can show the live session list, open a session, follow its messages and output, send terminal input and run the session actions. The installable phone app is not released yet.
+The app has a phone-sized layout at `/phone.html`. It uses the same core service and the same sessions as the desktop window. It is a preview of the phone experience. The core service can hold the phone link identity and pair a phone that speaks the link protocol. A paired phone app can show the live session list, open a session, follow its messages and output, send terminal input and run the session actions. The computer also sends the phone interface to the app, so a new version arrives without a new phone app build. The installable phone app is not released yet.
 
 ## Paired phones
 
 **Settings > Devices** lists the phones paired with this computer. Each row shows the phone name, its platform, when it last connected and whether it is connected now. **Remove** ends the phone's access at once and closes its live connection.
 
 Choose **Pair a phone** in **Settings > Devices** on the computer. The computer shows a QR code. The phone app scans it and shows a six-digit code. Check that the same code appears on the computer, then approve the phone. The computer lists the phone when the pairing is complete. The phone shell has its own pairing screens too.
+
+## Phone interface updates
+
+The desktop build includes the phone interface. When a paired phone connects, it compares the interface version on the computer with the copy it holds for that computer. It downloads a new interface only when the version differs. It checks the download before it uses it and keeps the previous copy for the next attempt.
+
+If the download fails, the phone app keeps its own screens and says that the interface could not be loaded. If the phone app, the computer or the interface needs a newer version, the app shows an update-needed screen. Update the phone app or elesdee on the computer as the screen says.
 
 ## Language
 
@@ -73,7 +79,7 @@ The installable app is not released. The computer side and the phone shell liste
 
 ## What is not built yet
 
-There is no phone app you can install. The repository has the phone shell, its pairing screens, the live session list, the structured message view and output, terminal input and the key rail, the session actions, the file list with text and image previews, the diff view, the upload action, and the demo-server list with its forwarding listener, but no released build. The downloaded phone interface comes later. The core service starts the link, creates a pairing ticket, stores paired devices and answers the allowlisted methods for a paired phone, including terminal input, session start, close, AI config switch, the structured conversation stream, upload, the file and image reads, the change list and the demo-server list and both sides of demo forwarding. The phone shell's own screens show the same message view and file and change views as the browser layout, with the same one button to the read-only terminal, and they keep the composer and the key rail. The phone's system browser handoff, the native keychain, the camera, the file picker, the notification permission and delivery, and behavior in the background need a device test, and the message view, the image preview and the upload have not run on a device. The current browser layout still opens on this computer, next to the desktop app.
+There is no phone app you can install. The repository has the phone shell, its pairing screens, the live session list, the structured message view and output, terminal input and the key rail, the session actions, the file list with text and image previews, the diff view, the upload action, and the demo-server list with its forwarding listener, but no released build. The computer builds the phone interface, the core serves it to a paired phone, and the shell downloads, checks and stores it, but no device or emulator has run it. The core service starts the link, creates a pairing ticket, stores paired devices and answers the allowlisted methods for a paired phone, including terminal input, session start, close, AI config switch, the structured conversation stream, upload, the file and image reads, the change list, the UI package and the demo-server list and both sides of demo forwarding. The phone shell's own screens show the same message view and file and change views as the browser layout, with the same one button to the read-only terminal, and they keep the composer and the key rail. The phone's system browser handoff, the native keychain, the camera, the file picker, the notification permission and delivery, and behavior in the background need a device test, and the message view, the image preview and the upload have not run on a device. The current browser layout still opens on this computer, next to the desktop app.
 
 ## Next steps
 

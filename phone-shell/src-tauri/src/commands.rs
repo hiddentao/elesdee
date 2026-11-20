@@ -26,6 +26,7 @@ use tokio::sync::{Mutex, watch};
 
 use crate::forward::{ForwardAddress, ForwardRegistry, check_port};
 use crate::store::ShellStore;
+use crate::ui::{UiError, UiManifest, UiStatus, UiStore};
 
 /// Reports a boolean field only when it is true.
 fn is_false(value: &bool) -> bool {
@@ -37,6 +38,9 @@ pub const CONNECTION_EVENT: &str = "phone:connection";
 
 /// The Tauri event that carries one subscription value.
 pub const SUBSCRIPTION_EVENT: &str = "phone:subscription";
+
+/// The Tauri event that reports the phone UI package state.
+pub const UI_EVENT: &str = "phone:ui";
 
 /// A failure that the screens can explain in the phone's language.
 #[derive(Debug, Clone, Serialize)]
@@ -84,6 +88,14 @@ impl From<ClientError> for CommandError {
             ClientError::ConnectionClosed => {
                 Self::new("connection_closed", "The connection closed.")
             }
+            ClientError::Protocol("the phone app is too old") => Self::new(
+                "update_phone",
+                "The phone app is too old for this computer.",
+            ),
+            ClientError::Protocol("the computer protocol is not supported") => Self::new(
+                "update_computer",
+                "The computer needs a newer elesdee version.",
+            ),
             ClientError::Protocol(reason) => Self::new("protocol", reason),
             ClientError::Store(message) => Self::new("store", message),
             ClientError::Transport(message) => Self::new("transport", message),
@@ -129,6 +141,8 @@ pub struct ShellState {
     pairing_gate: Mutex<()>,
     pairing_cancelled: AtomicBool,
     forwards: ForwardRegistry,
+    /// The stored phone UI package and its webview server.
+    pub ui: UiStore,
 }
 
 struct PhoneShell {
@@ -146,7 +160,7 @@ struct Subscription {
 }
 
 impl ShellState {
-    fn ready(client: LinkClient) -> Self {
+    fn ready(client: LinkClient, ui: UiStore) -> Self {
         Self {
             inner: Mutex::new(PhoneShell {
                 client: Some(Arc::new(client)),
@@ -159,10 +173,11 @@ impl ShellState {
             pairing_gate: Mutex::new(()),
             pairing_cancelled: AtomicBool::new(false),
             forwards: ForwardRegistry::new(),
+            ui,
         }
     }
 
-    fn failed(code: &str, message: String) -> Self {
+    fn failed(code: &str, message: String, ui: UiStore) -> Self {
         Self {
             inner: Mutex::new(PhoneShell {
                 client: None,
@@ -175,6 +190,7 @@ impl ShellState {
             pairing_gate: Mutex::new(()),
             pairing_cancelled: AtomicBool::new(false),
             forwards: ForwardRegistry::new(),
+            ui,
         }
     }
 }
@@ -205,30 +221,33 @@ impl PhoneShell {
 
 /// Starts the identity, the keychain and the link endpoint.
 pub fn init_state(app: &tauri::AppHandle) -> ShellState {
-    if let Err(error) = ShellStore::install_keychain() {
-        return ShellState::failed("keychain", error);
-    }
     let data_dir = match app.path().app_data_dir() {
         Ok(path) => path,
         Err(error) => {
             return ShellState::failed(
                 "storage",
                 format!("The app data folder is not available: {error}"),
+                UiStore::new(&std::env::temp_dir()),
             );
         }
     };
+    let ui = UiStore::new(&data_dir);
+    if let Err(error) = ShellStore::install_keychain() {
+        return ShellState::failed("keychain", error, ui);
+    }
     if let Err(error) = std::fs::create_dir_all(&data_dir) {
         return ShellState::failed(
             "storage",
             format!("The app data folder could not be created: {error}"),
+            ui,
         );
     }
     let store = Arc::new(ShellStore::new(data_dir));
     match tauri::async_runtime::block_on(LinkClient::start(store)) {
-        Ok(client) => ShellState::ready(client),
+        Ok(client) => ShellState::ready(client, ui),
         Err(error) => {
             let converted = CommandError::from(error);
-            ShellState::failed(&converted.code, converted.message)
+            ShellState::failed(&converted.code, converted.message, ui)
         }
     }
 }
@@ -393,6 +412,7 @@ pub async fn phone_forget(
     computer_id: String,
 ) -> Result<(), CommandError> {
     state.forwards.stop_for_computer(&computer_id);
+    state.ui.forget(&computer_id);
     let (manager, client) = {
         let mut shell = state.inner.lock().await;
         shell.cancel_subscriptions(&computer_id);
@@ -444,8 +464,45 @@ pub async fn phone_connect(
         shell.managers.remove(&computer_id);
         return Err(error);
     }
-    manager.spawn_supervisor(app).await;
+    if let Some(connection) = manager.connection().await {
+        let status = sync_ui(&state.ui, &record, &connection).await;
+        emit_ui(&app, &status);
+    }
+    manager.spawn_supervisor(app, state.ui.clone()).await;
     Ok(record)
+}
+
+/// Compares, downloads and installs the computer's UI package.
+async fn sync_ui(ui: &UiStore, record: &ComputerRecord, connection: &AppConnection) -> UiStatus {
+    let manifest = match connection.welcome().ui.clone() {
+        None => None,
+        Some(value) => match serde_json::from_value::<UiManifest>(value) {
+            Ok(manifest) => Some(manifest),
+            Err(_) => return ui.fail(&record.id, UiError::Entries),
+        },
+    };
+    ui.ensure(
+        &record.id,
+        record.protocol_version,
+        record.min_bridge_version,
+        manifest,
+        connection,
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn phone_ui_state(
+    state: State<'_, ShellState>,
+    computer_id: String,
+) -> Result<UiStatus, CommandError> {
+    if computer_id.trim().is_empty() {
+        return Err(CommandError::new(
+            "bad_request",
+            "The computer id is required.",
+        ));
+    }
+    Ok(state.ui.activate(&computer_id))
 }
 
 #[tauri::command]
@@ -1001,6 +1058,12 @@ fn emit_connection(app: &AppHandle, state: ConnectionState) {
     }
 }
 
+fn emit_ui(app: &AppHandle, status: &UiStatus) {
+    if let Err(error) = app.emit(UI_EVENT, status) {
+        tracing::warn!(%error, "could not emit a UI package state");
+    }
+}
+
 /// One live connection with its reconnect loop and its subscriptions.
 struct ConnectionManager {
     client: Arc<LinkClient>,
@@ -1068,7 +1131,7 @@ impl ConnectionManager {
         self.generation.send_modify(|generation| *generation += 1);
     }
 
-    async fn spawn_supervisor(self: Arc<Self>, app: AppHandle) {
+    async fn spawn_supervisor(self: Arc<Self>, app: AppHandle, ui: UiStore) {
         let manager = Arc::clone(&self);
         let handle = tauri::async_runtime::spawn(async move {
             let mut policy = ReconnectPolicy::new();
@@ -1088,6 +1151,10 @@ impl ConnectionManager {
                                     error: None,
                                 },
                             );
+                            if let Some(active) = manager.connection().await {
+                                let status = sync_ui(&ui, &manager.record, &active).await;
+                                emit_ui(&app, &status);
+                            }
                             continue;
                         }
                         Err(error) => {

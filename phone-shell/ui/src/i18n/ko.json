@@ -211,5 +211,10 @@
   "notifications.doneBody": "작업이 완료되었습니다.",
   "notifications.messageTitle": "{name} 님의 메시지",
   "notifications.denied": "알림이 꺼져 있습니다. 휴대폰 설정에서 elesdee 알림을 허용하세요.",
-  "notifications.unavailable": "이 휴대폰에서는 알림을 사용할 수 없습니다."
+  "notifications.unavailable": "이 휴대폰에서는 알림을 사용할 수 없습니다.",
+  "update.title": "업데이트 필요",
+  "update.computer": "이 컴퓨터에서 elesdee를 업데이트하세요.",
+  "update.phone": "휴대폰 앱을 업데이트하세요.",
+  "ui.missing": "이 컴퓨터에는 휴대폰 인터페이스가 없습니다. 이 컴퓨터에서 elesdee를 업데이트하세요.",
+  "ui.loadFailed": "휴대폰 인터페이스를 불러오지 못했습니다. 이 휴대폰은 자체 화면을 사용합니다."
 }

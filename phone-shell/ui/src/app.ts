@@ -101,6 +101,7 @@ import type {
   Session,
   SessionChanges,
   SessionRequest,
+  UiStatus,
   WorkState,
 } from './types';
 
@@ -118,6 +119,7 @@ interface Notice {
 type Screen =
   | { name: 'loading' }
   | { name: 'failed'; error: CommandError }
+  | { name: 'update'; kind: 'computer' | 'phone' }
   | { name: 'computers'; notice?: Notice }
   | { name: 'pair'; error?: Notice; ticket?: string }
   | { name: 'code'; confirm: PairConfirm }
@@ -128,6 +130,7 @@ type Screen =
       filter: Filter;
       loading: boolean;
       error?: Notice;
+      uiNotice?: Notice;
       connection?: ConnectionState;
     }
   | {
@@ -368,6 +371,7 @@ export class ShellApp {
   private openDiff: string | null = null;
   private uploadBusy = false;
   private uploadNotice: Notice | null = null;
+  private packageOpened: string | null = null;
 
   constructor(root: HTMLElement) {
     this.root = root;
@@ -524,6 +528,16 @@ export class ShellApp {
       return head;
     }
 
+    if (screen.name === 'update') {
+      head.append(this.backButton(() => this.goComputers()));
+      head.append(
+        el('div', { class: 'phone-head-text' }, [
+          el('span', { class: 'phone-title', text: this.t('update.title') }),
+        ]),
+      );
+      return head;
+    }
+
     if (screen.name === 'loading' || screen.name === 'failed') {
       head.append(
         el('div', { class: 'phone-head-text' }, [
@@ -575,6 +589,8 @@ export class ShellApp {
         ]);
       case 'failed':
         return this.renderFailed(screen.error);
+      case 'update':
+        return this.renderUpdate(screen.kind);
       case 'computers':
         return this.renderComputers(screen.notice);
       case 'pair':
@@ -603,6 +619,28 @@ export class ShellApp {
         }),
       ]),
     ]);
+    return main;
+  }
+
+  private renderUpdate(kind: 'computer' | 'phone'): HTMLElement {
+    const main = el('main', { class: 'phone-list' }, [
+      this.noticeEl({
+        key: kind === 'computer' ? 'update.computer' : 'update.phone',
+        tone: 'error',
+      }),
+    ]);
+    if (kind === 'computer') {
+      main.append(
+        el('div', { class: 'screen-actions' }, [
+          el('button', {
+            class: 'btn btn-primary',
+            text: this.t('common.retry'),
+            attrs: { type: 'button' },
+            on: { click: () => this.goComputers() },
+          }),
+        ]),
+      );
+    }
     return main;
   }
 
@@ -770,6 +808,10 @@ export class ShellApp {
     screen: Extract<Screen, { name: 'sessions' }>,
   ): HTMLElement {
     const main = el('main', { class: 'phone-list' });
+
+    if (screen.uiNotice) {
+      main.append(this.noticeEl(screen.uiNotice));
+    }
 
     if (screen.loading) {
       main.append(
@@ -3355,6 +3397,19 @@ export class ShellApp {
   }
 
   private async handleConnection(state: ConnectionState): Promise<void> {
+    if (
+      state.state === 'stopped' &&
+      (state.error?.code === 'update_phone' ||
+        state.error?.code === 'update_computer')
+    ) {
+      this.screen = {
+        name: 'update',
+        kind:
+          state.error?.code === 'update_computer' ? 'computer' : 'phone',
+      };
+      this.render();
+      return;
+    }
     const previous = this.connectionStates.get(state.computerId);
     this.connectionStates.set(state.computerId, state);
     const screen = this.screen;
@@ -3974,6 +4029,22 @@ export class ShellApp {
     void this.refreshNotifications();
     try {
       await phone.connect(computer.id);
+      const ui = await phone.uiState(computer.id);
+      if (
+        ui.state === 'update_phone' ||
+        ui.state === 'update_computer'
+      ) {
+        this.screen = {
+          name: 'update',
+          kind: ui.state === 'update_computer' ? 'computer' : 'phone',
+        };
+        this.render();
+        return;
+      }
+      if (ui.state === 'ready' && ui.url) {
+        this.openPackage(ui.url);
+        return;
+      }
       const data = (await phone.request(
         computer.id,
         'bootstrap',
@@ -3988,6 +4059,7 @@ export class ShellApp {
         sessions: data.sessions ?? [],
         filter: 'all',
         loading: false,
+        uiNotice: this.uiNoticeFor(ui),
         connection: this.connectionStates.get(computer.id),
       };
       this.render();
@@ -3996,17 +4068,53 @@ export class ShellApp {
       if (token !== this.sessionsToken) {
         return;
       }
+      const failure = asError(error);
+      if (
+        failure.code === 'update_phone' ||
+        failure.code === 'update_computer'
+      ) {
+        this.screen = {
+          name: 'update',
+          kind: failure.code === 'update_computer' ? 'computer' : 'phone',
+        };
+        this.render();
+        return;
+      }
       this.screen = {
         name: 'sessions',
         computer,
         sessions: [],
         filter: 'all',
         loading: false,
-        error: noticeFor(asError(error)),
+        error: noticeFor(failure),
         connection: this.connectionStates.get(computer.id),
       };
       this.render();
     }
+  }
+
+  /** Shows the package status as a notice on the shell session list. */
+  private uiNoticeFor(status: UiStatus): Notice | undefined {
+    if (status.state === 'failed') {
+      return {
+        key: 'ui.loadFailed',
+        tone: 'error',
+        detail: status.message,
+      };
+    }
+    if (status.state === 'none') {
+      return { key: 'ui.missing', tone: 'neutral' };
+    }
+    return undefined;
+  }
+
+  /** Opens a ready package once per address in this shell run. */
+  private openPackage(url: string): void {
+    if (this.packageOpened === url) {
+      return;
+    }
+    this.packageOpened = url;
+    window.location.assign(url);
   }
 
   private resetSessionFiles(): void {

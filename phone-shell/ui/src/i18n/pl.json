@@ -211,5 +211,10 @@
   "notifications.doneBody": "Zadanie jest ukończone.",
   "notifications.messageTitle": "{name} mówi",
   "notifications.denied": "Powiadomienia są wyłączone. Zezwól na powiadomienia elesdee w ustawieniach telefonu.",
-  "notifications.unavailable": "Powiadomienia nie są dostępne na tym telefonie."
+  "notifications.unavailable": "Powiadomienia nie są dostępne na tym telefonie.",
+  "update.title": "Wymagana aktualizacja",
+  "update.computer": "Zaktualizuj elesdee na tym komputerze.",
+  "update.phone": "Zaktualizuj aplikację telefonu.",
+  "ui.missing": "Ten komputer nie ma interfejsu dla telefonu. Zaktualizuj elesdee na tym komputerze.",
+  "ui.loadFailed": "Nie udało się wczytać interfejsu telefonu. Ten telefon zachowuje własne ekrany."
 }

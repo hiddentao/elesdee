@@ -211,5 +211,10 @@
   "notifications.doneBody": "タスクは完了しました。",
   "notifications.messageTitle": "{name} のメッセージ",
   "notifications.denied": "通知はオフです。スマートフォンの設定で elesdee の通知を許可してください。",
-  "notifications.unavailable": "このスマートフォンでは通知を利用できません。"
+  "notifications.unavailable": "このスマートフォンでは通知を利用できません。",
+  "update.title": "更新が必要です",
+  "update.computer": "このコンピューターの elesdee を更新してください。",
+  "update.phone": "スマートフォンのアプリを更新してください。",
+  "ui.missing": "このコンピューターにはスマートフォン用の画面がありません。このコンピューターの elesdee を更新してください。",
+  "ui.loadFailed": "スマートフォンの画面を読み込めませんでした。このスマートフォンは独自の画面を使います。"
 }

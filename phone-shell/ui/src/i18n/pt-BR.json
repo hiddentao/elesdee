@@ -211,5 +211,10 @@
   "notifications.doneBody": "A tarefa está concluída.",
   "notifications.messageTitle": "{name} diz",
   "notifications.denied": "As notificações estão desligadas. Permita as notificações do elesdee nas configurações do telefone.",
-  "notifications.unavailable": "As notificações não estão disponíveis neste telefone."
+  "notifications.unavailable": "As notificações não estão disponíveis neste telefone.",
+  "update.title": "Atualização necessária",
+  "update.computer": "Atualize o elesdee neste computador.",
+  "update.phone": "Atualize o aplicativo do telefone.",
+  "ui.missing": "Este computador não tem interface para telefone. Atualize o elesdee neste computador.",
+  "ui.loadFailed": "Não foi possível carregar a interface do telefone. Este telefone mantém as próprias telas."
 }

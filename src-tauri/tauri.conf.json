@@ -32,7 +32,10 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all"
+    "targets": "all",
+    "resources": {
+      "../app/dist-phone-package": "phone-ui"
+    }
   },
   "plugins": {
     "updater": {

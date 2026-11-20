@@ -1,6 +1,6 @@
 # Phone shell, pairing and remote connection
 
-Status: design. Steps 1 to 4, step 7's terminal input, session actions, permission and question cards, AI config switch, structured message view, upload, file and image reads and diffs on both phone surfaces, and step 8's demo-server forwarding on both the computer and the phone are implemented in part. The native shell shows the message view with prompts, replies, tool rows, the context strip, the composer and the key rail, with one button to the read-only terminal. It also lists the session's files, previews images and text, shows the changes since the branch point, and uploads one file with the native picker. The desktop pairing dialog in Settings > Devices shows the QR image, the phone name and the six-digit code, and the approve, deny and cancel actions. The shell has not run on a device or an emulator, and the Android and iOS projects are not generated.
+Status: design. Steps 1 to 5, step 7's terminal input, session actions, permission and question cards, AI config switch, structured message view, upload, file and image reads and diffs on both phone surfaces, and step 8's demo-server forwarding on both the computer and the phone are implemented in part. The native shell shows the message view with prompts, replies, tool rows, the context strip, the composer and the key rail, with one button to the read-only terminal. It also lists the session's files, previews images and text, shows the changes since the branch point, and uploads one file with the native picker. The desktop pairing dialog in Settings > Devices shows the QR image, the phone name and the six-digit code, and the approve, deny and cancel actions. The desktop build packs the shared React phone layout into a hashed archive, the core serves its manifest and archive over the link, and the shell downloads a changed build once, checks it, unpacks it into app-private storage and serves it on its own origin. The shell has not run on a device or an emulator, and the Android and iOS projects are not generated.
 
 Read this with `.dev/SPEC.md` (Mobile companion app, Connection technology), `.dev/api.md` and `docs/phone.md`.
 
@@ -392,11 +392,14 @@ These routes are implemented in `core/src/api.rs`. `POST /api/pairing` returns 5
 
 ### 5.1 Build
 
-- `app/vite.phone.config.ts` builds only `phone.html` with `base: './'` into `app/dist-phone`. It uses the same React source as the desktop layout.
-- `npm run build:phone` runs the build.
-- `scripts/package-phone-ui.mjs` writes `phone-ui.zip` with sorted entries and fixed timestamps, computes the blake3 hash, and writes `phone-ui.json`.
-- The packaging script renames `phone.html` to `index.html`, so the shell loads `/ui/<buildId>/`.
-- Use `fflate` 0.8 in the packaging script so the build does not depend on a platform zip tool.
+- `app/vite.phone.config.ts` builds only `phone.html` with `base: './'` into `app/dist-phone`. It uses the same React source as the desktop layout, including the shared interface catalogs.
+- `npm run build:phone` runs the app's `build:phone` and then `scripts/package-phone-ui.mjs`. `npm run build` runs the desktop build first and then the phone package, so a desktop build always ships a matching package.
+- `scripts/package-phone-ui.mjs` writes `phone-ui.zip` with sorted entries, stored without compression and stamped with one fixed time, computes the blake3 hash, and writes `phone-ui.json` into `app/dist-phone-package`.
+- The packaging script renames `phone.html` to `index.html`, so the shell loads `/ui/<buildPath>/`. The build path is `blake3-<hex>`, the path-safe form of the manifest build id.
+- The script uses `fflate` 0.8 for the zip and `@noble/hashes` for blake3, so the build does not depend on a platform zip tool or a native hash module.
+- A build test in `scripts/package-phone-ui.test.mjs` checks the manifest fields, the hash, the renamed entry page, the deterministic archive and the refusal of an unsafe path.
+
+The package limits are shared with the shell and the core: 64 MiB for the archive and for one file, 256 MiB after extraction, 4096 entries and 512 bytes for one entry name.
 
 Manifest:
 
@@ -414,31 +417,35 @@ Manifest:
 
 ### 5.2 Ship and serve on the computer
 
-Step 3 does not build or serve the phone UI package. The shell serves its own screens from `frontendDist`. The package delivery below is step 5.
+Step 5 implements this. The shell serves its own screens from `frontendDist`, and the package is delivered from the desktop build.
 
-- The Tauri desktop bundle includes `app/dist-phone-package` as a resource.
+- The Tauri desktop bundle includes `app/dist-phone-package` as the `phone-ui` resource.
 - The desktop shell starts the core with `--phone-ui <resource path>`. In development the core falls back to `ELESDEE_PHONE_UI`, then `app/dist-phone-package`.
-- The core checks the manifest and the zip hash at startup. If they are missing or invalid, pairing still works, but `welcome` has `ui: null`. The phone shows "This computer has no phone interface. Update elesdee on this computer."
-- `ui.download` returns the manifest as the response header and the zip as the binary body. Only a paired phone can call it.
+- The core reads `phone-ui.json` and `phone-ui.zip` once at startup, before the endpoint binds. It checks the schema, the build id form, the archive size, the manifest byte count, the blake3 hash, the entry count, the entry names, the entry types and the unpacked size. The archive is cached in memory.
+- If the package is missing, the core still starts pairing and the rest of the link. `welcome` has `ui: null`. A request for a missing package returns `not_found`; an oversized package returns `too_large`; a malformed package returns `internal`.
+- `ui.manifest` returns the manifest object. `ui.download` returns the same manifest as the response header and the zip as the binary body. Only a paired phone can call either method. A path parameter is refused with `bad_request`, so no caller can ask for one file.
+- `ui.rs` in `core/src/link/` holds the loader, the checks and the cached archive.
 
 ### 5.3 Download and store on the phone
 
+Step 5 implements this in `phone-shell/src-tauri/src/ui.rs`.
+
 1. Compare the `buildId` in `welcome` with the stored build for that computer.
-2. If they match, use the stored build.
-3. If they differ, call `ui.download`. Write the body to a temporary file while hashing it.
-4. Check the hash, the byte count and the entry count.
-5. Extract into a temporary directory, then rename it to `<data>/computers/<computerId>/ui/<buildId>/`.
-6. Keep the current build and one previous build. Delete older builds.
+2. If they match, use the stored build. No download happens.
+3. If they differ, call `ui.download` once. The body arrives in memory after the frame reader checks its declared length against the 64 MiB cap.
+4. Check the hash, the byte count, the entry count and every entry name.
+5. Extract into a temporary folder under `<data>/computers/<computerId>/ui/builds/`, then rename it to `blake3-<hex>`.
+6. Write `current.json` atomically. Keep the current build and one previous build; delete older build folders and leftover temporary folders.
 
 Reject a package when it has:
 
-- a path with `..`, an absolute path, a symlink, or a name over 512 bytes;
+- a path with `..`, an absolute path, a symlink, a backslash, an empty segment, or a name over 512 bytes;
 - duplicate names, including names that differ only by case;
 - more than 4096 entries;
 - more than 256 MiB after extraction;
 - a file over 64 MiB.
 
-If the new build fails to load, the shell shows "Use the previous version". The previous build stays until a build loads successfully.
+A failed download, hash check or unpack leaves the previous build in place. The shell keeps its own screens and shows "The phone interface could not be loaded." It never navigates to a package that did not install.
 
 ### 5.4 Version checks
 
@@ -455,7 +462,9 @@ On connect:
 - If the shell's protocol is outside the computer's supported range, show "Update elesdee on this computer."
 - If the computer's `minBridgeVersion` is greater than `BRIDGE_VERSION`, show "Update the phone app."
 - If `ui.minBridgeVersion` is greater than `BRIDGE_VERSION`, show the same.
-- If the package's protocol is outside the shell's range, show the same.
+- If the package's protocol is outside the shell's range, or its schema is not the one this shell knows, show the same.
+
+Step 5 implements this in `ui.rs` (`check_versions`) and in the shell screens. The client maps the two connect failures to the stable codes `update_computer` and `update_phone`. The package check returns the same two states. The screens use the `update.title`, `update.computer` and `update.phone` catalog keys.
 
 The shell translates its screens, including these messages, into all 12 languages. They do not depend on the package. The package uses the phone's own language setting.
 
@@ -463,7 +472,7 @@ Keep the package's `@tauri-apps/api` version within the same minor as the shell'
 
 ### 5.5 Serving the package
 
-Tauri serves the shell screens from `frontendDist`. Use `tauri::Builder::register_uri_scheme_protocol("elesdee", handler)` for the UI package.
+Tauri serves the shell screens from `frontendDist`. Step 5 registers `tauri::Builder::register_uri_scheme_protocol("elesdee", handler)` for the UI package. The handler reads the `UiStore` from Tauri managed state.
 
 - The package origin is `http://elesdee.localhost` on Android and `elesdee://localhost` on macOS and iOS.
 - The shell origin is `http://tauri.localhost` on Android and `tauri://localhost` on macOS.
@@ -474,7 +483,7 @@ Routes on the `elesdee` protocol:
 
 | Path | Response |
 | --- | --- |
-| `/ui/<buildId>/*` | The active computer's stored build |
+| `/ui/<buildPath>/*` | The active computer's stored build |
 | Anything else | 404 |
 
 - Serve only the active computer and the current build. Resolve the path, reject `..` before disk access, and check the canonical path is under the build root.
@@ -518,6 +527,8 @@ Step 3 implements the shell side of the bridge as these commands in `phone-shell
 `phone_request` is the only path that sends a method. It rejects a name outside the allowlist before it touches a connection, so the screens cannot reach a method that the link crate does not list. No command holds the shell state lock across a network wait: pairing, connect and request take what they need, drop the lock, then write the result back. A pairing call has its own gate, so two pairings cannot overlap while other commands still run. One timeout covers the whole request, including the send, so a computer that stops reading cannot hold a caller forever. The package bridge (`phone_rpc`, subscriptions and upload) comes with steps 4 and 5.
 
 The shell injects `window.__ELESDEE_PHONE__` with `{ computerId, computerName, bridgeVersion, protocolVersion }` before page scripts run. The package uses it to select the phone transport. In a normal browser the marker is absent, so the same bundle uses the local HTTP API. This keeps the Playwright tests working.
+
+Step 5 delivers the package but does not connect it to this bridge. The loaded package still uses the browser HTTP transport, so its data requests do not reach the computer through the link yet. The shell's own screens stay reachable and keep working. The package transport is the separate refactor in 5.7.
 
 ### 5.7 UI transport refactor
 
@@ -695,7 +706,7 @@ Each step ends with an end-to-end test.
 | 2. Core endpoint and pairing | **Implemented.** Persistent key, endpoint start, pairing state machine, QR PNG, device store, local pairing and device routes. Files: `core/src/link/`, `core/src/state.rs`, `core/src/api.rs`. | **Implemented.** Rust integration with two real loopback endpoints: pair once and read the session snapshot, reject a second use of the ticket, reject an expired ticket, reject a removed device. Local API: QR returns, polling reaches `confirm`, approve stores the device, state reloads with no secret. Unit tests cover five wrong secrets, cancel, deny and the 16-device limit. |
 | 3. Phone shell and pairing screen | **Implemented in part.** Tauri v2 skeleton, `lib.rs` entry point, keychain identity, link client, QR scan and paste, code screen, refusal/expiry/cancel, computer list, session list from `bootstrap`, 12 shell catalogs. Files: `link/src/client.rs`, `link/tests/client.rs`, `phone-shell/`. | **Run:** 58 link tests (52 unit, 5 client loopback, 1 framing loopback), 37 shell catalog tests, UI typecheck and build, shell format, clippy and tests (0 Rust tests). Chromium render at 390 width in both themes with the native bridge stubbed, no console errors and no horizontal scroll. **Not run:** Android and iOS builds, emulator or device install, camera scan on a real phone. These need the SDKs and a device. |
 | 4. App connection and session RPC | **Implemented.** `hello` and `welcome`, unary dispatch through the local router, event, output and history streams with sequence replay, phone link client, shell connection manager and live session screens. Files: `link/src/app.rs`, `link/src/reconnect.rs`, `link/src/client.rs`, `core/src/link/app.rs`, `phone-shell/src-tauri/src/commands.rs`, `phone-shell/ui/src/app.ts`, `live.ts`, `bridge.ts`, `messages.ts`. | **Implemented.** Rust integration with two real loopback endpoints: welcome, a unary call, a denied method, an event, output replay and live output, history replay and live versions, live revocation with close code 3, and reconnect delays on a fake clock. The link client test opens a history stream, reads the status, the streamed version and the final version. The phone shell has UI tests for the live list, output merge, history merge, replay after reconnect, item parsing and tool row expansion, and Rust tests for channels and terminal errors. The browser phone layout still runs against the core; Playwright cannot drive the native bridge without a device. |
-| 5. UI package build and delivery | Vite phone config, packaging script, manifest, download, hash check, safe unzip, custom protocol serving, version gates. Files: `app/vite.phone.config.ts`, `scripts/package-phone-ui.mjs`, `core/src/link/ui.rs`, `phone-shell/src/`. | Node test: deterministic zip and matching hash. Rust test: hash mismatch rejected, traversal zip rejected, oversize rejected, atomic swap. Android: first download, desktop upgrade then phone update on connect, offline restart uses the stored build. |
+| 5. UI package build and delivery | **Implemented.** Vite phone config, packaging script, manifest, link methods, download, hash check, safe unzip, custom protocol serving, version gates. Files: `app/vite.phone.config.ts`, `scripts/package-phone-ui.mjs`, `scripts/package-phone-ui.test.mjs`, `core/src/link/ui.rs`, `core/src/link/app.rs`, `core/src/main.rs`, `phone-shell/src-tauri/src/ui.rs`, `phone-shell/src-tauri/src/commands.rs`, `phone-shell/src-tauri/src/lib.rs`, `phone-shell/ui/src/app.ts`, `phone-shell/ui/src/bridge.ts`, `src-tauri/src/main.rs`, `src-tauri/tauri.conf.json`. | **Run:** Node package test: manifest fields, deterministic archive, matching hash, renamed entry page, unsafe path refused. Core unit tests: valid package, missing package, changed hash, oversize, unsafe name, missing index. Core loopback tests: `welcome` manifest, `ui.manifest`, `ui.download` body, missing package `not_found`, oversize `too_large`, path parameter `bad_request`. Shell Rust tests: version comparison, hash rejection, oversize, unsafe name, traversal refusal, safe extraction, protocol serving and path refusal. **Not run:** Android or iOS build, emulator or device install, first download on a real phone, and the package render in a mobile webview. These need the SDKs and a device. |
 | 6. Reconnect and revocation | **Implemented in part.** Backoff, output resume and the revocation close code exist. Network change and foreground reconnect controls remain. Files: `link/src/reconnect.rs`, `phone-shell/src-tauri/src/commands.rs`. | **Implemented in part.** Rust tests cover the backoff sequence on a fake clock, output replay from a requested sequence and close code 3. The shell subscription stores the last sequence and reopens from it after a reconnect. A full reconnect test on a device remains. |
 | 7. Mobile actions | **Implemented:** terminal input with the key rail, latches, held-key repeat and saved keys; start, close, AI config switch and usage panel; permission, question and session-request cards; the one-line input in the browser phone layout; the structured message view with the history stream on both phone surfaces; and upload, the file list, text and image previews and the diff view on both phone surfaces. Files: `core/src/link/`, `core/src/files.rs`, `core/src/api.rs`, `link/src/method.rs`, `app/src/phone/`, `phone-shell/ui/`, `phone-shell/src-tauri/src/commands.rs`. | **Run:** link tests for the allowlist and the framed upload and image bodies; core tests for upload limits, name cleaning, no overwrite, private modes, a refused oversized frame, image confinement and content type and diff data; a core loopback test for upload and image; phone shell tests for key encoding, latches, saved keys, action rules, history merge, replay after reconnect, upload state, image view and diff rows; app tests for the message view states and the shared file helpers; and a Playwright test for the browser phone layout with files, an image, an upload and the diff. **Not run:** a device or emulator. The native picker, QR scan and on-device image render need a device. |
 | 8. Demo forwarding | **Implemented on the computer and the phone shell.** Forward ALPN, registered-port check, loopback connect, one tunnel per port, teardown. On the phone: loopback listener, same-or-free port choice, 8-tunnel registry, socket bridge, session list with local address, state and Open. Files: `link/src/forward.rs`, `link/src/client.rs`, `core/src/link/forward.rs`, `core/src/link/hub.rs`, `core/src/api.rs`, `core/src/demo.rs`, `core/src/mcp.rs`, `phone-shell/src-tauri/src/forward.rs`, `phone-shell/src-tauri/src/commands.rs`, `phone-shell/ui/src/demo.ts`, `phone-shell/ui/src/app.ts`, `phone-shell/ui/src/bridge.ts`. | **Run:** the link-crate forward tests, the core loopback test that registers a port, fetches a local HTTP server through the tunnel, refuses an unregistered port and refuses an unpaired phone, and the phone shell tests for port choice, refusal and a bridged socket. **Not run:** a device or emulator build, the phone's browser handoff, and any background behavior. |
@@ -715,15 +726,31 @@ First three steps in order: link crate, core endpoint and pairing, phone shell a
 | `phone-shell/ui/src/` | Plain TypeScript screens: computers, pair, code, sessions, with the shared design tokens and 12 catalogs. |
 | `phone-shell/test/catalogs.test.mjs` | Key parity, placeholders and empty-string checks across the 12 catalogs. |
 
+### Step 5 files and checks
+
+| Path | Contents |
+| --- | --- |
+| `app/vite.phone.config.ts` | Builds `phone.html` with a relative base into `app/dist-phone`. |
+| `scripts/package-phone-ui.mjs` | Sorted, fixed-time zip, blake3 build id and manifest in `app/dist-phone-package`. |
+| `scripts/package-phone-ui.test.mjs` | Manifest, hash, entry page, determinism and unsafe-path tests. |
+| `core/src/link/ui.rs` | Manifest and archive loader, size and entry checks, cached archive. |
+| `core/src/link/app.rs` | `ui.manifest` and `ui.download` dispatch, `welcome.ui`, path refusal. |
+| `core/src/main.rs` | `--phone-ui`, `ELESDEE_PHONE_UI` and the development fallback. |
+| `phone-shell/src-tauri/src/ui.rs` | Version comparison, download, hash check, safe unpack, build store and the `elesdee` protocol handler. |
+| `phone-shell/src-tauri/src/commands.rs` | Package sync after connect and reconnect, `phone_ui_state`, update codes. |
+| `phone-shell/src-tauri/src/lib.rs` | Registers the `elesdee` protocol and manages the store. |
+| `phone-shell/ui/src/app.ts`, `bridge.ts`, `types.ts` | Update screen, package navigation, missing and failed notices. |
+| `src-tauri/tauri.conf.json`, `src-tauri/src/main.rs` | Ship `app/dist-phone-package` and pass `--phone-ui` to the core. |
+
 Checks run on macOS with no Android or iOS SDK:
 
-- `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings` and `cargo test` in `link/`: 58 tests pass.
-- The same three in `phone-shell/src-tauri/`: 0 Rust tests, because the shell's logic sits in the link client and the screens. The crate builds for macOS.
-- `npm --prefix phone-shell run test`: 37 tests pass.
-- `npm --prefix phone-shell run typecheck` and `npm --prefix phone-shell run build`: both pass.
-- The screens render in Chromium at 390 width in light and dark with a stubbed native bridge: no console errors and no horizontal scroll. This checks layout only, not the native bridge.
+- `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings` and `cargo test` in `core/`: 404 tests pass, including the UI package loader unit tests and the three new loopback tests for the manifest, the archive, the missing package, the path refusal and the size refusal.
+- The same three in `phone-shell/src-tauri/`: 26 Rust tests pass, including version comparison, hash rejection, oversize refusal, safe extraction, traversal refusal and the protocol server.
+- `npm run test:phone-package`: 4 tests pass.
+- `npm --prefix phone-shell run test`: 101 tests pass. `typecheck` and `build` pass.
+- `npm run build`: the desktop build and the phone package build pass. `npm test` at the root: 246 tests pass.
 
-Not run: `tauri android init`, `tauri ios init`, an Android or iOS build, an emulator install, a real device, the camera, the keychain on a phone, and a connection over Wi-Fi or mobile data. The Android and iOS keychain stores compile only for their own targets and are not compiled here.
+Not run: `tauri android init`, `tauri ios init`, an Android or iOS build, an emulator install, a real device, the camera, the keychain on a phone, a package download over Wi-Fi or mobile data, and the package in a mobile webview. The Android and iOS keychain stores compile only for their own targets and are not compiled here.
 
 ### Step 4 files and checks
 
@@ -886,7 +913,7 @@ The three biggest risks are iroh on Android, the Tauri mobile and barcode scanne
 | --- | --- |
 | Show a confirmation code on the computer during pairing | Yes. It confirms the channel and blocks accidental pairings. |
 | mDNS on by default | Yes, with the relay as the fallback. |
-| Keep one previous UI build | Yes. It gives a fallback when a new package fails to load. |
+| Keep one previous UI build | Yes. A failed download or unpack leaves the stored build and the shell screens in place. |
 | Allow rename, delete or reopen from the phone | No in version 1. The spec lists close and start, not these. |
 | Foreground service for demo forwarding | Test first. Add it only if Android suspends the app during a normal review. |
 | Android minimum version | API 26 (Android 8). It gives modern Keystore and WebView behavior. |
