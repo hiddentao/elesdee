@@ -10393,6 +10393,51 @@ async fn model_effort_and_extra_arguments_reach_each_client() {
     assert_eq!(config["reasoningEffort"], "high");
     let (status, _) = close_session(&app, id).await;
     assert_eq!(status, StatusCode::OK);
+
+    let (status, google) = call(
+        &app,
+        "POST",
+        "/api/providers",
+        Some(json!({
+            "name": "Google flags",
+            "vendor": "google",
+            "auth": "key",
+            "key": "sk-google-flags"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{google}");
+    let google_id = google["id"].as_str().expect("google provider id");
+    let (status, antigravity) = call(
+        &app,
+        "POST",
+        "/api/configs",
+        Some(json!({
+            "providerId": google_id,
+            "client": "Antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "effort": "high"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{antigravity}");
+    let antigravity_id = antigravity["id"].as_str().expect("antigravity config id");
+    let session =
+        create_agent_with_config(&app, &repo.path, antigravity_id, "Antigravity flags").await;
+    let id = session["id"].as_str().expect("session id");
+    let path = data_dir
+        .path
+        .join("homes")
+        .join(id)
+        .join(".gemini")
+        .join("antigravity-cli")
+        .join("settings.json");
+    let settings: Value =
+        serde_json::from_slice(&fs::read(&path).expect("read antigravity settings")).expect("json");
+    assert_eq!(settings["model"], "gemini-3.8-flash-medium");
+    assert_eq!(settings["effort"], "high");
+    let (status, _) = close_session(&app, id).await;
+    assert_eq!(status, StatusCode::OK);
 }
 
 #[derive(Clone)]
