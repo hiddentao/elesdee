@@ -63,7 +63,7 @@ test('General settings persist and the Devices page explains pairing', async ({
   await settings.getByRole('button', { name: 'Devices' }).click();
   await expect(settings.getByText('No phone is paired.')).toBeVisible();
   await expect(
-    settings.getByText(/scan the pairing code/),
+    settings.getByText(/scan the code with the phone app/),
   ).toBeVisible();
   await expect(
     settings.getByRole('button', { name: /^Remove / }),
