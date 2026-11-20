@@ -11717,6 +11717,223 @@ async fn demo_servers_funnel_stop_keeps_the_address_when_tailscale_refuses() {
 
 #[cfg(unix)]
 #[tokio::test]
+async fn demo_registration_keeps_a_public_record_when_the_limit_is_full() {
+    let data_dir = TempDirectory::new("demo-limit-funnel-data");
+    let repo = TempDirectory::new("demo-limit-funnel-repo");
+    init_git_repo(&repo.path);
+    let calls = data_dir.path.join("funnel-calls.txt");
+    let allowed = data_dir.path.join("off-allowed.txt");
+    let calls_text = calls.to_string_lossy().into_owned();
+    let allowed_text = allowed.to_string_lossy().into_owned();
+    let binary = write_fake_tailscale(
+        &data_dir.path,
+        &format!(
+            "case \"$1\" in\nstatus) printf '{{\"BackendState\":\"Running\",\"Self\":{{\"DNSName\":\"studio.tailnet.ts.net.\",\"TailscaleIPs\":[\"100.101.102.103\"]}}}}' ;;\nfunnel) printf '%s\\n' \"$*\" >> '{calls_text}'\nif [ \"$2\" = \"--bg\" ]; then exit 0; fi\nif [ -e '{allowed_text}' ]; then exit 0; fi\necho 'Tailscale is stopping.' >&2\nexit 1 ;;\nesac"
+        ),
+    );
+    let app = router(
+        AppState::with_test_command_and_data_dir(
+            vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+            data_dir.path.clone(),
+        )
+        .with_test_tailscale_binary(binary)
+        .with_test_pause_grace(Duration::from_millis(50)),
+    );
+    ensure_test_project(&app, &repo.path).await;
+    let only = create_test_account(&app, "Full demo list", "sk-full-demo-list").await;
+    let (status, session) = call(
+        &app,
+        "POST",
+        "/api/sessions",
+        Some(json!({
+            "projectId": "web",
+            "kind": "agent",
+            "accountId": &only,
+            "allowedAccountIds": [&only],
+            "name": "Full demo list",
+            "folder": repo.path.to_string_lossy()
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let id = session["id"].as_str().expect("session id").to_owned();
+
+    for port in 6400..6408 {
+        let (failed, text) = mcp_text(
+            &app,
+            &id,
+            "register_demo_server",
+            json!({ "name": format!("Demo {port}"), "port": port }),
+        )
+        .await;
+        assert!(!failed, "{text}");
+    }
+
+    let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    let listed = bootstrap["sessions"]
+        .as_array()
+        .expect("sessions")
+        .iter()
+        .find(|session| session["id"] == id)
+        .expect("session");
+    let servers = demo_servers(listed);
+    assert_eq!(servers.len(), 8, "{listed}");
+    let public_id = servers
+        .iter()
+        .find(|server| server["port"] == 6400)
+        .and_then(|server| server["id"].as_str())
+        .expect("public server id")
+        .to_owned();
+    let enable_route = format!("/api/sessions/{id}/demo-servers/{public_id}/funnel");
+
+    let (status, body) = call(
+        &app,
+        "POST",
+        &enable_route,
+        Some(json!({ "confirmed": true })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    for server in servers.iter().filter(|server| server["port"] != 6400) {
+        let server_id = server["id"].as_str().expect("server id");
+        let (status, stopped) = call(
+            &app,
+            "POST",
+            &format!("/api/sessions/{id}/demo-servers/{server_id}/stop"),
+            Some(json!({})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{stopped}");
+    }
+
+    // A reported limit pauses the session while the client refuses the
+    // turn-off. The public record stops and keeps its address.
+    let (failed, text) = mcp_text(&app, &id, "report_limit", json!({})).await;
+    assert!(!failed, "{text}");
+    wait_for_session(&app, &id, |session| session["workState"] == "paused").await;
+
+    let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    let listed = bootstrap["sessions"]
+        .as_array()
+        .expect("sessions")
+        .iter()
+        .find(|session| session["id"] == id)
+        .expect("paused session");
+    let servers = demo_servers(listed);
+    assert_eq!(servers.len(), 8, "{listed}");
+    assert!(
+        servers.iter().all(|server| server["state"] == "stopped"),
+        "{listed}"
+    );
+    assert_eq!(servers[0]["port"], 6400, "{listed}");
+    assert_eq!(
+        servers[0]["funnelAddress"], "https://studio.tailnet.ts.net/",
+        "{listed}"
+    );
+
+    let (status, resumed) = call(
+        &app,
+        "POST",
+        &format!("/api/sessions/{id}/resume"),
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{resumed}");
+
+    // The ninth registration needs the public record's room. While the client
+    // refuses the turn-off, the registration is refused and nothing changes.
+    let (failed, text) = mcp_text(
+        &app,
+        &id,
+        "register_demo_server",
+        json!({ "name": "Ninth", "port": 6408 }),
+    )
+    .await;
+    assert!(failed, "{text}");
+    assert!(text.contains("6400"), "{text}");
+    assert!(text.contains("still public"), "{text}");
+    assert!(text.contains("stopping"), "{text}");
+
+    let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    let listed = bootstrap["sessions"]
+        .as_array()
+        .expect("sessions")
+        .iter()
+        .find(|session| session["id"] == id)
+        .expect("session after a refused registration");
+    let servers = demo_servers(listed);
+    assert_eq!(servers.len(), 8, "{listed}");
+    let public = servers
+        .iter()
+        .filter(|server| server.get("funnelAddress").is_some())
+        .collect::<Vec<_>>();
+    assert_eq!(public.len(), 1, "{listed}");
+    assert_eq!(public[0]["port"], 6400, "{listed}");
+    assert!(
+        !servers.iter().any(|server| server["port"] == 6408),
+        "{listed}"
+    );
+    let (_, all) = call(&app, "GET", "/api/demo-servers", None).await;
+    assert!(
+        all.as_array().expect("demo servers").is_empty(),
+        "no second server became public: {all}"
+    );
+
+    // Once the client accepts the turn-off, the public record is pruned and
+    // the new registration goes through.
+    fs::write(&allowed, "retry\n").expect("allow the next turn-off");
+    let (failed, text) = mcp_text(
+        &app,
+        &id,
+        "register_demo_server",
+        json!({ "name": "Ninth", "port": 6408 }),
+    )
+    .await;
+    assert!(!failed, "{text}");
+
+    let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    let listed = bootstrap["sessions"]
+        .as_array()
+        .expect("sessions")
+        .iter()
+        .find(|session| session["id"] == id)
+        .expect("session after a pruned registration");
+    let servers = demo_servers(listed);
+    assert_eq!(servers.len(), 8, "{listed}");
+    assert!(
+        !servers.iter().any(|server| server["port"] == 6400),
+        "{listed}"
+    );
+    assert_eq!(
+        servers
+            .iter()
+            .filter(|server| server.get("funnelAddress").is_some())
+            .count(),
+        0,
+        "{listed}"
+    );
+    assert!(
+        servers
+            .iter()
+            .any(|server| server["port"] == 6408 && server["state"] == "active"),
+        "{listed}"
+    );
+
+    let written = fs::read_to_string(&calls).expect("read calls");
+    assert!(
+        written
+            .lines()
+            .any(|line| line == "funnel --https=443 localhost:6400 off"),
+        "{written}"
+    );
+
+    let (status, _) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[cfg(unix)]
+#[tokio::test]
 async fn delete_refuses_while_a_public_address_remains() {
     let data_dir = TempDirectory::new("delete-funnel-data");
     let repo = TempDirectory::new("delete-funnel-repo");

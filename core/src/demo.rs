@@ -65,7 +65,7 @@ impl DemoServer {
 }
 
 /// Why a demo server registration or stop failed.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DemoFailure {
     /// The session does not exist.
     UnknownSession,
@@ -85,6 +85,9 @@ pub enum DemoFailure {
     Stopped,
     /// Tailscale refused to turn off the public address.
     FunnelUnavailable,
+    /// A stopped demo server still holds a public address that Tailscale did
+    /// not turn off, so its record cannot make room for a new registration.
+    FunnelStillPublic { port: u16, reason: String },
     /// No demo server has that id in this session.
     NotFound,
 }
@@ -104,6 +107,12 @@ impl fmt::Display for DemoFailure {
             Self::Stopped => "The demo server is stopped. Register it again first.",
             Self::FunnelUnavailable => {
                 "Tailscale could not turn off the public address. The server stays public. Try Stop again."
+            }
+            Self::FunnelStillPublic { port, reason } => {
+                return write!(
+                    formatter,
+                    "Port {port} is still public. {reason} The registration was refused. Turn the public address off first."
+                );
             }
             Self::NotFound => "Unknown demo server.",
         })

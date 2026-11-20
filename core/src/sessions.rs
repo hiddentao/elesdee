@@ -866,12 +866,16 @@ impl SessionEntry {
     /// Registers a demo server for this session.
     ///
     /// A repeated port in the same session updates its name and makes it active
-    /// again. A closed session refuses the registration.
+    /// again. A closed session refuses the registration. At the record limit,
+    /// the first stopped record makes room. A record with a public address is
+    /// removed only after the caller turns the mapping off; a refused turn-off
+    /// keeps the record and refuses the registration.
     pub fn register_demo_server(
         &self,
         name: String,
         port: u16,
         tailscale_address: Option<String>,
+        turn_off_public: impl FnOnce(u16) -> Result<(), DemoFailure>,
     ) -> Result<Session, DemoFailure> {
         let name = crate::demo::clean_name(&name).ok_or(DemoFailure::InvalidName)?;
         if !crate::demo::port_is_allowed(port) {
@@ -902,7 +906,9 @@ impl SessionEntry {
             return Err(DemoFailure::TooMany);
         }
         // Keep the whole list bounded. A stopped record is a stale process, so
-        // the oldest one makes room for a new registration.
+        // the oldest one makes room for a new registration. A public address
+        // is turned off before its record is dropped, because the daemon may
+        // still serve the port.
         if state.session.demo_servers.len() >= MAX_DEMO_SERVERS {
             let Some(index) = state
                 .session
@@ -912,6 +918,10 @@ impl SessionEntry {
             else {
                 return Err(DemoFailure::TooMany);
             };
+            let pruned = &state.session.demo_servers[index];
+            if pruned.is_public() {
+                turn_off_public(pruned.port)?;
+            }
             state.session.demo_servers.remove(index);
         }
         let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
