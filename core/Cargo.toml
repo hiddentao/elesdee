@@ -2,7 +2,7 @@
 name = "elesdee-core"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.91"
 publish = false
 
 [lib]
@@ -17,17 +17,26 @@ path = "src/main.rs"
 async-stream = "0.3"
 axum = "0.8"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+data-encoding = "2"
+elesdee-link = { path = "../link" }
 futures = "0.3"
+image = { version = "0.25", default-features = false, features = ["png"] }
+iroh = "=1.5.0"
+iroh-tickets = "=1.0.0"
 portable-pty = "0.9"
+qrcode = { version = "=0.15.0", default-features = false, features = ["image"] }
+rand = "0.10"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["full"] }
 tokio-stream = "0.1"
 tokio-tungstenite = "0.28"
+tower = { version = "0.5", features = ["util"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 uuid = { version = "1", features = ["v4"] }
+zeroize = "=1.9.2"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
@@ -43,4 +52,3 @@ keyring = { version = "3", default-features = false, features = ["linux-native"]
 
 [dev-dependencies]
 http-body-util = "0.1"
-tower = { version = "0.5", features = ["util"] }

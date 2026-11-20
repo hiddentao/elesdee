@@ -50,6 +50,57 @@ The service binds `127.0.0.1` only. It accepts requests only for loopback hostna
 - The home is removed on close, agent exit, delete and shutdown. Reopen creates it again and reads the key again.
 - Antigravity sessions get no Claude hook settings and no permission card. Their `shortcuts` list is empty; the UI shows the base keys.
 
+## Pairing and devices
+
+The core starts one iroh endpoint for the phone link. The local routes below control pairing and the paired device list. They are local only. They are not reachable through the link, and they keep the Host and Origin rules.
+
+```ts
+type PairingState =
+  | "idle"
+  | "waiting"
+  | "confirm"
+  | "paired"
+  | "denied"
+  | "expired"
+  | "cancelled";
+
+interface PairingStatus {
+  state: PairingState;
+  expiresAt?: number;   // Unix seconds
+  phoneName?: string;   // present in `confirm`
+  code?: string;        // six digits, present in `confirm`
+}
+
+interface PairedDevice {
+  endpointId: string;   // z-base-32 endpoint id
+  name: string;
+  platform: string;
+  pairedAt: string;     // RFC 3339
+  lastSeen?: string;    // RFC 3339, updated in memory at most once a minute
+}
+```
+
+| Method | Path | Body | Result |
+| --- | --- | --- | --- |
+| POST | `/api/pairing` | `{}` | `{ expiresAt, relayReady }` |
+| GET | `/api/pairing/qr` | | `image/png` for the active ticket; 404 when idle |
+| GET | `/api/pairing` | | `PairingStatus` |
+| POST | `/api/pairing/approve` | `{}` | `PairedDevice` |
+| POST | `/api/pairing/deny` | `{}` | `204` |
+| DELETE | `/api/pairing` | | `204` |
+| GET | `/api/devices` | | `PairedDevice[]` |
+| DELETE | `/api/devices/{id}` | | `204` |
+
+- A ticket lives for 120 seconds and is single use. A new request cancels the old ticket and any waiting confirmation.
+- `POST /api/pairing` waits at most five seconds for a relay and sets `relayReady`. When the endpoint is not running, it returns 503 and pairing is unavailable. A debug build with `ELESDEE_DEV=1` also returns `ticket` for an emulator paste fallback.
+- The QR route returns a PNG rendered in memory while the state is `waiting`. It returns 404 in every other state. The image and the ticket are never written to disk or a log.
+- The desktop UI polls `GET /api/pairing` each second. In `confirm` it shows `phoneName` and the six-digit `code`. The phone shows the same code.
+- Five wrong secrets cancel the session. A used, expired or cancelled ticket is rejected.
+- `POST /api/pairing/approve` stores the device, saves state and returns 409 when no phone is waiting or the 16-device limit is reached. `deny` and `cancel` return 204 in every state.
+- A device list entry holds no key and no secret. A 17th device returns 409.
+- `DELETE /api/devices/{id}` returns 404 for an unknown id. It saves state and closes the device's live connections with link close code 3.
+- The pairing handshake itself uses the pair ALPN, not these routes. It accepts one request and answers with a confirmation code, then a final `paired`, `denied` or `expired` message.
+
 ## Agent permissions
 
 - Antigravity has no hooks and no permission card. Its own terminal handles prompts.
@@ -66,7 +117,9 @@ The service binds `127.0.0.1` only. It accepts requests only for loopback hostna
 ## Persistence
 
 - State lives in `ELESDEE_DATA_DIR`, default `~/.elesdee`, in `state.json`. The directory is created with mode 0700 and files with mode 0600. Writes use a temporary file, fsync and rename.
-- Projects and their default account and source branch, accounts, sessions, each session's desired columns and rows, its output log, and an agent's repository root are saved. Account keys are not saved. No runtime handles are saved.
+- Projects and their default account and source branch, accounts, sessions, each session's desired columns and rows, its output log, an agent's repository root, and the paired device list are saved. Account keys and pairing secrets are not saved. No runtime handles are saved.
+- The desktop link identity is a separate 32-byte key in `<data dir>/link.key`, with mode 0600, written once and reused. It is never in `state.json` and never logged. A missing key creates a new identity; every paired phone must pair again.
+- The paired device list is written on pair, removal and graceful shutdown. `lastSeen` updates in memory at most once a minute.
 - State is saved on project create, account create, session create, rename, close, reopen, delete, resize, and graceful shutdown. It is not written for each output chunk.
 - A session that was active on save is restored as closed, with preview `"The app restarted. Reopen to continue."` and no process. Its log and sequence numbers are kept, and reopen continues from the next sequence. A pending permission request is not written to the file and is not restored.
 - A new state starts with no projects. Seed accounts are used only when no state file exists, when the state file is corrupt, or when an older state file has no account list. A corrupt file is moved to `state.bad.json` and the problem is logged.
@@ -218,6 +271,14 @@ interface OutputEvent {
 | PATCH | `/api/projects/{id}` | `{ defaultAccountId?, defaultSourceBranch? }` | `Project` |
 | GET | `/api/accounts?q={text}` | | `Account[]` |
 | POST | `/api/accounts` | `{ name, providerId, client, auth: "key", key, model? }` | `Account` |
+| POST | `/api/pairing` | `{}` | `{ expiresAt, relayReady }` |
+| GET | `/api/pairing/qr` | | `image/png` |
+| GET | `/api/pairing` | | `PairingStatus` |
+| POST | `/api/pairing/approve` | `{}` | `PairedDevice` |
+| POST | `/api/pairing/deny` | `{}` | `204` |
+| DELETE | `/api/pairing` | | `204` |
+| GET | `/api/devices` | | `PairedDevice[]` |
+| DELETE | `/api/devices/{id}` | | `204` |
 | POST | `/api/sessions` | `{ projectId, kind, accountId?, name?, folder?, cols?, rows? }` | `Session` |
 | POST | `/api/sessions/{id}/close` | `{}` | `Session` |
 | PATCH | `/api/sessions/{id}` | `{ name }` | `Session` |
@@ -233,7 +294,7 @@ interface OutputEvent {
 | GET | `/api/sessions/{id}/output?after={seq}` | | SSE: `data: {"seq":n,"data":"..."}` and an optional `gap` |
 | GET | `/api/events` | | SSE: `data: {"type":"session.updated","session":Session}` |
 
-Errors use `{ "error": "message" }`. Unknown sessions return 404. A session that is closed, or whose process has exited, returns 409 for input. An invalid session name or terminal size returns 400. An agent session in a non-Git folder returns 422. Reopening an active session, deleting an active session, or reopening or deleting while a close is running returns 409; reopening with a missing folder, repository, branch or client returns 422. A permission answer returns 404 for an unknown session and 409 when the session is closed, there is no pending request, the request id does not match, or the request was already answered. An empty project name returns 400, a bad project folder returns 422, and a duplicate project folder returns 409. An unknown project returns 404. A default account that does not exist, a default branch that does not exist, or a project folder that is not a Git repository returns 422. An unsafe branch name returns 400. An empty account name, empty key or overlong model returns 400; an unsupported provider and client pair or an unsupported auth mode returns 422; a keychain failure returns 500. A blocked Host or Origin returns 403, a bad POST or PATCH content type returns 415, a full session list or stream list returns 429, a request that exceeds the 30-second timeout returns 408, and a wrong non-OPTIONS method returns 405. A file path outside the session folder returns 400, a binary file returns 422, and content above 1 MiB returns 413.
+Errors use `{ "error": "message" }`. Pairing returns 503 when the link endpoint is not running, and 409 when no phone waits for approval or the device limit is reached. Removing an unknown device returns 404. Unknown sessions return 404. A session that is closed, or whose process has exited, returns 409 for input. An invalid session name or terminal size returns 400. An agent session in a non-Git folder returns 422. Reopening an active session, deleting an active session, or reopening or deleting while a close is running returns 409; reopening with a missing folder, repository, branch or client returns 422. A permission answer returns 404 for an unknown session and 409 when the session is closed, there is no pending request, the request id does not match, or the request was already answered. An empty project name returns 400, a bad project folder returns 422, and a duplicate project folder returns 409. An unknown project returns 404. A default account that does not exist, a default branch that does not exist, or a project folder that is not a Git repository returns 422. An unsafe branch name returns 400. An empty account name, empty key or overlong model returns 400; an unsupported provider and client pair or an unsupported auth mode returns 422; a keychain failure returns 500. A blocked Host or Origin returns 403, a bad POST or PATCH content type returns 415, a full session list or stream list returns 429, a request that exceeds the 30-second timeout returns 408, and a wrong non-OPTIONS method returns 405. A file path outside the session folder returns 400, a binary file returns 422, and content above 1 MiB returns 413.
 
 ## Rules
 
