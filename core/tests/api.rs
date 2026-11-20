@@ -1861,6 +1861,334 @@ async fn session_environment_overrides_reach_the_process() {
 }
 
 #[tokio::test]
+async fn presets_can_be_created_listed_updated_and_deleted() {
+    let app = router(AppState::ephemeral());
+    let (status, created) = call(
+        &app,
+        "POST",
+        "/api/presets",
+        Some(json!({
+            "name": "Fast Claude",
+            "accountId": "max",
+            "model": "claude-sonnet-4-5",
+            "env": [{ "name": "E2E_VALUE", "value": "preset" }],
+            "config": { "permissions.defaultMode": "acceptEdits" }
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{created}");
+    assert_eq!(created["name"], "Fast Claude");
+    assert_eq!(created["accountId"], "max");
+    assert_eq!(created["model"], "claude-sonnet-4-5");
+    assert_eq!(created["env"][0]["name"], "E2E_VALUE");
+    assert_eq!(created["config"]["permissions.defaultMode"], "acceptEdits");
+    assert_eq!(created["stored"], true);
+    let id = created["id"].as_str().expect("preset id").to_owned();
+
+    let (status, filtered) = call(&app, "GET", "/api/presets?q=fast", None).await;
+    assert_eq!(status, StatusCode::OK);
+    let filtered = filtered.as_array().expect("presets");
+    assert!(filtered.iter().any(|preset| preset["id"] == id.as_str()));
+
+    let (_, all) = call(&app, "GET", "/api/presets", None).await;
+    let derived = all
+        .as_array()
+        .expect("presets")
+        .iter()
+        .find(|preset| preset["id"] == "account:codex")
+        .expect("an account without a stored preset still appears");
+    assert_eq!(derived["stored"], false);
+    assert_eq!(derived["name"], "ChatGPT Pro");
+    assert_eq!(derived["accountId"], "codex");
+
+    let (status, updated) = call(
+        &app,
+        "PATCH",
+        &format!("/api/presets/{id}"),
+        Some(json!({
+            "name": "Faster Claude",
+            "model": "claude-opus-4-1",
+            "env": [],
+            "config": { "model": "from-config" }
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{updated}");
+    assert_eq!(updated["name"], "Faster Claude");
+    assert_eq!(updated["model"], "claude-opus-4-1");
+    assert!(updated["env"].as_array().expect("env").is_empty());
+    assert_eq!(updated["config"]["model"], "from-config");
+
+    let (status, _) = call(&app, "DELETE", &format!("/api/presets/{id}"), None).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let (status, _) = call(&app, "DELETE", &format!("/api/presets/{id}"), None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn preset_accounts_and_models_are_validated() {
+    let app = router(AppState::ephemeral());
+
+    let (status, body) = call(
+        &app,
+        "POST",
+        "/api/presets",
+        Some(json!({ "name": "Orphan", "accountId": "missing" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+
+    let (status, created) = call(
+        &app,
+        "POST",
+        "/api/presets",
+        Some(json!({ "name": "Valid", "accountId": "max" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{created}");
+    let id = created["id"].as_str().expect("preset id");
+
+    let (status, unnamed) = call(
+        &app,
+        "POST",
+        "/api/presets",
+        Some(json!({ "accountId": "codex" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{unnamed}");
+    assert_eq!(unnamed["name"], "ChatGPT Pro");
+
+    let (status, body) = call(
+        &app,
+        "PATCH",
+        &format!("/api/presets/{id}"),
+        Some(json!({ "accountId": "missing" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+
+    let (status, body) = call(
+        &app,
+        "POST",
+        "/api/presets",
+        Some(json!({
+            "name": "Bad model",
+            "accountId": "max",
+            "model": "not a model"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+
+    let (status, body) = call(
+        &app,
+        "POST",
+        "/api/presets",
+        Some(json!({
+            "name": "Bad key",
+            "accountId": "max",
+            "config": { "bad key": "value" }
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+}
+
+#[tokio::test]
+async fn presets_persist_across_restarts() {
+    let data_dir = TempDirectory::new("preset-persist");
+    {
+        let app = router(AppState::with_data_dir(data_dir.path.clone()));
+        let (status, created) = call(
+            &app,
+            "POST",
+            "/api/presets",
+            Some(json!({
+                "name": "Saved",
+                "accountId": "codex",
+                "model": "gpt-5.2",
+                "config": { "model_reasoning_effort": "high" }
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{created}");
+    }
+
+    let app = router(AppState::with_data_dir(data_dir.path.clone()));
+    let (_, presets) = call(&app, "GET", "/api/presets", None).await;
+    let saved = presets
+        .as_array()
+        .expect("presets")
+        .iter()
+        .find(|preset| preset["name"] == "Saved")
+        .expect("the stored preset was reloaded");
+    assert_eq!(saved["accountId"], "codex");
+    assert_eq!(saved["model"], "gpt-5.2");
+    assert_eq!(saved["config"]["model_reasoning_effort"], "high");
+    assert_eq!(saved["stored"], true);
+}
+
+#[tokio::test]
+async fn session_from_a_preset_gets_its_model_and_environment() {
+    let data_dir = TempDirectory::new("preset-session-data");
+    let repo = TempDirectory::new("preset-session-repo");
+    init_git_repo(&repo.path);
+    let app = router(AppState::with_test_command_and_data_dir(
+        vec![
+            "/bin/sh".to_owned(),
+            "-c".to_owned(),
+            "printf 'value:%s\\n' \"$E2E_VALUE\"; sleep 30".to_owned(),
+        ],
+        data_dir.path.clone(),
+    ));
+    ensure_test_project(&app, &repo.path).await;
+
+    let (status, preset) = call(
+        &app,
+        "POST",
+        "/api/presets",
+        Some(json!({
+            "name": "Preset launch",
+            "accountId": "max",
+            "model": "claude-sonnet-4-5",
+            "env": [{ "name": "E2E_VALUE", "value": "from-preset" }],
+            "config": { "permissions.defaultMode": "acceptEdits" }
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{preset}");
+    let preset_id = preset["id"].as_str().expect("preset id");
+
+    let (status, session) = call(
+        &app,
+        "POST",
+        "/api/sessions",
+        Some(json!({
+            "projectId": "web",
+            "kind": "agent",
+            "presetId": preset_id,
+            "name": "From preset",
+            "folder": repo.path.to_string_lossy()
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let id = session["id"].as_str().expect("session id").to_owned();
+    assert_eq!(session["presetId"], preset_id);
+    assert_eq!(session["accountId"], "max");
+    assert_eq!(session["model"], "claude-sonnet-4-5");
+
+    let request = request_builder("GET", &format!("/api/sessions/{id}/output?after=0"))
+        .body(Body::empty())
+        .expect("build output request");
+    let response = app.clone().oneshot(request).await.expect("open output");
+    let text = read_sse_until(response.into_body(), |text| {
+        text.contains("value:from-preset")
+    })
+    .await;
+    assert!(sse_data_text(&text).contains("value:from-preset"));
+
+    let (_, settings) = claude_settings(&data_dir.path, &id);
+    assert_eq!(settings["model"], "claude-sonnet-4-5");
+    assert_eq!(settings["permissions"]["defaultMode"], "acceptEdits");
+    assert!(settings["hooks"]["PreToolUse"].is_array());
+
+    let (status, _) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn launch_environment_overrides_win_over_a_preset() {
+    let data_dir = TempDirectory::new("preset-env-data");
+    let repo = TempDirectory::new("preset-env-repo");
+    init_git_repo(&repo.path);
+    let app = router(AppState::with_test_command_and_data_dir(
+        vec![
+            "/bin/sh".to_owned(),
+            "-c".to_owned(),
+            "printf 'value:%s\\n' \"$E2E_VALUE\"; sleep 30".to_owned(),
+        ],
+        data_dir.path.clone(),
+    ));
+    ensure_test_project(&app, &repo.path).await;
+
+    let (status, preset) = call(
+        &app,
+        "POST",
+        "/api/presets",
+        Some(json!({
+            "name": "Preset environment",
+            "accountId": "max",
+            "env": [{ "name": "E2E_VALUE", "value": "from-preset" }]
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{preset}");
+    let preset_id = preset["id"].as_str().expect("preset id");
+
+    let (status, session) = call(
+        &app,
+        "POST",
+        "/api/sessions",
+        Some(json!({
+            "projectId": "web",
+            "kind": "agent",
+            "presetId": preset_id,
+            "name": "Launch wins",
+            "folder": repo.path.to_string_lossy(),
+            "env": [{ "name": "E2E_VALUE", "value": "from-launch" }]
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let id = session["id"].as_str().expect("session id").to_owned();
+    assert_eq!(
+        session["envOverrides"],
+        json!([{ "name": "E2E_VALUE", "value": "from-launch" }])
+    );
+
+    let request = request_builder("GET", &format!("/api/sessions/{id}/output?after=0"))
+        .body(Body::empty())
+        .expect("build output request");
+    let response = app.clone().oneshot(request).await.expect("open output");
+    let text = read_sse_until(response.into_body(), |text| {
+        text.contains("value:from-launch")
+    })
+    .await;
+    let output = sse_data_text(&text);
+    assert!(output.contains("value:from-launch"));
+    assert!(!output.contains("value:from-preset"));
+
+    let (status, _) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn terminal_sessions_reject_a_preset() {
+    let folder = TempDirectory::new("preset-terminal");
+    let app = router(AppState::with_test_command(vec![
+        "/bin/sh".to_owned(),
+        "-c".to_owned(),
+        "sleep 30".to_owned(),
+    ]));
+    ensure_test_project(&app, &folder.path).await;
+
+    let (status, body) = call(
+        &app,
+        "POST",
+        "/api/sessions",
+        Some(json!({
+            "projectId": "web",
+            "kind": "terminal",
+            "presetId": "account:max",
+            "folder": folder.path.to_string_lossy()
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+}
+
+#[tokio::test]
 async fn invalid_environment_names_are_rejected() {
     let data_dir = TempDirectory::new("env-bad-data");
     let repo = TempDirectory::new("env-bad-repo");

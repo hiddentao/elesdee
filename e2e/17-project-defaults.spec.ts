@@ -70,8 +70,8 @@ test('project defaults prefill the launch form and start the session', async ({
     dialog.getByRole('radio', { name: 'Claude Code' }),
   ).toBeChecked();
   await expect(
-    dialog.getByRole('combobox', { name: 'Account' }),
-  ).toHaveValue(account.name);
+    dialog.getByRole('combobox', { name: 'Preset' }),
+  ).toHaveValue(new RegExp(account.name));
   await expect(
     dialog.getByRole('combobox', { name: 'Source branch (optional)' }),
   ).toHaveValue('feature');

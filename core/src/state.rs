@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::env;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -169,6 +169,12 @@ pub struct Session {
     pub parent_session_name: Option<String>,
     #[serde(default)]
     pub env_overrides: Vec<EnvOverride>,
+    #[serde(default)]
+    pub preset_id: Option<String>,
+    #[serde(default)]
+    pub model: Option<String>,
+    #[serde(default)]
+    pub config: BTreeMap<String, String>,
     pub started_at: String,
     pub shortcuts: Vec<Shortcut>,
 }
@@ -298,6 +304,65 @@ pub struct Account {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Preset {
+    pub id: String,
+    pub name: String,
+    pub account_id: String,
+    pub model: Option<String>,
+    #[serde(default)]
+    pub env: Vec<EnvOverride>,
+    #[serde(default)]
+    pub config: BTreeMap<String, String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LaunchPreset {
+    pub id: String,
+    pub name: String,
+    pub account_id: String,
+    pub model: Option<String>,
+    pub env: Vec<EnvOverride>,
+    pub config: BTreeMap<String, String>,
+    pub stored: bool,
+    pub created_at: Option<String>,
+    pub updated_at: Option<String>,
+}
+
+impl LaunchPreset {
+    pub(crate) fn from_stored(preset: Preset) -> Self {
+        Self {
+            id: preset.id,
+            name: preset.name,
+            account_id: preset.account_id,
+            model: preset.model,
+            env: preset.env,
+            config: preset.config,
+            stored: true,
+            created_at: Some(preset.created_at),
+            updated_at: Some(preset.updated_at),
+        }
+    }
+
+    pub(crate) fn from_account(account: &Account) -> Self {
+        Self {
+            id: format!("account:{}", account.id),
+            name: account.name.clone(),
+            account_id: account.id.clone(),
+            model: None,
+            env: Vec::new(),
+            config: BTreeMap::new(),
+            stored: false,
+            created_at: None,
+            updated_at: None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct AgentCheck {
     pub name: Client,
     pub installed: bool,
@@ -316,6 +381,7 @@ pub struct HealthResponse {
 pub struct Bootstrap {
     pub projects: Vec<Project>,
     pub accounts: Vec<Account>,
+    pub presets: Vec<Preset>,
     pub sessions: Vec<Session>,
     pub questions: Vec<Question>,
     pub session_requests: Vec<SessionRequest>,
@@ -419,6 +485,7 @@ impl SessionStore {
 struct Inner {
     projects: Mutex<Vec<Project>>,
     accounts: Mutex<Vec<Account>>,
+    presets: Mutex<Vec<Preset>>,
     secrets: Arc<dyn SecretStore>,
     sessions: Mutex<SessionStore>,
     events: broadcast::Sender<SessionEvent>,
@@ -575,11 +642,12 @@ impl AppState {
         session_cap: usize,
         stall_writer: bool,
     ) -> Self {
-        let (projects, accounts, sessions, questions, session_requests, paired_devices) =
+        let (projects, accounts, presets, sessions, questions, session_requests, paired_devices) =
             match store.as_ref().map(|store| store.load()) {
                 Some(LoadResult::Loaded(state)) => (
                     state.projects,
                     state.accounts.unwrap_or_else(seed::accounts),
+                    state.presets.unwrap_or_default(),
                     state.sessions,
                     state.questions.unwrap_or_default(),
                     state.session_requests.unwrap_or_default(),
@@ -588,6 +656,7 @@ impl AppState {
                 Some(LoadResult::Missing | LoadResult::Corrupt) | None => (
                     Vec::new(),
                     seed::accounts(),
+                    Vec::new(),
                     Vec::new(),
                     Vec::new(),
                     Vec::new(),
@@ -614,6 +683,7 @@ impl AppState {
             stall_writer,
             store,
         );
+        *lock(&state.inner.presets) = presets;
         for session in sessions {
             state.restore_session(session);
         }
@@ -660,6 +730,7 @@ impl AppState {
             inner: Arc::new(Inner {
                 projects: Mutex::new(projects),
                 accounts: Mutex::new(accounts),
+                presets: Mutex::new(Vec::new()),
                 secrets,
                 sessions: Mutex::new(SessionStore::new()),
                 events,
@@ -860,6 +931,125 @@ impl AppState {
         let account = accounts.iter_mut().find(|account| account.id == id)?;
         account.rows = rows;
         Some(account.clone())
+    }
+
+    pub fn presets(&self) -> Vec<Preset> {
+        lock(&self.inner.presets).clone()
+    }
+
+    pub fn preset(&self, id: &str) -> Option<Preset> {
+        lock(&self.inner.presets)
+            .iter()
+            .find(|preset| preset.id == id)
+            .cloned()
+    }
+
+    /// Resolves a stored preset, or an account-derived preset named `account:<id>`.
+    pub fn launch_preset(&self, id: &str) -> Option<LaunchPreset> {
+        if let Some(account_id) = id.strip_prefix("account:") {
+            return self
+                .account(account_id)
+                .map(|account| LaunchPreset::from_account(&account));
+        }
+        let preset = self.preset(id)?;
+        self.account(&preset.account_id)?;
+        Some(LaunchPreset::from_stored(preset))
+    }
+
+    /// Lists stored presets plus one entry for each account without a stored preset.
+    pub fn launch_presets(&self) -> Vec<LaunchPreset> {
+        let accounts = self.accounts();
+        let stored = self.presets();
+        let mut views = stored
+            .into_iter()
+            .filter(|preset| {
+                accounts
+                    .iter()
+                    .any(|account| account.id == preset.account_id)
+            })
+            .map(LaunchPreset::from_stored)
+            .collect::<Vec<_>>();
+        let covered = views
+            .iter()
+            .map(|preset| preset.account_id.clone())
+            .collect::<HashSet<_>>();
+        for account in accounts {
+            if !covered.contains(&account.id) {
+                views.push(LaunchPreset::from_account(&account));
+            }
+        }
+        views.sort_by(|left, right| {
+            left.name
+                .to_lowercase()
+                .cmp(&right.name.to_lowercase())
+                .then_with(|| left.id.cmp(&right.id))
+        });
+        views
+    }
+
+    pub fn add_preset(
+        &self,
+        name: String,
+        account_id: String,
+        model: Option<String>,
+        env: Vec<EnvOverride>,
+        config: BTreeMap<String, String>,
+    ) -> Preset {
+        let now = timestamp();
+        let mut presets = lock(&self.inner.presets);
+        let base = slugify(&name, "preset");
+        let id = with_suffix(&base, |candidate| {
+            presets.iter().any(|preset| preset.id == candidate)
+        });
+        let preset = Preset {
+            id,
+            name,
+            account_id,
+            model,
+            env,
+            config,
+            created_at: now.clone(),
+            updated_at: now,
+        };
+        presets.push(preset.clone());
+        preset
+    }
+
+    pub fn update_preset(
+        &self,
+        id: &str,
+        name: Option<String>,
+        account_id: Option<String>,
+        model: Option<Option<String>>,
+        env: Option<Vec<EnvOverride>>,
+        config: Option<BTreeMap<String, String>>,
+    ) -> Option<Preset> {
+        let mut presets = lock(&self.inner.presets);
+        let preset = presets.iter_mut().find(|preset| preset.id == id)?;
+        if let Some(value) = name {
+            preset.name = value;
+        }
+        if let Some(value) = account_id {
+            preset.account_id = value;
+        }
+        if let Some(value) = model {
+            preset.model = value;
+        }
+        if let Some(value) = env {
+            preset.env = value;
+        }
+        if let Some(value) = config {
+            preset.config = value;
+        }
+        preset.updated_at = timestamp();
+        Some(preset.clone())
+    }
+
+    pub fn remove_preset(&self, id: &str) -> bool {
+        let mut presets = lock(&self.inner.presets);
+        let before = presets.len();
+        presets.retain(|preset| preset.id != id);
+        presets.len() != before
     }
 
     pub fn pending_questions(&self) -> Vec<Question> {
@@ -1159,6 +1349,7 @@ impl AppState {
         Bootstrap {
             projects: lock(&self.inner.projects).clone(),
             accounts: self.accounts(),
+            presets: self.presets(),
             sessions,
             questions: self.pending_questions(),
             session_requests: self.pending_session_requests(),
@@ -1265,6 +1456,7 @@ impl AppState {
         let state = PersistedState::new(
             projects,
             Some(self.accounts()),
+            Some(self.presets()),
             Some(self.pending_questions()),
             Some(self.pending_session_requests()),
             self.paired_devices(),

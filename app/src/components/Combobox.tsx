@@ -13,6 +13,8 @@ import { ChevronDownIcon } from './icons';
 export interface ComboboxOption {
   id: string;
   label: string;
+  /** Shown in the closed field when the label alone leaves out useful detail. */
+  closedLabel?: string;
   meta?: string;
   tag?: string;
 }
@@ -68,7 +70,8 @@ export function Combobox({
     asyncOptions.find((option) => option.id === value) ??
     null;
   const selectedLabel = selected?.label ?? '';
-  const [query, setQuery] = useState(selectedLabel);
+  const closedLabel = selected?.closedLabel ?? selectedLabel;
+  const [query, setQuery] = useState(closedLabel);
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const [popoverStyle, setPopoverStyle] = useState<CSSProperties | null>(null);
@@ -95,12 +98,14 @@ export function Combobox({
   );
 
   useEffect(() => {
-    setQuery(selectedLabel);
-  }, [selectedLabel]);
+    setQuery(closedLabel);
+  }, [closedLabel]);
 
   const normalized = query.trim().toLowerCase();
   const queryIsSelection =
-    selectedLabel !== '' && normalized === selectedLabel.toLowerCase();
+    closedLabel !== '' &&
+    (normalized === closedLabel.toLowerCase() ||
+      normalized === selectedLabel.toLowerCase());
   const listOptions = async
     ? asyncOptions
     : normalized === '' || queryIsSelection
@@ -261,7 +266,7 @@ export function Combobox({
 
   function select(option: ComboboxOption) {
     onChange(option.id);
-    setQuery(option.label);
+    setQuery(option.closedLabel ?? option.label);
     setOpen(false);
     setActiveIndex(0);
   }
@@ -274,8 +279,8 @@ export function Combobox({
 
   function handleBlur() {
     setOpen(false);
-    if (selectedLabel) {
-      setQuery(selectedLabel);
+    if (closedLabel) {
+      setQuery(closedLabel);
     }
   }
 
@@ -332,8 +337,8 @@ export function Combobox({
     if (event.key === 'Escape' && open) {
       event.stopPropagation();
       setOpen(false);
-      if (selectedLabel) {
-        setQuery(selectedLabel);
+      if (closedLabel) {
+        setQuery(closedLabel);
       }
     }
   }

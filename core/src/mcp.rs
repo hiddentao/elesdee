@@ -479,20 +479,32 @@ pub fn write_claude_config(data_dir: &Path, session_id: &str, port: u16) -> io::
     Ok(path)
 }
 
-pub fn write_opencode_config(data_dir: &Path, session_id: &str, port: u16) -> io::Result<PathBuf> {
+pub fn write_opencode_config(
+    data_dir: &Path,
+    session_id: &str,
+    port: u16,
+    model: Option<&str>,
+    config: &crate::overrides::ConfigOverrides,
+) -> io::Result<PathBuf> {
     let directory = data_dir.join("mcp");
     crate::private_fs::create_private_dir_all(&directory)?;
     let path = directory.join(format!("opencode-{session_id}.json"));
     let url = format!("http://127.0.0.1:{port}/internal/mcp/{session_id}");
     let plugin = write_skill_plugin(data_dir)?;
     let skills = plugin.join("skills");
-    let body = json!({
-        "mcp": {
+    let mut body = serde_json::Map::new();
+    crate::overrides::apply_json_config(&mut body, config);
+    body.insert(
+        "mcp".to_owned(),
+        json!({
             "elesdee": { "type": "remote", "url": url }
-        },
-        "skills": [skills.to_string_lossy()]
-    });
-    crate::private_fs::write_private_file(&path, body.to_string().as_bytes())?;
+        }),
+    );
+    body.insert("skills".to_owned(), json!([skills.to_string_lossy()]));
+    if let Some(model) = model {
+        body.insert("model".to_owned(), Value::String(model.to_owned()));
+    }
+    crate::private_fs::write_private_file(&path, Value::Object(body).to_string().as_bytes())?;
     Ok(path)
 }
 
@@ -542,7 +554,14 @@ mod tests {
     fn writes_an_opencode_config_that_merges_with_the_user_config() {
         let directory = std::env::temp_dir().join(format!("elesdee-mcp-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&directory).expect("create test directory");
-        let path = write_opencode_config(&directory, "session-1", 4319).expect("write config");
+        let path = write_opencode_config(
+            &directory,
+            "session-1",
+            4319,
+            None,
+            &crate::overrides::ConfigOverrides::new(),
+        )
+        .expect("write config");
         let value: Value =
             serde_json::from_slice(&fs::read(&path).expect("read config")).expect("parse config");
         assert_eq!(

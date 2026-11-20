@@ -28,7 +28,7 @@ test('launches from a chosen branch and names the session from the prompt', asyn
   await page.getByRole('option', { name: new RegExp(label) }).click();
 
   await dialog.getByRole('radio', { name: 'Claude Code' }).click();
-  const accountCombo = dialog.getByRole('combobox', { name: 'Account' });
+  const accountCombo = dialog.getByRole('combobox', { name: 'Preset' });
   await accountCombo.click();
   await accountCombo.fill('Anthropic Max');
   await page.getByRole('option', { name: /Anthropic Max/ }).click();

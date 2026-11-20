@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
-import { ApiError, listAccounts, listBranches, listProjects } from '../api/client';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import { ApiError, listBranches, listPresets, listProjects } from '../api/client';
 import { isTauri, pickFolder } from '../api/shell';
 import type {
   Account,
   Client,
   CreateSessionInput,
+  LaunchPreset,
   Project,
   Session,
   SessionKind,
@@ -47,17 +48,69 @@ function projectOption(project: Project): ComboboxOption {
   };
 }
 
-function accountOption(
-  account: Account,
+function presetFromAccount(account: Account): LaunchPreset {
+  return {
+    id: `account:${account.id}`,
+    name: account.name,
+    accountId: account.id,
+    model: null,
+    env: [],
+    config: {},
+    stored: false,
+    createdAt: null,
+    updatedAt: null,
+  };
+}
+
+function presetOption(
+  preset: LaunchPreset,
+  account: Account | null,
   language: Language,
   sampleLabel: string,
 ): ComboboxOption {
+  const usage = account ? accountUsage(account, language).summary : '';
+  const details = [
+    account?.client,
+    account?.provider,
+    usage,
+    preset.model,
+  ].filter(Boolean);
   return {
-    id: account.id,
-    label: account.name,
-    meta: `${accountUsage(account, language).summary} · ${account.plan}`,
-    tag: account.sample ? sampleLabel : undefined,
+    id: preset.id,
+    label: preset.name,
+    closedLabel: usage ? `${preset.name} · ${usage}` : preset.name,
+    meta: details.join(' · '),
+    tag: account?.sample ? sampleLabel : undefined,
   };
+}
+
+function overrideSummary(
+  preset: LaunchPreset,
+  t: ReturnType<typeof useLanguage>['t'],
+): string {
+  const parts: string[] = [];
+  if (preset.env.length > 0) {
+    parts.push(
+      t(
+        preset.env.length === 1
+          ? 'newSession.envOverrideOne'
+          : 'newSession.envOverrideMany',
+        { count: preset.env.length },
+      ),
+    );
+  }
+  const configCount = Object.keys(preset.config).length;
+  if (configCount > 0) {
+    parts.push(
+      t(
+        configCount === 1
+          ? 'newSession.configOverrideOne'
+          : 'newSession.configOverrideMany',
+        { count: configCount },
+      ),
+    );
+  }
+  return parts.length > 0 ? parts.join(' · ') : t('newSession.overridesNone');
 }
 
 function defaultAccount(
@@ -91,6 +144,10 @@ export function NewSessionDialog({
   const [accountId, setAccountId] = useState<string | null>(
     initialAccount?.id ?? null,
   );
+  const [preset, setPreset] = useState<LaunchPreset | null>(
+    initialAccount ? presetFromAccount(initialAccount) : null,
+  );
+  const presetCache = useRef(new Map<string, LaunchPreset>());
   const [sourceBranch, setSourceBranch] = useState<string | null>(
     initialProject?.defaultSourceBranch ?? null,
   );
@@ -129,19 +186,28 @@ export function NewSessionDialog({
     [],
   );
 
-  const loadAccountOptions = useCallback<ComboboxLoader>(
+  const loadPresetOptions = useCallback<ComboboxLoader>(
     async (query, signal) => {
       if (!client) {
         return [];
       }
-      const list = await listAccounts(query, signal);
-      return list
-        .filter((account) => account.client === client)
-        .map((account) =>
-          accountOption(account, language, t('common.sample')),
+      const list = await listPresets(query, signal);
+      const options: ComboboxOption[] = [];
+      for (const item of list) {
+        const account =
+          accounts.find((candidate) => candidate.id === item.accountId) ??
+          null;
+        if (!account || account.client !== client) {
+          continue;
+        }
+        presetCache.current.set(item.id, item);
+        options.push(
+          presetOption(item, account, language, t('common.sample')),
         );
+      }
+      return options;
     },
-    [client, language, t],
+    [accounts, client, language, t],
   );
 
   const loadBranchOptions = useCallback<ComboboxLoader>(
@@ -163,8 +229,10 @@ export function NewSessionDialog({
   const selectedProject = projectId
     ? projects.find((project) => project.id === projectId) ?? null
     : null;
-  const selectedAccount = accountId
-    ? accounts.find((account) => account.id === accountId) ?? null
+  const selectedAccount = (preset?.accountId ?? accountId)
+    ? accounts.find(
+        (account) => account.id === (preset?.accountId ?? accountId),
+      ) ?? null
     : null;
   const selectedUsage = selectedAccount
     ? accountUsage(selectedAccount, language)
@@ -180,6 +248,7 @@ export function NewSessionDialog({
     setProjectId(id);
     setClient(account?.client ?? null);
     setAccountId(account?.id ?? null);
+    setPreset(account ? presetFromAccount(account) : null);
     setSourceBranch(nextProject?.defaultSourceBranch ?? null);
     setErrors((current) => ({
       ...current,
@@ -196,12 +265,28 @@ export function NewSessionDialog({
   function chooseClient(nextClient: Client) {
     setClient(nextClient);
     setAccountId(null);
+    setPreset(null);
     setErrors((current) => ({ ...current, client: undefined, account: undefined }));
   }
 
-  function chooseAccount(id: string | null) {
-    setAccountId(id);
-    setErrors((current) => ({ ...current, account: undefined }));
+  function choosePreset(id: string | null) {
+    if (!id) {
+      setAccountId(null);
+      setPreset(null);
+      return;
+    }
+    const next = presetCache.current.get(id) ?? null;
+    if (!next) {
+      return;
+    }
+    const account =
+      accounts.find((candidate) => candidate.id === next.accountId) ?? null;
+    setPreset(next);
+    setAccountId(next.accountId);
+    if (account) {
+      setClient(account.client);
+    }
+    setErrors((current) => ({ ...current, client: undefined, account: undefined }));
   }
 
   async function browse() {
@@ -269,7 +354,7 @@ export function NewSessionDialog({
         : nextErrors.client
           ? 'new-session-client'
           : nextErrors.account
-            ? 'new-session-account'
+            ? 'new-session-preset'
             : nextErrors.folder
               ? 'new-session-folder'
               : nextErrors.env
@@ -290,6 +375,9 @@ export function NewSessionDialog({
 
     if (kind === 'agent') {
       input.accountId = accountId as string;
+      if (preset?.stored) {
+        input.presetId = preset.id;
+      }
       if (sourceBranch) {
         input.sourceBranch = sourceBranch;
       }
@@ -412,28 +500,29 @@ export function NewSessionDialog({
 
               <Combobox
                 key={client ?? 'no-client'}
-                id="new-session-account"
-                label={t('newSession.account')}
-                value={accountId}
-                loadOptions={loadAccountOptions}
+                id="new-session-preset"
+                label={t('newSession.preset')}
+                value={preset?.id ?? null}
+                loadOptions={loadPresetOptions}
                 selectedOption={
-                  selectedAccount
-                    ? accountOption(
+                  preset
+                    ? presetOption(
+                        preset,
                         selectedAccount,
                         language,
                         t('common.sample'),
                       )
                     : null
                 }
-                onChange={chooseAccount}
+                onChange={choosePreset}
                 placeholder={
                   client
-                    ? t('newSession.accountPlaceholder')
-                    : t('newSession.accountPlaceholderNoClient')
+                    ? t('newSession.presetPlaceholder')
+                    : t('newSession.presetPlaceholderNoClient')
                 }
                 hint={
                   client && accountsForClient.length === 0
-                    ? t('newSession.noAccountForClient', { client })
+                    ? t('newSession.noPresetForClient', { client })
                     : undefined
                 }
                 error={errors.account}
@@ -461,6 +550,16 @@ export function NewSessionDialog({
                   >
                     {selectedUsage.summary}
                   </span>
+                  {preset?.model ? (
+                    <span className="selected-account-model">
+                      {t('newSession.modelWith', { model: preset.model })}
+                    </span>
+                  ) : null}
+                  {preset ? (
+                    <span className="selected-account-overrides">
+                      {overrideSummary(preset, t)}
+                    </span>
+                  ) : null}
                 </div>
               ) : null}
             </>
