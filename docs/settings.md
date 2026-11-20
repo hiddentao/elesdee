@@ -27,7 +27,9 @@ The app reads usage from official sources. Claude Code reports its plan limits w
 
 Choose **Add provider** to connect one. Choose the vendor and the sign-in method, then enter the fields it needs: an API key, a server URL or an API style. A subscription sign-in starts the installed client's own login and adds the provider after the client confirms the credential. See [Agents and providers](agents.md) for the vendor list, the clients each vendor supports and the subscription steps.
 
-Each provider row has **Edit** and **Remove**. Edit changes the name, sign-in method, server address or custom provider. The key field starts blank: leave it blank to keep the saved key, or type a new key to replace it. A subscription provider has **Sign in** or **Sign in again** in the same form. A provider that starts as a sample stops being a sample when you edit it.
+Each provider row has **Edit** and **Remove**. Edit changes the name, sign-in method, server address, minimum balance or custom provider. The key field starts blank: leave it blank to keep the saved key, or type a new key to replace it. A subscription provider has **Sign in** or **Sign in again** in the same form. A provider that starts as a sample stops being a sample when you edit it.
+
+A provider with a prepaid balance, such as DeepSeek, has a **Minimum balance** field. The field shows the currency that the provider reports, and the default is 5. Auto-switch treats a balance at or below this value as no room and moves the session away; a balance above it has room. Clear the field to set no minimum. Without a minimum, auto-switch cannot judge the balance and skips the provider. A provider without a balance source does not show the field.
 
 The app refuses to remove a provider while an AI config uses it. Remove those configs first. Removing a provider deletes its saved key and usage.
 

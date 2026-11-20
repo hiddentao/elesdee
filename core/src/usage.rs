@@ -41,7 +41,6 @@ fn window_row(window: &'static str, label: &'static str, value: &Value) -> Optio
         window: Some(window.to_owned()),
         used: Some(used.round().clamp(0.0, 100.0) as u8),
         value: None,
-        min: None,
         warn: None,
         resets_at,
     })
@@ -83,7 +82,6 @@ fn codex_window(value: &Value) -> Option<(&'static str, &'static str, UsageRow)>
             window: Some(window.to_owned()),
             used: Some(used.round().clamp(0.0, 100.0) as u8),
             value: None,
-            min: None,
             warn: None,
             resets_at,
         },
@@ -178,32 +176,11 @@ pub fn deepseek_rows(payload: &Value) -> Vec<UsageRow> {
                 window: Some(BALANCE.to_owned()),
                 used: None,
                 value: Some(format!("{currency} {total}")),
-                min: None,
                 warn: (!available).then_some(true),
                 resets_at: None,
             })
         })
         .take(MAX_ROWS)
-        .collect()
-}
-
-fn keep_minimum(rows: Vec<UsageRow>, previous: &[UsageRow]) -> Vec<UsageRow> {
-    rows.into_iter()
-        .map(|mut row| {
-            let same_window = |old: &&UsageRow| old.window == row.window;
-            let balance_without_kind = |old: &&UsageRow| {
-                row.window.as_deref() == Some(BALANCE) && old.value.is_some() && old.used.is_none()
-            };
-            if let Some(old) = previous
-                .iter()
-                .find(same_window)
-                .or_else(|| previous.iter().find(balance_without_kind))
-                && row.min.is_none()
-            {
-                row.min = old.min.clone();
-            }
-            row
-        })
         .collect()
 }
 
@@ -215,8 +192,6 @@ pub async fn apply_usage(
     source: &str,
     rows: Vec<UsageRow>,
 ) -> Option<Provider> {
-    let previous = state.provider(provider_id)?;
-    let rows = keep_minimum(rows, &previous.rows);
     let now = timestamp();
     let provider = state.set_provider_usage(provider_id, rows, source, &now, &now)?;
     state.publish_provider(provider.clone());
@@ -280,7 +255,7 @@ fn deepseek_base(state: &AppState, provider: &Provider) -> String {
 }
 
 fn has_official_source(provider: &Provider) -> bool {
-    provider.vendor == "deepseek" && provider.auth == Auth::Key
+    crate::providers::vendor_has_balance(&provider.vendor) && provider.auth == Auth::Key
 }
 
 /// Reads one provider from its official source. Concurrent reads for the same
@@ -479,57 +454,5 @@ mod tests {
         assert_eq!(rows[0].value.as_deref(), Some("USD 0.00"));
         assert_eq!(rows[0].warn, Some(true));
         assert!(deepseek_rows(&json!({ "balance_infos": [] })).is_empty());
-    }
-
-    #[test]
-    fn a_new_balance_keeps_the_minimum_the_user_set() {
-        let previous = vec![UsageRow {
-            label: "Balance".to_owned(),
-            window: Some(BALANCE.to_owned()),
-            used: None,
-            value: Some("USD 9.00".to_owned()),
-            min: Some("5".to_owned()),
-            warn: Some(false),
-            resets_at: None,
-        }];
-        let rows = keep_minimum(
-            vec![UsageRow {
-                label: "Balance".to_owned(),
-                window: Some(BALANCE.to_owned()),
-                used: None,
-                value: Some("USD 12.00".to_owned()),
-                min: None,
-                warn: None,
-                resets_at: None,
-            }],
-            &previous,
-        );
-        assert_eq!(rows[0].min.as_deref(), Some("5"));
-    }
-
-    #[test]
-    fn a_balance_keeps_a_minimum_from_a_manual_row() {
-        let previous = vec![UsageRow {
-            label: "Manual balance".to_owned(),
-            window: None,
-            used: None,
-            value: Some("USD 9.00".to_owned()),
-            min: Some("5".to_owned()),
-            warn: None,
-            resets_at: None,
-        }];
-        let rows = keep_minimum(
-            vec![UsageRow {
-                label: "Balance".to_owned(),
-                window: Some(BALANCE.to_owned()),
-                used: None,
-                value: Some("USD 12.00".to_owned()),
-                min: None,
-                warn: None,
-                resets_at: None,
-            }],
-            &previous,
-        );
-        assert_eq!(rows[0].min.as_deref(), Some("5"));
     }
 }

@@ -353,6 +353,14 @@ pub enum UsageState {
     NearLimit,
 }
 
+/// The default prepaid floor, in the currency the provider reports.
+pub const DEFAULT_MINIMUM_BALANCE: f64 = 5.0;
+
+/// Whether a vendor reports a prepaid balance that the user can floor.
+pub fn vendor_has_balance(vendor: &str) -> bool {
+    vendor == "deepseek"
+}
+
 pub fn usage_state(provider: &Provider) -> UsageState {
     if provider.limit_reported_at.is_some() {
         return UsageState::NearLimit;
@@ -367,12 +375,11 @@ pub fn usage_state(provider: &Provider) -> UsageState {
             }
             continue;
         }
-        if let (Some(value), Some(min)) = (
-            row.value.as_deref().and_then(parse_number),
-            row.min.as_deref().and_then(parse_number),
-        ) {
+        if let Some(value) = row.value.as_deref().and_then(parse_number)
+            && let Some(minimum) = provider.minimum_balance
+        {
             known = true;
-            if value < min {
+            if value <= minimum {
                 near = true;
             }
         }
@@ -445,14 +452,15 @@ fn subscription_rank(provider: Option<&Provider>) -> u8 {
     }
 }
 
-fn balance_above_min(provider: &Provider) -> Option<i64> {
+fn balance_above_minimum(provider: &Provider) -> Option<i64> {
+    let minimum = provider.minimum_balance?;
     provider
         .rows
         .iter()
+        .filter(|row| row.used.is_none())
         .filter_map(|row| {
             let value = row.value.as_deref().and_then(parse_number)?;
-            let min = row.min.as_deref().and_then(parse_number)?;
-            Some(((value - min) * 100.0).round() as i64)
+            Some(((value - minimum) * 100.0).round() as i64)
         })
         .min()
 }
@@ -461,7 +469,7 @@ fn balance_above_min(provider: &Provider) -> Option<i64> {
 pub fn remaining_room(provider: &Provider) -> (u8, i64) {
     (
         remaining_percent(provider).unwrap_or(0),
-        balance_above_min(provider).unwrap_or(0),
+        balance_above_minimum(provider).unwrap_or(0),
     )
 }
 
@@ -525,6 +533,7 @@ mod tests {
             connected: true,
             plan: "test".to_owned(),
             rows: Vec::new(),
+            minimum_balance: None,
             foot: String::new(),
             usage_read_at: None,
             usage_checked_at: None,
@@ -658,11 +667,55 @@ mod tests {
             window: None,
             used: Some(used),
             value: None,
-            min: None,
             warn: None,
             resets_at: None,
         }];
         provider
+    }
+
+    fn with_balance(mut provider: Provider, value: &str, minimum: Option<f64>) -> Provider {
+        provider.minimum_balance = minimum;
+        provider.rows = vec![UsageRow {
+            label: "Balance".to_owned(),
+            window: Some("balance".to_owned()),
+            used: None,
+            value: Some(value.to_owned()),
+            warn: None,
+            resets_at: None,
+        }];
+        provider
+    }
+
+    #[test]
+    fn a_balance_compares_against_the_provider_minimum() {
+        let above = with_balance(provider("deepseek", Auth::Key), "USD 12.00", Some(5.0));
+        assert_eq!(usage_state(&above), UsageState::Room);
+        assert_eq!(remaining_room(&above).1, 700);
+
+        assert_eq!(
+            usage_state(&with_balance(
+                provider("deepseek", Auth::Key),
+                "USD 5.00",
+                Some(5.0)
+            )),
+            UsageState::NearLimit
+        );
+        assert_eq!(
+            usage_state(&with_balance(
+                provider("deepseek", Auth::Key),
+                "USD 4.99",
+                Some(5.0)
+            )),
+            UsageState::NearLimit
+        );
+        assert_eq!(
+            usage_state(&with_balance(
+                provider("deepseek", Auth::Key),
+                "USD 12.00",
+                None
+            )),
+            UsageState::Unknown
+        );
     }
 
     #[test]

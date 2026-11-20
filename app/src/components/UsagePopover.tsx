@@ -144,7 +144,11 @@ export function UsagePopover({
                 ) : (
                   <div className="usage-card-rows">
                     {provider.rows.map((row, index) => (
-                      <UsageLimitRow key={`${row.label}-${index}`} row={row} />
+                      <UsageLimitRow
+                        key={`${row.label}-${index}`}
+                        row={row}
+                        minimum={provider.minimumBalance}
+                      />
                     ))}
                   </div>
                 )}

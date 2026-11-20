@@ -334,7 +334,8 @@ I can switch provider inside a running session with one button, and the IDE can 
 - An AI config names a provider and one client, and adds a model, effort, extra command-line arguments, environment overrides and agent config overrides. Several configs may share one provider, for example DeepSeek in OpenCode 2 and in Claude Code with different models.
 - A session runs one AI config. I switch between configs, not providers.
 - A new install shows sample providers and configs, marked as samples, so the interface is not empty. They have no usage data. Records I add are not samples.
-- I can edit a provider's name, sign-in method, server address and custom API style, and replace its key. A blank key field keeps the saved key. An edited sample provider stops being a sample.
+- I can edit a provider's name, sign-in method, server address, minimum balance and custom API style, and replace its key. A blank key field keeps the saved key. An edited sample provider stops being a sample.
+- A provider with a prepaid balance has an optional minimum balance, in the currency the provider reports. The default is 5. A provider without a balance source has no such field. The minimum is saved with the provider, not as a secret.
 - I can edit a config's name, provider, client, model, effort, arguments and overrides. The config form shows only the clients its provider supports.
 - I can remove a provider. The app asks first. Removal deletes the key and the saved usage. An AI config that uses the provider blocks removal until I remove that config.
 - I can remove a config. An active session that uses the config blocks removal until I switch it or close it. Removal clears project defaults that use it.
@@ -388,7 +389,7 @@ Usage belongs to the computer, not to a session. The sidebar shows a compact sum
 | --- | --- |
 | Claude Code (each Anthropic subscription) | Usage remaining for each limit of the plan (5-hour and weekly) |
 | Codex | Usage remaining for each limit of the plan (5-hour and weekly, where the plan has them) |
-| DeepSeek | Account balance from the DeepSeek API, so I know when to top up |
+| DeepSeek | Account balance from the DeepSeek API and the minimum balance I set, so I know when to top up |
 | Google (through Antigravity) | No official usage source. The provider says so. |
 
 - The provider pill in the session header includes a usage bar for the current config's provider. The bar shows available usage, not context.
@@ -435,7 +436,7 @@ Rules from the providers:
 **Auto-switch rules**
 
 - Subscriptions (Claude, Codex): "near the limit" means 90% of any limit of the plan, the 5-hour limit or the weekly limit, whichever comes first. The margin leaves room for the agent to commit and hand off.
-- DeepSeek: each provider has a minimum balance that I set, for example 5 USD. Below it, auto-switch moves the session away and the app tells me to top up.
+- DeepSeek: each provider has a minimum balance that I set, 5 by default. At or below it, the provider has no room, so auto-switch moves the session away and the app tells me to top up. Above it, the provider has room.
 - Order: auto-switch picks subscription providers first, then pay-per-use providers such as DeepSeek. Among the providers in a group, it picks the one with the most usage left. On a tie, it keeps the session on its current client.
 
 ## Settings

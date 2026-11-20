@@ -67,17 +67,31 @@ export function rowRemaining(row: UsageRow): number | null {
   return Math.max(0, Math.min(100, 100 - row.used));
 }
 
-export function balanceBelowMin(row: UsageRow): boolean {
+/** The currency code that a balance row reports, when it has one. */
+export function balanceCurrency(provider: Provider): string | null {
+  const row = provider.rows.find(
+    (row) => typeof row.used !== 'number' && typeof row.value === 'string',
+  );
+  const match = row?.value?.match(/^([A-Za-z]{3})\s/);
+  return match ? match[1].toUpperCase() : null;
+}
+
+export function balanceBelowMin(
+  row: UsageRow,
+  minimum?: number | null,
+): boolean {
   if (typeof row.used === 'number') {
+    return false;
+  }
+  if (typeof minimum !== 'number' || !Number.isFinite(minimum)) {
     return false;
   }
 
   const value = parseNumber(row.value);
-  const min = parseNumber(row.min);
-  return value !== null && min !== null && value < min;
+  return value !== null && value <= minimum;
 }
 
-export function rowWarn(row: UsageRow): boolean {
+export function rowWarn(row: UsageRow, minimum?: number | null): boolean {
   if (row.warn) {
     return true;
   }
@@ -87,7 +101,7 @@ export function rowWarn(row: UsageRow): boolean {
     return remaining <= 20;
   }
 
-  return balanceBelowMin(row);
+  return balanceBelowMin(row, minimum);
 }
 
 export interface ProviderUsage {
@@ -123,7 +137,7 @@ export function providerUsage(
         percent: formatNumber(language, Math.round(remaining)),
       }),
       remaining,
-      warn: rowWarn(tightest),
+      warn: rowWarn(tightest, provider.minimumBalance),
       critical: remaining <= 10,
       tightestRow: tightest,
     };
@@ -139,7 +153,7 @@ export function providerUsage(
       kind: 'balance',
       summary: first.value ?? translate(language, 'usage.none'),
       remaining: null,
-      warn: rowWarn(first),
+      warn: rowWarn(first, provider.minimumBalance),
       critical: false,
       tightestRow: first,
     };

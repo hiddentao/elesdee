@@ -24,6 +24,7 @@ interface Provider {
   apiStyle: "openai" | "anthropic" | null;
   sample: boolean;
   connected: boolean;         // a subscription sign-in was checked; key and local providers hold their credential
+  minimumBalance: number | null; // the prepaid floor for a vendor with a balance source
   supportedClients: Client[]; // returned by the API, not stored
 }
 ```
@@ -31,6 +32,14 @@ interface Provider {
 The key or subscription token belongs to the provider. It lives in the system
 keychain under the provider id and never appears in a response, state, log or
 session output. A provider does not name a client.
+
+A vendor with a prepaid balance source, currently DeepSeek, also stores an
+optional `minimumBalance`. It is provider state, not a secret. The provider
+form shows the field with the currency the balance row reports, and hides it for
+a vendor without a balance source. The default is 5. A balance at or below the
+minimum counts as no room for auto-switch; a balance above it counts as room.
+Without a minimum, a balance cannot show room, so auto-switch skips the
+provider.
 
 **AI config** is what a session runs and what the user switches between.
 
@@ -158,7 +167,8 @@ provider's `server` overrides the default endpoint when set.
 Settings has two related pages:
 
 - **Providers**: add, edit and remove credentials. Adding a provider can happen
-  from this page or from the AI config form.
+  from this page or from the AI config form. The form shows the minimum balance
+  only for a vendor with a balance source.
 - **AI configs**: list, add, edit and remove configs. The form chooses an
   existing provider or creates one in place, shows that provider's supported
   clients, then the name, model and effort. Environment and config overrides,

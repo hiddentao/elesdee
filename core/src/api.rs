@@ -352,6 +352,9 @@ struct CreateProviderRequest {
     key: Option<String>,
     server: Option<String>,
     api_style: Option<String>,
+    /// Absent applies the default; `null` clears it.
+    #[serde(default, deserialize_with = "optional_field")]
+    minimum_balance: Option<Option<f64>>,
 }
 
 #[derive(Deserialize)]
@@ -364,6 +367,9 @@ struct UpdateProviderRequest {
     key: Option<String>,
     server: Option<Option<String>>,
     api_style: Option<Option<String>>,
+    /// Absent keeps the current value; `null` clears it.
+    #[serde(default, deserialize_with = "optional_field")]
+    minimum_balance: Option<Option<f64>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1160,6 +1166,9 @@ async fn provider_options() -> Json<Vec<ProviderOption>> {
                 default_model: provider.default_model.map(str::to_owned),
                 custom: provider.custom,
                 sign_in_client: crate::providers::sign_in_client(provider.id),
+                balance_source: crate::providers::vendor_has_balance(provider.id),
+                minimum_balance_default: crate::providers::vendor_has_balance(provider.id)
+                    .then_some(crate::providers::DEFAULT_MINIMUM_BALANCE),
             })
             .collect(),
     )
@@ -1177,6 +1186,10 @@ struct ProviderOption {
     custom: bool,
     /// The client that owns this vendor's subscription login.
     sign_in_client: Option<Client>,
+    /// Whether the vendor reports a prepaid balance.
+    balance_source: bool,
+    /// The default balance floor for a vendor with a balance source.
+    minimum_balance_default: Option<f64>,
 }
 
 async fn list_providers(
@@ -1229,6 +1242,15 @@ struct ProviderFields {
     server: Option<String>,
     api_style: Option<String>,
     plan: &'static str,
+}
+
+fn validated_minimum_balance(value: Option<f64>) -> Result<Option<f64>, ApiError> {
+    match value {
+        Some(value) if !value.is_finite() || value < 0.0 => Err(ApiError::bad_request(
+            "The minimum balance must be zero or more.",
+        )),
+        other => Ok(other),
+    }
 }
 
 fn validated_provider_fields(
@@ -1323,6 +1345,14 @@ async fn create_provider(
     if fields.auth == Auth::Key && key.is_none() {
         return Err(ApiError::bad_request("API key is required."));
     }
+    let minimum_balance = if crate::providers::vendor_has_balance(&fields.vendor) {
+        match request.minimum_balance {
+            Some(value) => validated_minimum_balance(value)?,
+            None => Some(crate::providers::DEFAULT_MINIMUM_BALANCE),
+        }
+    } else {
+        None
+    };
 
     let provider = state.add_provider(Provider {
         id: String::new(),
@@ -1335,6 +1365,7 @@ async fn create_provider(
         connected: fields.auth != Auth::Subscription,
         plan: fields.plan.to_owned(),
         rows: Vec::new(),
+        minimum_balance,
         foot: "No official usage source.".to_owned(),
         usage_read_at: None,
         usage_checked_at: None,
@@ -1395,6 +1426,16 @@ async fn update_provider(
     {
         return Err(ApiError::bad_request("API key is required."));
     }
+    let minimum_balance = if crate::providers::vendor_has_balance(&fields.vendor) {
+        match request.minimum_balance {
+            Some(value) => validated_minimum_balance(value)?,
+            None => existing
+                .minimum_balance
+                .or(Some(crate::providers::DEFAULT_MINIMUM_BALANCE)),
+        }
+    } else {
+        None
+    };
 
     let candidate = Provider {
         id: id.clone(),
@@ -1411,6 +1452,7 @@ async fn update_provider(
         },
         plan: fields.plan.to_owned(),
         rows: existing.rows.clone(),
+        minimum_balance,
         foot: existing.foot.clone(),
         usage_read_at: existing.usage_read_at.clone(),
         usage_checked_at: existing.usage_checked_at.clone(),

@@ -118,7 +118,11 @@ export function UsagePill({
             <span className="usage-tip-plan">{provider.plan}</span>
           </span>
           {provider.rows.map((row, index) => (
-            <UsageLimitRow key={`${row.label}-${index}`} row={row} />
+            <UsageLimitRow
+              key={`${row.label}-${index}`}
+              row={row}
+              minimum={provider.minimumBalance}
+            />
           ))}
           {provider.rows.length === 0 ? (
             <span className="usage-tip-note">{t('usage.none')}</span>

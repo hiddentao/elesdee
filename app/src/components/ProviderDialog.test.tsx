@@ -25,6 +25,8 @@ const options: ProviderOption[] = [
     defaultModel: null,
     custom: false,
     signInClient: 'Claude Code',
+    balanceSource: false,
+    minimumBalanceDefault: null,
   },
   {
     id: 'openai',
@@ -35,6 +37,8 @@ const options: ProviderOption[] = [
     defaultModel: null,
     custom: false,
     signInClient: 'Codex',
+    balanceSource: false,
+    minimumBalanceDefault: null,
   },
   {
     id: 'deepseek',
@@ -45,6 +49,8 @@ const options: ProviderOption[] = [
     defaultModel: null,
     custom: false,
     signInClient: null,
+    balanceSource: true,
+    minimumBalanceDefault: 5,
   },
 ];
 
@@ -231,7 +237,87 @@ describe('ProviderDialog subscription sign-in', () => {
       vendor: 'deepseek',
       auth: 'key',
       key: 'sk-test',
+      minimumBalance: 5,
     });
+  });
+
+  it('shows the minimum balance for a balance vendor and sends it', async () => {
+    const user = userEvent.setup();
+    const props = renderDialog();
+
+    expect(screen.queryByLabelText('Minimum balance')).not.toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText('Vendor'), 'deepseek');
+    const field = screen.getByLabelText('Minimum balance');
+    expect(field).toHaveValue(5);
+    await user.clear(field);
+    await user.type(field, '12.5');
+    await user.type(
+      screen.getByLabelText('API key', {
+        selector: 'input[type="password"]',
+      }),
+      'sk-test',
+    );
+    await user.click(screen.getByRole('button', { name: 'Add provider' }));
+
+    expect(props.onSubmit).toHaveBeenCalledWith({
+      vendor: 'deepseek',
+      auth: 'key',
+      key: 'sk-test',
+      minimumBalance: 12.5,
+    });
+  });
+
+  it('names the currency and keeps a cleared minimum empty', async () => {
+    const user = userEvent.setup();
+    const deepseek: Provider = {
+      id: 'deepseek-work',
+      name: 'DeepSeek work',
+      vendor: 'deepseek',
+      auth: 'key',
+      server: null,
+      sample: false,
+      connected: true,
+      plan: 'pay as you go',
+      rows: [{ label: 'Balance', window: 'balance', value: 'USD 12.00' }],
+      minimumBalance: 5,
+      foot: '',
+      supportedClients: ['Claude Code', 'Codex', 'OpenCode 2'],
+    };
+    const props = renderDialog({ provider: deepseek });
+
+    const field = screen.getByLabelText('Minimum balance (USD)');
+    expect(field).toHaveValue(5);
+    await user.clear(field);
+    await user.click(screen.getByRole('button', { name: 'Save provider' }));
+
+    expect(props.onSubmit).toHaveBeenCalledWith({
+      vendor: 'deepseek',
+      auth: 'key',
+      name: 'DeepSeek work',
+      minimumBalance: null,
+    });
+  });
+
+  it('rejects a negative minimum balance', async () => {
+    const user = userEvent.setup();
+    const props = renderDialog();
+
+    await user.selectOptions(screen.getByLabelText('Vendor'), 'deepseek');
+    const field = screen.getByLabelText('Minimum balance');
+    await user.clear(field);
+    await user.type(field, '-1');
+    await user.type(
+      screen.getByLabelText('API key', {
+        selector: 'input[type="password"]',
+      }),
+      'sk-test',
+    );
+    await user.click(screen.getByRole('button', { name: 'Add provider' }));
+
+    expect(
+      await screen.findByText('Enter a minimum balance of zero or more.'),
+    ).toBeInTheDocument();
+    expect(props.onSubmit).not.toHaveBeenCalled();
   });
 
   it('shows a disconnected subscription provider and reconnects it', async () => {

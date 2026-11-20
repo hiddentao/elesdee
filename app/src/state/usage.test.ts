@@ -4,6 +4,7 @@ import { translate, type Translate } from '../i18n';
 import {
   providerUsage,
   balanceBelowMin,
+  balanceCurrency,
   formatUsageTime,
   rowLabel,
   rowWarn,
@@ -59,26 +60,58 @@ describe('usage helpers', () => {
     expect(usage.critical).toBe(true);
   });
 
-  it('uses a balance value and warns below the minimum', () => {
+  it('uses a balance value and warns at or below the minimum', () => {
     const normal = providerUsage(
       makeProvider({
-        rows: [{ label: 'Credit', value: '$12.40', min: '$5.00' }],
+        minimumBalance: 5,
+        rows: [{ label: 'Credit', value: 'USD 12.40' }],
       }),
     );
     const low = providerUsage(
       makeProvider({
-        rows: [{ label: 'Credit', value: '$3.20', min: '$5.00' }],
+        minimumBalance: 5,
+        rows: [{ label: 'Credit', value: 'USD 3.20' }],
+      }),
+    );
+    const equal = providerUsage(
+      makeProvider({
+        minimumBalance: 5,
+        rows: [{ label: 'Credit', value: 'USD 5.00' }],
       }),
     );
 
     expect(normal.kind).toBe('balance');
-    expect(normal.summary).toBe('$12.40');
+    expect(normal.summary).toBe('USD 12.40');
     expect(normal.warn).toBe(false);
-    expect(low.summary).toBe('$3.20');
+    expect(low.summary).toBe('USD 3.20');
     expect(low.warn).toBe(true);
-    expect(balanceBelowMin({ label: 'Credit', value: '$3.20', min: '$5.00' })).toBe(
+    expect(equal.warn).toBe(true);
+    expect(balanceBelowMin({ label: 'Credit', value: 'USD 3.20' }, 5)).toBe(
       true,
     );
+    expect(balanceBelowMin({ label: 'Credit', value: 'USD 5.00' }, 5)).toBe(
+      true,
+    );
+    expect(balanceBelowMin({ label: 'Credit', value: 'USD 5.01' }, 5)).toBe(
+      false,
+    );
+    expect(balanceBelowMin({ label: 'Credit', value: 'USD 1.00' })).toBe(false);
+  });
+
+  it('reads the currency that a balance row reports', () => {
+    expect(
+      balanceCurrency(
+        makeProvider({
+          rows: [{ label: 'Balance', window: 'balance', value: 'USD 12.00' }],
+        }),
+      ),
+    ).toBe('USD');
+    expect(balanceCurrency(makeProvider())).toBeNull();
+    expect(
+      balanceCurrency(
+        makeProvider({ rows: [{ label: 'Credit', value: '$12.00' }] }),
+      ),
+    ).toBeNull();
   });
 
   it('reports no usage data when there are no rows', () => {

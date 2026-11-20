@@ -93,7 +93,6 @@ export interface UsageRow {
   window?: 'five_hour' | 'seven_day' | 'balance' | string | null;
   used?: number;
   value?: string;
-  min?: string;
   warn?: boolean;
   resetsAt?: number | null;
 }
@@ -111,6 +110,7 @@ export interface Provider {
   connected: boolean;
   plan: string;
   rows: UsageRow[];
+  minimumBalance?: number | null;
   foot: string;
   usageReadAt?: string | null;
   usageCheckedAt?: string | null;
@@ -156,6 +156,8 @@ export interface ProviderOption {
   defaultModel: string | null;
   custom: boolean;
   signInClient: Client | null;
+  balanceSource: boolean;
+  minimumBalanceDefault: number | null;
 }
 
 export interface ModelChoice {
@@ -196,6 +198,7 @@ export interface CreateProviderInput {
   key?: string;
   server?: string;
   apiStyle?: 'openai' | 'anthropic';
+  minimumBalance?: number | null;
 }
 
 export type ProviderSignInMode = 'browser' | 'code';
@@ -242,6 +245,7 @@ export interface UpdateProviderInput {
   key?: string;
   server?: string | null;
   apiStyle?: 'openai' | 'anthropic' | null;
+  minimumBalance?: number | null;
 }
 
 export interface CreateConfigInput {
