@@ -1,6 +1,6 @@
 ---
 title: Settings
-description: Manage accounts and launch presets, and read the app version.
+description: Manage providers and AI configs, and read the app version.
 order: 8
 ---
 
@@ -10,25 +10,31 @@ Open **Settings** from the bottom of the sidebar. Settings opens over the sessio
 
 ## Providers
 
-The Providers page lists the accounts on this computer. Each row shows the account name, client, plan and usage summary. Sample accounts carry a **Sample** tag.
+A provider holds a credential and the address it connects to. One provider can serve several AI configs, so you enter a subscription or key once.
 
-The app reads usage from official sources. Claude Code reports its plan limits while a session runs, Codex reports them from its app server, and DeepSeek reports the account balance. The usage panel shows the 5-hour and weekly limits or the balance, with the time of the last read. If a read fails, the last numbers stay and the account says the reading is stale. Providers without an official source show **No usage data**.
+The Providers page lists the providers on this computer. Each row shows the provider name, the clients it can run, its plan and its usage summary. Sample providers carry a **Sample** tag.
 
-Choose **Add account** to connect a provider. Choose the provider, the sign-in method, and the fields it needs: an API key, a server URL, a model or an API style. See [Agents and providers](agents.md) for the provider list.
+The app reads usage from official sources. Claude Code reports its plan limits while a session runs, Codex reports them from its app server, and DeepSeek reports the provider balance. The usage panel shows the 5-hour and weekly limits or the balance, with the time of the last read. If a read fails, the last numbers stay and the provider says the reading is stale. Providers without an official source show **No usage data**.
 
-Each account row has **Edit** and **Remove**. Edit changes the name, model, sign-in method, server address or custom provider. The key field starts blank: leave it blank to keep the saved key, or type a new key to replace it. An account that starts as a sample stops being a sample when you edit it.
+Choose **Add provider** to connect one. Choose the vendor and the sign-in method, then enter the fields it needs: an API key, a server URL or an API style. See [Agents and providers](agents.md) for the vendor list and the clients each vendor supports.
 
-Remove asks first. It deletes the saved key and usage, and clears presets and project defaults that use the account. An active session that uses the account blocks removal until you switch it or close it. Closed sessions do not block removal, but they cannot reopen on a removed account.
+Each provider row has **Edit** and **Remove**. Edit changes the name, sign-in method, server address or custom provider. The key field starts blank: leave it blank to keep the saved key, or type a new key to replace it. A provider that starts as a sample stops being a sample when you edit it.
 
-Usage belongs to this computer. The account rows show the remaining usage of each account. In a session, the provider pill shows the current account's usage; hover it for every limit and the session's context left, or click it to switch the session to another account. The chooser lists only the accounts allowed for that session, shows their remaining usage, marks the account the automatic switch would use next, and edits the allowed list. A new session allows the accounts of its starting client by default.
+The app refuses to remove a provider while an AI config uses it. Remove those configs first. Removing a provider deletes its saved key and usage.
+
+## AI configs
+
+An AI config is what a session runs and what you switch between. It names a provider and one client, and it can add a model, an effort level, extra command-line arguments, environment variables and agent config settings. Model, effort and overrides apply to that config only and are never written into your repositories or the agent's global files.
+
+The AI configs page lists the configs on this computer. Each row shows the provider, client, model, effort and a summary of the overrides.
+
+Choose **Add AI config**. Pick an existing provider, or choose **New provider** to create one without leaving the form. The form shows only the clients that provider supports. Then choose the client and the name; the default name is the provider name and the client in brackets, for example `DeepSeek (OpenCode 2)`. The model box loads the provider's model list in real time, and you can also type a model name that the provider does not return. The effort choices come from the client. Open **Additional settings** for the extra arguments, environment, agent config and the provider's server override.
+
+Remove asks first. An active session that uses the config blocks removal until you switch it or close it. Closed sessions do not block removal.
+
+Usage belongs to the provider. In a session, the provider pill shows the current config's provider usage; hover it for every limit and the session's context left, or click it to switch the session to another config. The chooser lists only the configs allowed for that session, shows their provider usage, marks the config the automatic switch would use next, and edits the allowed list. A new session allows the configs of its starting client by default.
 
 Context left comes from Claude Code. Other clients show **Context left unknown**. Context compacts automatically.
-
-## Presets
-
-A launch preset names an account and can add a model, environment variables and agent config settings. Every connected account appears here as a preset too, marked as coming from the account.
-
-Choose **Add preset** to create one. Type a name, choose an account, and add the model and any overrides. Choose a row to edit it, or delete a stored preset you no longer need. Presets live in the app's own settings; nothing is written into your repositories. API keys stay in the system keychain and are never part of a preset.
 
 ## Languages
 

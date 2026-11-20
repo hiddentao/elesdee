@@ -23,12 +23,12 @@ The folder must exist on this computer. The app does not create it for you. In t
 
 Choose the settings button in the project header to set the defaults for new sessions in that project.
 
-- **Default account** fills the account and client in the launch form.
+- **Default AI config** fills the config, provider and client in the launch form.
 - **Default source branch** fills the source branch. The branch must exist in the project folder's Git repository.
 
-Choose **Clear default account** or **Clear default branch** to remove a default. New sessions then start with no account or branch filled in.
+Choose **Clear default AI config** or **Clear default branch** to remove a default. New sessions then start with no config or branch filled in.
 
-The launch form uses the defaults when you choose the project. You can change the account, client or branch for one session without changing the project defaults. A sample account is never filled in unless you choose it as the project default.
+The launch form uses the defaults when you choose the project. You can change the AI config or branch for one session without changing the project defaults.
 
 ## Sidebar views
 

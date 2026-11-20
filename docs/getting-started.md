@@ -41,24 +41,24 @@ Install any missing agent before you start a session with it. The app uses the c
 
 A project folder can be a Git repository or a plain folder. Agent sessions need a Git repository. Terminal sessions work in either.
 
-## Add an account
+## Add a provider
 
 1. Open **Settings**.
 2. Open **Providers**.
-3. Choose **Add account**.
+3. Choose **Add provider**.
 4. Enter a name and a Google API key.
 5. Save.
 
 The key goes to the system keychain. It is not written to the app's state file, a log or a session output.
 
-Sample accounts appear on a new install. They are marked **Sample** and have no usage data. They show how the account list works. Add your own account to run real sessions.
+Sample providers and AI configs appear on a new install. They are marked **Sample** and have no usage data. They show how the lists work. Add your own provider to run real sessions.
 
 ## Start a session
 
 1. Choose **New session**.
 2. Choose a project.
 3. Choose **Agent** or **Terminal**.
-4. For an agent session, choose a client and a preset. Each connected account is a preset; a stored preset adds its model and overrides to the launch.
+4. For an agent session, choose an AI config. The config adds its provider, client, model, effort and overrides to the launch.
 5. Set the folder if you want a different one from the project folder.
 6. For an agent session, optionally choose a source branch. The app fetches the remote first and starts from the latest commit, without changing your own checkout.
 7. Optionally enter a first prompt. The app uses it to name the session when the name is empty.

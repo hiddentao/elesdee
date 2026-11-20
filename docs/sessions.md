@@ -23,10 +23,10 @@ Runs a plain shell. It has no agent, branch or worktree. The folder can be a Git
 ## Start a session
 
 1. Choose **New session**.
-2. Choose a project. Its default account, client and source branch fill in when the project has them. See [Projects](projects.md).
+2. Choose a project. Its default AI config and source branch fill in when the project has them. See [Projects](projects.md).
 3. Choose **Agent** or **Terminal**.
-4. For an agent session, choose a client and a preset. Every connected account is a preset. A stored preset also brings its model, environment variables and config settings into this launch. You can change the filled-in default. The closed field keeps the account's remaining usage visible.
-5. Choose the accounts the session may use. The accounts of the starting client are selected by default. Add accounts of other clients, or remove any account except the one in use. The app switches automatically only between these accounts.
+4. For an agent session, choose an AI config. The config brings its provider, client, model, effort, extra arguments, environment variables and config settings into this launch. You can change the filled-in default. The closed field keeps the provider's remaining usage visible.
+5. Choose the AI configs the session may use. The configs of the starting client are selected by default. Add configs of other clients, or remove any config except the one in use. The app switches automatically only between these configs.
 6. Set the folder if you want a different one.
 7. For an agent session, optionally choose a source branch. The app fetches the remote first, so the new session branch starts from the latest commit. When the branch tracks a remote branch, the app also moves that local branch forward when it is not checked out. It never changes your own checkout and never forces a branch. With no choice, the session starts from the current branch.
 8. Optionally enter a first prompt. The app passes it to the agent at launch.
@@ -81,17 +81,17 @@ See [Session tools](session-tools.md).
 
 A session can ask to start another session. The request appears in the parent session and in the sidebar **Requests** list. Approve it to start the new session, or deny it. With **Allow further sessions from this session**, later requests from that session start without asking. A session started this way shows where it came from in the sidebar.
 
-## Switch account
+## Switch AI config
 
-Click the provider pill in the session header. The chooser lists the accounts allowed for this session with their remaining usage and marks the account the automatic switch would use next. Choose an account and confirm. The session keeps its worktree and restarts with the new account. The same client continues its conversation. A different client starts again in the same worktree, and it gets the handoff note and the end of the previous log as its first message.
+Click the provider pill in the session header. The chooser lists the AI configs allowed for this session with their provider usage and marks the config the automatic switch would use next. Choose a config and confirm. The session keeps its worktree and restarts with the new config. The same client continues its conversation. A different client starts again in the same worktree, and it gets the handoff note and the end of the previous log as its first message.
 
-The chooser also edits the allowed list while the session runs. Add an account from the filterable list, or remove one. The account in use always stays allowed. A switch to an account outside the list is refused, and the app never switches to one by itself.
+The chooser also edits the allowed list while the session runs. Add a config from the filterable list, or remove one. The config in use always stays allowed. A switch to a config outside the list is refused, and the app never switches to one by itself.
 
-You can also open the session menu and choose **Switch account…**.
+You can also open the session menu and choose **Switch AI config…**.
 
-Hover the usage bar in the pill for the current account's limits and the session's context left. The context left comes from Claude Code. Other clients show **Context left unknown**. Context compacts automatically, and the app shows no context warning.
+Hover the usage bar in the pill for the current provider's limits and the session's context left. The context left comes from Claude Code. Other clients show **Context left unknown**. Context compacts automatically, and the app shows no context warning.
 
-The app switches by itself when an account is near its usage limit and an allowed account has room. It uses the latest usage it read from the provider. If a read fails, the last numbers stay visible and the account says the reading is stale; the failure does not stop a session. Subscription accounts come first, then pay-per-use accounts; within each group it takes the account with the most room, and a tie keeps the current client. If no allowed account has room, the session pauses. A pause keeps the handoff note, and a switch to a different client passes it on. Choose **Resume** when an allowed account has room, or wait for the app to resume it.
+The app switches by itself when a provider is near its usage limit and an allowed config has room. It uses the latest usage it read from the provider. If a read fails, the last numbers stay visible and the provider says the reading is stale; the failure does not stop a session. Subscription providers come first, then pay-per-use providers; within each group it takes the provider with the most room, and a tie keeps the current client. If no allowed config has room, the session pauses. A pause keeps the handoff note, and a switch to a different client passes it on. Choose **Resume** when an allowed config has room, or wait for the app to resume it.
 
 ## Rename
 
@@ -128,13 +128,13 @@ When you quit while sessions run, the app asks first. The dialog shows how many 
 
 ## Restart recovery
 
-If the app or this computer restarts, the sessions that were running restart when elesdee next starts. Each one reopens in the same worktree with the same account and client, and the agent continues its own conversation.
+If the app or this computer restarts, the sessions that were running restart when elesdee next starts. Each one reopens in the same worktree with the same AI config and client, and the agent continues its own conversation.
 
 A terminal session opens a new shell in the same folder, with the earlier output above it.
 
 If an agent has no saved conversation ID, it continues its most recent conversation and the session preview says so.
 
-If a session's folder, account or client is missing, that session stays paused with the reason. The other sessions still restart.
+If a session's folder, AI config or client is missing, that session stays paused with the reason. The other sessions still restart.
 
 ## Delete
 
@@ -148,7 +148,7 @@ Right-click a session in the sidebar or its tab, or use the menu button in the s
 
 - **Reopen** for a closed session
 - **Rename…**
-- **Switch account…** for an active agent session
+- **Switch AI config…** for an active agent session
 - **Copy folder path**
 - **Copy branch name**
 - **Close…** for an active session, or **Delete…** for a closed one

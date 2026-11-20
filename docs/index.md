@@ -8,7 +8,7 @@ order: 1
 
 elesdee is a desktop app for coding agents. It runs Claude Code, Codex, OpenCode 2 and Antigravity in a window on your computer. Each session gets a real terminal, a Git branch and a worktree, so agent work stays separate from your main checkout.
 
-The app keeps your sessions, projects and accounts on this computer. It does not send usage or crash data anywhere.
+The app keeps your sessions, projects, providers and AI configs on this computer. It does not send usage or crash data anywhere.
 
 ## What you can do now
 
@@ -20,9 +20,10 @@ The app keeps your sessions, projects and accounts on this computer. It does not
 - Approve or deny Claude Code permission requests from a card.
 - Close, reopen, rename and delete sessions.
 - Confirm before quitting while sessions run.
-- Add provider accounts with a subscription, API key or local server, including custom compatible endpoints.
+- Add providers with a subscription, API key or local server, including custom compatible endpoints.
+- Create AI configs with their own client, model, effort and overrides.
 - Switch the interface language on the Languages page in Settings. See [Settings](settings.md#languages).
-- Switch a session to another account, and let usage limits switch or pause it.
+- Switch a session to another AI config, and let usage limits switch or pause it.
 - Answer agent questions from the session or the Questions list, and let agents notify you.
 - Approve or deny a session that an agent asks to start.
 

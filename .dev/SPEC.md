@@ -11,7 +11,7 @@ The app is public. Anyone can install it from this repository's GitHub releases.
 **Version 1 (first public release)** includes:
 
 - Agent sessions, each with its own branch and worktree, and terminal sessions
-- Presets and config overrides
+- AI configs and config overrides
 - Crash recovery
 - The Android phone app, with QR pairing
 - Provider switching: usage panel, one-button switch and auto-switch
@@ -26,7 +26,7 @@ Version 1 runs on macOS only. Windows and Linux follow soon after (see Windows a
 
 1. UI mockups of the Mac window and the phone layout, in several rounds, before any code is written.
 2. The iroh test build (see Connection technology).
-3. First milestone: sessions on the Mac. Agent and terminal sessions, worktrees, presets, crash recovery, and the session tools and skills that agents need from the start.
+3. First milestone: sessions on the Mac. Agent and terminal sessions, worktrees, AI configs, crash recovery, and the session tools and skills that agents need from the start.
 4. The Android phone app.
 5. Provider switching.
 6. The built-in browser.
@@ -49,7 +49,7 @@ The language list follows hezo.ai's languages and formats ([hezo docs](https://g
 - The phone: the UI package holds all languages. The phone uses its own system language, and has its own "Languages" setting, so the phone and the computer can differ.
 - The phone shell's own screens (pairing, the list of computers, "update needed") are translated inside the shell, because they show before any UI package is downloaded.
 - Interface copy does not name the operating system. It says "this computer", not "this Mac". Version 1 runs on macOS; Windows and Linux follow soon after.
-- What is not translated: agent output, prompts, session logs and other session content stay in the language they were written in. The skills and starting instructions that elesdee gives agents stay in English. To make an agent work in another language, I say so in a preset or in my prompt. The documentation is in English only.
+- What is not translated: agent output, prompts, session logs and other session content stay in the language they were written in. The skills and starting instructions that elesdee gives agents stay in English. To make an agent work in another language, I say so in a config instruction or in my prompt. The documentation is in English only.
 - Interface text is kept in one catalog per language. Each pull request that adds interface text adds it in all 12 languages, translated by an agent. CI fails if any language is missing a text.
 
 **Moving to a new computer**
@@ -113,7 +113,7 @@ The agents write their conversation to files on disk, and each keeps its own int
 
 **Session types**
 
-- Agent session: runs Claude Code, Codex, OpenCode 2 or Antigravity, with a preset, provider, branch and worktree.
+- Agent session: runs Claude Code, Codex, OpenCode 2 or Antigravity, with an AI config, branch and worktree.
 - Terminal session: a plain terminal, with no agent. It sits under a project in the sidebar and opens in a folder I choose, often an agent session's worktree. It has no branch or worktree of its own.
 
 **Session names and limits**
@@ -153,7 +153,7 @@ The agents write their conversation to files on disk, and each keeps its own int
 
 - A closed session disappears from the sidebar.
 - A filter at the top of the sidebar, "Show closed sessions", brings closed sessions back into the list. They look different from open sessions, for example greyed out.
-- I can reopen a closed session. The app opens it in a new tab, loads its full log, and restarts the agent with the provider it last used.
+- I can reopen a closed session. The app opens it in a new tab, loads its full log, and restarts the agent with the AI config it last used.
 - If the agent can resume its own saved conversation, it does. If not (for example after a switch to a different agent), it gets the handoff note and the end of the log, because a long log may not fit in its context window.
 - Close keeps the session's branch but deletes its worktree folder, to save disk space. The steps:
   1. The agent commits its work, writes the handoff note and pushes the session branch to the remote.
@@ -185,7 +185,7 @@ The agents write their conversation to files on disk, and each keeps its own int
 - Not a main feature: the editor supports quick edits, not full IDE work.
 - Mac only for now. The phone does not have the file viewer and editor yet.
 
-## Agent support and presets
+## Agent support, providers and AI configs
 
 Version 1 supports four coding agents: Claude Code, Codex, OpenCode 2 and Antigravity. Other agents can come later.
 
@@ -195,7 +195,7 @@ Version 1 supports four coding agents: Claude Code, Codex, OpenCode 2 and Antigr
 - Antigravity runs Google Gemini through `agy`.
 - elesdee uses the copies of the four agents that I installed, and shows their versions.
 - If one is missing, elesdee installs its own copy.
-- Each provider account names the client that runs it. For a custom provider, I pick the client when I add it.
+- A provider does not name a client. An AI config names one client that the provider supports. A vendor with more than one client, such as DeepSeek, can run a config on each.
 
 **Permission prompts**
 
@@ -210,12 +210,12 @@ Version 1 supports four coding agents: Claude Code, Codex, OpenCode 2 and Antigr
 - Overrides are easy to see and edit in the IDE, not hidden in files.
 - The launch form groups the first prompt, the uncommitted-changes choice and the overrides under Additional settings.
 
-**Launch presets**
+**AI configs**
 
-- Every connected account is a preset in the launch form, with its provider, client and remaining usage.
-- I can edit a preset's default account, model and config overrides, and add more.
-- The launch form shows the provider list with remaining usage. The selected provider keeps its usage value in the closed field.
-- Presets and config overrides are stored in elesdee's own settings on the Mac. Nothing is written into my repos.
+- Every AI config appears in the launch form, with its provider, client, model and remaining usage.
+- I can edit a config's provider, client, model, effort, extra arguments and overrides, and add more.
+- The launch form shows the config list with provider usage. The selected config keeps its usage value in the closed field.
+- AI configs and their overrides are stored in elesdee's own settings on the Mac. Nothing is written into my repos.
 
 ## Built-in tools and skills for sessions
 
@@ -247,7 +247,7 @@ Every agent session gets the same app tools and skills, whatever the agent or pr
 | Tool | What it does |
 | --- | --- |
 | List sessions | Lists sessions with their project, status and branch |
-| Start session | Starts a new session with a preset, project, source branch and first prompt. I must approve each new session first, on the desktop or the phone. The approval has an option, "Allow further sessions from this session", so a coordinating agent can start helpers without more questions. The sidebar marks which session started it. |
+| Start session | Starts a new session with an AI config, project, source branch and first prompt. I must approve each new session first, on the desktop or the phone. The approval has an option, "Allow further sessions from this session", so a coordinating agent can start helpers without more questions. The sidebar marks which session started it. |
 | Send message | Sends input to another session |
 | Read session | Reads another session's recent output and status: running, waiting for input, or finished |
 | Report done | Tells the app that this session's task is done. The session stays Active until I close it; an idle agent counts as waiting for input. |
@@ -258,7 +258,7 @@ Every agent session gets the same app tools and skills, whatever the agent or pr
 | Wait for answer | Waits until I answer a question, or the agent withdraws it |
 | Withdraw question | Removes a question that the agent no longer needs |
 | Share file | Adds a file or screenshot to the session's view, so I can see it on any device |
-| Check usage | Shows the provider's remaining usage for the session's account |
+| Check usage | Shows the provider's remaining usage for the session's AI config |
 
 - An agent cannot close a session. Only I can, through the session menu on the Mac or the phone.
 
@@ -295,10 +295,10 @@ Every session gets all seven skills: elesdee, Demo servers, Handoff, Ask and not
 
 After a crash or restart, the IDE reopens every session that was running and resumes each one where it stopped. After a restart of the Mac, this happens when elesdee next starts: at login if the start-at-login setting is on, or else when I open the app.
 
-- The IDE saves the state of each session while it runs: agent, preset, provider, repository, folder, branch, and the agent's own session ID.
+- The IDE saves the state of each session while it runs: agent, AI config, provider, repository, folder, branch, and the agent's own session ID.
 - On restart, the IDE relaunches each session with the same settings and resumes the agent's conversation by that ID.
 - If no saved ID exists (for example an older session, or a client that keeps no ID), the IDE continues the agent's most recent conversation and says so in the session preview.
-- If the folder, worktree, account or client is missing, that session stays paused with the reason. The other sessions still resume.
+- If the folder, worktree, AI config or client is missing, that session stays paused with the reason. The other sessions still resume.
 - I do not need to do anything to restore my work.
 - Terminal sessions cannot resume the programs that ran in them. The IDE reopens each terminal in the same folder and shows its earlier output above a new prompt.
 
@@ -306,41 +306,43 @@ After a crash or restart, the IDE reopens every session that was running and res
 
 I can switch provider inside a running session with one button, and the IDE can switch for me when usage runs low.
 
-**Accounts**
+**Providers and AI configs**
 
-- I can add more than one account per provider, for example several Claude subscriptions.
-- API keys and subscription tokens are stored in the macOS Keychain. The app writes API keys; each agent writes its own subscription token. No secret is written into your repos.
-- Each account is a provider choice in a session.
-- A new install shows sample accounts, marked as samples, so the interface is not empty. They have no usage data. Accounts I add are not samples.
-- I can edit an account's name, model, sign-in method, server address and custom provider, and replace its key. A blank key field keeps the saved key. An edited sample account stops being a sample.
-- I can remove an account. The app asks first. Removal deletes the key and the saved usage, and clears presets and project defaults that use the account. An active session that uses the account blocks removal until I switch it or close it.
+- A provider holds a credential and the endpoint it connects to. The system keychain stores its key or token. The app writes API keys; each agent writes its own subscription token. No secret is written into your repos.
+- An AI config names a provider and one client, and adds a model, effort, extra command-line arguments, environment overrides and agent config overrides. Several configs may share one provider, for example DeepSeek in OpenCode 2 and in Claude Code with different models.
+- A session runs one AI config. I switch between configs, not providers.
+- A new install shows sample providers and configs, marked as samples, so the interface is not empty. They have no usage data. Records I add are not samples.
+- I can edit a provider's name, sign-in method, server address and custom API style, and replace its key. A blank key field keeps the saved key. An edited sample provider stops being a sample.
+- I can edit a config's name, provider, client, model, effort, arguments and overrides. The config form shows only the clients its provider supports.
+- I can remove a provider. The app asks first. Removal deletes the key and the saved usage. An AI config that uses the provider blocks removal until I remove that config.
+- I can remove a config. An active session that uses the config blocks removal until I switch it or close it. Removal clears project defaults that use it.
 
-Supported providers:
+Supported vendors and clients:
 
-| Provider | Models | Client | Sign-in |
-| --- | --- | --- | --- |
-| Anthropic | Claude | Claude Code | Subscription or API key |
-| OpenAI | ChatGPT / GPT | Codex | Subscription or API key |
-| Google | Gemini | Antigravity | API key |
-| Kimi (Moonshot) | Kimi | Claude Code | API key |
-| DeepSeek | DeepSeek | Claude Code | API key |
-| Z.ai | GLM | Claude Code | API key |
-| OpenRouter | Many models | OpenCode 2 | API key |
-| Ollama | Local models | Claude Code | Server URL |
-| LM Studio | Local models | Claude Code | Server URL |
+| Vendor | Clients | Sign-in |
+| --- | --- | --- |
+| Anthropic | Claude Code, OpenCode 2 | Subscription or API key |
+| OpenAI | Codex, OpenCode 2 | Subscription or API key |
+| Google | Antigravity | API key |
+| DeepSeek | Claude Code, Codex, OpenCode 2 | API key |
+| Kimi (Moonshot), Z.ai | Claude Code, OpenCode 2 | API key |
+| OpenRouter | OpenCode 2, Codex | API key |
+| Ollama, LM Studio | Claude Code, OpenCode 2 | Server URL |
+| Custom, OpenAI style | Codex, OpenCode 2 | API key or server URL |
+| Custom, Anthropic style | Claude Code, OpenCode 2 | API key or server URL |
 
-- A provider appears in this list only if one of the four clients runs it. xAI (Grok Build) and Kimi Code need clients that elesdee does not support yet, so they are out of the list. When one of those services offers an OpenAI- or Anthropic-compatible API, I can add it as a custom provider.
-- A Google account uses an API key and the Antigravity client. The default model is `gemini-3.8-flash-medium`; model names use Antigravity's own slugs.
-- For a Google account, the core starts Antigravity with a per-session home under the app's data folder, a private settings file that selects the Gemini provider, and the API key in the child environment. It removes the home when the session closes.
+- A vendor appears in this list only if one of the four clients runs it. When another service offers an OpenAI- or Anthropic-compatible API, I add it as a custom provider.
+- A Google provider uses an API key. Antigravity is its only client. The default model is `gemini-3.8-flash-medium`; model names use Antigravity's own slugs.
+- For Antigravity, the core starts the client with a per-session home under the app's data folder, a private settings file that selects the Gemini provider, and the API key in the child environment. It removes the home when the session closes.
 
 **Custom providers**
 
 - Add provider has a "Custom provider" choice for any server that speaks the OpenAI API or the Anthropic API. Examples are a LiteLLM gateway, a company proxy, a self-hosted server or a service that offers a compatible endpoint.
-- I choose the API style: OpenAI-compatible or Anthropic-compatible. I enter the base URL, the model name and an optional API key.
-- The client follows the style. An OpenAI-compatible provider can run on Codex or OpenCode 2. An Anthropic-compatible provider can run on Claude Code or OpenCode 2. OpenCode 2 is the default.
-- I can edit the address, model and client later in Settings. The key stays in the system keychain.
-- The app shows usage numbers only when the server reports them. Otherwise the account shows "No usage data", and auto-switch skips it.
-- I type the model name. The app checks it against the server's model list when the server answers, and accepts the name when it cannot.
+- I choose the API style: OpenAI-compatible or Anthropic-compatible. I enter the base URL and an optional API key.
+- The client follows the style. An OpenAI-compatible provider can run on Codex or OpenCode 2. An Anthropic-compatible provider can run on Claude Code or OpenCode 2.
+- I can edit the address and style later in Settings. The key stays in the system keychain.
+- The app shows usage numbers only when the server reports them. Otherwise the provider shows "No usage data", and auto-switch skips it.
+- The config model box reads the server's model list in real time and also accepts a typed model name. A failed read shows the known list and never blocks saving.
 
 **Subscription sign-in**
 
@@ -353,38 +355,38 @@ Supported providers:
 
 **Manual switch**
 
-- One button switches the current session to another provider or account.
-- The work and context of the session carry over to the new provider. Inside the same client (for example Anthropic to DeepSeek on Claude Code), the same conversation continues. Between different clients, the new agent gets a handoff summary of the work so far.
+- One button switches the current session to another AI config.
+- The work and context of the session carry over to the new config. Inside the same client (for example Anthropic to DeepSeek on Claude Code), the same conversation continues. Between different clients, the new agent gets a handoff summary of the work so far.
 
 **Usage panel**
 
-Usage belongs to the computer, not to a session. The sidebar shows a compact summary. I click it to open the full panel, which shows every account at the same time:
+Usage belongs to the computer, not to a session. The sidebar shows a compact summary. I click it to open the full panel, which shows every provider at the same time:
 
-| Account type | What the panel shows |
+| Provider type | What the panel shows |
 | --- | --- |
-| Claude Code (each subscription) | Usage remaining for each limit of the plan (5-hour and weekly) |
+| Claude Code (each Anthropic subscription) | Usage remaining for each limit of the plan (5-hour and weekly) |
 | Codex | Usage remaining for each limit of the plan (5-hour and weekly, where the plan has them) |
-| DeepSeek (through Claude Code) | Account balance from the DeepSeek API, so I know when to top up |
-| Google (through Antigravity) | No official usage source. The account says so. |
+| DeepSeek | Account balance from the DeepSeek API, so I know when to top up |
+| Google (through Antigravity) | No official usage source. The provider says so. |
 
-- The provider pill in the session header includes a usage bar for the current account. The bar shows available usage, not context.
-- Hover the bar for the account's limits and the session's context left. Click the pill to switch accounts.
+- The provider pill in the session header includes a usage bar for the current config's provider. The bar shows available usage, not context.
+- Hover the bar for the provider's limits and the session's context left. Click the pill to switch AI configs.
 - Context compacts automatically. The app does not show a context warning.
 
-**Allowed providers per session**
+**Allowed AI configs per session**
 
-- For each session, I choose which providers and accounts it may use.
-- A new session allows the accounts of its starting client. I can add accounts of other clients, and remove any account except the one in use.
+- For each session, I choose which AI configs it may use.
+- A new session allows the configs of its starting client. I can add configs of other clients, and remove any config except the one in use.
 - I can change the list while the session runs.
-- Auto-switch uses only providers from this list.
+- Auto-switch uses only configs from this list.
 
 **Auto-switch**
 
 1. The IDE watches the usage of the current provider.
-2. When usage nears its limit, the IDE switches the session to an allowed provider that has usage left (see the rules below).
+2. When usage nears its limit, the IDE switches the session to an allowed config whose provider has usage left (see the rules below).
 3. If no allowed provider has usage left, the IDE tells the agent to commit all its work to the session branch, write a handoff note, and push the branch to the remote.
 4. The IDE then pauses the session. A paused session keeps its worktree and stays in the sidebar as Active, with a paused note in the session. This is not a Close.
-5. The session resumes by itself when an allowed provider has usage again. I can also click Resume at any time.
+5. The session resumes by itself when an allowed config has usage again. I can also click Resume at any time.
 
 **Where usage numbers come from**
 
@@ -395,7 +397,7 @@ Official sources:
 
 - Claude Code: the JSON that Claude Code gives a status line script has `rate_limits.five_hour` and `rate_limits.seven_day`, each with `used_percentage` ("from 0 to 100") and `resets_at` (Unix seconds) ([Claude Code docs](https://code.claude.com/docs/en/statusline)).
   - The app sets the status line command at launch through `--settings`. The script passes the JSON to the core service.
-  - Limits: the field "appears only for claude.ai Pro, Max, and Ultra subscribers", only after the first reply in a session, and each window may be absent ([Claude Code docs](https://code.claude.com/docs/en/statusline)). So the numbers exist only while a session runs on that account. At other times, the usage panel shows the last numbers it read and when it read them.
+  - Limits: the field "appears only for claude.ai Pro, Max, and Ultra subscribers", only after the first reply in a session, and each window may be absent ([Claude Code docs](https://code.claude.com/docs/en/statusline)). So the numbers exist only while a session runs on that provider. At other times, the usage panel shows the last numbers it read and when it read them.
 - Codex: the app-server request `account/rateLimits/read` and the `account/rateLimits/updated` notification. Each window has `usedPercent`, `windowDurationMins` and `resetsAt` ([Codex docs](https://learn.chatgpt.com/docs/app-server)).
   - The docs do not name the windows, so the app tells them apart by length: 300 minutes is the 5-hour window, 10,080 minutes is the weekly window.
   - "Pro plans currently have no five-hour limit" ([Codex docs](https://learn.chatgpt.com/docs/pricing)).
@@ -411,15 +413,16 @@ Rules from the providers:
 **Auto-switch rules**
 
 - Subscriptions (Claude, Codex): "near the limit" means 90% of any limit of the plan, the 5-hour limit or the weekly limit, whichever comes first. The margin leaves room for the agent to commit and hand off.
-- DeepSeek: each account has a minimum balance that I set, for example 5 USD. Below it, auto-switch moves the session away and the app tells me to top up.
-- Order: auto-switch picks subscription accounts first, then pay-per-use accounts such as DeepSeek. Among the accounts in a group, it picks the one with the most usage left. On a tie, it keeps the session on its current client.
+- DeepSeek: each provider has a minimum balance that I set, for example 5 USD. Below it, auto-switch moves the session away and the app tells me to top up.
+- Order: auto-switch picks subscription providers first, then pay-per-use providers such as DeepSeek. Among the providers in a group, it picks the one with the most usage left. On a tie, it keeps the session on its current client.
 
 ## Settings
 
 - Settings opens as a full page over the desktop window. A left submenu holds the sections.
 - A dialog that opens from Settings, such as Add provider, opens over the page. Closing it returns to the same Settings section.
 - General: start elesdee at login, and keep the computer awake while agents work.
-- Providers: auto-switch, the account list, and add or configure a provider. Adding a provider follows the supported list above. Subscription sign-in opens the provider page, and API keys or local server URLs are entered in the same form.
+- Providers: auto-switch, the provider list, and add or configure a provider. Adding a provider follows the supported list above. Subscription sign-in opens the provider page, and API keys or local server URLs are entered in the same form.
+- AI configs: the config list, and add or edit a config. The form picks a provider or creates one in place, shows the provider's clients, then the name, model and effort. Extra arguments, environment, agent config and the server override sit under Additional settings.
 - Languages: the interface language.
 - Devices: paired phones, with a Remove action.
 - Diagnostics: export logs and system details.
@@ -431,7 +434,7 @@ A project groups sessions.
 
 - Creating a project is fast: one action, a name and a folder. The folder can be a Git repository or a plain folder.
 - I can drag a session from one project to another.
-- A project can store a default account and a default source branch. New sessions in the project start with these filled in, and I can change them for each session. The branch must exist in the project folder's Git repository.
+- A project can store a default AI config and a default source branch. New sessions in the project start with these filled in, and I can change them for each session. The branch must exist in the project folder's Git repository.
 
 ## Launching a session
 
@@ -653,7 +656,7 @@ If iroh works well, commit to iroh; if not, switch to WebRTC. If Tauri mobile ha
 
 ## Releases and updates
 
-The desktop app and the mobile apps are published through GitHub Releases in this repository. The repository is public, so apps can download releases without a GitHub login. An update installs over the existing app and keeps all its data: sessions, presets, accounts, paired devices and browser logins.
+The desktop app and the mobile apps are published through GitHub Releases in this repository. The repository is public, so apps can download releases without a GitHub login. An update installs over the existing app and keeps all its data: sessions, providers, AI configs, paired devices and browser logins.
 
 **Release builds**
 
