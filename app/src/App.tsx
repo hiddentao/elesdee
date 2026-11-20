@@ -1064,6 +1064,11 @@ export default function App() {
       case 'switch-account':
         setSwitchSessionId(session.id);
         break;
+      case 'copy-folder':
+        if (session.folder) {
+          void copyText(session.folder, t('app.folderCopied'));
+        }
+        break;
       case 'close':
         setCloseSessionId(session.id);
         break;

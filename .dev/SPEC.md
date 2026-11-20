@@ -150,7 +150,7 @@ The agents write their conversation to files on disk, and each keeps its own int
 **Session menu**
 
 - Right-click a session in the sidebar, or its tab, to open a menu of actions.
-- The menu holds Rename, Switch AI config, Move to project, and Close or Delete. The branch chip's menu holds Copy branch name, Copy folder path, Open folder and Open in Terminal.
+- The menu holds Rename, Switch AI config, Move to project, and Close or Delete. The branch chip's menu holds Copy branch name, Copy folder path, Open folder and Open in Terminal. A session without a branch shows no branch chip, so its menu also holds Copy folder path.
 - Move to project opens a chooser of the other projects and moves the session to the chosen one. It does the same as dragging the session.
 - One action is Close. Close stops the session. The app asks me to confirm first.
 - Close is the only way to stop a session for good. The app can also pause a session that is out of usage (see Auto-switch).

@@ -27,6 +27,7 @@ export type SessionMenuAction =
   | 'rename'
   | 'move'
   | 'switch-account'
+  | 'copy-folder'
   | 'close'
   | 'reopen'
   | 'delete';
@@ -81,6 +82,11 @@ export function menuItems(
     });
   }
 
+  // A session without a branch has no branch menu, so its folder actions stay here.
+  if (!session.branch && session.folder.trim() !== '') {
+    items.push({ action: 'copy-folder', label: t('session.copyFolder') });
+  }
+
   if (closed) {
     items.push({
       action: 'delete',
@@ -108,6 +114,8 @@ function actionIcon(action: SessionMenuAction) {
       return <FolderIcon />;
     case 'switch-account':
       return <AgentIcon />;
+    case 'copy-folder':
+      return <FolderIcon />;
     case 'close':
       return <CloseIcon />;
     case 'reopen':

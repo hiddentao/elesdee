@@ -102,6 +102,16 @@ function renderWithLanguage(node: ReactNode) {
 }
 
 describe('session copy actions', () => {
+  it('keeps copy folder in the menu for a session without a branch', () => {
+    const terminal = makeSession({
+      name: 'Terminal',
+      folder: '/dev/web',
+      branch: null,
+    });
+    const labels = menuItems(terminal).map((item) => item.label);
+    expect(labels).toContain('Copy folder path');
+  });
+
   it('keeps copy folder and copy branch out of the session menu', () => {
     const labels = menuItems(copySession).map((item) => item.label);
     expect(labels).not.toContain('Copy folder path');

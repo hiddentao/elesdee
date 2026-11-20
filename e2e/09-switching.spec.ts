@@ -93,7 +93,10 @@ test('auto-switches near the limit and pauses when no account has room', async (
   await expect
     .poll(async () => (await getSession(request, session.id))?.workState)
     .toBe('paused');
-  await expect(page.locator('.status-badge')).toContainText('Paused');
+  await expect(page.locator('.status-badge')).toHaveAttribute(
+    'data-status',
+    'paused',
+  );
   await expect(page.locator('.waiting-note')).toContainText(
     'The work is committed, but the branch has no remote.',
   );
@@ -102,7 +105,10 @@ test('auto-switches near the limit and pauses when no account has room', async (
   await expect
     .poll(async () => (await getSession(request, session.id))?.workState)
     .toBe('working');
-  await expect(page.locator('.status-badge')).toContainText('Working');
+  await expect(page.locator('.status-badge')).toHaveAttribute(
+    'data-status',
+    'running',
+  );
 
   await closeSession(request, session.id);
 });

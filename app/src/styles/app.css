@@ -1670,8 +1670,8 @@ button:disabled {
 }
 
 .new-session-dialog .dialog-body {
-  gap: 11px;
-  padding: 14px 22px;
+  gap: 9px;
+  padding: 12px 22px;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -2333,8 +2333,10 @@ button:disabled {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+  max-height: 60px;
   margin: 0;
   padding: 0;
+  overflow-y: auto;
   list-style: none;
 }
 

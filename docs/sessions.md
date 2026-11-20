@@ -169,7 +169,7 @@ Right-click a session in the sidebar or its tab, or use the menu button in the s
 - **Switch AI config…** for an active agent session
 - **Close…** for an active session, or **Delete…** for a closed one
 
-The branch chip in the session header has the only copy actions: **Copy branch name**, **Copy folder path**, **Open folder** and **Open in Terminal**.
+The branch chip in the session header holds the copy actions: **Copy branch name**, **Copy folder path**, **Open folder** and **Open in Terminal**. A terminal session has no branch chip, so its session menu keeps **Copy folder path**.
 
 ## Next steps
 
