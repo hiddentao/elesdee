@@ -528,27 +528,47 @@ Step 3 implements the shell side of the bridge as these commands in `phone-shell
 
 The shell injects `window.__ELESDEE_PHONE__` with `{ computerId, computerName, bridgeVersion, protocolVersion }` before page scripts run. The package uses it to select the phone transport. In a normal browser the marker is absent, so the same bundle uses the local HTTP API. This keeps the Playwright tests working.
 
-Step 5 delivers the package but does not connect it to this bridge. The loaded package still uses the browser HTTP transport, so its data requests do not reach the computer through the link yet. The shell's own screens stay reachable and keep working. The package transport is the separate refactor in 5.7.
+Step 5 delivers the package. The package transport in 5.7 connects it to the bridge.
 
 ### 5.7 UI transport refactor
 
-Add `app/src/api/transport.ts`:
+Implemented in `app/src/api/transport.ts`. The package and the browser layout share one transport contract:
 
 ```ts
 interface Transport {
-  request<T>(method: string, params?: unknown): Promise<T>;
+  readonly kind: 'http' | 'phone';
+  request<T>(
+    method: string,
+    params?: unknown,
+    options?: { signal?: AbortSignal },
+  ): Promise<T>;
   subscribe(
-    channel: 'events' | 'aux' | 'output',
+    channel: 'events' | 'aux' | 'output' | 'history',
     params: unknown,
-    handlers: { onEvent: (value: unknown) => void; onError?: () => void },
+    handlers: {
+      onEvent: (value: unknown) => void;
+      onError?: () => void;
+      onOpen?: () => void;
+      onEnd?: () => void;
+      isClosed?: () => boolean;
+    },
   ): () => void;
+  upload(sessionId: string, name: string, data: Blob): Promise<UploadedFile>;
+  readImage(sessionId: string, path: string): Promise<Blob>;
+  notify(notice: PhoneNotice): void;
+  notificationClick(listener: (sessionId: string) => void): () => void;
 }
 ```
 
-- The browser transport uses `fetch` and `EventSource`, as today.
-- The phone transport uses `phone_rpc`, `phone_subscribe` and `phone_unsubscribe`.
-- `client.ts` and `events.ts` call the transport. Components do not change.
-- Method names map to existing routes where possible.
+- The module reads `window.__ELESDEE_PHONE__`. The shell writes it before the package scripts run, so the package uses the phone transport. Without the marker, the same bundle uses the browser transport. This keeps `/phone.html` and the Playwright phone tests on the local HTTP API.
+- The browser transport uses `fetch` and `EventSource`, with the same reconnect and sequence replay as before. The phone transport uses `phone_request`, `phone_subscribe` and `phone_unsubscribe`.
+- `client.ts` and `events.ts` call the transport; the phone components do not change. The method names are the link allowlist names. The browser transport maps each name to the local route that the core link dispatcher uses, so both transports share one contract.
+- The browser event and auxiliary streams stay separate. The phone transport opens one link event stream and gives it to both subscribers, so the session list and the pending cards do not open two streams.
+- Output and history keep the replay position. The browser transport reconnects from its last sequence. The shell bridge reconnects and resumes inside the shell, and the package receives the replayed frames.
+- Upload sends one base64 body through `phone_upload`, after checking the 25 MiB cap. Image read returns a Blob from `phone_read_image`. The phone transport does not call `sessions.resize`, because the allowlist has no resize method.
+- A notification is a fact from the event stream, not free text: the package sends the event, the screen state and the text choices, and the shell applies the notice and suppression rules in 5.8. A tap on a notification changes the package route to that session.
+- Tests: `app/src/api/transport.test.ts` covers both transports with a fake bridge: method mapping, errors, events, output replay, upload, image read, notification and selection. The existing event stream tests still pass. The phone Playwright specs are unchanged.
+- Not run: the package bridge in a mobile webview. A real device must check the IPC from the package origin, the marker script, the upload and image transfer and a notification tap.
 
 ### 5.8 Notifications
 

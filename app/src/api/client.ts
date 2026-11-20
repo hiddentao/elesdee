@@ -1,7 +1,12 @@
 import { API_BASE } from './base';
+import {
+  ApiError,
+  errorMessage,
+  httpRequest as request,
+  transport,
+} from './transport';
 import type {
   AiConfig,
-  ApiErrorPayload,
   AppSettings,
   ApproveSessionResult,
   BootstrapResponse,
@@ -47,38 +52,7 @@ import type {
   UsageRow,
 } from './types';
 
-export class ApiError extends Error {
-  readonly status: number;
-
-  constructor(status: number, message: string) {
-    super(message);
-    this.name = 'ApiError';
-    this.status = status;
-  }
-}
-
-async function errorMessage(response: Response): Promise<string> {
-  try {
-    const payload = (await response.json()) as Partial<ApiErrorPayload>;
-    if (payload && typeof payload.error === 'string' && payload.error.trim() !== '') {
-      return payload.error;
-    }
-  } catch {
-    // The response carries no JSON body.
-  }
-  return `The request failed with status ${response.status}.`;
-}
-
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(API_BASE + path, init);
-  if (!response.ok) {
-    throw new ApiError(response.status, await errorMessage(response));
-  }
-  if (response.status === 204) {
-    return undefined as T;
-  }
-  return (await response.json()) as T;
-}
+export { ApiError } from './transport';
 
 function post(body: unknown): RequestInit {
   return {
@@ -89,11 +63,11 @@ function post(body: unknown): RequestInit {
 }
 
 export function bootstrap(): Promise<BootstrapResponse> {
-  return request<BootstrapResponse>('/api/bootstrap');
+  return transport.request<BootstrapResponse>('bootstrap');
 }
 
 export function health(): Promise<HealthResponse> {
-  return request<HealthResponse>('/api/health');
+  return transport.request<HealthResponse>('health');
 }
 
 const CLIENT_SLUGS: Record<Client, string> = {
@@ -244,14 +218,11 @@ export function deleteConfig(id: string): Promise<void> {
 }
 
 export function listQuestions(): Promise<Question[]> {
-  return request<Question[]>('/api/questions');
+  return transport.request<Question[]>('questions.list');
 }
 
 export function answerQuestion(id: string, answer: string): Promise<Question> {
-  return request<Question>(
-    `/api/questions/${encodeURIComponent(id)}/answer`,
-    post({ answer }),
-  );
+  return transport.request<Question>('questions.answer', { id, answer });
 }
 
 export function withdrawQuestion(id: string): Promise<Question> {
@@ -265,27 +236,24 @@ export function approveSessionRequest(
   id: string,
   allowFurther: boolean,
 ): Promise<ApproveSessionResult> {
-  return request<ApproveSessionResult>(
-    `/api/session-requests/${encodeURIComponent(id)}/approve`,
-    post({ allowFurther }),
-  );
+  return transport.request<ApproveSessionResult>('sessionRequests.approve', {
+    id,
+    allowFurther,
+  });
 }
 
 export function denySessionRequest(id: string): Promise<SessionRequest> {
-  return request<SessionRequest>(
-    `/api/session-requests/${encodeURIComponent(id)}/deny`,
-    post({}),
-  );
+  return transport.request<SessionRequest>('sessionRequests.deny', { id });
 }
 
 export function listProjects(
   query: string,
   signal?: AbortSignal,
 ): Promise<Project[]> {
-  const params = new URLSearchParams({ q: query });
-  return request<Project[]>(
-    `/api/projects?${params.toString()}`,
-    signal ? { signal } : undefined,
+  return transport.request<Project[]>(
+    'projects.list',
+    { q: query },
+    { signal },
   );
 }
 
@@ -294,10 +262,10 @@ export function listBranches(
   query: string,
   signal?: AbortSignal,
 ): Promise<Branch[]> {
-  const params = new URLSearchParams({ folder, q: query });
-  return request<Branch[]>(
-    `/api/branches?${params.toString()}`,
-    signal ? { signal } : undefined,
+  return transport.request<Branch[]>(
+    'branches.list',
+    { folder, q: query },
+    { signal },
   );
 }
 
@@ -369,11 +337,11 @@ export function updateProjectDefaults(
 }
 
 export function createSession(input: CreateSessionInput): Promise<Session> {
-  return request<Session>('/api/sessions', post(input));
+  return transport.request<Session>('sessions.create', input);
 }
 
 export function closeSession(id: string): Promise<Session> {
-  return request<Session>(`/api/sessions/${encodeURIComponent(id)}/close`, post({}));
+  return transport.request<Session>('sessions.close', { sessionId: id });
 }
 
 export function renameSession(id: string, name: string): Promise<Session> {
@@ -392,9 +360,10 @@ export function switchSessionConfig(
   id: string,
   configId: string,
 ): Promise<Session> {
-  return request<Session>(`/api/sessions/${encodeURIComponent(id)}/config`, post({
+  return transport.request<Session>('sessions.config', {
+    sessionId: id,
     configId,
-  }));
+  });
 }
 
 export function getSwitchOptions(id: string): Promise<SwitchOptions> {
@@ -423,7 +392,7 @@ export function moveSession(id: string, projectId: string): Promise<Session> {
 }
 
 export function resumeSession(id: string): Promise<Session> {
-  return request<Session>(`/api/sessions/${encodeURIComponent(id)}/resume`, post({}));
+  return transport.request<Session>('sessions.resume', { sessionId: id });
 }
 
 export function deleteSession(id: string): Promise<void> {
@@ -443,7 +412,7 @@ export function stopDemoServer(
 }
 
 export function sendInput(id: string, data: string): Promise<void> {
-  return request<void>(`/api/sessions/${encodeURIComponent(id)}/input`, post({ data }));
+  return transport.request<void>('sessions.input', { sessionId: id, data });
 }
 
 export function respondPermission(
@@ -451,10 +420,11 @@ export function respondPermission(
   requestId: string,
   decision: PermissionDecision,
 ): Promise<void> {
-  return request<void>(
-    `/api/sessions/${encodeURIComponent(id)}/permission`,
-    post({ requestId, decision }),
-  );
+  return transport.request<void>('sessions.permission', {
+    sessionId: id,
+    requestId,
+    decision,
+  });
 }
 
 export function resizeSession(
@@ -462,6 +432,10 @@ export function resizeSession(
   cols: number,
   rows: number,
 ): Promise<void> {
+  if (transport.kind === 'phone') {
+    // The phone bridge does not expose a resize method.
+    return Promise.resolve();
+  }
   return request<void>(`/api/sessions/${encodeURIComponent(id)}/resize`, post({ cols, rows }));
 }
 
@@ -470,11 +444,10 @@ export function listFiles(
   path = '',
   signal?: AbortSignal,
 ): Promise<FileList> {
-  const params = new URLSearchParams(path ? { path } : {});
-  const query = params.toString();
-  return request<FileList>(
-    `/api/sessions/${encodeURIComponent(id)}/files${query ? `?${query}` : ''}`,
-    signal ? { signal } : undefined,
+  return transport.request<FileList>(
+    'files.list',
+    { sessionId: id, path },
+    { signal },
   );
 }
 
@@ -483,10 +456,10 @@ export function readFile(
   path: string,
   signal?: AbortSignal,
 ): Promise<FileContent> {
-  const params = new URLSearchParams({ path });
-  return request<FileContent>(
-    `/api/sessions/${encodeURIComponent(id)}/file?${params.toString()}`,
-    signal ? { signal } : undefined,
+  return transport.request<FileContent>(
+    'files.read',
+    { sessionId: id, path },
+    { signal },
   );
 }
 
@@ -506,16 +479,7 @@ export function readSessionImage(
   path: string,
   signal?: AbortSignal,
 ): Promise<Blob> {
-  const params = new URLSearchParams({ path });
-  return fetch(
-    `${API_BASE}/api/sessions/${encodeURIComponent(id)}/image?${params.toString()}`,
-    signal ? { signal } : undefined,
-  ).then(async (response) => {
-    if (!response.ok) {
-      throw new ApiError(response.status, await errorMessage(response));
-    }
-    return response.blob();
-  });
+  return transport.readImage(id, path, { signal });
 }
 
 export function uploadFile(
@@ -523,26 +487,17 @@ export function uploadFile(
   name: string,
   file: Blob,
 ): Promise<UploadedFile> {
-  return request<UploadedFile>(
-    `/api/sessions/${encodeURIComponent(id)}/upload`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/octet-stream',
-        'X-El-Esdee-Filename': encodeURIComponent(name),
-      },
-      body: file,
-    },
-  );
+  return transport.upload(id, name, file);
 }
 
 export function sessionChanges(
   id: string,
   signal?: AbortSignal,
 ): Promise<SessionChanges> {
-  return request<SessionChanges>(
-    `/api/sessions/${encodeURIComponent(id)}/changes`,
-    signal ? { signal } : undefined,
+  return transport.request<SessionChanges>(
+    'diff.read',
+    { sessionId: id },
+    { signal },
   );
 }
 

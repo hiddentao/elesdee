@@ -71,6 +71,7 @@ import {
   type SessionView,
 } from './MessageView';
 import { SessionFiles, type PhoneFilePanel } from './SessionFiles';
+import { usePhoneNotifications } from './notifications';
 
 type Filter = 'all' | 'running' | 'waiting';
 
@@ -135,9 +136,27 @@ export default function PhoneApp() {
   const activeIdRef = useRef(activeId);
   activeIdRef.current = activeId;
 
+  usePhoneNotifications({
+    sessions,
+    activeSessionId: activeId,
+    screen,
+  });
+
   useEffect(() => {
     setFilePanel(null);
   }, [activeId]);
+
+  useEffect(() => {
+    const onHash = () => {
+      const id = sessionHashId();
+      if (id) {
+        setActiveId(id);
+        setScreen('session');
+      }
+    };
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
 
   const load = useCallback(async () => {
     try {
