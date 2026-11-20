@@ -1,6 +1,6 @@
 # Phone shell, pairing and remote connection
 
-Status: design. Not implemented.
+Status: design. Step 1, the shared `link` crate, is implemented. The core endpoint, phone shell and UI are not built.
 
 Read this with `.dev/SPEC.md` (Mobile companion app, Connection technology), `.dev/api.md` and `docs/phone.md`.
 
@@ -21,16 +21,27 @@ Use iroh. The core service and the phone shell each run an iroh endpoint. Each e
 | `iroh-tickets` | 1.0.0 | `link` | `Ticket` trait and endpoint address encoding |
 | `iroh-mdns-address-lookup` | 0.6.1 | `link` | Same Wi-Fi discovery; optional |
 | `qrcode` | 0.15.0, `image` feature | core | Pairing QR as a PNG |
-| `blake3` | 1.8 | `link`, core, phone shell | Package hash and pairing code |
-| `subtle` | 2.6 | `link` | Constant-time secret compare |
-| `zeroize` | 1.9 | `link` | Clear pairing secrets from memory |
+| `blake3` | 1.8.7 | `link`, core, phone shell | Package hash and pairing code |
+| `subtle` | 2.6.1 | `link` | Constant-time secret compare |
+| `zeroize` | 1.9.2 | `link` | Clear pairing secrets from memory |
+| `postcard` | 1.1.3 | `link` | Pairing ticket body encoding |
 | `zip` | 9.8 | phone shell | Safe extraction of the UI package |
 | `tower` | 0.5, `util` feature | core | In-process calls to the local API router |
 | `rand` | 0.10 | core | Pairing secret |
 
 Pin exact versions with a committed `Cargo.lock`. iroh 1.5.0 requires Rust 1.91. Raise the `rust-version` of `core` and the new crates to 1.91. The desktop Tauri shell does not depend on iroh and keeps its current MSRV.
 
+Step 1 is implemented in `link/`. The crate pins `iroh` 1.5.0, `iroh-tickets` 1.0.0, `iroh-mdns-address-lookup` 0.6.1 (optional, behind the `mdns` feature), `blake3` 1.8.7, `subtle` 2.6.1, `zeroize` 1.9.2 and `postcard` 1.1.3. Its `Cargo.lock` pins `serde` 1.0.229 and `serde_json` 1.0.154. The crate sets `rust-version = "1.91"`; `core` keeps its current MSRV until step 2 adds the endpoint. The crate holds the device identity, the pairing ticket and session, request and response framing, the method allowlist and the size and count limits. It has unit tests and a loopback test with two iroh endpoints.
+
 The iroh API changes often. Keep the surface small: `Endpoint::builder(presets::N0)`, `.alpns`, `.address_lookup`, `.bind`, `Endpoint::connect`, `Connection::{open_bi, accept_bi, remote_id, close}`, `protocol::Router`, and `iroh_tickets::Ticket`. Run the link tests on every upgrade.
+
+API notes from the pinned crates:
+
+- `iroh::PublicKey` `Display` produces hex. The computer id uses `PublicKey::to_z32()`, which is the z-base-32 string.
+- `iroh::EndpointAddr` carries the endpoint id and a set of transport addresses, and it implements serde. The ticket encodes it with postcard.
+- `iroh_tickets::Ticket` requires `KIND`, `encode_bytes` and `decode_bytes`. The default string form is the kind plus unpadded base32.
+- `SecretKey::generate()` takes no argument. `SecretKey::from_bytes` takes a `&[u8; 32]`.
+- `presets::Minimal` gives two loopback endpoints without a relay, which the link test uses. `presets::N0` remains the production preset.
 
 Why not WebRTC:
 
