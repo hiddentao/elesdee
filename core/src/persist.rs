@@ -7,9 +7,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::private_fs;
 use crate::seed;
-use crate::state::{Account, PairedDevice, Preset, Project, Question, Session, SessionRequest};
+use crate::state::{
+    AiConfig, LegacyAccount, LegacyPreset, PairedDevice, Project, Provider, Question, Session,
+    SessionRequest,
+};
 
-const STATE_VERSION: u32 = 1;
+const STATE_VERSION: u32 = 2;
+const LEGACY_STATE_VERSION: u32 = 1;
 const STATE_FILE: &str = "state.json";
 const BAD_FILE: &str = "state.bad.json";
 
@@ -19,9 +23,13 @@ pub(crate) struct PersistedState {
     pub version: u32,
     pub projects: Vec<Project>,
     #[serde(default)]
-    pub accounts: Option<Vec<Account>>,
+    pub providers: Option<Vec<Provider>>,
     #[serde(default)]
-    pub presets: Option<Vec<Preset>>,
+    pub configs: Option<Vec<AiConfig>>,
+    #[serde(default, skip_serializing)]
+    pub accounts: Option<Vec<LegacyAccount>>,
+    #[serde(default, skip_serializing)]
+    pub presets: Option<Vec<LegacyPreset>>,
     #[serde(default)]
     pub questions: Option<Vec<Question>>,
     #[serde(default)]
@@ -34,8 +42,8 @@ pub(crate) struct PersistedState {
 impl PersistedState {
     pub fn new(
         projects: Vec<Project>,
-        accounts: Option<Vec<Account>>,
-        presets: Option<Vec<Preset>>,
+        providers: Option<Vec<Provider>>,
+        configs: Option<Vec<AiConfig>>,
         questions: Option<Vec<Question>>,
         session_requests: Option<Vec<SessionRequest>>,
         paired_devices: Vec<PairedDevice>,
@@ -44,8 +52,10 @@ impl PersistedState {
         Self {
             version: STATE_VERSION,
             projects,
-            accounts,
-            presets,
+            providers,
+            configs,
+            accounts: None,
+            presets: None,
             questions,
             session_requests,
             paired_devices,
@@ -75,7 +85,7 @@ pub(crate) struct PersistedOutput {
 
 pub(crate) enum LoadResult {
     Missing,
-    Loaded(PersistedState),
+    Loaded(Box<PersistedState>),
     Corrupt,
 }
 
@@ -130,11 +140,11 @@ impl StateStore {
             Err(error) => return self.corrupt(&format!("could not parse state: {error}")),
         };
 
-        if state.version != STATE_VERSION {
+        if state.version != STATE_VERSION && state.version != LEGACY_STATE_VERSION {
             return self.corrupt(&format!("unsupported state version {}", state.version));
         }
 
-        LoadResult::Loaded(state)
+        LoadResult::Loaded(Box::new(state))
     }
 
     pub fn save(&self, state: &PersistedState) -> io::Result<()> {

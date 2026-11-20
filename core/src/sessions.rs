@@ -471,16 +471,21 @@ impl SessionEntry {
         lock(&self.data).session.short = short;
     }
 
-    pub fn set_launch_overrides(
+    /// Copies an AI config onto the session so a running session keeps its
+    /// launch settings even when the stored config changes.
+    pub fn set_launch_config(
         &self,
-        preset_id: Option<String>,
-        model: Option<String>,
-        config: BTreeMap<String, String>,
+        config: &crate::state::AiConfig,
+        launch_config: BTreeMap<String, String>,
     ) -> Session {
         let mut state = lock(&self.data);
-        state.session.preset_id = preset_id;
-        state.session.model = model;
-        state.session.config = config;
+        state.session.config_id = Some(config.id.clone());
+        state.session.provider_id = Some(config.provider_id.clone());
+        state.session.client = Some(config.client);
+        state.session.model = config.model.clone();
+        state.session.effort = config.effort.clone();
+        state.session.args = config.args.clone();
+        state.session.config = launch_config;
         state.session.clone()
     }
 
@@ -626,7 +631,8 @@ impl SessionEntry {
 
     pub fn finish_switch(
         &self,
-        account_id: String,
+        config_id: String,
+        provider_id: String,
         client: Client,
         shortcuts: Vec<Shortcut>,
         agent_session_id: Option<String>,
@@ -638,7 +644,8 @@ impl SessionEntry {
         state.session.work_state = Some(WorkState::Working);
         state.session.waiting_for = None;
         state.session.pending_permission = None;
-        state.session.account_id = Some(account_id);
+        state.session.config_id = Some(config_id);
+        state.session.provider_id = Some(provider_id);
         state.session.client = Some(client);
         state.session.agent_session_id = agent_session_id;
         state.session.shortcuts = shortcuts;
@@ -818,14 +825,37 @@ impl SessionEntry {
         state.session.clone()
     }
 
-    pub fn set_allowed_accounts(&self, account_ids: Vec<String>) -> Option<Session> {
+    pub fn set_allowed_configs(&self, config_ids: Vec<String>) -> Option<Session> {
         let mut state = lock(&self.data);
         if state.session.status != SessionState::Active || state.session.kind != SessionKind::Agent
         {
             return None;
         }
-        state.session.allowed_account_ids = account_ids;
+        state.session.allowed_config_ids = config_ids;
         Some(state.session.clone())
+    }
+
+    /// Drops a removed config from a session. A closed session that ran the
+    /// config keeps its log and says the config is gone.
+    pub fn forget_config(&self, config_id: &str) -> bool {
+        let mut state = lock(&self.data);
+        let mut changed = false;
+        let before = state.session.allowed_config_ids.len();
+        state
+            .session
+            .allowed_config_ids
+            .retain(|id| id != config_id);
+        changed |= state.session.allowed_config_ids.len() != before;
+        if state.session.config_id.as_deref() == Some(config_id) {
+            state.session.config_id = None;
+            state.session.provider_id = None;
+            if state.session.status == SessionState::Closed {
+                state.session.preview =
+                    "The AI config was removed. Choose another config.".to_owned();
+            }
+            changed = true;
+        }
+        changed
     }
 
     pub fn set_handoff_note(&self, note: String) -> Option<Session> {
@@ -2005,8 +2035,12 @@ mod tests {
             status: SessionState::Closed,
             work_state: None,
             client: None,
-            account_id: None,
-            allowed_account_ids: Vec::new(),
+            config_id: None,
+            allowed_config_ids: Vec::new(),
+            provider_id: None,
+            legacy_account_id: None,
+            legacy_allowed_account_ids: Vec::new(),
+            legacy_preset_id: None,
             branch: None,
             folder: "/tmp".to_owned(),
             preview: "keep me".to_owned(),
@@ -2016,8 +2050,9 @@ mod tests {
             parent_session_id: None,
             parent_session_name: None,
             env_overrides: Vec::new(),
-            preset_id: None,
             model: None,
+            effort: None,
+            args: Vec::new(),
             config: BTreeMap::new(),
             agent_session_id: None,
             handoff_note: None,
@@ -2051,8 +2086,12 @@ mod tests {
             status: SessionState::Active,
             work_state: Some(WorkState::Working),
             client: None,
-            account_id: None,
-            allowed_account_ids: Vec::new(),
+            config_id: None,
+            allowed_config_ids: Vec::new(),
+            provider_id: None,
+            legacy_account_id: None,
+            legacy_allowed_account_ids: Vec::new(),
+            legacy_preset_id: None,
             branch: None,
             folder: "/tmp".to_owned(),
             preview: String::new(),
@@ -2062,8 +2101,9 @@ mod tests {
             parent_session_id: None,
             parent_session_name: None,
             env_overrides: Vec::new(),
-            preset_id: None,
             model: None,
+            effort: None,
+            args: Vec::new(),
             config: BTreeMap::new(),
             agent_session_id: None,
             handoff_note: None,

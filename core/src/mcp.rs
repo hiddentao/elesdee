@@ -128,10 +128,10 @@ fn tools() -> Vec<Value> {
         }),
         json!({
             "name": "check_usage",
-            "description": "Show the usage rows for an account. With no account id, use this session's account.",
+            "description": "Show the usage rows for a provider. With no provider id, use this session's provider.",
             "inputSchema": {
                 "type": "object",
-                "properties": { "accountId": { "type": "string" } }
+                "properties": { "providerId": { "type": "string" } }
             }
         }),
         json!({
@@ -141,7 +141,7 @@ fn tools() -> Vec<Value> {
                 "type": "object",
                 "properties": {
                     "projectId": { "type": "string" },
-                    "accountId": { "type": "string" },
+                    "configId": { "type": "string" },
                     "name": { "type": "string" },
                     "firstPrompt": { "type": "string" },
                     "sourceBranch": { "type": "string" }
@@ -511,16 +511,16 @@ async fn start_session(
     let Some(project) = state.project(project_id) else {
         return ("Unknown project.".to_owned(), true);
     };
-    let account_id = arguments
-        .get("accountId")
+    let config_id = arguments
+        .get("configId")
         .and_then(Value::as_str)
         .map(str::to_owned)
-        .or_else(|| parent.account_id.clone());
-    let Some(account_id) = account_id else {
-        return ("The session needs an account.".to_owned(), true);
+        .or_else(|| parent.config_id.clone());
+    let Some(config_id) = config_id else {
+        return ("The session needs an AI config.".to_owned(), true);
     };
-    let Some(account) = state.account(&account_id) else {
-        return ("Unknown account.".to_owned(), true);
+    let Some(config) = state.config(&config_id) else {
+        return ("Unknown AI config.".to_owned(), true);
     };
     let name = arguments
         .get("name")
@@ -551,8 +551,9 @@ async fn start_session(
         folder: project.folder.clone(),
         source_branch,
         first_prompt,
-        account_id: account_id.clone(),
-        client: account.client,
+        config_id: config_id.clone(),
+        provider_id: config.provider_id.clone(),
+        client: config.client,
         status: crate::state::RequestStatus::Pending,
         child_session_id: None,
         created_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
@@ -562,7 +563,7 @@ async fn start_session(
         let body = serde_json::json!({
             "projectId": request.project_id,
             "kind": "agent",
-            "accountId": request.account_id,
+            "configId": request.config_id,
             "name": request.name,
             "folder": request.folder,
             "sourceBranch": request.source_branch,
@@ -816,13 +817,13 @@ fn register_demo_server(state: &AppState, session_id: &str, arguments: Value) ->
 
 async fn shared_secret_values(state: &AppState, mut secrets: Vec<String>) -> Vec<String> {
     let store = state.secret_store();
-    let account_ids = state
-        .accounts()
+    let provider_ids = state
+        .providers()
         .into_iter()
-        .map(|account| account.id)
+        .map(|provider| provider.id)
         .collect::<Vec<_>>();
     let keys = tokio::task::spawn_blocking(move || {
-        account_ids
+        provider_ids
             .into_iter()
             .filter_map(|id| store.get_key(&id).ok().flatten())
             .collect::<Vec<_>>()
@@ -1049,27 +1050,27 @@ fn page_summary(state: &crate::browser::BrowserState) -> String {
 }
 
 fn check_usage(state: &AppState, session_id: &str, arguments: Value) -> (String, bool) {
-    let account_id = arguments
-        .get("accountId")
+    let provider_id = arguments
+        .get("providerId")
         .and_then(Value::as_str)
         .map(str::to_owned)
         .or_else(|| {
             state
                 .session(session_id)
-                .and_then(|entry| entry.session().account_id)
+                .and_then(|entry| entry.session().provider_id)
         });
-    let Some(account_id) = account_id else {
-        return ("No account for this session.".to_owned(), true);
+    let Some(provider_id) = provider_id else {
+        return ("No provider for this session.".to_owned(), true);
     };
-    let Some(account) = state.account(&account_id) else {
-        return ("Unknown account.".to_owned(), true);
+    let Some(provider) = state.provider(&provider_id) else {
+        return ("Unknown provider.".to_owned(), true);
     };
     (
         serde_json::to_string(&json!({
-            "id": account.id,
-            "name": account.name,
-            "client": account.client,
-            "rows": account.rows
+            "id": provider.id,
+            "name": provider.name,
+            "vendor": provider.vendor,
+            "rows": provider.rows
         }))
         .unwrap_or_else(|_| "{}".to_owned()),
         false,

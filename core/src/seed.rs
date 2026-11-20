@@ -1,83 +1,138 @@
 use std::env;
 use std::path::PathBuf;
 
-use crate::state::{Account, Auth, Client};
+use crate::state::{AiConfig, Auth, Client, Provider};
 
-pub fn accounts() -> Vec<Account> {
+const SAMPLE_FOOT: &str = "No official usage source.";
+
+pub fn providers() -> Vec<Provider> {
     vec![
-        Account {
+        Provider {
             id: "max".to_owned(),
             name: "Anthropic Max 20×".to_owned(),
-            plan: "work".to_owned(),
-            client: Client::ClaudeCode,
-            provider: "anthropic".to_owned(),
+            vendor: "anthropic".to_owned(),
             auth: Auth::Subscription,
+            server: None,
+            api_style: None,
             sample: true,
+            plan: "work".to_owned(),
             rows: Vec::new(),
-            foot: "No official usage source.".to_owned(),
+            foot: SAMPLE_FOOT.to_owned(),
             usage_read_at: None,
             usage_checked_at: None,
             usage_status: None,
             usage_source: None,
-            server: None,
-            model: None,
-            api_style: None,
         },
-        Account {
+        Provider {
             id: "codex".to_owned(),
             name: "ChatGPT Pro".to_owned(),
-            plan: "Codex".to_owned(),
-            client: Client::Codex,
-            provider: "openai".to_owned(),
+            vendor: "openai".to_owned(),
             auth: Auth::Subscription,
+            server: None,
+            api_style: None,
             sample: true,
+            plan: "subscription".to_owned(),
             rows: Vec::new(),
-            foot: "No official usage source.".to_owned(),
+            foot: SAMPLE_FOOT.to_owned(),
             usage_read_at: None,
             usage_checked_at: None,
             usage_status: None,
             usage_source: None,
-            server: None,
-            model: None,
-            api_style: None,
         },
-        Account {
+        Provider {
             id: "deepseek".to_owned(),
             name: "DeepSeek API".to_owned(),
-            plan: "pay as you go".to_owned(),
-            client: Client::ClaudeCode,
-            provider: "deepseek".to_owned(),
+            vendor: "deepseek".to_owned(),
             auth: Auth::Key,
+            server: None,
+            api_style: None,
             sample: true,
+            plan: "pay as you go".to_owned(),
             rows: Vec::new(),
-            foot: "No official usage source.".to_owned(),
+            foot: SAMPLE_FOOT.to_owned(),
             usage_read_at: None,
             usage_checked_at: None,
             usage_status: None,
             usage_source: None,
-            server: None,
-            model: None,
-            api_style: None,
         },
-        Account {
+        Provider {
             id: "litellm".to_owned(),
             name: "LiteLLM gateway".to_owned(),
-            plan: "team".to_owned(),
-            client: Client::Codex,
-            provider: "custom".to_owned(),
+            vendor: "custom".to_owned(),
             auth: Auth::Key,
+            server: Some("http://localhost:4000/v1".to_owned()),
+            api_style: Some("openai".to_owned()),
             sample: true,
+            plan: "team".to_owned(),
             rows: Vec::new(),
-            foot: "No official usage source.".to_owned(),
+            foot: SAMPLE_FOOT.to_owned(),
             usage_read_at: None,
             usage_checked_at: None,
             usage_status: None,
             usage_source: None,
-            server: Some("http://localhost:4000/v1".to_owned()),
-            model: Some("gpt-5.2".to_owned()),
-            api_style: None,
         },
     ]
+}
+
+pub fn configs() -> Vec<AiConfig> {
+    let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    vec![
+        config(
+            "max-claude-code",
+            "Anthropic Max 20× (Claude Code)",
+            "max",
+            Client::ClaudeCode,
+            None,
+            &now,
+        ),
+        config(
+            "codex-codex",
+            "ChatGPT Pro (Codex)",
+            "codex",
+            Client::Codex,
+            None,
+            &now,
+        ),
+        config(
+            "deepseek-claude-code",
+            "DeepSeek API (Claude Code)",
+            "deepseek",
+            Client::ClaudeCode,
+            None,
+            &now,
+        ),
+        config(
+            "litellm-codex",
+            "LiteLLM gateway (Codex)",
+            "litellm",
+            Client::Codex,
+            Some("gpt-5.2"),
+            &now,
+        ),
+    ]
+}
+
+fn config(
+    id: &str,
+    name: &str,
+    provider_id: &str,
+    client: Client,
+    model: Option<&str>,
+    now: &str,
+) -> AiConfig {
+    AiConfig {
+        id: id.to_owned(),
+        name: name.to_owned(),
+        provider_id: provider_id.to_owned(),
+        client,
+        model: model.map(str::to_owned),
+        effort: None,
+        args: Vec::new(),
+        env: Vec::new(),
+        config: std::collections::BTreeMap::new(),
+        created_at: now.to_owned(),
+        updated_at: now.to_owned(),
+    }
 }
 
 pub fn home_dir() -> Option<PathBuf> {

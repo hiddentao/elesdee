@@ -9,7 +9,7 @@ use crate::clients;
 use crate::providers;
 use crate::sessions::{self, SessionEntry};
 use crate::state::{
-    Account, AppState, Auth, Client, Session, SessionEvent, SessionKind, SessionState, WorkState,
+    AppState, Auth, Client, Provider, Session, SessionEvent, SessionKind, SessionState, WorkState,
 };
 
 const RESUMED_PREVIEW: &str = "Resumed.";
@@ -87,8 +87,8 @@ fn restart(
             if !client_available(state, client) {
                 return Err(format!("Paused. {client} is not installed."));
             }
-            let account = session_account(state, session, client)?;
-            environment = account_environment(state, &account)?;
+            let (_config, provider) = session_provider(state, session, client)?;
+            environment = provider_environment(state, &provider, client)?;
             command = session_command(state, SessionKind::Agent, Some(client))
                 .map_err(|_| format!("Paused. {client} could not be restarted."))?;
             for argument in sessions::resume_arguments(client, session.agent_session_id.as_deref())
@@ -105,7 +105,7 @@ fn restart(
             }
 
             if client == Client::Antigravity {
-                let key = account_key(state, &account.id)?;
+                let key = account_key(state, &provider.id)?;
                 let home = crate::antigravity::prepare_home(
                     data_dir,
                     &session.id,
@@ -138,13 +138,15 @@ fn restart(
             )
             .map_err(|_| "Paused. The session tools could not be prepared.".to_owned())?;
 
+            crate::api::apply_model_arguments(
+                client,
+                session.model.as_deref(),
+                session.effort.as_deref(),
+                &session.config,
+                &mut command,
+            );
+            crate::api::apply_extra_arguments(&session.args, &mut command);
             if client == Client::Codex {
-                crate::api::apply_launch_arguments(
-                    client,
-                    session.model.as_deref(),
-                    &session.config,
-                    &mut command,
-                );
                 start_codex_runtime(state, entry, &mut command)
                     .map_err(|_| "Paused. The Codex app server could not start.".to_owned())?;
             }
@@ -192,18 +194,22 @@ fn restart(
     Ok(updated)
 }
 
-fn session_account(state: &AppState, session: &Session, client: Client) -> Result<Account, String> {
-    let account_id = session
-        .account_id
+fn session_provider(
+    state: &AppState,
+    session: &Session,
+    client: Client,
+) -> Result<(crate::state::AiConfig, Provider), String> {
+    let config_id = session
+        .config_id
         .as_deref()
-        .ok_or_else(|| "Paused. The account is no longer available.".to_owned())?;
-    let account = state
-        .account(account_id)
-        .ok_or_else(|| "Paused. The account is no longer available.".to_owned())?;
-    if account.client != client {
-        return Err("Paused. The account is no longer available.".to_owned());
+        .ok_or_else(|| "Paused. The AI config is no longer available.".to_owned())?;
+    let (config, provider) = state
+        .config_with_provider(config_id)
+        .ok_or_else(|| "Paused. The AI config is no longer available.".to_owned())?;
+    if config.client != client {
+        return Err("Paused. The AI config does not match the client.".to_owned());
     }
-    Ok(account)
+    Ok((config, provider))
 }
 
 fn client_available(state: &AppState, client: Client) -> bool {
@@ -216,26 +222,27 @@ fn client_available(state: &AppState, client: Client) -> bool {
     clients::find_client(client).is_some()
 }
 
-fn account_environment(
+fn provider_environment(
     state: &AppState,
-    account: &Account,
+    provider: &Provider,
+    client: Client,
 ) -> Result<Vec<(String, String)>, String> {
-    let key = if account.auth == Auth::Key && account.provider != crate::antigravity::PROVIDER_ID {
-        Some(account_key(state, &account.id)?)
+    let key = if provider.auth == Auth::Key && provider.vendor != crate::antigravity::PROVIDER_ID {
+        Some(account_key(state, &provider.id)?)
     } else {
         None
     };
-    Ok(providers::environment(account, key.as_deref()))
+    Ok(providers::environment(provider, client, key.as_deref()))
 }
 
 fn account_key(state: &AppState, account_id: &str) -> Result<String, String> {
     let store = state.secret_store();
     match store.get_key(account_id) {
         Ok(Some(key)) if !key.is_empty() => Ok(key),
-        Ok(_) => Err("Paused. The account key is not available.".to_owned()),
+        Ok(_) => Err("Paused. The provider key is not available.".to_owned()),
         Err(error) => {
-            tracing::error!(%account_id, %error, "could not read account key");
-            Err("Paused. The account key could not be read.".to_owned())
+            tracing::error!(%account_id, %error, "could not read provider key");
+            Err("Paused. The provider key could not be read.".to_owned())
         }
     }
 }

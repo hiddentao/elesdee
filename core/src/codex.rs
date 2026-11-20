@@ -84,7 +84,7 @@ pub async fn run(
         tracing::warn!(session = %entry.id(), %url, "could not connect to the Codex app server");
         return;
     };
-    let account_id = entry.session().account_id;
+    let provider_id = entry.session().provider_id;
     let (mut writer, mut reader) = socket.split();
     let initialize = json!({
         "jsonrpc": "2.0",
@@ -130,13 +130,13 @@ pub async fn run(
                     let is_rate_reply =
                         value.get("id").and_then(Value::as_str) == Some(RATE_LIMITS_REQUEST);
                     if is_rate_reply
-                        && let Some(account_id) = account_id.as_deref()
+                        && let Some(provider_id) = provider_id.as_deref()
                     {
                         let rows = crate::usage::codex_rows(&value);
                         if !rows.is_empty() {
                             crate::usage::apply_usage(
                                 &state,
-                                account_id,
+                                provider_id,
                                 crate::usage::APP_SERVER,
                                 rows,
                             )
@@ -148,13 +148,13 @@ pub async fn run(
 
                 let Some(method) = value.get("method").and_then(Value::as_str) else { continue };
                 if method == "account/rateLimits/updated"
-                    && let Some(account_id) = account_id.as_deref()
+                    && let Some(provider_id) = provider_id.as_deref()
                 {
                     let rows = crate::usage::codex_rows(&value);
                     if !rows.is_empty() {
                         crate::usage::apply_usage(
                             &state,
-                            account_id,
+                            provider_id,
                             crate::usage::APP_SERVER,
                             rows,
                         )
@@ -268,9 +268,7 @@ mod tests {
 
     use super::*;
     use crate::sessions::{OutputBudget, SessionRuntimeConfig};
-    use crate::state::{
-        Account, Auth, Client, Session, SessionKind, SessionState, UsageStatus, WorkState,
-    };
+    use crate::state::{Client, Session, SessionKind, SessionState, UsageStatus, WorkState};
 
     #[test]
     fn approval_maps_methods_to_tools_and_keeps_the_reply_id() {
@@ -392,24 +390,8 @@ mod tests {
         });
 
         let state = AppState::ephemeral();
-        let account = state.add_account(Account {
-            id: String::new(),
-            name: "Codex usage".to_owned(),
-            plan: "subscription".to_owned(),
-            client: Client::Codex,
-            provider: "openai".to_owned(),
-            auth: Auth::Subscription,
-            sample: false,
-            rows: Vec::new(),
-            foot: "No official usage source.".to_owned(),
-            usage_read_at: None,
-            usage_checked_at: None,
-            usage_status: None,
-            usage_source: None,
-            server: None,
-            model: None,
-            api_style: None,
-        });
+        let provider = state.provider("codex").expect("provider");
+        let config = state.config("codex-codex").expect("config");
         let (events, _) = tokio::sync::broadcast::channel(8);
         let entry = Arc::new(SessionEntry::new(
             Session {
@@ -421,8 +403,12 @@ mod tests {
                 status: SessionState::Active,
                 work_state: Some(WorkState::Working),
                 client: Some(Client::Codex),
-                account_id: Some(account.id.clone()),
-                allowed_account_ids: vec![account.id.clone()],
+                config_id: Some(config.id.clone()),
+                allowed_config_ids: vec![config.id.clone()],
+                provider_id: Some(provider.id.clone()),
+                legacy_account_id: None,
+                legacy_allowed_account_ids: Vec::new(),
+                legacy_preset_id: None,
                 branch: None,
                 folder: "/tmp".to_owned(),
                 preview: String::new(),
@@ -432,8 +418,9 @@ mod tests {
                 parent_session_id: None,
                 parent_session_name: None,
                 env_overrides: Vec::new(),
-                preset_id: None,
                 model: None,
+                effort: None,
+                args: Vec::new(),
                 config: BTreeMap::new(),
                 agent_session_id: None,
                 handoff_note: None,
@@ -457,7 +444,7 @@ mod tests {
         drop(sender);
         server.await.expect("server");
 
-        let stored = state.account(&account.id).expect("account");
+        let stored = state.provider(&provider.id).expect("provider");
         assert_eq!(
             stored.usage_source.as_deref(),
             Some(crate::usage::APP_SERVER)

@@ -157,9 +157,18 @@ pub struct Session {
     pub status: SessionState,
     pub work_state: Option<WorkState>,
     pub client: Option<Client>,
-    pub account_id: Option<String>,
     #[serde(default)]
-    pub allowed_account_ids: Vec<String>,
+    pub config_id: Option<String>,
+    #[serde(default)]
+    pub allowed_config_ids: Vec<String>,
+    #[serde(default)]
+    pub provider_id: Option<String>,
+    #[serde(default, rename = "accountId", skip_serializing)]
+    pub legacy_account_id: Option<String>,
+    #[serde(default, rename = "allowedAccountIds", skip_serializing)]
+    pub legacy_allowed_account_ids: Vec<String>,
+    #[serde(default, rename = "presetId", skip_serializing)]
+    pub legacy_preset_id: Option<String>,
     pub branch: Option<String>,
     pub folder: String,
     pub preview: String,
@@ -175,9 +184,11 @@ pub struct Session {
     #[serde(default)]
     pub env_overrides: Vec<EnvOverride>,
     #[serde(default)]
-    pub preset_id: Option<String>,
-    #[serde(default)]
     pub model: Option<String>,
+    #[serde(default)]
+    pub effort: Option<String>,
+    #[serde(default)]
+    pub args: Vec<String>,
     #[serde(default)]
     pub config: BTreeMap<String, String>,
     #[serde(default)]
@@ -258,7 +269,8 @@ pub struct SessionRequest {
     pub folder: String,
     pub source_branch: Option<String>,
     pub first_prompt: Option<String>,
-    pub account_id: String,
+    pub config_id: String,
+    pub provider_id: String,
     pub client: Client,
     pub status: RequestStatus,
     pub child_session_id: Option<String>,
@@ -284,8 +296,8 @@ pub enum AuxEvent {
     Notification { notification: Notification },
     #[serde(rename = "sharedfile.created")]
     SharedFile { file: SharedFile },
-    #[serde(rename = "account.updated")]
-    Account { account: Account },
+    #[serde(rename = "provider.updated")]
+    Provider { provider: ProviderView },
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -295,7 +307,7 @@ pub struct Project {
     pub name: String,
     pub folder: String,
     #[serde(default)]
-    pub default_account_id: Option<String>,
+    pub default_config_id: Option<String>,
     #[serde(default)]
     pub default_source_branch: Option<String>,
 }
@@ -326,17 +338,22 @@ pub struct UsageRow {
     pub resets_at: Option<i64>,
 }
 
+/// A credential and the endpoint it connects to. The key or subscription token
+/// lives in the system keychain under the provider id and never appears here.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Account {
+pub struct Provider {
     pub id: String,
     pub name: String,
-    pub plan: String,
-    pub client: Client,
-    pub provider: String,
+    pub vendor: String,
     pub auth: Auth,
     #[serde(default)]
+    pub server: Option<String>,
+    #[serde(default)]
+    pub api_style: Option<String>,
+    #[serde(default)]
     pub sample: bool,
+    pub plan: String,
     pub rows: Vec<UsageRow>,
     pub foot: String,
     #[serde(default)]
@@ -347,26 +364,43 @@ pub struct Account {
     pub usage_status: Option<UsageStatus>,
     #[serde(default)]
     pub usage_source: Option<String>,
-    pub server: Option<String>,
-    pub model: Option<String>,
-    #[serde(default)]
-    pub api_style: Option<String>,
 }
 
+/// A provider with the clients it can run. The client list is computed from the
+/// vendor and the API style, so it is returned with the record but never stored.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RemovedAccount {
-    pub cleared_project_defaults: Vec<String>,
-    pub removed_presets: usize,
+pub struct ProviderView {
+    #[serde(flatten)]
+    pub provider: Provider,
+    pub supported_clients: Vec<Client>,
 }
 
+impl ProviderView {
+    pub fn new(provider: Provider) -> Self {
+        let supported_clients = crate::providers::supported_clients(&provider);
+        Self {
+            provider,
+            supported_clients,
+        }
+    }
+}
+
+/// What a session runs and what the user switches between. Several configs may
+/// share one provider.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Preset {
+pub struct AiConfig {
     pub id: String,
     pub name: String,
-    pub account_id: String,
+    pub provider_id: String,
+    pub client: Client,
+    #[serde(default)]
     pub model: Option<String>,
+    #[serde(default)]
+    pub effort: Option<String>,
+    #[serde(default)]
+    pub args: Vec<String>,
     #[serde(default)]
     pub env: Vec<EnvOverride>,
     #[serde(default)]
@@ -375,47 +409,230 @@ pub struct Preset {
     pub updated_at: String,
 }
 
-#[derive(Clone, Debug, Serialize)]
+/// The account record from a state file written before providers and configs.
+#[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct LaunchPreset {
+pub struct LegacyAccount {
+    pub id: String,
+    pub name: String,
+    pub plan: String,
+    pub client: Client,
+    pub provider: String,
+    pub auth: Auth,
+    #[serde(default)]
+    pub sample: bool,
+    #[serde(default)]
+    pub rows: Vec<UsageRow>,
+    #[serde(default)]
+    pub foot: String,
+    #[serde(default)]
+    pub usage_read_at: Option<String>,
+    #[serde(default)]
+    pub usage_checked_at: Option<String>,
+    #[serde(default)]
+    pub usage_status: Option<UsageStatus>,
+    #[serde(default)]
+    pub usage_source: Option<String>,
+    #[serde(default)]
+    pub server: Option<String>,
+    #[serde(default)]
+    pub model: Option<String>,
+    #[serde(default)]
+    pub api_style: Option<String>,
+}
+
+/// The preset record from a state file written before AI configs.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LegacyPreset {
     pub id: String,
     pub name: String,
     pub account_id: String,
+    #[serde(default)]
     pub model: Option<String>,
+    #[serde(default)]
     pub env: Vec<EnvOverride>,
+    #[serde(default)]
     pub config: BTreeMap<String, String>,
-    pub stored: bool,
-    pub created_at: Option<String>,
-    pub updated_at: Option<String>,
+    #[serde(default)]
+    pub created_at: String,
+    #[serde(default)]
+    pub updated_at: String,
 }
 
-impl LaunchPreset {
-    pub(crate) fn from_stored(preset: Preset) -> Self {
-        Self {
-            id: preset.id,
-            name: preset.name,
-            account_id: preset.account_id,
-            model: preset.model,
-            env: preset.env,
-            config: preset.config,
-            stored: true,
-            created_at: Some(preset.created_at),
-            updated_at: Some(preset.updated_at),
-        }
-    }
+pub struct LegacyMigration {
+    pub providers: Vec<Provider>,
+    pub configs: Vec<AiConfig>,
+    pub account_configs: HashMap<String, String>,
+    pub preset_configs: HashMap<String, String>,
+}
 
-    pub(crate) fn from_account(account: &Account) -> Self {
-        Self {
-            id: format!("account:{}", account.id),
+/// Turns the old accounts and presets into providers and AI configs.
+///
+/// Each account becomes a provider and one config named after it and its
+/// client. Each preset becomes a config on its account's provider. Ids stay
+/// stable when they can, so a session can map its old account and preset.
+pub fn migrate_legacy(accounts: Vec<LegacyAccount>, presets: Vec<LegacyPreset>) -> LegacyMigration {
+    let mut providers = Vec::with_capacity(accounts.len());
+    let mut configs = Vec::with_capacity(accounts.len() + presets.len());
+    let mut account_clients = HashMap::new();
+    let mut account_configs = HashMap::new();
+    let mut used = HashSet::new();
+
+    for account in accounts {
+        account_clients.insert(account.id.clone(), account.client);
+        providers.push(Provider {
+            id: account.id.clone(),
             name: account.name.clone(),
-            account_id: account.id.clone(),
-            model: None,
+            vendor: account.provider,
+            auth: account.auth,
+            server: account.server,
+            api_style: account.api_style,
+            sample: account.sample,
+            plan: account.plan,
+            rows: account.rows,
+            foot: account.foot,
+            usage_read_at: account.usage_read_at,
+            usage_checked_at: account.usage_checked_at,
+            usage_status: account.usage_status,
+            usage_source: account.usage_source,
+        });
+        let id = with_suffix(&account.id, |candidate| used.contains(candidate));
+        used.insert(id.clone());
+        account_configs.insert(account.id.clone(), id.clone());
+        let now = timestamp();
+        configs.push(AiConfig {
+            id,
+            name: format!("{} ({})", account.name, account.client),
+            provider_id: account.id,
+            client: account.client,
+            model: account.model,
+            effort: None,
+            args: Vec::new(),
             env: Vec::new(),
             config: BTreeMap::new(),
-            stored: false,
-            created_at: None,
-            updated_at: None,
+            created_at: now.clone(),
+            updated_at: now,
+        });
+    }
+
+    let mut preset_configs = HashMap::new();
+    for preset in presets {
+        let Some(client) = account_clients.get(&preset.account_id).copied() else {
+            continue;
+        };
+        let id = with_suffix(&preset.id, |candidate| used.contains(candidate));
+        used.insert(id.clone());
+        preset_configs.insert(preset.id.clone(), id.clone());
+        let now = timestamp();
+        configs.push(AiConfig {
+            id,
+            name: preset.name,
+            provider_id: preset.account_id,
+            client,
+            model: preset.model,
+            effort: None,
+            args: Vec::new(),
+            env: preset.env,
+            config: preset.config,
+            created_at: if preset.created_at.is_empty() {
+                now.clone()
+            } else {
+                preset.created_at
+            },
+            updated_at: if preset.updated_at.is_empty() {
+                now
+            } else {
+                preset.updated_at
+            },
+        });
+    }
+
+    LegacyMigration {
+        providers,
+        configs,
+        account_configs,
+        preset_configs,
+    }
+}
+
+pub struct LegacySessionMapping {
+    pub account_configs: HashMap<String, String>,
+    pub preset_configs: HashMap<String, String>,
+}
+
+/// Maps a session written before AI configs onto the migrated records.
+///
+/// A session keeps its place when its preset or account maps to a config. When
+/// neither does, the session is kept and its preview says why.
+pub fn migrate_session_config(
+    session: &mut Session,
+    mapping: Option<&LegacySessionMapping>,
+    configs: &[AiConfig],
+) {
+    if session.config_id.is_some() {
+        return;
+    }
+    let Some(mapping) = mapping else {
+        return;
+    };
+    let mapped = session
+        .legacy_preset_id
+        .as_ref()
+        .and_then(|id| mapping.preset_configs.get(id))
+        .or_else(|| {
+            session
+                .legacy_account_id
+                .as_ref()
+                .and_then(|id| mapping.account_configs.get(id))
+        })
+        .cloned();
+    let had_legacy = session.legacy_preset_id.is_some() || session.legacy_account_id.is_some();
+
+    if !session.legacy_allowed_account_ids.is_empty() {
+        let mut allowed = Vec::new();
+        for account_id in &session.legacy_allowed_account_ids {
+            if let Some(config_id) = mapping.account_configs.get(account_id)
+                && !allowed.iter().any(|id| id == config_id)
+            {
+                allowed.push(config_id.clone());
+            }
         }
+        session.allowed_config_ids = allowed;
+    }
+
+    match mapped {
+        Some(config_id) => {
+            let Some(config) = configs.iter().find(|config| config.id == config_id) else {
+                session.preview =
+                    "Migration: the saved config is missing. Choose an AI config.".to_owned();
+                return;
+            };
+            session.config_id = Some(config.id.clone());
+            session.provider_id = Some(config.provider_id.clone());
+            session.client = Some(config.client);
+            if session.model.is_none() {
+                session.model = config.model.clone();
+            }
+            if session.effort.is_none() {
+                session.effort = config.effort.clone();
+            }
+            if session.args.is_empty() {
+                session.args = config.args.clone();
+            }
+            if session.config.is_empty() {
+                session.config = config.config.clone();
+            }
+            if !session.allowed_config_ids.iter().any(|id| id == &config.id) {
+                session.allowed_config_ids.push(config.id.clone());
+            }
+        }
+        None if had_legacy => {
+            session.preview =
+                "Migration: the saved account or preset is missing. Choose an AI config."
+                    .to_owned();
+        }
+        None => {}
     }
 }
 
@@ -437,8 +654,8 @@ pub struct HealthResponse {
 #[serde(rename_all = "camelCase")]
 pub struct Bootstrap {
     pub projects: Vec<Project>,
-    pub accounts: Vec<Account>,
-    pub presets: Vec<Preset>,
+    pub providers: Vec<ProviderView>,
+    pub configs: Vec<AiConfig>,
     pub sessions: Vec<Session>,
     pub questions: Vec<Question>,
     pub session_requests: Vec<SessionRequest>,
@@ -481,6 +698,12 @@ pub enum QuestionFailure {
     NotFound,
     NotPending,
     Closed,
+}
+
+struct InitialRecords {
+    projects: Vec<Project>,
+    providers: Vec<Provider>,
+    configs: Vec<AiConfig>,
 }
 
 struct CachedHealth {
@@ -541,8 +764,8 @@ impl SessionStore {
 
 struct Inner {
     projects: Mutex<Vec<Project>>,
-    accounts: Mutex<Vec<Account>>,
-    presets: Mutex<Vec<Preset>>,
+    providers: Mutex<Vec<Provider>>,
+    configs: Mutex<Vec<AiConfig>>,
     secrets: Arc<dyn SecretStore>,
     sessions: Mutex<SessionStore>,
     events: broadcast::Sender<SessionEvent>,
@@ -571,8 +794,16 @@ struct Inner {
     usage_last_attempt: Mutex<HashMap<String, Instant>>,
     usage_last_save: Mutex<HashMap<String, Instant>>,
     usage_base_override: Option<String>,
+    model_cache: Mutex<HashMap<String, CachedModels>>,
+    model_gates: Mutex<HashMap<String, Arc<AsyncMutex<()>>>>,
     link: crate::link::LinkHub,
     browser: BrowserManager,
+}
+
+#[derive(Clone, Debug)]
+pub struct CachedModels {
+    pub read_at: Instant,
+    pub models: Vec<crate::model_list::ModelChoice>,
 }
 
 #[derive(Clone)]
@@ -611,8 +842,11 @@ impl AppState {
     #[doc(hidden)]
     pub fn ephemeral() -> Self {
         Self::from_parts(
-            Vec::new(),
-            seed::accounts(),
+            InitialRecords {
+                projects: Vec::new(),
+                providers: seed::providers(),
+                configs: seed::configs(),
+            },
             Arc::new(MemorySecretStore::default()),
             None,
             MAX_ACTIVE_SESSIONS,
@@ -645,8 +879,11 @@ impl AppState {
     #[doc(hidden)]
     pub fn with_test_command(argv: Vec<String>) -> Self {
         Self::from_parts(
-            Vec::new(),
-            seed::accounts(),
+            InitialRecords {
+                projects: Vec::new(),
+                providers: seed::providers(),
+                configs: seed::configs(),
+            },
             Arc::new(MemorySecretStore::default()),
             Some(argv),
             MAX_ACTIVE_SESSIONS,
@@ -708,8 +945,11 @@ impl AppState {
     #[doc(hidden)]
     pub fn with_test_command_and_session_cap(argv: Vec<String>, session_cap: usize) -> Self {
         Self::from_parts(
-            Vec::new(),
-            seed::accounts(),
+            InitialRecords {
+                projects: Vec::new(),
+                providers: seed::providers(),
+                configs: seed::configs(),
+            },
             Arc::new(MemorySecretStore::default()),
             Some(argv),
             session_cap,
@@ -722,8 +962,11 @@ impl AppState {
     #[doc(hidden)]
     pub fn with_test_stalled_writer(argv: Vec<String>) -> Self {
         Self::from_parts(
-            Vec::new(),
-            seed::accounts(),
+            InitialRecords {
+                projects: Vec::new(),
+                providers: seed::providers(),
+                configs: seed::configs(),
+            },
             Arc::new(MemorySecretStore::default()),
             Some(argv),
             MAX_ACTIVE_SESSIONS,
@@ -748,30 +991,59 @@ impl AppState {
         stall_writer: bool,
         fake_browser: bool,
     ) -> Self {
-        let (projects, accounts, presets, sessions, questions, session_requests, paired_devices) =
-            match store.as_ref().map(|store| store.load()) {
-                Some(LoadResult::Loaded(state)) => (
+        let (
+            projects,
+            providers,
+            configs,
+            migration,
+            sessions,
+            questions,
+            session_requests,
+            paired_devices,
+        ) = match store.as_ref().map(|store| store.load()) {
+            Some(LoadResult::Loaded(state)) => {
+                let (providers, configs, migration) = match (state.providers, state.configs) {
+                    (Some(providers), Some(configs)) => (providers, configs, None),
+                    _ => {
+                        let legacy = migrate_legacy(
+                            state.accounts.unwrap_or_default(),
+                            state.presets.unwrap_or_default(),
+                        );
+                        let mapping = LegacySessionMapping {
+                            account_configs: legacy.account_configs.clone(),
+                            preset_configs: legacy.preset_configs.clone(),
+                        };
+                        (legacy.providers, legacy.configs, Some(mapping))
+                    }
+                };
+                (
                     state.projects,
-                    state.accounts.unwrap_or_else(seed::accounts),
-                    state.presets.unwrap_or_default(),
+                    providers,
+                    configs,
+                    migration,
                     state.sessions,
                     state.questions.unwrap_or_default(),
                     state.session_requests.unwrap_or_default(),
                     state.paired_devices,
-                ),
-                Some(LoadResult::Missing | LoadResult::Corrupt) | None => (
-                    Vec::new(),
-                    seed::accounts(),
-                    Vec::new(),
-                    Vec::new(),
-                    Vec::new(),
-                    Vec::new(),
-                    Vec::new(),
-                ),
-            };
+                )
+            }
+            Some(LoadResult::Missing | LoadResult::Corrupt) | None => (
+                Vec::new(),
+                seed::providers(),
+                seed::configs(),
+                None,
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            ),
+        };
         let state = Self::from_parts(
-            projects,
-            accounts,
+            InitialRecords {
+                projects,
+                providers,
+                configs,
+            },
             secrets,
             command_override,
             session_cap,
@@ -779,15 +1051,21 @@ impl AppState {
             store,
             fake_browser,
         );
-        *lock(&state.inner.presets) = presets;
         for mut session in sessions {
-            if session.session.allowed_account_ids.is_empty() {
-                session.session.allowed_account_ids = crate::providers::default_allowed_accounts(
-                    &state.accounts(),
+            if session.session.config_id.is_none() {
+                migrate_session_config(&mut session.session, migration.as_ref(), &state.configs());
+            }
+            if session.session.allowed_config_ids.is_empty() {
+                session.session.allowed_config_ids = crate::providers::default_allowed_configs(
+                    &state.configs(),
+                    &state.providers(),
                     session.session.client,
-                    session.session.account_id.as_deref(),
+                    session.session.config_id.as_deref(),
                 );
             }
+            session.session.legacy_account_id = None;
+            session.session.legacy_allowed_account_ids.clear();
+            session.session.legacy_preset_id = None;
             state.restore_session(session);
         }
         let pending = questions
@@ -821,8 +1099,7 @@ impl AppState {
 
     #[allow(clippy::too_many_arguments)]
     fn from_parts(
-        projects: Vec<Project>,
-        accounts: Vec<Account>,
+        records: InitialRecords,
         secrets: Arc<dyn SecretStore>,
         command_override: Option<Vec<String>>,
         session_cap: usize,
@@ -837,9 +1114,9 @@ impl AppState {
             .map(|store| store.directory().join("browsers"));
         Self {
             inner: Arc::new(Inner {
-                projects: Mutex::new(projects),
-                accounts: Mutex::new(accounts),
-                presets: Mutex::new(Vec::new()),
+                projects: Mutex::new(records.projects),
+                providers: Mutex::new(records.providers),
+                configs: Mutex::new(records.configs),
                 secrets,
                 sessions: Mutex::new(SessionStore::new()),
                 events,
@@ -868,6 +1145,8 @@ impl AppState {
                 usage_last_attempt: Mutex::new(HashMap::new()),
                 usage_last_save: Mutex::new(HashMap::new()),
                 usage_base_override: None,
+                model_cache: Mutex::new(HashMap::new()),
+                model_gates: Mutex::new(HashMap::new()),
                 link: crate::link::LinkHub::new(),
                 browser: BrowserManager::new(browser_profiles, fake_browser),
             }),
@@ -1037,111 +1316,103 @@ impl AppState {
         lock(&self.inner.projects).clone()
     }
 
-    pub fn accounts(&self) -> Vec<Account> {
-        lock(&self.inner.accounts).clone()
+    pub fn providers(&self) -> Vec<Provider> {
+        lock(&self.inner.providers).clone()
     }
 
-    pub fn add_account(&self, mut account: Account) -> Account {
-        let mut accounts = lock(&self.inner.accounts);
-        let base = slugify(&account.name, "account");
+    pub fn provider_views(&self) -> Vec<ProviderView> {
+        self.providers()
+            .into_iter()
+            .map(ProviderView::new)
+            .collect()
+    }
+
+    pub fn provider(&self, id: &str) -> Option<Provider> {
+        lock(&self.inner.providers)
+            .iter()
+            .find(|provider| provider.id == id)
+            .cloned()
+    }
+
+    pub fn add_provider(&self, mut provider: Provider) -> Provider {
+        let mut providers = lock(&self.inner.providers);
+        let base = slugify(&provider.name, "provider");
         let id = with_suffix(&base, |candidate| {
-            accounts.iter().any(|existing| existing.id == candidate)
+            providers.iter().any(|existing| existing.id == candidate)
         });
-        account.id = id;
-        accounts.push(account.clone());
-        account
+        provider.id = id;
+        providers.push(provider.clone());
+        provider
     }
 
-    /// Replaces the account with the same id and returns the stored record.
-    pub fn replace_account(&self, account: Account) -> Option<Account> {
-        let mut accounts = lock(&self.inner.accounts);
-        let slot = accounts
+    /// Replaces the provider with the same id and returns the stored record.
+    pub fn replace_provider(&self, provider: Provider) -> Option<Provider> {
+        let mut providers = lock(&self.inner.providers);
+        let slot = providers
             .iter_mut()
-            .find(|existing| existing.id == account.id)?;
-        *slot = account.clone();
-        Some(account)
+            .find(|existing| existing.id == provider.id)?;
+        *slot = provider.clone();
+        Some(provider)
     }
 
-    pub fn remove_account(&self, id: &str) {
-        self.remove_account_with_references(id);
-    }
-
-    /// Removes an account together with every stored reference to it.
-    ///
-    /// The keychain entry is removed by the caller before this runs. Detached
-    /// presets live only in memory and disappear with the account, so they need
-    /// no cleanup.
-    pub fn remove_account_with_references(&self, id: &str) -> Option<RemovedAccount> {
-        {
-            let mut accounts = lock(&self.inner.accounts);
-            let position = accounts.iter().position(|account| account.id == id)?;
-            accounts.remove(position);
-        }
-        let cleared_project_defaults = {
-            let mut projects = lock(&self.inner.projects);
-            let mut cleared = Vec::new();
-            for project in projects.iter_mut() {
-                if project.default_account_id.as_deref() == Some(id) {
-                    project.default_account_id = None;
-                    cleared.push(project.id.clone());
-                }
-            }
-            cleared
+    pub fn remove_provider(&self, id: &str) -> Option<Provider> {
+        let removed = {
+            let mut providers = lock(&self.inner.providers);
+            let position = providers.iter().position(|provider| provider.id == id)?;
+            providers.remove(position)
         };
-        let removed_presets = {
-            let mut presets = lock(&self.inner.presets);
-            let before = presets.len();
-            presets.retain(|preset| preset.account_id != id);
-            before - presets.len()
-        };
-        lock(&self.inner.usage_gates).remove(id);
-        lock(&self.inner.usage_last_attempt).remove(id);
-        lock(&self.inner.usage_last_save).remove(id);
-        Some(RemovedAccount {
-            cleared_project_defaults,
-            removed_presets,
-        })
+        lock(&self.inner.usage_gates).remove(&removed.id);
+        lock(&self.inner.usage_last_attempt).remove(&removed.id);
+        lock(&self.inner.usage_last_save).remove(&removed.id);
+        Some(removed)
     }
 
-    pub fn set_account_usage(
+    pub fn config_count_for_provider(&self, provider_id: &str) -> usize {
+        lock(&self.inner.configs)
+            .iter()
+            .filter(|config| config.provider_id == provider_id)
+            .count()
+    }
+
+    pub fn set_provider_usage(
         &self,
         id: &str,
         rows: Vec<UsageRow>,
         source: &str,
         read_at: &str,
         checked_at: &str,
-    ) -> Option<Account> {
-        let mut accounts = lock(&self.inner.accounts);
-        let account = accounts.iter_mut().find(|account| account.id == id)?;
-        account.rows = rows;
-        account.usage_source = Some(source.to_owned());
-        account.usage_status = Some(UsageStatus::Fresh);
-        account.usage_read_at = Some(read_at.to_owned());
-        account.usage_checked_at = Some(checked_at.to_owned());
-        account.foot.clear();
-        Some(account.clone())
+    ) -> Option<Provider> {
+        let mut providers = lock(&self.inner.providers);
+        let provider = providers.iter_mut().find(|provider| provider.id == id)?;
+        provider.rows = rows;
+        provider.usage_source = Some(source.to_owned());
+        provider.usage_status = Some(UsageStatus::Fresh);
+        provider.usage_read_at = Some(read_at.to_owned());
+        provider.usage_checked_at = Some(checked_at.to_owned());
+        provider.foot.clear();
+        Some(provider.clone())
     }
 
-    pub fn mark_account_usage_failed(
+    pub fn mark_provider_usage_failed(
         &self,
         id: &str,
         source: &str,
         checked_at: &str,
-    ) -> Option<Account> {
-        let mut accounts = lock(&self.inner.accounts);
-        let account = accounts.iter_mut().find(|account| account.id == id)?;
-        account.usage_source = Some(source.to_owned());
-        account.usage_status = Some(if account.rows.is_empty() {
+    ) -> Option<Provider> {
+        let mut providers = lock(&self.inner.providers);
+        let provider = providers.iter_mut().find(|provider| provider.id == id)?;
+        provider.usage_source = Some(source.to_owned());
+        provider.usage_status = Some(if provider.rows.is_empty() {
             UsageStatus::Unknown
         } else {
             UsageStatus::Stale
         });
-        account.usage_checked_at = Some(checked_at.to_owned());
-        account.foot.clear();
-        Some(account.clone())
+        provider.usage_checked_at = Some(checked_at.to_owned());
+        provider.foot.clear();
+        Some(provider.clone())
     }
 
-    /// Returns the gate that serializes reads for one account.
+    /// Returns the gate that serializes reads for one provider.
     pub fn usage_gate(&self, account_id: &str) -> Arc<AsyncMutex<()>> {
         lock(&self.inner.usage_gates)
             .entry(account_id.to_owned())
@@ -1169,8 +1440,10 @@ impl AppState {
         lock(&self.inner.usage_last_save).insert(account_id.to_owned(), Instant::now());
     }
 
-    pub fn publish_account(&self, account: Account) {
-        self.emit_aux(AuxEvent::Account { account });
+    pub fn publish_provider(&self, provider: Provider) {
+        self.emit_aux(AuxEvent::Provider {
+            provider: ProviderView::new(provider),
+        });
     }
 
     #[doc(hidden)]
@@ -1185,123 +1458,102 @@ impl AppState {
         self.inner.usage_base_override.as_deref()
     }
 
-    pub fn presets(&self) -> Vec<Preset> {
-        lock(&self.inner.presets).clone()
+    pub fn cached_models(
+        &self,
+        key: &str,
+        minimum: Duration,
+    ) -> Option<Vec<crate::model_list::ModelChoice>> {
+        let cache = lock(&self.inner.model_cache);
+        let entry = cache.get(key)?;
+        (entry.read_at.elapsed() < minimum).then(|| entry.models.clone())
     }
 
-    pub fn preset(&self, id: &str) -> Option<Preset> {
-        lock(&self.inner.presets)
+    pub fn cache_models(&self, key: &str, models: Vec<crate::model_list::ModelChoice>) {
+        lock(&self.inner.model_cache).insert(
+            key.to_owned(),
+            CachedModels {
+                read_at: Instant::now(),
+                models,
+            },
+        );
+    }
+
+    /// Returns the gate that coalesces model reads for one provider and client.
+    pub fn model_gate(&self, key: &str) -> Arc<AsyncMutex<()>> {
+        lock(&self.inner.model_gates)
+            .entry(key.to_owned())
+            .or_insert_with(|| Arc::new(AsyncMutex::new(())))
+            .clone()
+    }
+
+    pub fn configs(&self) -> Vec<AiConfig> {
+        lock(&self.inner.configs).clone()
+    }
+
+    pub fn config(&self, id: &str) -> Option<AiConfig> {
+        lock(&self.inner.configs)
             .iter()
-            .find(|preset| preset.id == id)
+            .find(|config| config.id == id)
             .cloned()
     }
 
-    /// Resolves a stored preset, or an account-derived preset named `account:<id>`.
-    pub fn launch_preset(&self, id: &str) -> Option<LaunchPreset> {
-        if let Some(account_id) = id.strip_prefix("account:") {
-            return self
-                .account(account_id)
-                .map(|account| LaunchPreset::from_account(&account));
-        }
-        let preset = self.preset(id)?;
-        self.account(&preset.account_id)?;
-        Some(LaunchPreset::from_stored(preset))
+    /// A config plus the provider it runs on, or `None` when either is missing.
+    pub fn config_with_provider(&self, id: &str) -> Option<(AiConfig, Provider)> {
+        let config = self.config(id)?;
+        let provider = self.provider(&config.provider_id)?;
+        Some((config, provider))
     }
 
-    /// Lists stored presets plus one entry for each account without a stored preset.
-    pub fn launch_presets(&self) -> Vec<LaunchPreset> {
-        let accounts = self.accounts();
-        let stored = self.presets();
-        let mut views = stored
-            .into_iter()
-            .filter(|preset| {
-                accounts
-                    .iter()
-                    .any(|account| account.id == preset.account_id)
-            })
-            .map(LaunchPreset::from_stored)
-            .collect::<Vec<_>>();
-        let covered = views
-            .iter()
-            .map(|preset| preset.account_id.clone())
-            .collect::<HashSet<_>>();
-        for account in accounts {
-            if !covered.contains(&account.id) {
-                views.push(LaunchPreset::from_account(&account));
+    pub fn add_config(&self, mut config: AiConfig) -> AiConfig {
+        let now = timestamp();
+        let mut configs = lock(&self.inner.configs);
+        let base = slugify(&config.name, "config");
+        let id = with_suffix(&base, |candidate| {
+            configs.iter().any(|existing| existing.id == candidate)
+        });
+        config.id = id;
+        config.created_at = now.clone();
+        config.updated_at = now;
+        configs.push(config.clone());
+        config
+    }
+
+    /// Replaces the config with the same id and returns the stored record.
+    pub fn replace_config(&self, config: AiConfig) -> Option<AiConfig> {
+        let mut configs = lock(&self.inner.configs);
+        let slot = configs
+            .iter_mut()
+            .find(|existing| existing.id == config.id)?;
+        let mut updated = config;
+        updated.created_at = slot.created_at.clone();
+        updated.updated_at = timestamp();
+        *slot = updated.clone();
+        Some(updated)
+    }
+
+    /// Removes a config and clears every project default and session reference.
+    ///
+    /// The caller refuses the removal while an active session runs the config.
+    pub fn remove_config(&self, id: &str) -> Option<AiConfig> {
+        let removed = {
+            let mut configs = lock(&self.inner.configs);
+            let position = configs.iter().position(|config| config.id == id)?;
+            configs.remove(position)
+        };
+        {
+            let mut projects = lock(&self.inner.projects);
+            for project in projects.iter_mut() {
+                if project.default_config_id.as_deref() == Some(id) {
+                    project.default_config_id = None;
+                }
             }
         }
-        views.sort_by(|left, right| {
-            left.name
-                .to_lowercase()
-                .cmp(&right.name.to_lowercase())
-                .then_with(|| left.id.cmp(&right.id))
-        });
-        views
-    }
-
-    pub fn add_preset(
-        &self,
-        name: String,
-        account_id: String,
-        model: Option<String>,
-        env: Vec<EnvOverride>,
-        config: BTreeMap<String, String>,
-    ) -> Preset {
-        let now = timestamp();
-        let mut presets = lock(&self.inner.presets);
-        let base = slugify(&name, "preset");
-        let id = with_suffix(&base, |candidate| {
-            presets.iter().any(|preset| preset.id == candidate)
-        });
-        let preset = Preset {
-            id,
-            name,
-            account_id,
-            model,
-            env,
-            config,
-            created_at: now.clone(),
-            updated_at: now,
-        };
-        presets.push(preset.clone());
-        preset
-    }
-
-    pub fn update_preset(
-        &self,
-        id: &str,
-        name: Option<String>,
-        account_id: Option<String>,
-        model: Option<Option<String>>,
-        env: Option<Vec<EnvOverride>>,
-        config: Option<BTreeMap<String, String>>,
-    ) -> Option<Preset> {
-        let mut presets = lock(&self.inner.presets);
-        let preset = presets.iter_mut().find(|preset| preset.id == id)?;
-        if let Some(value) = name {
-            preset.name = value;
+        for entry in self.sessions() {
+            if entry.forget_config(id) {
+                self.emit(SessionEvent::updated(entry.session()));
+            }
         }
-        if let Some(value) = account_id {
-            preset.account_id = value;
-        }
-        if let Some(value) = model {
-            preset.model = value;
-        }
-        if let Some(value) = env {
-            preset.env = value;
-        }
-        if let Some(value) = config {
-            preset.config = value;
-        }
-        preset.updated_at = timestamp();
-        Some(preset.clone())
-    }
-
-    pub fn remove_preset(&self, id: &str) -> bool {
-        let mut presets = lock(&self.inner.presets);
-        let before = presets.len();
-        presets.retain(|preset| preset.id != id);
-        presets.len() != before
+        Some(removed)
     }
 
     pub fn pending_questions(&self) -> Vec<Question> {
@@ -1566,7 +1818,7 @@ impl AppState {
             id,
             name,
             folder,
-            default_account_id: None,
+            default_config_id: None,
             default_source_branch: None,
         };
         projects.push(project.clone());
@@ -1580,25 +1832,18 @@ impl AppState {
     pub fn update_project_defaults(
         &self,
         id: &str,
-        default_account_id: Option<Option<String>>,
+        default_config_id: Option<Option<String>>,
         default_source_branch: Option<Option<String>>,
     ) -> Option<Project> {
         let mut projects = lock(&self.inner.projects);
         let project = projects.iter_mut().find(|project| project.id == id)?;
-        if let Some(value) = default_account_id {
-            project.default_account_id = value;
+        if let Some(value) = default_config_id {
+            project.default_config_id = value;
         }
         if let Some(value) = default_source_branch {
             project.default_source_branch = value;
         }
         Some(project.clone())
-    }
-
-    pub fn account(&self, id: &str) -> Option<Account> {
-        lock(&self.inner.accounts)
-            .iter()
-            .find(|account| account.id == id)
-            .cloned()
     }
 
     pub fn data_dir(&self) -> Option<&Path> {
@@ -1731,8 +1976,8 @@ impl AppState {
             .collect::<Vec<_>>();
         Bootstrap {
             projects: lock(&self.inner.projects).clone(),
-            accounts: self.accounts(),
-            presets: self.presets(),
+            providers: self.provider_views(),
+            configs: self.configs(),
             sessions,
             questions: self.pending_questions(),
             session_requests: self.pending_session_requests(),
@@ -1842,8 +2087,8 @@ impl AppState {
             .collect();
         let state = PersistedState::new(
             projects,
-            Some(self.accounts()),
-            Some(self.presets()),
+            Some(self.providers()),
+            Some(self.configs()),
             Some(self.pending_questions()),
             Some(self.pending_session_requests()),
             self.paired_devices(),
