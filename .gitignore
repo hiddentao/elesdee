@@ -1,0 +1,14 @@
+node_modules/
+dist/
+dist-phone/
+dist-phone-package/
+target/
+coverage/
+.DS_Store
+*.log
+.env
+.env.local
+test-results/
+playwright-report/
+blob-report/
+.husky/_

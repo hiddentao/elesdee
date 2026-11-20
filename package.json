@@ -1,0 +1,37 @@
+{
+  "name": "elesdee",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "app"
+  ],
+  "scripts": {
+    "dev": "npm --workspace app run dev",
+    "build": "npm --workspace app run build && npm run build:phone",
+    "build:phone": "npm --workspace app run build:phone && node scripts/package-phone-ui.mjs",
+    "test": "npm --workspace app run test",
+    "test:phone-package": "node --test scripts/package-phone-ui.test.mjs",
+    "typecheck": "npm --workspace app run typecheck",
+    "check:ui": "npm --workspace app run typecheck && npm --workspace app run test",
+    "check:core": "cargo test --manifest-path core/Cargo.toml && cargo clippy --manifest-path core/Cargo.toml --all-targets -- -D warnings",
+    "check": "npm run check:ui && npm run check:core",
+    "core": "cargo run --manifest-path core/Cargo.toml",
+    "desktop": "cargo run --manifest-path src-tauri/Cargo.toml",
+    "e2e": "playwright test",
+    "prepare": "husky",
+    "release": "node scripts/release.mjs",
+    "acks": "node --test scripts/check-commit-acks.test.mjs",
+    "desktop:build": "tauri build --bundles app"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^21.2.4",
+    "@noble/hashes": "^2.4.0",
+    "fflate": "^0.8.2",
+    "@commitlint/config-conventional": "^21.2.4",
+    "@playwright/test": "^1.65.1",
+    "@tauri-apps/cli": "^2.12.6",
+    "@types/node": "^26.6.6",
+    "husky": "^9.1.7",
+    "ws": "^8.18.3"
+  }
+}

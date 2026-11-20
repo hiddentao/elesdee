@@ -1,0 +1,220 @@
+name: Release Publish
+
+# Fires when a release PR (head branch release/<version>, opened by release.yml)
+# is merged. Tags the merge commit, builds the macOS app and core binary, and
+# publishes the GitHub Release with the CHANGELOG section as its notes.
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: >-
+      github.event.pull_request.merged == true &&
+      startsWith(github.event.pull_request.head.ref, 'release/')
+    runs-on: macos-14
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          fetch-tags: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: core
+
+      - run: npm ci
+      - run: npm run build
+
+      # Tauri needs a full icon set to bundle, not just the source PNG.
+      - name: Generate app icons
+        run: npx tauri icon src-tauri/icons/icon.png
+
+      - name: Build the desktop bundle
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          TAURI_UPDATER_PUBKEY: ${{ vars.TAURI_UPDATER_PUBKEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          # An unset GitHub secret arrives as an empty variable. Tauri treats an
+          # empty identity or certificate as set and fails to sign, so drop the
+          # empty values and let the build sign ad hoc.
+          [ -n "$APPLE_CERTIFICATE" ] || unset APPLE_CERTIFICATE
+          [ -n "$APPLE_CERTIFICATE_PASSWORD" ] || unset APPLE_CERTIFICATE_PASSWORD
+          [ -n "$APPLE_SIGNING_IDENTITY" ] || unset APPLE_SIGNING_IDENTITY
+          [ -n "$TAURI_SIGNING_PRIVATE_KEY" ] || unset TAURI_SIGNING_PRIVATE_KEY
+          # A build with a public key but no signing key cannot offer a verified
+          # update, so it reports updates as unavailable.
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            unset TAURI_UPDATER_PUBKEY
+          fi
+          npm run desktop:build
+
+      - name: Build the core binary
+        run: cargo build --release --manifest-path core/Cargo.toml
+
+      - name: Add the core to the app bundle
+        id: sign
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          app="src-tauri/target/release/bundle/macos/elesdee.app"
+          cp core/target/release/elesdee-core "$app/Contents/MacOS/elesdee-core"
+          if [ -n "$APPLE_SIGNING_IDENTITY" ]; then
+            codesign --force --deep --options runtime \
+              --sign "$APPLE_SIGNING_IDENTITY" "$app"
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+          else
+            # No Developer ID certificate is configured. Re-sign ad hoc so macOS
+            # does not reject the app after the core copy.
+            codesign --force --deep --sign - "$app"
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # The secrets context is not allowed in a step condition, so its
+      # presence is checked through a step output instead.
+      - name: Check notarization credentials
+        id: notary
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [ -n "$APPLE_ID" ] && [ -n "$APPLE_PASSWORD" ] && [ -n "$APPLE_TEAM_ID" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Notarize the app
+        id: notarize
+        if: ${{ steps.sign.outputs.signed == 'true' && steps.notary.outputs.available == 'true' }}
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          app="src-tauri/target/release/bundle/macos/elesdee.app"
+          ditto -c -k --keepParent "$app" /tmp/elesdee-notarize.zip
+          xcrun notarytool submit /tmp/elesdee-notarize.zip \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait
+          xcrun stapler staple "$app"
+          echo "done=true" >> "$GITHUB_OUTPUT"
+
+      - name: Package artifacts
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          version="${HEAD_REF#release/}"
+          mkdir -p dist/release
+          ditto -c -k --keepParent \
+            src-tauri/target/release/bundle/macos/elesdee.app \
+            "dist/release/elesdee-${version}-macos-arm64.zip"
+          tar -czf "dist/release/elesdee-core-${version}-macos-arm64.tar.gz" \
+            -C core/target/release elesdee-core
+
+      - name: Prepare the updater package and manifest
+        id: updater
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TAURI_UPDATER_PUBKEY: ${{ vars.TAURI_UPDATER_PUBKEY }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          version="${HEAD_REF#release/}"
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ] || [ -z "$TAURI_UPDATER_PUBKEY" ]; then
+            echo "::warning title=In-app updates unavailable::Set the TAURI_SIGNING_PRIVATE_KEY secret and the TAURI_UPDATER_PUBKEY variable to publish signed updates."
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          app_dir="src-tauri/target/release/bundle/macos"
+          archive="dist/release/elesdee.app.tar.gz"
+          tar -czf "$archive" -C "$app_dir" elesdee.app
+          npx tauri signer sign --app-version "$version" "$archive"
+          node scripts/release.mjs --notes "$version" > /tmp/updater-notes.md 2>/dev/null || true
+          if [ ! -s /tmp/updater-notes.md ]; then
+            printf 'elesdee %s\n' "$version" > /tmp/updater-notes.md
+          fi
+          node -e '
+            const fs = require("node:fs");
+            const [version, signaturePath, notesPath] = process.argv.slice(1);
+            const manifest = {
+              version,
+              notes: fs.readFileSync(notesPath, "utf8").trim(),
+              pub_date: new Date().toISOString(),
+              platforms: {
+                "darwin-aarch64": {
+                  signature: fs.readFileSync(signaturePath, "utf8").trim(),
+                  url: `https://github.com/${process.env.GITHUB_REPOSITORY}/releases/download/${version}/elesdee.app.tar.gz`,
+                },
+              },
+            };
+            fs.writeFileSync("dist/release/latest.json", JSON.stringify(manifest, null, 2));
+          ' "$version" "$archive.sig" /tmp/updater-notes.md
+          echo "available=true" >> "$GITHUB_OUTPUT"
+
+      - name: Write checksums
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          version="${HEAD_REF#release/}"
+          shasum -a 256 dist/release/* > "dist/release/elesdee-${version}-checksums.txt"
+
+      - name: Tag and publish the GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          SIGNED: ${{ steps.sign.outputs.signed }}
+          NOTARIZED: ${{ steps.notarize.outputs.done }}
+          UPDATER: ${{ steps.updater.outputs.available }}
+        run: |
+          version="${HEAD_REF#release/}"
+          if git rev-parse "$version" >/dev/null 2>&1; then
+            echo "::error::Tag ${version} already exists"
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "$version" -m "Release ${version}"
+          git push origin "refs/tags/${version}"
+
+          node scripts/release.mjs --notes "$version" > /tmp/release-notes.md
+          if [ ! -s /tmp/release-notes.md ]; then
+            printf 'elesdee %s\n' "$version" > /tmp/release-notes.md
+          fi
+          if [ "$SIGNED" = "true" ] && [ "$NOTARIZED" = "true" ]; then
+            printf '\n\n---\n\nThe macOS build is signed and notarized. It supports Apple Silicon only.\n' >> /tmp/release-notes.md
+          elif [ "$SIGNED" = "true" ]; then
+            printf '\n\n---\n\nThe macOS build is signed but not notarized. It supports Apple Silicon only. macOS may warn on first open; allow the app in System Settings > Privacy & Security.\n' >> /tmp/release-notes.md
+          else
+            printf '\n\n---\n\nThe macOS build is unsigned and Apple Silicon only. macOS will warn on first open; allow the app in System Settings > Privacy & Security.\n' >> /tmp/release-notes.md
+          fi
+          if [ "$UPDATER" != "true" ]; then
+            printf '\n\nThis release has no update signing key, so in-app updates are unavailable in this build.\n' >> /tmp/release-notes.md
+          fi
+          gh release create "$version" --title "$version" \
+            --notes-file /tmp/release-notes.md dist/release/*

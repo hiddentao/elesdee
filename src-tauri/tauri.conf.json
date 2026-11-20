@@ -1,0 +1,49 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "elesdee",
+  "version": "0.1.0",
+  "identifier": "com.elesdee.desktop",
+  "build": {
+    "devUrl": "http://localhost:5173",
+    "frontendDist": "../app/dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "elesdee",
+        "visible": false,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "trafficLightPosition": {
+          "x": 16,
+          "y": 16
+        },
+        "width": 1440,
+        "height": 900,
+        "minWidth": 1024,
+        "minHeight": 680,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "resources": {
+      "../app/dist-phone-package": "phone-ui"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/hiddentao/elesdee/releases/latest/download/latest.json"
+      ],
+      "pubkey": "",
+      "requireSignedVersion": true
+    }
+  }
+}

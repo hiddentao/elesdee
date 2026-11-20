@@ -1,0 +1,146 @@
+---
+title: Agents and providers
+description: The coding agents elesdee runs and how providers and AI configs work.
+order: 5
+---
+
+# Agents and providers
+
+elesdee runs four coding agents:
+
+| Client | Provider |
+| --- | --- |
+| Claude Code | Anthropic, and Anthropic-compatible providers |
+| Codex | OpenAI, and OpenAI-compatible providers |
+| OpenCode 2 | OpenRouter, and custom providers |
+| Antigravity | Google Gemini |
+
+The app uses a copy of each agent that is already installed on your computer. It finds copies on `PATH`, in Homebrew, in npm global folders, in `~/.local/bin`, inside the app bundle and in its own data folder.
+
+## Agent check
+
+The welcome screen and the AI config form check for all four agents and show their versions. A session with a missing agent does not start.
+
+**Install a missing agent**
+
+The client list in the AI config form shows which clients are installed and which are missing. Choose **Install** next to a missing client.
+
+1. The confirmation says that the app downloads the client from its vendor and needs an internet connection.
+2. Choose **Install** to continue. The row shows each stage and its progress.
+3. The app checks the new copy's version. When the check passes, the row shows the version.
+
+The copy goes in a private folder in the app's data folder. A failed install keeps any older copy and leaves nothing partial behind. The error stays on the row, and you can try again. The app uses its own copy only when it finds no copy in the earlier places.
+
+**Update the app's own copy**
+
+Each row names the source of the copy: the app's own copy, a copy you installed, or a copy inside the app bundle. Only the app's own copy has an **Update** action.
+
+1. The row checks the vendor's current version in the background. When the vendor has a newer version, the row shows **Update available** with that version. The form stays usable.
+2. Choose **Update**. The confirmation shows the version of this copy and the vendor's current version.
+3. Choose **Update** again. The row shows each stage and its progress.
+4. The app checks the new copy's version, then replaces the old copy.
+
+A failed update keeps the old copy and leaves nothing partial behind. The error stays on the row, and you can try again. Nothing updates by itself.
+
+The app never replaces a copy that you installed with Homebrew, npm or another tool. Its row tells you to update it with the tool that installed it. A copy inside the app bundle updates when you update elesdee.
+
+## Providers
+
+A provider holds a credential and the address it connects to. An AI config connects a provider to one client and adds the model, effort and launch settings. The Settings page lists both.
+
+**Sample providers and configs**
+
+A new install includes sample providers and configs. They are marked **Sample**. They have no usage data and exist to show how the lists work. Add your own provider for real setup. Auto-switch skips sample providers.
+
+**Supported vendors**
+
+| Provider | Clients | Sign-in |
+| --- | --- | --- |
+| Anthropic | Claude Code, OpenCode 2 | Subscription or API key |
+| OpenAI | Codex, OpenCode 2 | Subscription or API key |
+| Google | Antigravity | API key |
+| DeepSeek | Claude Code, Codex, OpenCode 2 | API key |
+| Kimi (Moonshot) | Claude Code, OpenCode 2 | API key |
+| Z.ai | Claude Code, OpenCode 2 | API key |
+| OpenRouter | OpenCode 2, Codex | API key |
+| Ollama | Claude Code, OpenCode 2 | Local server |
+| LM Studio | Claude Code, OpenCode 2 | Local server |
+| Custom provider | Codex, OpenCode 2 for OpenAI style; Claude Code, OpenCode 2 for Anthropic style | API key or local server |
+
+**API keys**
+
+1. Open **Settings**.
+2. Open **Providers**.
+3. Choose **Add provider**.
+4. Choose the vendor.
+5. Enter a name and the API key.
+6. Save.
+
+The key goes to the system keychain. The app writes only provider metadata to its state file. It removes the key from session output before the output is stored or shown.
+
+**Subscriptions**
+
+1. Choose **Subscription** as the sign-in.
+2. Enter a name, then choose **Sign in and add**.
+3. The app starts the sign-in of the installed client: Claude Code for Anthropic, Codex for OpenAI. The client opens its own sign-in page in your browser.
+4. When the browser returns by itself, the app asks the client to confirm the credential and then adds the provider.
+
+The app never asks for a provider password and never shows its own sign-in page. The client keeps the token; the provider records only that the sign-in is connected.
+
+For a computer without a browser, use a one-time code. For OpenAI, choose **Use a one-time code instead** before you start; the app shows the code and the address, and you open the address on any device. For Anthropic, open the shown address on another device, then paste the code that the page gives you into the provider form.
+
+If the sign-in fails or you close the form, the app adds no provider and says why. To connect a subscription provider later, edit it and choose **Sign in** or **Sign in again**. The Providers page shows **Connected** or **Not connected** for each subscription provider. Do not use the same Codex login on the Mac and in elesdee at the same time.
+
+**Local servers**
+
+Choose **Local server** and enter the server URL for Ollama or LM Studio. The app passes the URL to the client.
+
+**Custom providers**
+
+Choose **Custom provider** for any server that speaks the OpenAI or Anthropic API, such as a gateway or a company proxy.
+
+1. Choose the API style: OpenAI-compatible or Anthropic-compatible.
+2. Choose the client: Codex or OpenCode 2 for OpenAI style, or Claude Code or OpenCode 2 for Anthropic style.
+3. Enter the server URL, an optional API key and an optional model.
+4. Save.
+
+The form picks the first client the chosen style supports: Codex for OpenAI-compatible, or Claude Code for Anthropic-compatible.
+
+## How a session uses an AI config
+
+The session starts the client from its AI config and gives it the provider's settings. For Claude Code and Codex subscriptions, the client uses its own sign-in. With an API-key provider, the key reaches the client without appearing in session output. A Google provider uses an API key and runs Antigravity with Gemini; the session's temporary settings are removed when the session closes.
+
+## Skills
+
+Claude Code, Codex and OpenCode 2 sessions get the same skill pack:
+
+| Skill | What it covers |
+| --- | --- |
+| elesdee | The session branch and worktree, the tools, and the other skills |
+| Demo servers | Starting a server, registering its port and giving you an address that opens on your phone |
+| Ask and notify | Asking you when blocked, waiting for the answer, notifications and reporting done |
+| Coordinate sessions | Helper sessions, briefs and merging their branches |
+| Handoff | The handoff note, the last commit and the push |
+| Frontend design | Visual direction, template defaults and redundant controls |
+
+The skills live in a private folder for each session and are removed when the session closes. Antigravity keeps its own prompts and gets no elesdee skill pack.
+
+## Permission prompts
+
+Antigravity keeps its permission prompts in its own terminal. The app does not show a permission card for Antigravity. Answer its prompts in the terminal.
+
+Claude Code, Codex and OpenCode 2 send permission requests to the app, so those requests appear as cards. See [Permissions](permissions.md).
+
+## Usage
+
+Provider usage appears where the provider reports a number. A Google provider has no official usage source, so it shows **No usage data**. Usage belongs to the computer and is not part of a session.
+
+When a usage report shows 90% or more used, or a prepaid balance is at or below its minimum, the app moves the session to an allowed AI config whose provider has room. Set the minimum balance in the provider form; a DeepSeek provider starts with 5 in the currency the provider reports. Subscription providers come first, then pay-per-use providers; within each group it takes the provider with the most room, and a tie keeps the current client. It skips sample providers and providers without usage data. If no allowed config has room, the session pauses and keeps its worktree. It resumes by itself when an allowed config has room again. You can also choose **Resume** in the session.
+
+Set the AI configs a session may use in the launch form, or edit them in the switch chooser while it runs. A new session allows the configs of its starting client. The config in use always stays allowed.
+
+## Next steps
+
+- [Sessions](sessions.md)
+- [Permissions](permissions.md)
+- [Settings](settings.md)
