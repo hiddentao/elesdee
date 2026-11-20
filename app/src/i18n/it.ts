@@ -472,6 +472,16 @@ export const it = {
   'newSession.busyLabel': 'Avvio della sessione…',
   'newSession.submitting': 'Avvio…',
   'newSession.submit': 'Avvia sessione',
+  'newSession.cloneFolder': 'Cartella di clonazione',
+  'newSession.cloneFolderPlaceholder': 'Scegli la cartella principale',
+  'newSession.cloneFolderHint':
+    'Il repository viene clonato in {path}, poi la sessione inizia lì.',
+  'newSession.githubPrivate': 'Privato',
+  'newSession.githubPublic': 'Pubblico',
+  'newSession.githubAdded': 'Aggiunto',
+  'newSession.githubClone': 'Clona',
+  'newSession.errorClone': 'Non è stato possibile clonare il repository.',
+  'newSession.errorCloneFolder': 'Scegli una cartella di clonazione.',
 
   'permission.needed': 'Autorizzazione necessaria',
   'permission.tool': 'Strumento',

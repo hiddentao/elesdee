@@ -1,14 +1,39 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { expect, test, type Locator } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
+import { getRunDir } from './env';
 import {
   bootstrap,
   closeSession,
+  CORE_URL,
   createGitRepo,
   createProject,
   openApp,
   uniqueName,
 } from './helpers';
+
+async function chooseProjectAndConfig(
+  page: Page,
+  dialog: Locator,
+  projectName: string,
+) {
+  const projectCombo = dialog.getByRole('combobox', { name: 'Project' });
+  await projectCombo.click();
+  await projectCombo.fill(projectName);
+  await page.getByRole('option', { name: new RegExp(projectName) }).click();
+
+  const configCombo = dialog.getByRole('combobox', {
+    name: 'AI config',
+    exact: true,
+  });
+  await configCombo.click();
+  await configCombo.fill('Anthropic Max');
+  await page.getByRole('option', { name: /Anthropic Max/ }).click();
+}
+
+test.afterAll(async ({ request }) => {
+  await request.post(`${CORE_URL}/api/github/sign-out`, { data: {} });
+});
 
 test('launches from a chosen branch and names the session from the prompt', async ({
   page,
@@ -88,30 +113,13 @@ test('picks a recent repository from an earlier session', async ({
   await createProject(request, label, baseRepo);
   const sourceProject = await createProject(request, sourceLabel, sourceRepo);
 
-  async function chooseProjectAndConfig(dialog: Locator, projectName: string) {
-    const projectCombo = dialog.getByRole('combobox', { name: 'Project' });
-    await projectCombo.click();
-    await projectCombo.fill(projectName);
-    await page
-      .getByRole('option', { name: new RegExp(projectName) })
-      .click();
-
-    const configCombo = dialog.getByRole('combobox', {
-      name: 'AI config',
-      exact: true,
-    });
-    await configCombo.click();
-    await configCombo.fill('Anthropic Max');
-    await page.getByRole('option', { name: /Anthropic Max/ }).click();
-  }
-
   await openApp(page);
   await page
     .locator('.titlebar')
     .getByRole('button', { name: 'New session' })
     .click();
   let dialog = page.getByRole('dialog');
-  await chooseProjectAndConfig(dialog, sourceLabel);
+  await chooseProjectAndConfig(page, dialog, sourceLabel);
   await expect(
     dialog.getByRole('combobox', { name: 'Repository folder' }),
   ).toHaveValue(sourceRepo);
@@ -130,7 +138,7 @@ test('picks a recent repository from an earlier session', async ({
     .getByRole('button', { name: 'New session' })
     .click();
   dialog = page.getByRole('dialog');
-  await chooseProjectAndConfig(dialog, label);
+  await chooseProjectAndConfig(page, dialog, label);
 
   const repository = dialog.getByRole('combobox', {
     name: 'Repository folder',
@@ -148,6 +156,70 @@ test('picks a recent repository from an earlier session', async ({
     dialog.getByRole('combobox', { name: 'Project' }),
   ).toHaveValue(label);
   await dialog.getByRole('button', { name: 'Cancel' }).click();
+});
+
+test('starts a session from a GitHub repository that is not on this computer', async ({
+  page,
+  request,
+}) => {
+  const label = uniqueName('github-launch-project');
+  const repo = createGitRepo(label);
+  const project = await createProject(request, label, repo);
+
+  await openApp(page);
+  await page
+    .getByRole('button', { name: 'Add project' })
+    .first()
+    .click();
+  const addDialog = page.getByRole('dialog', { name: 'Add project' });
+  await addDialog.getByRole('radio', { name: 'From GitHub' }).click();
+  await addDialog.getByRole('button', { name: 'Connect GitHub' }).click();
+  await expect(addDialog.getByText('Signed in as @octocat')).toBeVisible({
+    timeout: 20_000,
+  });
+  await addDialog.getByRole('button', { name: 'Cancel' }).click();
+  await expect(addDialog).not.toBeVisible();
+
+  await page
+    .locator('.titlebar')
+    .getByRole('button', { name: 'New session' })
+    .click();
+  const dialog = page.getByRole('dialog');
+  await chooseProjectAndConfig(page, dialog, label);
+
+  const repository = dialog.getByRole('combobox', {
+    name: 'Repository folder',
+  });
+  await repository.click();
+  await repository.fill('launch-demo');
+  const option = page.getByRole('option', { name: /acme\/launch-demo/ });
+  await expect(option).toBeVisible({ timeout: 20_000 });
+  await option.click();
+
+  const parent = path.join(getRunDir(), 'github-launch');
+  const target = path.join(parent, 'launch-demo');
+  const cloneFolder = dialog.getByLabel('Clone folder');
+  await expect(cloneFolder).toHaveValue(
+    path.join(getRunDir(), 'github-clones'),
+  );
+  await cloneFolder.fill(parent);
+  await expect(
+    dialog.getByText(
+      `The repository is cloned into ${target}, then the session starts there.`,
+    ),
+  ).toBeVisible();
+
+  await dialog.getByRole('button', { name: 'Start session' }).click();
+  await expect(dialog).not.toBeVisible({ timeout: 60_000 });
+
+  const data = await bootstrap(request);
+  const session = data.sessions.find((item) => item.projectId === project.id);
+  expect(session).toBeTruthy();
+  const cloned = fs.realpathSync(target);
+  expect(session?.sourceRepository).toBe(cloned);
+  expect(fs.existsSync(path.join(cloned, 'README.md'))).toBe(true);
+
+  await closeSession(request, session!.id);
 });
 
 test.describe('at 1024 pixels', () => {

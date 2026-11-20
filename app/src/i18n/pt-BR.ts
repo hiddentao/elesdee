@@ -472,6 +472,16 @@ export const ptBR = {
   'newSession.busyLabel': 'Iniciando sessão…',
   'newSession.submitting': 'Iniciando…',
   'newSession.submit': 'Iniciar sessão',
+  'newSession.cloneFolder': 'Pasta de clonagem',
+  'newSession.cloneFolderPlaceholder': 'Escolha a pasta principal',
+  'newSession.cloneFolderHint':
+    'O repositório é clonado em {path} e a sessão começa ali.',
+  'newSession.githubPrivate': 'Privado',
+  'newSession.githubPublic': 'Público',
+  'newSession.githubAdded': 'Adicionado',
+  'newSession.githubClone': 'Clonar',
+  'newSession.errorClone': 'Não foi possível clonar o repositório.',
+  'newSession.errorCloneFolder': 'Escolha uma pasta de clonagem.',
 
   'permission.needed': 'Permissão necessária',
   'permission.tool': 'Ferramenta',

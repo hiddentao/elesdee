@@ -328,7 +328,7 @@ Every session gets all seven skills: elesdee, Demo servers, Handoff, Ask and not
 
 After a crash or restart, the IDE reopens every session that was running and resumes each one where it stopped. After a restart of the Mac, this happens when elesdee next starts: at login if the start-at-login setting is on, or else when I open the app.
 
-- The IDE saves the state of each session while it runs: agent, AI config, provider, repository, the repository the session started from, folder, branch, and the agent's own session ID.
+- The IDE saves the state of each session while it runs: agent, AI config, provider, source repository, worktree folder, branch, and the agent's own session ID.
 - On restart, the IDE relaunches each session with the same settings and resumes the agent's conversation by that ID.
 - If no saved ID exists (for example an older session, or a client that keeps no ID), the IDE continues the agent's most recent conversation and says so in the session preview.
 - If the folder, worktree, AI config or client is missing, that session stays paused with the reason. The other sessions still resume.

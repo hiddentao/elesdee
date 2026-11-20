@@ -43,4 +43,9 @@ export default async function globalSetup(): Promise<void> {
     ['clone', '--quiet', '--bare', source, path.join(github, 'demo.git')],
     { stdio: 'pipe' },
   );
+  execFileSync(
+    'git',
+    ['clone', '--quiet', '--bare', source, path.join(github, 'launch.git')],
+    { stdio: 'pipe' },
+  );
 }

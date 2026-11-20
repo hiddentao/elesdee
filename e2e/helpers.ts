@@ -26,6 +26,7 @@ export interface Session {
   providerId: string | null;
   branch: string | null;
   folder: string;
+  sourceRepository?: string | null;
   preview: string;
   waitingFor: string | null;
   firstPrompt: string | null;

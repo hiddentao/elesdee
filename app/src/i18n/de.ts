@@ -468,6 +468,16 @@ export const de = {
   'newSession.busyLabel': 'Sitzung wird gestartet…',
   'newSession.submitting': 'Wird gestartet…',
   'newSession.submit': 'Sitzung starten',
+  'newSession.cloneFolder': 'Klonordner',
+  'newSession.cloneFolderPlaceholder': 'Übergeordneten Ordner wählen',
+  'newSession.cloneFolderHint':
+    'Das Repository wird nach {path} geklont, dann startet die Sitzung dort.',
+  'newSession.githubPrivate': 'Privat',
+  'newSession.githubPublic': 'Öffentlich',
+  'newSession.githubAdded': 'Hinzugefügt',
+  'newSession.githubClone': 'Klonen',
+  'newSession.errorClone': 'Das Repository konnte nicht geklont werden.',
+  'newSession.errorCloneFolder': 'Wählen Sie einen Klonordner.',
 
   'permission.needed': 'Berechtigung erforderlich',
   'permission.tool': 'Werkzeug',

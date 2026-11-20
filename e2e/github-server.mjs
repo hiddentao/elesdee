@@ -7,6 +7,7 @@ const runDir = process.env.ELESDEE_GITHUB_RUN_DIR;
 const token = 'e2e-github-token';
 const modeFile = path.join(runDir, 'github-mode.txt');
 const demoClone = `file://${path.join(runDir, 'github', 'demo.git')}`;
+const launchClone = `file://${path.join(runDir, 'github', 'launch.git')}`;
 
 function mode() {
   try {
@@ -40,6 +41,17 @@ const repos = [
     html_url: 'https://example.invalid/acme/demo',
     description: 'The demo repository',
     updated_at: '2026-01-01T00:00:00Z',
+  },
+  {
+    id: 2,
+    full_name: 'acme/launch-demo',
+    name: 'launch-demo',
+    owner: { login: 'acme' },
+    private: false,
+    clone_url: launchClone,
+    html_url: 'https://example.invalid/acme/launch-demo',
+    description: 'The launch form repository',
+    updated_at: '2026-01-02T00:00:00Z',
   },
 ];
 

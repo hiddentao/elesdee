@@ -469,6 +469,16 @@ export const nl = {
   'newSession.busyLabel': 'Sessie wordt gestart…',
   'newSession.submitting': 'Starten…',
   'newSession.submit': 'Sessie starten',
+  'newSession.cloneFolder': 'Kloonmap',
+  'newSession.cloneFolderPlaceholder': 'Kies de bovenliggende map',
+  'newSession.cloneFolderHint':
+    'De repository wordt gekloond naar {path}, daarna start de sessie daar.',
+  'newSession.githubPrivate': 'Privé',
+  'newSession.githubPublic': 'Openbaar',
+  'newSession.githubAdded': 'Toegevoegd',
+  'newSession.githubClone': 'Klonen',
+  'newSession.errorClone': 'De repository kon niet worden gekloond.',
+  'newSession.errorCloneFolder': 'Kies een kloonmap.',
 
   'permission.needed': 'Toestemming nodig',
   'permission.tool': 'Gereedschap',
