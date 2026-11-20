@@ -1,6 +1,6 @@
 # Phone shell, pairing and remote connection
 
-Status: design. Steps 1 to 4, step 7's terminal input, session actions, permission and question cards, AI config switch and structured message view on both phone surfaces, and step 8's demo-server forwarding on both the computer and the phone are implemented in part. The native shell shows the message view with prompts, replies, tool rows, the context strip, the composer and the key rail, with one button to the read-only terminal. Upload, file and image reads and diffs remain. The shell has not run on a device or an emulator, and the Android and iOS projects are not generated.
+Status: design. Steps 1 to 4, step 7's terminal input, session actions, permission and question cards, AI config switch and structured message view on both phone surfaces, and step 8's demo-server forwarding on both the computer and the phone are implemented in part. The native shell shows the message view with prompts, replies, tool rows, the context strip, the composer and the key rail, with one button to the read-only terminal. The desktop pairing dialog in Settings > Devices shows the QR image, the phone name and the six-digit code, and the approve, deny and cancel actions. Upload, file and image reads and diffs remain. The shell has not run on a device or an emulator, and the Android and iOS projects are not generated.
 
 Read this with `.dev/SPEC.md` (Mobile companion app, Connection technology), `.dev/api.md` and `docs/phone.md`.
 
@@ -361,10 +361,10 @@ These routes are local only. They are never reachable through the link.
 
 | Method | Path | Body | Result |
 | --- | --- | --- | --- |
-| POST | `/api/pairing` | `{}` | `{ expiresAt, relayReady }` |
+| POST | `/api/pairing` | `{}` | `{ expiresAt, relayReady, ticket? }` |
 | GET | `/api/pairing/qr` | | `image/png` for the active ticket; 404 when idle |
 | GET | `/api/pairing` | | `{ state, expiresAt?, phoneName?, code? }` |
-| POST | `/api/pairing/approve` | `{}` | `PairedDevice` |
+| POST | `/api/pairing/approve` | `{}` | `PairedDeviceRecord` |
 | POST | `/api/pairing/deny` | `{}` | `204` |
 | DELETE | `/api/pairing` | | `204` |
 | GET | `/api/devices` | | `PairedDevice[]` |

@@ -175,22 +175,25 @@ interface PairingStatus {
   code?: string;        // six digits, present in `confirm`
 }
 
-interface PairedDevice {
+interface PairedDeviceRecord {
   endpointId: string;   // z-base-32 endpoint id
   name: string;
   platform: string;
   pairedAt: string;     // RFC 3339
   lastSeen?: string;    // RFC 3339, updated in memory at most once a minute
+}
+
+interface PairedDevice extends PairedDeviceRecord {
   connected: boolean;   // true while the phone holds a live link connection
 }
 ```
 
 | Method | Path | Body | Result |
 | --- | --- | --- | --- |
-| POST | `/api/pairing` | `{}` | `{ expiresAt, relayReady }` |
+| POST | `/api/pairing` | `{}` | `{ expiresAt, relayReady, ticket? }` |
 | GET | `/api/pairing/qr` | | `image/png` for the active ticket; 404 when idle |
 | GET | `/api/pairing` | | `PairingStatus` |
-| POST | `/api/pairing/approve` | `{}` | `PairedDevice` |
+| POST | `/api/pairing/approve` | `{}` | `PairedDeviceRecord` |
 | POST | `/api/pairing/deny` | `{}` | `204` |
 | DELETE | `/api/pairing` | | `204` |
 | GET | `/api/devices` | | `PairedDevice[]` |
@@ -199,9 +202,9 @@ interface PairedDevice {
 - A ticket lives for 120 seconds and is single use. A new request cancels the old ticket and any waiting confirmation.
 - `POST /api/pairing` waits at most five seconds for a relay and sets `relayReady`. When the endpoint is not running, it returns 503 and pairing is unavailable. A debug build with `ELESDEE_DEV=1` also returns `ticket` for an emulator paste fallback.
 - The QR route returns a PNG rendered in memory while the state is `waiting`. It returns 404 in every other state. The image and the ticket are never written to disk or a log.
-- The desktop UI polls `GET /api/pairing` each second. In `confirm` it shows `phoneName` and the six-digit `code`. The phone shows the same code.
+- The desktop UI starts pairing, shows the QR image and the countdown, then polls `GET /api/pairing` each second. In `confirm` it shows `phoneName` and the six-digit `code`. The phone shows the same code. When the QR image fails and the debug `ticket` is present, the UI shows the ticket for a pasted pairing. It removes the ticket from the page when the phone connects or the flow ends.
 - Five wrong secrets cancel the session. A used, expired or cancelled ticket is rejected.
-- `POST /api/pairing/approve` stores the device, saves state and returns 409 when no phone is waiting or the 16-device limit is reached. `deny` and `cancel` return 204 in every state.
+- `POST /api/pairing/approve` stores the device, saves state and returns 409 when no phone is waiting or the 16-device limit is reached. The result is the stored `PairedDeviceRecord`; it has no `connected` field. `deny` and `cancel` return 204 in every state.
 - A device list entry holds no key and no secret. A 17th device returns 409.
 - `GET /api/devices` adds `connected` from the live link state. It is not saved: a restart reports every device as disconnected until the phone reconnects.
 - `DELETE /api/devices/{id}` returns 404 for an unknown id. It saves state and closes the device's live connections with link close code 3.
@@ -681,10 +684,10 @@ interface HistoryEvent {
 | POST | `/api/sign-in/{id}/code` | `{ code }` | `SignInView` |
 | DELETE | `/api/sign-in/{id}` | | `204` |
 | POST | `/internal/statusline/claude/{id}?token={token}` | the Claude Code status line JSON | `204` |
-| POST | `/api/pairing` | `{}` | `{ expiresAt, relayReady }` |
+| POST | `/api/pairing` | `{}` | `{ expiresAt, relayReady, ticket? }` |
 | GET | `/api/pairing/qr` | | `image/png` |
 | GET | `/api/pairing` | | `PairingStatus` |
-| POST | `/api/pairing/approve` | `{}` | `PairedDevice` |
+| POST | `/api/pairing/approve` | `{}` | `PairedDeviceRecord` |
 | POST | `/api/pairing/deny` | `{}` | `204` |
 | DELETE | `/api/pairing` | | `204` |
 | GET | `/api/devices` | | `PairedDevice[]` |

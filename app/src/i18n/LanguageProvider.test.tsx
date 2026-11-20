@@ -167,6 +167,12 @@ describe('LanguageProvider', () => {
           onChangeSettings={vi.fn()}
           onLoadDevices={vi.fn()}
           onRemoveDevice={vi.fn()}
+          onStartPairing={vi.fn()}
+          onPairingStatus={vi.fn()}
+          onApprovePairing={vi.fn()}
+          onDenyPairing={vi.fn()}
+          onCancelPairing={vi.fn()}
+          pairingQrUrl={(cacheBust: number) => `/api/pairing/qr?v=${cacheBust}`}
           onExportDiagnostics={vi.fn()}
           onCheckForUpdate={vi.fn()}
           onInstallUpdate={vi.fn()}

@@ -190,7 +190,7 @@ export const ko = {
     '이 컴퓨터와 페어링된 휴대폰입니다. 휴대폰을 제거하면 액세스가 즉시 취소됩니다.',
   'devices.empty': '페어링된 휴대폰이 없습니다.',
   'devices.emptyHint':
-    '휴대폰 앱을 열고 데스크톱 앱에 표시되는 페어링 코드를 스캔하면 휴대폰이 여기에 나타납니다.',
+    '“휴대폰 페어링”을 선택하고 휴대폰 앱으로 코드를 스캔하면 휴대폰이 여기에 나타납니다.',
   'devices.loading': '휴대폰을 불러오는 중…',
   'devices.loadError': '페어링된 휴대폰을 불러오지 못했습니다.',
   'devices.connected': '연결됨',
@@ -204,6 +204,47 @@ export const ko = {
   'devices.removeConfirm': '휴대폰 제거',
   'devices.removing': '제거 중…',
   'devices.removeError': '휴대폰을 제거하지 못했습니다.',
+
+  'pairing.start': '휴대폰 페어링',
+  'pairing.title': '휴대폰 페어링',
+  'pairing.intro': '휴대폰 앱을 이 컴퓨터와 페어링합니다.',
+  'pairing.starting': '페어링을 시작하는 중…',
+  'pairing.scan': '휴대폰 앱으로 이 코드를 스캔하세요.',
+  'pairing.qrAlt': '페어링 QR 코드',
+  'pairing.qrError': '페어링 코드를 표시하지 못했습니다. 취소하고 다시 시도하세요.',
+  'pairing.ticketLabel': '페어링 티켓',
+  'pairing.ticketHint':
+    '휴대폰이 코드를 스캔할 수 없으면 이 티켓을 휴대폰 앱에 붙여넣으세요.',
+  'pairing.sameNetwork':
+    '릴레이가 준비되지 않았습니다. 휴대폰과 이 컴퓨터를 같은 네트워크에 두세요.',
+  'pairing.expiresIn': '코드는 {seconds}초 후에 만료됩니다.',
+  'pairing.phone': '휴대폰 {name}이(가) 페어링을 요청합니다.',
+  'pairing.compare': '휴대폰에 이 코드가 표시되는지 확인하세요.',
+  'pairing.codeLabel': '확인 코드',
+  'pairing.codeSpoken': '확인 코드 {code}',
+  'pairing.approve': '승인',
+  'pairing.deny': '거부',
+  'pairing.cancel': '페어링 취소',
+  'pairing.approving': '휴대폰을 승인하는 중…',
+  'pairing.denying': '휴대폰을 거부하는 중…',
+  'pairing.denied': '이 휴대폰을 거부했습니다. 페어링되지 않았습니다.',
+  'pairing.deniedFull':
+    '이 컴퓨터에는 다른 휴대폰을 추가할 공간이 없습니다. 먼저 휴대폰을 제거하세요.',
+  'pairing.expired': '페어링 코드가 만료되었습니다. 다시 페어링하세요.',
+  'pairing.cancelled':
+    '페어링이 중지되었습니다. 휴대폰이 잘못된 코드를 사용했을 수 있습니다. 다시 페어링하세요.',
+  'pairing.paired': '휴대폰이 페어링되었습니다.',
+  'pairing.retry': '다시 페어링',
+  'pairing.unavailable':
+    '페어링을 사용할 수 없습니다. 휴대폰 링크가 시작되지 않았습니다. elesdee를 다시 시작하고 다시 시도하세요.',
+  'pairing.startError': '페어링을 시작하지 못했습니다. 다시 시도하세요.',
+  'pairing.statusError': '페어링 상태를 읽지 못했습니다.',
+  'pairing.approveError': '휴대폰을 승인하지 못했습니다.',
+  'pairing.denyError': '휴대폰을 거부하지 못했습니다.',
+  'pairing.cancelError': '페어링을 취소하지 못했습니다. 다시 시도하세요.',
+  'pairing.gone': '휴대폰이 더 이상 기다리고 있지 않습니다. 다시 페어링하세요.',
+  'pairing.full':
+    '이 컴퓨터에는 이미 페어링할 수 있는 최대 휴대폰 수가 있습니다. 먼저 휴대폰을 제거하세요.',
 
   'diagnostics.note':
     '패키지에는 앱 버전, 이 컴퓨터의 시스템 세부 정보 및 최근 로그 줄이 포함됩니다.',

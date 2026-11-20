@@ -191,7 +191,7 @@ export const es = {
     'Teléfonos emparejados con este equipo. Quita un teléfono para revocar su acceso de inmediato.',
   'devices.empty': 'No hay ningún teléfono emparejado.',
   'devices.emptyHint':
-    'Abre la aplicación del teléfono y escanea el código de emparejamiento que muestra la aplicación de escritorio. El teléfono aparecerá aquí.',
+    'Elige «Emparejar un teléfono» y escanea el código con la aplicación del teléfono. El teléfono aparecerá aquí.',
   'devices.loading': 'Cargando teléfonos…',
   'devices.loadError': 'No se pudieron cargar los teléfonos emparejados.',
   'devices.connected': 'Conectado',
@@ -205,6 +205,50 @@ export const es = {
   'devices.removeConfirm': 'Quitar teléfono',
   'devices.removing': 'Quitando…',
   'devices.removeError': 'No se pudo quitar el teléfono.',
+
+  'pairing.start': 'Emparejar un teléfono',
+  'pairing.title': 'Emparejar un teléfono',
+  'pairing.intro': 'Empareja la aplicación del teléfono con este equipo.',
+  'pairing.starting': 'Iniciando el emparejamiento…',
+  'pairing.scan': 'Escanea este código con la aplicación del teléfono.',
+  'pairing.qrAlt': 'Código QR de emparejamiento',
+  'pairing.qrError':
+    'No se pudo mostrar el código de emparejamiento. Cancela e inténtalo de nuevo.',
+  'pairing.ticketLabel': 'Ticket de emparejamiento',
+  'pairing.ticketHint':
+    'Si el teléfono no puede escanear el código, pega este ticket en la aplicación del teléfono.',
+  'pairing.sameNetwork':
+    'El relé no está listo. Mantén el teléfono y este equipo en la misma red.',
+  'pairing.expiresIn': 'El código caduca en {seconds} segundos.',
+  'pairing.phone': 'El teléfono {name} quiere emparejarse.',
+  'pairing.compare': 'Comprueba que el teléfono muestra este código.',
+  'pairing.codeLabel': 'Código de confirmación',
+  'pairing.codeSpoken': 'Código de confirmación {code}',
+  'pairing.approve': 'Aprobar',
+  'pairing.deny': 'Denegar',
+  'pairing.cancel': 'Cancelar el emparejamiento',
+  'pairing.approving': 'Aprobando el teléfono…',
+  'pairing.denying': 'Denegando el teléfono…',
+  'pairing.denied': 'Has denegado este teléfono. No está emparejado.',
+  'pairing.deniedFull':
+    'Este equipo no tiene espacio para otro teléfono. Quita un teléfono primero.',
+  'pairing.expired': 'El código de emparejamiento caducó. Vuelve a emparejar.',
+  'pairing.cancelled':
+    'El emparejamiento se detuvo. Puede que el teléfono usara un código incorrecto. Vuelve a emparejar.',
+  'pairing.paired': 'El teléfono está emparejado.',
+  'pairing.retry': 'Emparejar de nuevo',
+  'pairing.unavailable':
+    'El emparejamiento no está disponible. El enlace del teléfono no se inició. Reinicia elesdee e inténtalo de nuevo.',
+  'pairing.startError':
+    'No se pudo iniciar el emparejamiento. Inténtalo de nuevo.',
+  'pairing.statusError': 'No se pudo leer el estado del emparejamiento.',
+  'pairing.approveError': 'No se pudo aprobar el teléfono.',
+  'pairing.denyError': 'No se pudo denegar el teléfono.',
+  'pairing.cancelError':
+    'No se pudo cancelar el emparejamiento. Inténtalo de nuevo.',
+  'pairing.gone': 'El teléfono ya no está esperando. Vuelve a emparejar.',
+  'pairing.full':
+    'Este equipo ya tiene el máximo de teléfonos emparejados. Quita un teléfono primero.',
 
   'diagnostics.note':
     'El paquete contiene la versión de la aplicación, los detalles del sistema de este equipo y las últimas líneas del registro.',

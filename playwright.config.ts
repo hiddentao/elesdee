@@ -80,7 +80,7 @@ export default defineConfig({
   globalTeardown: './e2e/global-teardown.ts',
   webServer: [
     {
-      command: `PATH=${JSON.stringify(corePath)} ELESDEE_PORT=${corePort} ELESDEE_DATA_DIR=${JSON.stringify(path.join(runDir, 'data'))} ELESDEE_AGENT_BIN=${JSON.stringify(agentStub)} ELESDEE_SIGNIN_BIN=${JSON.stringify(signInStub)} SIGNIN_CONTROL=${JSON.stringify(signInControl)} ELESDEE_SIGNIN_TIMEOUT_SECS=20 ELESDEE_MEMORY_SECRETS=1 ELESDEE_OPENCODE_PORT=${opencodePort} ELESDEE_CODEX_WS=ws://127.0.0.1:${codexPort} ELESDEE_GITHUB_CLIENT_ID=test-client ELESDEE_GITHUB_API_BASE=http://127.0.0.1:${githubPort} ELESDEE_GITHUB_LOGIN_BASE=http://127.0.0.1:${githubPort} ELESDEE_GITHUB_DEFAULT_PARENT=${JSON.stringify(path.join(runDir, 'github-clones'))} CHROME=${JSON.stringify(chromePath)} cargo run --manifest-path core/Cargo.toml`,
+      command: `PATH=${JSON.stringify(corePath)} ELESDEE_PORT=${corePort} ELESDEE_DEV=1 ELESDEE_DATA_DIR=${JSON.stringify(path.join(runDir, 'data'))} ELESDEE_AGENT_BIN=${JSON.stringify(agentStub)} ELESDEE_SIGNIN_BIN=${JSON.stringify(signInStub)} SIGNIN_CONTROL=${JSON.stringify(signInControl)} ELESDEE_SIGNIN_TIMEOUT_SECS=20 ELESDEE_MEMORY_SECRETS=1 ELESDEE_OPENCODE_PORT=${opencodePort} ELESDEE_CODEX_WS=ws://127.0.0.1:${codexPort} ELESDEE_GITHUB_CLIENT_ID=test-client ELESDEE_GITHUB_API_BASE=http://127.0.0.1:${githubPort} ELESDEE_GITHUB_LOGIN_BASE=http://127.0.0.1:${githubPort} ELESDEE_GITHUB_DEFAULT_PARENT=${JSON.stringify(path.join(runDir, 'github-clones'))} CHROME=${JSON.stringify(chromePath)} cargo run --manifest-path core/Cargo.toml`,
       url: `http://127.0.0.1:${corePort}/api/health`,
       timeout: 300_000,
       reuseExistingServer: false,

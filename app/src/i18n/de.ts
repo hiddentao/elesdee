@@ -191,7 +191,7 @@ export const de = {
     'Mit diesem Computer gekoppelte Telefone. Entferne ein Telefon, um seinen Zugriff sofort zu widerrufen.',
   'devices.empty': 'Kein Telefon ist gekoppelt.',
   'devices.emptyHint':
-    'Öffne die Telefon-App und scanne den Kopplungscode, den die Desktop-App zeigt. Das Telefon erscheint dann hier.',
+    'Wähle „Ein Telefon koppeln“ und scanne den Code mit der Telefon-App. Das Telefon erscheint dann hier.',
   'devices.loading': 'Telefone werden geladen…',
   'devices.loadError': 'Die gekoppelten Telefone konnten nicht geladen werden.',
   'devices.connected': 'Verbunden',
@@ -205,6 +205,50 @@ export const de = {
   'devices.removeConfirm': 'Telefon entfernen',
   'devices.removing': 'Wird entfernt…',
   'devices.removeError': 'Das Telefon konnte nicht entfernt werden.',
+
+  'pairing.start': 'Ein Telefon koppeln',
+  'pairing.title': 'Ein Telefon koppeln',
+  'pairing.intro': 'Koppele die Telefon-App mit diesem Computer.',
+  'pairing.starting': 'Kopplung wird gestartet…',
+  'pairing.scan': 'Scanne diesen Code mit der Telefon-App.',
+  'pairing.qrAlt': 'QR-Code zum Koppeln',
+  'pairing.qrError':
+    'Der Kopplungscode konnte nicht angezeigt werden. Brich ab und versuche es erneut.',
+  'pairing.ticketLabel': 'Kopplungsticket',
+  'pairing.ticketHint':
+    'Wenn das Telefon den Code nicht scannen kann, füge dieses Ticket in der Telefon-App ein.',
+  'pairing.sameNetwork':
+    'Der Relay ist nicht bereit. Halte das Telefon und diesen Computer im selben Netzwerk.',
+  'pairing.expiresIn': 'Der Code läuft in {seconds} Sekunden ab.',
+  'pairing.phone': 'Das Telefon {name} möchte sich koppeln.',
+  'pairing.compare': 'Prüfe, ob das Telefon diesen Code zeigt.',
+  'pairing.codeLabel': 'Bestätigungscode',
+  'pairing.codeSpoken': 'Bestätigungscode {code}',
+  'pairing.approve': 'Genehmigen',
+  'pairing.deny': 'Ablehnen',
+  'pairing.cancel': 'Kopplung abbrechen',
+  'pairing.approving': 'Telefon wird genehmigt…',
+  'pairing.denying': 'Telefon wird abgelehnt…',
+  'pairing.denied': 'Du hast dieses Telefon abgelehnt. Es ist nicht gekoppelt.',
+  'pairing.deniedFull':
+    'Dieser Computer hat keinen Platz für ein weiteres Telefon. Entferne zuerst ein Telefon.',
+  'pairing.expired': 'Der Kopplungscode ist abgelaufen. Kopple erneut.',
+  'pairing.cancelled':
+    'Die Kopplung wurde beendet. Vielleicht hat das Telefon einen falschen Code verwendet. Kopple erneut.',
+  'pairing.paired': 'Das Telefon ist gekoppelt.',
+  'pairing.retry': 'Erneut koppeln',
+  'pairing.unavailable':
+    'Die Kopplung ist nicht verfügbar. Die Telefonverbindung wurde nicht gestartet. Starte elesdee neu und versuche es erneut.',
+  'pairing.startError':
+    'Die Kopplung konnte nicht gestartet werden. Versuche es erneut.',
+  'pairing.statusError': 'Der Kopplungsstatus konnte nicht gelesen werden.',
+  'pairing.approveError': 'Das Telefon konnte nicht genehmigt werden.',
+  'pairing.denyError': 'Das Telefon konnte nicht abgelehnt werden.',
+  'pairing.cancelError':
+    'Die Kopplung konnte nicht abgebrochen werden. Versuche es erneut.',
+  'pairing.gone': 'Das Telefon wartet nicht mehr. Kopple erneut.',
+  'pairing.full':
+    'Dieser Computer hat bereits die höchste Anzahl gekoppelter Telefone. Entferne zuerst ein Telefon.',
 
   'diagnostics.note':
     'Das Paket enthält die App-Version, Systemdetails dieses Computers und die letzten Protokollzeilen.',

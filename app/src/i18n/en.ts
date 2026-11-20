@@ -189,7 +189,7 @@ export const en = {
     'Phones paired with this computer. Remove a phone to revoke its access at once.',
   'devices.empty': 'No phone is paired.',
   'devices.emptyHint':
-    'Open the phone app and scan the pairing code that the desktop app shows. The phone then appears here.',
+    'Choose Pair a phone, then scan the code with the phone app. The phone then appears here.',
   'devices.loading': 'Loading phones…',
   'devices.loadError': 'Could not load the paired phones.',
   'devices.connected': 'Connected',
@@ -203,6 +203,48 @@ export const en = {
   'devices.removeConfirm': 'Remove phone',
   'devices.removing': 'Removing…',
   'devices.removeError': 'Could not remove the phone.',
+
+  'pairing.start': 'Pair a phone',
+  'pairing.title': 'Pair a phone',
+  'pairing.intro': 'Pair the phone app with this computer.',
+  'pairing.starting': 'Starting pairing…',
+  'pairing.scan': 'Scan this code with the phone app.',
+  'pairing.qrAlt': 'Pairing QR code',
+  'pairing.qrError':
+    'The pairing code could not be shown. Cancel and try again.',
+  'pairing.ticketLabel': 'Pairing ticket',
+  'pairing.ticketHint':
+    'If the phone cannot scan the code, paste this ticket in the phone app.',
+  'pairing.sameNetwork':
+    'The relay is not ready. Keep the phone and this computer on the same network.',
+  'pairing.expiresIn': 'The code expires in {seconds} seconds.',
+  'pairing.phone': 'The phone {name} wants to pair.',
+  'pairing.compare': 'Check that the phone shows this code.',
+  'pairing.codeLabel': 'Confirmation code',
+  'pairing.codeSpoken': 'Confirmation code {code}',
+  'pairing.approve': 'Approve',
+  'pairing.deny': 'Deny',
+  'pairing.cancel': 'Cancel pairing',
+  'pairing.approving': 'Approving the phone…',
+  'pairing.denying': 'Denying the phone…',
+  'pairing.denied': 'You denied this phone. It is not paired.',
+  'pairing.deniedFull':
+    'This computer has no room for another phone. Remove a phone first.',
+  'pairing.expired': 'The pairing code expired. Pair again.',
+  'pairing.cancelled':
+    'Pairing stopped. The phone may have used a wrong code. Pair again.',
+  'pairing.paired': 'The phone is paired.',
+  'pairing.retry': 'Pair again',
+  'pairing.unavailable':
+    'Pairing is unavailable. The phone link did not start. Restart elesdee and try again.',
+  'pairing.startError': 'Could not start pairing. Try again.',
+  'pairing.statusError': 'Could not read the pairing state.',
+  'pairing.approveError': 'Could not approve the phone.',
+  'pairing.denyError': 'Could not deny the phone.',
+  'pairing.cancelError': 'Could not cancel pairing. Try again.',
+  'pairing.gone': 'The phone is no longer waiting. Pair again.',
+  'pairing.full':
+    'This computer already has the most phones it can pair. Remove a phone first.',
 
   'diagnostics.note':
     "The bundle holds the app version, this computer's system details and recent log lines.",

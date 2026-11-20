@@ -192,7 +192,7 @@ export const ja = {
     'このコンピューターとペアリング済みの電話。電話を削除すると、アクセスがすぐに取り消されます。',
   'devices.empty': 'ペアリング済みの電話はありません。',
   'devices.emptyHint':
-    '電話アプリを開き、デスクトップアプリに表示されるペアリングコードをスキャンすると、電話がここに表示されます。',
+    '「電話をペアリング」を選び、電話アプリでコードをスキャンすると、電話がここに表示されます。',
   'devices.loading': '電話を読み込み中…',
   'devices.loadError': 'ペアリング済みの電話を読み込めませんでした。',
   'devices.connected': '接続済み',
@@ -206,6 +206,51 @@ export const ja = {
   'devices.removeConfirm': '電話を削除',
   'devices.removing': '削除中…',
   'devices.removeError': '電話を削除できませんでした。',
+
+  'pairing.start': '電話をペアリング',
+  'pairing.title': '電話をペアリング',
+  'pairing.intro': '電話アプリをこのコンピューターとペアリングします。',
+  'pairing.starting': 'ペアリングを開始しています…',
+  'pairing.scan': '電話アプリでこのコードをスキャンします。',
+  'pairing.qrAlt': 'ペアリング用 QR コード',
+  'pairing.qrError':
+    'ペアリングコードを表示できませんでした。キャンセルしてやり直してください。',
+  'pairing.ticketLabel': 'ペアリングチケット',
+  'pairing.ticketHint':
+    '電話でコードをスキャンできない場合は、このチケットを電話アプリに貼り付けてください。',
+  'pairing.sameNetwork':
+    'リレーは準備できていません。電話とこのコンピューターを同じネットワークに接続してください。',
+  'pairing.expiresIn': 'コードは {seconds} 秒後に期限切れになります。',
+  'pairing.phone': '電話 {name} がペアリングを求めています。',
+  'pairing.compare': '電話にこのコードが表示されていることを確認してください。',
+  'pairing.codeLabel': '確認コード',
+  'pairing.codeSpoken': '確認コード {code}',
+  'pairing.approve': '承認',
+  'pairing.deny': '拒否',
+  'pairing.cancel': 'ペアリングをキャンセル',
+  'pairing.approving': '電話を承認しています…',
+  'pairing.denying': '電話を拒否しています…',
+  'pairing.denied': 'この電話を拒否しました。ペアリングされていません。',
+  'pairing.deniedFull':
+    'このコンピューターには別の電話を追加する余地がありません。先に電話を削除してください。',
+  'pairing.expired':
+    'ペアリングコードの期限が切れました。もう一度ペアリングしてください。',
+  'pairing.cancelled':
+    'ペアリングが停止しました。電話が間違ったコードを使用した可能性があります。もう一度ペアリングしてください。',
+  'pairing.paired': '電話はペアリングされました。',
+  'pairing.retry': 'もう一度ペアリング',
+  'pairing.unavailable':
+    'ペアリングを利用できません。電話リンクが起動していません。elesdee を再起動してやり直してください。',
+  'pairing.startError':
+    'ペアリングを開始できませんでした。やり直してください。',
+  'pairing.statusError': 'ペアリングの状態を読み取れませんでした。',
+  'pairing.approveError': '電話を承認できませんでした。',
+  'pairing.denyError': '電話を拒否できませんでした。',
+  'pairing.cancelError':
+    'ペアリングをキャンセルできませんでした。やり直してください。',
+  'pairing.gone': '電話はもう待機していません。もう一度ペアリングしてください。',
+  'pairing.full':
+    'このコンピューターはペアリングできる電話の上限に達しています。先に電話を削除してください。',
 
   'diagnostics.note':
     'パッケージにはアプリのバージョン、このコンピューターのシステム情報、最近のログ行が含まれます。',

@@ -59,7 +59,11 @@ The Devices page lists the phones paired with this computer. Each row shows the 
 
 **Remove** asks first. Removing a phone revokes it at once: its saved key stops working and its live connection closes. Pair the phone again to restore access.
 
-With no paired phone, the page explains pairing. Pairing uses the code that the desktop app shows. The desktop pairing screen is not part of this build yet; the phone shell and the core pairing routes exist.
+Choose **Pair a phone** to pair one. The dialog shows a QR code and waits for a phone. Open the phone app and scan the code. When a phone connects, the dialog shows the phone's name and a six-digit code. Check that the phone shows the same code, then choose **Approve** or **Deny**. The page then lists the phone.
+
+The pairing code lasts two minutes. If it expires, choose **Pair again**. **Cancel pairing** closes the dialog and voids the code. The phone link must run for pairing to work. If it did not start, the dialog says so; restart elesdee and try again.
+
+This computer stores up to 16 phones. When the list is full, **Pair a phone** is unavailable until you remove a phone.
 
 ## Diagnostics
 

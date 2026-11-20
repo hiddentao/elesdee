@@ -46,6 +46,15 @@ function renderSettings(overrides: Partial<Parameters<typeof SettingsDialog>[0]>
     onChangeSettings: vi.fn(),
     onLoadDevices: vi.fn().mockResolvedValue([]),
     onRemoveDevice: vi.fn().mockResolvedValue(undefined),
+    onStartPairing: vi.fn().mockResolvedValue({
+      expiresAt: Math.floor(Date.now() / 1000) + 120,
+      relayReady: true,
+    }),
+    onPairingStatus: vi.fn().mockResolvedValue({ state: 'waiting' }),
+    onApprovePairing: vi.fn(),
+    onDenyPairing: vi.fn().mockResolvedValue(undefined),
+    onCancelPairing: vi.fn().mockResolvedValue(undefined),
+    pairingQrUrl: (cacheBust: number) => `/api/pairing/qr?v=${cacheBust}`,
     onExportDiagnostics: vi.fn().mockResolvedValue(null),
     onCheckForUpdate: vi.fn(),
     onInstallUpdate: vi.fn(),
@@ -166,7 +175,41 @@ describe('SettingsDialog Devices', () => {
 
     expect(await screen.findByText('No phone is paired.')).toBeVisible();
     expect(
-      screen.getByText(/scan the pairing code/),
+      screen.getByText(/Choose Pair a phone/),
+    ).toBeVisible();
+  });
+
+  it('opens one pairing dialog from the Devices page', async () => {
+    const user = userEvent.setup();
+    renderSettings();
+
+    await user.click(screen.getByRole('button', { name: 'Devices' }));
+    await user.click(
+      await screen.findByRole('button', { name: 'Pair a phone' }),
+    );
+
+    expect(
+      await screen.findByRole('dialog', { name: 'Pair a phone' }),
+    ).toBeVisible();
+    expect(screen.getAllByText('Pair a phone')).toHaveLength(2);
+  });
+
+  it('stops pairing when the phone list is full', async () => {
+    const user = userEvent.setup();
+    const full = Array.from({ length: 16 }, (_, index) => ({
+      ...device,
+      endpointId: `phone-${index}`,
+      name: `Phone ${index}`,
+    }));
+    renderSettings({ onLoadDevices: vi.fn().mockResolvedValue(full) });
+
+    await user.click(screen.getByRole('button', { name: 'Devices' }));
+
+    expect(
+      await screen.findByRole('button', { name: 'Pair a phone' }),
+    ).toBeDisabled();
+    expect(
+      screen.getByText(/already has the most phones/),
     ).toBeVisible();
   });
 });

@@ -11,24 +11,30 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import {
   ApiError,
   answerQuestion,
+  approvePairing,
   approveSessionRequest,
   bootstrap,
+  cancelPairing,
   cancelProviderSignIn,
   closeSession,
   createConfig,
   createProject,
   createProvider,
   createSession,
+  createPairing,
   deleteConfig,
   deleteSession,
+  denyPairing,
   denySessionRequest,
   exportDiagnostics,
+  getPairingStatus,
   getProviderSignIn,
   getClientInstall,
   health,
   installClient,
   listDevices,
   listProviderOptions,
+  pairingQrUrl,
   removeDevice,
   removeProvider,
   renameSession,
@@ -374,6 +380,14 @@ export default function App() {
   const removePairedDevice = useCallback(async (endpointId: string) => {
     await removeDevice(endpointId);
   }, []);
+
+  const startPairing = useCallback(() => createPairing(), []);
+
+  const approvePairedDevice = useCallback(() => approvePairing(), []);
+
+  const denyPairedDevice = useCallback(() => denyPairing(), []);
+
+  const cancelActivePairing = useCallback(() => cancelPairing(), []);
 
   const exportDiagnosticsBundle = useCallback(async () => {
     const folder = await pickFolder();
@@ -1495,6 +1509,12 @@ export default function App() {
           onChangeSettings={changeSettings}
           onLoadDevices={loadPairedDevices}
           onRemoveDevice={removePairedDevice}
+          onStartPairing={startPairing}
+          onPairingStatus={getPairingStatus}
+          onApprovePairing={approvePairedDevice}
+          onDenyPairing={denyPairedDevice}
+          onCancelPairing={cancelActivePairing}
+          pairingQrUrl={pairingQrUrl}
           onExportDiagnostics={exportDiagnosticsBundle}
           onCheckForUpdate={checkUpdates}
           onInstallUpdate={requestInstallUpdate}

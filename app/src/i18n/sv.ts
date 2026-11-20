@@ -191,7 +191,7 @@ export const sv = {
     'Telefoner som är parkopplade med den här datorn. Ta bort en telefon för att återkalla åtkomsten direkt.',
   'devices.empty': 'Ingen telefon är parkopplad.',
   'devices.emptyHint':
-    'Öppna telefonappen och skanna parkopplingskoden som skrivbordsappen visar. Telefonen visas sedan här.',
+    'Välj ”Parkoppla en telefon” och skanna koden med telefonappen. Telefonen visas sedan här.',
   'devices.loading': 'Läser in telefoner…',
   'devices.loadError':
     'Det gick inte att läsa in de parkopplade telefonerna.',
@@ -206,6 +206,50 @@ export const sv = {
   'devices.removeConfirm': 'Ta bort telefon',
   'devices.removing': 'Tar bort…',
   'devices.removeError': 'Det gick inte att ta bort telefonen.',
+
+  'pairing.start': 'Parkoppla en telefon',
+  'pairing.title': 'Parkoppla en telefon',
+  'pairing.intro': 'Parkoppla telefonappen med den här datorn.',
+  'pairing.starting': 'Parkopplingen startar…',
+  'pairing.scan': 'Skanna den här koden med telefonappen.',
+  'pairing.qrAlt': 'QR-kod för parkoppling',
+  'pairing.qrError':
+    'Det gick inte att visa parkopplingskoden. Avbryt och försök igen.',
+  'pairing.ticketLabel': 'Parkopplingsbiljett',
+  'pairing.ticketHint':
+    'Om telefonen inte kan skanna koden klistrar du in den här biljetten i telefonappen.',
+  'pairing.sameNetwork':
+    'Reläet är inte klart. Håll telefonen och den här datorn på samma nätverk.',
+  'pairing.expiresIn': 'Koden går ut om {seconds} sekunder.',
+  'pairing.phone': 'Telefonen {name} vill parkoppla.',
+  'pairing.compare': 'Kontrollera att telefonen visar den här koden.',
+  'pairing.codeLabel': 'Bekräftelsekod',
+  'pairing.codeSpoken': 'Bekräftelsekod {code}',
+  'pairing.approve': 'Godkänn',
+  'pairing.deny': 'Neka',
+  'pairing.cancel': 'Avbryt parkopplingen',
+  'pairing.approving': 'Godkänner telefonen…',
+  'pairing.denying': 'Nekar telefonen…',
+  'pairing.denied': 'Du nekade den här telefonen. Den är inte parkopplad.',
+  'pairing.deniedFull':
+    'Den här datorn har inte plats för en till telefon. Ta bort en telefon först.',
+  'pairing.expired': 'Parkopplingskoden har gått ut. Parkoppla igen.',
+  'pairing.cancelled':
+    'Parkopplingen stoppades. Telefonen kan ha använt en felaktig kod. Parkoppla igen.',
+  'pairing.paired': 'Telefonen är parkopplad.',
+  'pairing.retry': 'Parkoppla igen',
+  'pairing.unavailable':
+    'Parkoppling är inte tillgänglig. Telefonlänken startade inte. Starta om elesdee och försök igen.',
+  'pairing.startError':
+    'Det gick inte att starta parkopplingen. Försök igen.',
+  'pairing.statusError': 'Det gick inte att läsa parkopplingsstatusen.',
+  'pairing.approveError': 'Det gick inte att godkänna telefonen.',
+  'pairing.denyError': 'Det gick inte att neka telefonen.',
+  'pairing.cancelError':
+    'Det gick inte att avbryta parkopplingen. Försök igen.',
+  'pairing.gone': 'Telefonen väntar inte längre. Parkoppla igen.',
+  'pairing.full':
+    'Den här datorn har redan det högsta antalet parkopplade telefoner. Ta bort en telefon först.',
 
   'diagnostics.note':
     'Paketet innehåller appversionen, systeminformation för den här datorn och de senaste loggraderna.',
