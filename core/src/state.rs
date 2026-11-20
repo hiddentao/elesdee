@@ -13,6 +13,7 @@ use tokio::sync::{Mutex as AsyncMutex, broadcast};
 use crate::browser::BrowserManager;
 use crate::clients;
 use crate::demo::{DemoFailure, DemoServer, clean_name, port_is_allowed};
+use crate::github::GitHubInner;
 use crate::persist::{LoadResult, PersistedOutput, PersistedSession, PersistedState, StateStore};
 use crate::secrets::{KeyringStore, MemorySecretStore, SecretStore};
 use crate::seed;
@@ -825,6 +826,7 @@ struct Inner {
     model_gates: Mutex<HashMap<String, Arc<AsyncMutex<()>>>>,
     sign_in: Option<crate::auth::SignInOverrides>,
     sign_ins: crate::auth::SignInRegistry,
+    github: GitHubInner,
     link: crate::link::LinkHub,
     browser: BrowserManager,
 }
@@ -1187,6 +1189,7 @@ impl AppState {
                 model_gates: Mutex::new(HashMap::new()),
                 sign_in: None,
                 sign_ins: crate::auth::SignInRegistry::default(),
+                github: GitHubInner::from_environment(),
                 link: crate::link::LinkHub::new(),
                 browser: BrowserManager::new(browser_profiles, fake_browser),
             }),
@@ -1520,6 +1523,25 @@ impl AppState {
 
     pub(crate) fn sign_ins(&self) -> crate::auth::SignInRegistry {
         self.inner.sign_ins.clone()
+    }
+
+    pub(crate) fn github(&self) -> &GitHubInner {
+        &self.inner.github
+    }
+
+    /// Points the GitHub client at a test server and a local clone folder.
+    #[doc(hidden)]
+    pub fn with_test_github(
+        mut self,
+        api_base: String,
+        login_base: String,
+        client_id: String,
+        default_parent: PathBuf,
+    ) -> Self {
+        if let Some(inner) = Arc::get_mut(&mut self.inner) {
+            inner.github = GitHubInner::for_test(api_base, login_base, client_id, default_parent);
+        }
+        self
     }
 
     #[doc(hidden)]

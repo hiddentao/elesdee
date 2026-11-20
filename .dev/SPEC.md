@@ -454,6 +454,7 @@ Rules from the providers:
 A project groups sessions.
 
 - Creating a project is fast: one action, a name and a folder. The folder can be a Git repository or a plain folder.
+- Add project offers two sources: a local folder, or a repository from GitHub. The GitHub choice connects with a device code, lists and searches my repositories, and clones the chosen repository into a folder I pick or the default projects folder. It never overwrites an existing folder, and a failed clone leaves no folder. The cloned folder becomes the project.
 - I can drag a session from one project to another.
 - A project can store a default AI config and a default source branch. New sessions in the project start with these filled in, and I can change them for each session. The branch must exist in the project folder's Git repository.
 
@@ -472,7 +473,9 @@ For a branch source, the launch form shows the repository. I can pick a reposito
 **Git access**
 
 - The app uses the Git credentials and SSH keys already on my Mac, the same way Git does in a terminal. Git commands use these credentials.
-- I can connect GitHub to search my repositories in the launch form. The connection uses a device code, and the token stays in the macOS Keychain. It is used only to list repositories. Git commands still use the Mac's credentials.
+- I can connect GitHub with a device code. I open the GitHub page, enter the code, and approve the app. The token stays in the system keychain; it is never written to the state file, a log or an API response. Disconnecting removes it.
+- A connected account lists and searches my repositories: recent first, by owner or name, private and public as the account allows. The picker shows the clone address and marks a repository whose folder is already a project.
+- Add project clones a chosen repository into a folder I pick or the default projects folder. The clone uses the token through a temporary credential helper; the remote address never holds it. The app never overwrites an existing folder, removes a partial folder after a failed clone, and adds the cloned folder as a project. After the clone, Git commands use the credentials on this computer.
 
 **Auto-sync at launch**
 

@@ -9,6 +9,7 @@ import type {
   BrowserState,
   Client,
   ClientInstall,
+  CloneGitHubRepoInput,
   CreateConfigInput,
   CreateProjectInput,
   CreateProviderInput,
@@ -16,6 +17,9 @@ import type {
   DiagnosticsExport,
   FileContent,
   FileList,
+  GitHubDevice,
+  GitHubRepo,
+  GitHubStatus,
   GitStatus,
   HealthResponse,
   ModelList,
@@ -306,6 +310,47 @@ export function getGitStatus(
 
 export function createProject(input: CreateProjectInput): Promise<Project> {
   return request<Project>('/api/projects', post(input));
+}
+
+export function getGitHubStatus(): Promise<GitHubStatus> {
+  return request<GitHubStatus>('/api/github/status');
+}
+
+export function startGitHubSignIn(): Promise<GitHubDevice> {
+  return request<GitHubDevice>('/api/github/device', post({}));
+}
+
+export function getGitHubSignIn(id: string): Promise<GitHubDevice> {
+  return request<GitHubDevice>(
+    `/api/github/device/${encodeURIComponent(id)}`,
+  );
+}
+
+export function cancelGitHubSignIn(id: string): Promise<void> {
+  return request<void>(`/api/github/device/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
+}
+
+export function signOutGitHub(): Promise<void> {
+  return request<void>('/api/github/sign-out', post({}));
+}
+
+export function listGitHubRepos(
+  query: string,
+  signal?: AbortSignal,
+): Promise<GitHubRepo[]> {
+  const params = new URLSearchParams({ q: query });
+  return request<GitHubRepo[]>(
+    `/api/github/repos?${params.toString()}`,
+    signal ? { signal } : undefined,
+  );
+}
+
+export function cloneGitHubRepo(
+  input: CloneGitHubRepoInput,
+): Promise<Project> {
+  return request<Project>('/api/github/clone', post(input));
 }
 
 export function updateProjectDefaults(

@@ -9,6 +9,7 @@ pub mod demo;
 pub mod diagnostics;
 pub mod files;
 mod git;
+pub mod github;
 pub mod link;
 mod mcp;
 mod model_list;

@@ -512,6 +512,23 @@ enum RemoteFailure {
     Failed,
 }
 
+/// Reads the address of one remote, or nothing when the folder is not a
+/// repository or has no such remote.
+pub async fn origin_remote(folder: PathBuf, timeout: Duration) -> Option<String> {
+    tokio::task::spawn_blocking(move || {
+        match run_git(&folder, ["remote", "get-url", "origin"], timeout) {
+            GitRun::Output(output) if output.status.success() => {
+                let value = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+                (!value.is_empty()).then_some(value)
+            }
+            _ => None,
+        }
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
 pub async fn repo_root(folder: PathBuf, timeout: Duration) -> Option<PathBuf> {
     tokio::task::spawn_blocking(move || {
         let output = match run_git(&folder, ["rev-parse", "--show-toplevel"], timeout) {

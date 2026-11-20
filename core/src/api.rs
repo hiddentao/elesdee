@@ -100,6 +100,13 @@ impl ApiError {
         }
     }
 
+    fn unauthorized(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::UNAUTHORIZED,
+            message: message.into(),
+        }
+    }
+
     fn unprocessable(message: impl Into<String>) -> Self {
         Self {
             status: StatusCode::UNPROCESSABLE_ENTITY,
@@ -242,6 +249,14 @@ struct ResizeRequest {
 struct CreateProjectRequest {
     name: String,
     folder: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CloneGitHubRepoRequest {
+    full_name: String,
+    name: Option<String>,
+    parent_folder: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -522,6 +537,15 @@ pub fn router(state: AppState) -> Router {
         .route("/api/bootstrap", get(bootstrap))
         .route("/api/projects", get(list_projects).post(create_project))
         .route("/api/projects/{id}", patch(update_project))
+        .route("/api/github/status", get(github_status))
+        .route("/api/github/device", post(github_start_device))
+        .route(
+            "/api/github/device/{id}",
+            get(github_device_status).delete(github_cancel_device),
+        )
+        .route("/api/github/sign-out", post(github_sign_out))
+        .route("/api/github/repos", get(github_repos))
+        .route("/api/github/clone", post(github_clone))
         .route("/api/branches", get(list_branches))
         .route("/api/git-status", get(git_status))
         .route("/api/provider-options", get(provider_options))
@@ -1993,6 +2017,94 @@ async fn create_project(
     }
 
     Ok(Json(project))
+}
+
+fn github_error(error: crate::github::GitHubError) -> ApiError {
+    use crate::github::GitHubError;
+    match error {
+        GitHubError::NotConfigured => {
+            ApiError::unprocessable("GitHub sign-in is not configured in this build.")
+        }
+        GitHubError::NotConnected => ApiError::unauthorized("GitHub is not connected."),
+        GitHubError::Unauthorized => {
+            ApiError::unauthorized("GitHub rejected the saved token. Connect again.")
+        }
+        GitHubError::Upstream => ApiError::bad_gateway("GitHub could not be reached."),
+        GitHubError::NotFound => ApiError::not_found("The repository was not found."),
+        GitHubError::Conflict(message) => ApiError::conflict(message),
+        GitHubError::Invalid(message) => ApiError::unprocessable(message),
+        GitHubError::Failed => ApiError::internal("The GitHub action failed."),
+    }
+}
+
+async fn github_status(State(state): State<AppState>) -> Json<crate::github::GitHubStatus> {
+    Json(crate::github::status(&state).await)
+}
+
+async fn github_start_device(
+    State(state): State<AppState>,
+) -> Result<Json<crate::github::GitHubDeviceView>, ApiError> {
+    crate::github::start_device(&state)
+        .await
+        .map(Json)
+        .map_err(github_error)
+}
+
+async fn github_device_status(
+    State(state): State<AppState>,
+    UrlPath(id): UrlPath<String>,
+) -> Result<Json<crate::github::GitHubDeviceView>, ApiError> {
+    state
+        .github()
+        .device_view(&id)
+        .map(Json)
+        .ok_or_else(|| ApiError::not_found("Unknown GitHub sign-in."))
+}
+
+async fn github_cancel_device(
+    State(state): State<AppState>,
+    UrlPath(id): UrlPath<String>,
+) -> Result<StatusCode, ApiError> {
+    if state.github().cancel_device(&id) {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err(ApiError::not_found("Unknown GitHub sign-in."))
+    }
+}
+
+async fn github_sign_out(State(state): State<AppState>) -> Result<StatusCode, ApiError> {
+    crate::github::sign_out(&state)
+        .await
+        .map(|_| StatusCode::NO_CONTENT)
+        .map_err(github_error)
+}
+
+async fn github_repos(
+    State(state): State<AppState>,
+    Query(query): Query<ListQuery>,
+) -> Result<Json<Vec<crate::github::GitHubRepo>>, ApiError> {
+    crate::github::list_repos(&state, query.q.as_deref().unwrap_or_default())
+        .await
+        .map(Json)
+        .map_err(github_error)
+}
+
+async fn github_clone(
+    State(state): State<AppState>,
+    body: Result<Json<CloneGitHubRepoRequest>, JsonRejection>,
+) -> Result<Json<Project>, ApiError> {
+    let Json(request) = body.map_err(invalid_json)?;
+    crate::github::clone_repo(
+        &state,
+        crate::github::CloneInput {
+            full_name: request.full_name,
+            name: request.name,
+            parent_folder: request.parent_folder,
+        },
+    )
+    .await
+    .map(Json)
+    .map_err(github_error)
 }
 
 async fn update_project(

@@ -41,6 +41,8 @@ The app uses a copy that is already on your computer. When you add an AI config 
 
 A project folder can be a Git repository or a plain folder. Agent sessions need a Git repository. Terminal sessions work in either.
 
+To start from GitHub, choose **From GitHub** instead of **Local folder**. Choose **Connect GitHub**, open the GitHub page, and enter the code the app shows. Then search your repositories, choose one, set the clone folder, and choose **Clone and add project**. The app clones the repository and adds the folder as a project. It never overwrites an existing folder. The GitHub token stays in the system keychain, and **Disconnect** removes it.
+
 ## Add a provider
 
 1. Open **Settings**.
