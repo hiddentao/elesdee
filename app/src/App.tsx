@@ -25,6 +25,7 @@ import {
   respondPermission,
   resumeSession,
   switchSessionAccount,
+  updateProjectDefaults,
 } from './api/client';
 import { subscribeAux, subscribeEvents } from './api/events';
 import { isTauri, openFolder, openTerminal } from './api/shell';
@@ -36,6 +37,7 @@ import type {
   Question,
   Session,
   SessionRequest,
+  UpdateProjectDefaultsInput,
 } from './api/types';
 import { AddProjectDialog } from './components/AddProjectDialog';
 import {
@@ -46,6 +48,7 @@ import { CloseSessionDialog } from './components/CloseSessionDialog';
 import { DeleteSessionDialog } from './components/DeleteSessionDialog';
 import { FirstLaunch } from './components/FirstLaunch';
 import { NewSessionDialog } from './components/NewSessionDialog';
+import { ProjectSettingsDialog } from './components/ProjectSettingsDialog';
 import { QuitDialog } from './components/QuitDialog';
 import { QuestionsDialog } from './components/QuestionsDialog';
 import { RenameSessionDialog } from './components/RenameSessionDialog';
@@ -110,6 +113,7 @@ export default function App() {
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [projectDialogOpen, setProjectDialogOpen] = useState(false);
+  const [projectSettingsId, setProjectSettingsId] = useState<string | null>(null);
   const [closeSessionId, setCloseSessionId] = useState<string | null>(null);
   const [renameSessionId, setRenameSessionId] = useState<string | null>(null);
   const [deleteSessionId, setDeleteSessionId] = useState<string | null>(null);
@@ -195,6 +199,9 @@ export default function App() {
   const switchTarget = switchSessionId
     ? sessions.find((session) => session.id === switchSessionId) ?? null
     : null;
+  const projectSettingsTarget = projectSettingsId
+    ? projects.find((project) => project.id === projectSettingsId) ?? null
+    : null;
   const menuSession = sessionMenu
     ? sessions.find((session) => session.id === sessionMenu.sessionId) ?? null
     : null;
@@ -204,6 +211,7 @@ export default function App() {
   const anyDialogOpen =
     dialogOpen ||
     projectDialogOpen ||
+    projectSettingsTarget !== null ||
     closeTarget !== null ||
     renameTarget !== null ||
     deleteTarget !== null ||
@@ -442,6 +450,23 @@ export default function App() {
     setActiveProjectId(project.id);
     setProjectDialogOpen(false);
     focusMainRef.current = isFirstProject;
+  }
+
+  async function saveProjectDefaults(input: UpdateProjectDefaultsInput) {
+    if (!projectSettingsTarget) {
+      return;
+    }
+
+    const updated = await updateProjectDefaults(
+      projectSettingsTarget.id,
+      input,
+    );
+    setProjects((current) =>
+      current.map((project) =>
+        project.id === updated.id ? updated : project,
+      ),
+    );
+    setToast({ message: 'Project defaults saved.', error: false });
   }
 
   async function confirmClose() {
@@ -804,6 +829,7 @@ export default function App() {
             onSessionMenu={openSessionMenu}
             onAddProject={() => setProjectDialogOpen(true)}
             onNewSession={(projectId) => openNewSession(projectId)}
+            onProjectSettings={(project) => setProjectSettingsId(project.id)}
             onOpenSettings={() => setSettingsOpen(true)}
             questions={questions.length}
             onOpenQuestions={() => setQuestionsOpen(true)}
@@ -924,6 +950,15 @@ export default function App() {
           onCreate={createProject}
           onCreated={handleProjectCreated}
           onClose={() => setProjectDialogOpen(false)}
+        />
+      ) : null}
+
+      {projectSettingsTarget ? (
+        <ProjectSettingsDialog
+          project={projectSettingsTarget}
+          accounts={accounts}
+          onSave={saveProjectDefaults}
+          onClose={() => setProjectSettingsId(null)}
         />
       ) : null}
 

@@ -297,7 +297,10 @@ fn list_sessions(state: &AppState) -> (String, bool) {
             })
         })
         .collect::<Vec<_>>();
-    (serde_json::to_string(&sessions).unwrap_or_else(|_| "[]".to_owned()), false)
+    (
+        serde_json::to_string(&sessions).unwrap_or_else(|_| "[]".to_owned()),
+        false,
+    )
 }
 
 fn read_session(state: &AppState, arguments: Value) -> (String, bool) {
@@ -434,7 +437,8 @@ async fn start_session(
     (format!("Session request: {request_id}"), false)
 }
 
-fn check_usage(state: &AppState, session_id: &str, arguments: Value) -> (String, bool) {    let account_id = arguments
+fn check_usage(state: &AppState, session_id: &str, arguments: Value) -> (String, bool) {
+    let account_id = arguments
         .get("accountId")
         .and_then(Value::as_str)
         .map(str::to_owned)
@@ -461,11 +465,7 @@ fn check_usage(state: &AppState, session_id: &str, arguments: Value) -> (String,
     )
 }
 
-pub fn write_claude_config(
-    data_dir: &Path,
-    session_id: &str,
-    port: u16,
-) -> io::Result<PathBuf> {
+pub fn write_claude_config(data_dir: &Path, session_id: &str, port: u16) -> io::Result<PathBuf> {
     let directory = data_dir.join("mcp");
     crate::private_fs::create_private_dir_all(&directory)?;
     let path = directory.join(format!("{session_id}.json"));
@@ -479,11 +479,7 @@ pub fn write_claude_config(
     Ok(path)
 }
 
-pub fn write_opencode_config(
-    data_dir: &Path,
-    session_id: &str,
-    port: u16,
-) -> io::Result<PathBuf> {
+pub fn write_opencode_config(data_dir: &Path, session_id: &str, port: u16) -> io::Result<PathBuf> {
     let directory = data_dir.join("mcp");
     crate::private_fs::create_private_dir_all(&directory)?;
     let path = directory.join(format!("opencode-{session_id}.json"));
@@ -544,8 +540,7 @@ mod tests {
 
     #[test]
     fn writes_an_opencode_config_that_merges_with_the_user_config() {
-        let directory =
-            std::env::temp_dir().join(format!("elesdee-mcp-{}", uuid::Uuid::new_v4()));
+        let directory = std::env::temp_dir().join(format!("elesdee-mcp-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&directory).expect("create test directory");
         let path = write_opencode_config(&directory, "session-1", 4319).expect("write config");
         let value: Value =
@@ -560,7 +555,11 @@ mod tests {
         let skill = PathBuf::from(skills[0].as_str().expect("skill path"))
             .join("elesdee")
             .join("SKILL.md");
-        assert!(skill.is_file(), "the skill was not written at {}", skill.display());
+        assert!(
+            skill.is_file(),
+            "the skill was not written at {}",
+            skill.display()
+        );
         fs::remove_dir_all(&directory).expect("remove test directory");
     }
 

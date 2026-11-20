@@ -23,9 +23,9 @@ Runs a plain shell. It has no agent, branch or worktree. The folder can be a Git
 ## Start a session
 
 1. Choose **New session**.
-2. Choose a project.
+2. Choose a project. Its default account, client and source branch fill in when the project has them. See [Projects](projects.md).
 3. Choose **Agent** or **Terminal**.
-4. For an agent session, choose a client and an account.
+4. For an agent session, choose a client and an account. You can change the filled-in default.
 5. Set the folder if you want a different one.
 6. For an agent session, optionally choose a source branch. The new session branch starts from that commit. With no choice, it starts from the current branch.
 7. Optionally enter a first prompt. The app passes it to the agent at launch.

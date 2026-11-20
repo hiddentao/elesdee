@@ -15,6 +15,7 @@ import type {
   Question,
   Session,
   SessionRequest,
+  UpdateProjectDefaultsInput,
 } from './types';
 
 export class ApiError extends Error {
@@ -141,6 +142,17 @@ export function listBranches(
 
 export function createProject(input: CreateProjectInput): Promise<Project> {
   return request<Project>('/api/projects', post(input));
+}
+
+export function updateProjectDefaults(
+  id: string,
+  input: UpdateProjectDefaultsInput,
+): Promise<Project> {
+  return request<Project>(`/api/projects/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
 }
 
 export function createSession(input: CreateSessionInput): Promise<Session> {

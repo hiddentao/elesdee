@@ -11,6 +11,17 @@ const projects: Project[] = [
   { id: 'p2', name: 'web', folder: '/dev/web' },
 ];
 
+const defaultProjects: Project[] = [
+  {
+    id: 'p1',
+    name: 'core',
+    folder: '/dev/core',
+    defaultAccountId: 'a1',
+    defaultSourceBranch: 'feature',
+  },
+  { id: 'p2', name: 'web', folder: '/dev/web' },
+];
+
 const accounts: Account[] = [
   {
     id: 'a1',
@@ -114,6 +125,16 @@ function pickerResponse(input: RequestInfo | URL): Promise<Response> {
     );
   }
 
+  if (url.pathname === '/api/branches') {
+    return Promise.resolve(
+      jsonResponse([
+        { name: 'main', current: true },
+        { name: 'feature', current: false },
+        { name: 'release', current: false },
+      ]),
+    );
+  }
+
   return Promise.reject(new Error(`Unexpected request: ${String(input)}`));
 }
 
@@ -128,12 +149,13 @@ afterEach(() => {
 function renderDialog(
   onCreate = vi.fn(),
   initialProjectId: string | null = null,
+  dialogProjects: Project[] = projects,
 ) {
   const onCreated = vi.fn();
   const onClose = vi.fn();
   render(
     <NewSessionDialog
-      projects={projects}
+      projects={dialogProjects}
       accounts={accounts}
       initialProjectId={initialProjectId}
       onCreate={onCreate}
@@ -187,6 +209,70 @@ describe('NewSessionDialog', () => {
       folder: '/dev/core',
     });
     expect(onCreate.mock.calls[0][0]).not.toHaveProperty('client');
+  });
+
+  it('prefills the stored account, client and source branch for a project', async () => {
+    const user = userEvent.setup();
+    const onCreate = vi.fn().mockResolvedValue(createdSession);
+    renderDialog(onCreate, 'p1', defaultProjects);
+
+    expect(screen.getByLabelText('Repository folder')).toHaveValue('/dev/core');
+    expect(screen.getByRole('radio', { name: 'Claude Code' })).toBeChecked();
+    expect(screen.getByLabelText('Account')).toHaveValue('Work');
+    expect(screen.getByLabelText('Source branch (optional)')).toHaveValue(
+      'feature',
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Start session' }));
+
+    await waitFor(() => expect(onCreate).toHaveBeenCalledTimes(1));
+    expect(onCreate.mock.calls[0][0]).toMatchObject({
+      projectId: 'p1',
+      kind: 'agent',
+      accountId: 'a1',
+      sourceBranch: 'feature',
+      folder: '/dev/core',
+    });
+  });
+
+  it('does not prefill a sample account when the project has no default', () => {
+    renderDialog(vi.fn(), 'p1');
+
+    expect(screen.getByLabelText('Account')).toHaveValue('');
+    expect(
+      screen.getByRole('radio', { name: 'Claude Code' }),
+    ).not.toBeChecked();
+    expect(screen.getByLabelText('Source branch (optional)')).toHaveValue('');
+  });
+
+  it('lets the user override the project defaults', async () => {
+    const user = userEvent.setup();
+    const onCreate = vi.fn().mockResolvedValue(createdSession);
+    renderDialog(onCreate, 'p1', defaultProjects);
+
+    await user.click(screen.getByRole('radio', { name: 'Codex' }));
+    const accountInput = screen.getByLabelText('Account');
+    await user.click(accountInput);
+    await user.clear(accountInput);
+    await user.type(accountInput, 'Personal');
+    await user.click(
+      await screen.findByRole('option', { name: /Personal/ }),
+    );
+
+    const branchInput = screen.getByLabelText('Source branch (optional)');
+    await user.click(branchInput);
+    await user.click(
+      await screen.findByRole('option', { name: /^release/ }),
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Start session' }));
+
+    await waitFor(() => expect(onCreate).toHaveBeenCalledTimes(1));
+    expect(onCreate.mock.calls[0][0]).toMatchObject({
+      projectId: 'p1',
+      accountId: 'a2',
+      sourceBranch: 'release',
+    });
   });
 
   it('shows the repository folder for an agent and sends it', async () => {

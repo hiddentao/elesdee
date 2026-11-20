@@ -420,7 +420,7 @@ A project groups sessions.
 
 - Creating a project is fast: one action, a name and a folder. The folder can be a Git repository or a plain folder.
 - I can drag a session from one project to another.
-- A project can store a default source (repo and branch) and a default preset. New sessions in the project start with these filled in, and I can change them for each session.
+- A project can store a default account and a default source branch. New sessions in the project start with these filled in, and I can change them for each session. The branch must exist in the project folder's Git repository.
 
 ## Launching a session
 

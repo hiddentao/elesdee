@@ -13,6 +13,7 @@ import {
   resizeSession,
   respondPermission,
   sendInput,
+  updateProjectDefaults,
 } from './client';
 
 function response(status: number, body?: unknown): Response {
@@ -164,6 +165,30 @@ describe('API client', () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: 'core', folder: '/dev/core' }),
+    });
+  });
+
+  it('updates project defaults with a patch request', async () => {
+    const project = {
+      id: 'p1',
+      name: 'core',
+      folder: '/dev/core',
+      defaultAccountId: 'a1',
+      defaultSourceBranch: 'main',
+    };
+    const fetchMock = vi.fn().mockResolvedValue(response(200, project));
+    vi.stubGlobal('fetch', fetchMock);
+    const input = {
+      defaultAccountId: 'a1',
+      defaultSourceBranch: 'main',
+    };
+
+    await expect(updateProjectDefaults('p1', input)).resolves.toEqual(project);
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/projects/p1', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
     });
   });
 

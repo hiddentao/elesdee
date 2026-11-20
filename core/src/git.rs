@@ -162,7 +162,12 @@ pub async fn ref_exists(repo_root: PathBuf, reference: String, timeout: Duration
         let revision = format!("{reference}^{{commit}}");
         run_git(
             &repo_root,
-            ["rev-parse", "--verify", "--end-of-options", revision.as_str()],
+            [
+                "rev-parse",
+                "--verify",
+                "--end-of-options",
+                revision.as_str(),
+            ],
             timeout,
         )
         .success()

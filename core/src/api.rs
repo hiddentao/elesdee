@@ -182,6 +182,29 @@ struct CreateProjectRequest {
     folder: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdateProjectRequest {
+    #[serde(default, deserialize_with = "optional_field")]
+    default_account_id: Option<Option<String>>,
+    #[serde(default, deserialize_with = "optional_field")]
+    default_source_branch: Option<Option<String>>,
+}
+
+fn optional_field<'de, T, D>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where
+    T: Deserialize<'de>,
+    D: serde::Deserializer<'de>,
+{
+    Option::<T>::deserialize(deserializer).map(Some)
+}
+
+fn cleaned_optional(value: Option<String>) -> Option<String> {
+    value
+        .map(|text| text.trim().to_owned())
+        .filter(|text| !text.is_empty())
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct CreateAccountRequest {
@@ -310,6 +333,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/health", get(health))
         .route("/api/bootstrap", get(bootstrap))
         .route("/api/projects", get(list_projects).post(create_project))
+        .route("/api/projects/{id}", patch(update_project))
         .route("/api/branches", get(list_branches))
         .route("/api/providers", get(list_providers))
         .route("/api/accounts", get(list_accounts).post(create_account))
@@ -575,7 +599,8 @@ struct ProviderInfo {
 async fn list_accounts(
     State(state): State<AppState>,
     query: Result<Query<ListQuery>, QueryRejection>,
-) -> Result<Json<Vec<Account>>, ApiError> {    let filter = list_filter(query)?;
+) -> Result<Json<Vec<Account>>, ApiError> {
+    let filter = list_filter(query)?;
     let mut accounts = state.accounts();
     if let Some(filter) = filter.as_deref() {
         accounts.retain(|account| {
@@ -622,6 +647,56 @@ async fn create_project(
     state.save();
 
     Ok(Json(project))
+}
+
+async fn update_project(
+    State(state): State<AppState>,
+    UrlPath(id): UrlPath<String>,
+    body: Result<Json<UpdateProjectRequest>, JsonRejection>,
+) -> Result<Json<Project>, ApiError> {
+    let Json(request) = body.map_err(invalid_json)?;
+    let project = state
+        .project(&id)
+        .ok_or_else(|| ApiError::not_found("Unknown project."))?;
+
+    let account_update = request.default_account_id.map(cleaned_optional);
+    let branch_update = request.default_source_branch.map(cleaned_optional);
+
+    if let Some(Some(account_id)) = account_update.as_ref()
+        && state.account(account_id).is_none()
+    {
+        return Err(ApiError::unprocessable(
+            "The default account does not exist.",
+        ));
+    }
+
+    if let Some(Some(branch)) = branch_update.as_ref() {
+        if !safe_branch_name(branch) {
+            return Err(ApiError::bad_request(
+                "The source branch name is not valid.",
+            ));
+        }
+
+        let repo_root = git::repo_root(PathBuf::from(&project.folder), state.git_timeout())
+            .await
+            .ok_or_else(|| {
+                ApiError::unprocessable("The project folder is not a Git repository.")
+            })?;
+        if !git::ref_exists(repo_root, branch.clone(), state.git_timeout()).await {
+            return Err(ApiError::unprocessable("The source branch does not exist."));
+        }
+    }
+
+    let updated = state
+        .update_project_defaults(
+            &id,
+            account_update.unwrap_or(project.default_account_id),
+            branch_update.unwrap_or(project.default_source_branch),
+        )
+        .ok_or_else(|| ApiError::not_found("Unknown project."))?;
+    state.save();
+
+    Ok(Json(updated))
 }
 
 async fn create_account(
@@ -753,9 +828,9 @@ async fn create_account(
 fn safe_server_url(value: &str) -> bool {
     (value.starts_with("https://") || value.starts_with("http://"))
         && value.chars().count() <= 500
-        && !value.chars().any(|character| {
-            character.is_control() || character.is_whitespace()
-        })
+        && !value
+            .chars()
+            .any(|character| character.is_control() || character.is_whitespace())
 }
 
 async fn store_account_key(state: &AppState, account_id: &str, key: &str) -> Result<(), String> {
@@ -884,15 +959,12 @@ async fn create_session(
         {
             Some(branch) if !safe_branch_name(branch) => {
                 rollback_created_session(&state, &entry, &session_id, None).await;
-                return Err(ApiError::bad_request("The source branch name is not valid."));
+                return Err(ApiError::bad_request(
+                    "The source branch name is not valid.",
+                ));
             }
             Some(branch) => {
-                if !git::ref_exists(
-                    repo_root.clone(),
-                    branch.to_owned(),
-                    state.git_timeout(),
-                )
-                .await
+                if !git::ref_exists(repo_root.clone(), branch.to_owned(), state.git_timeout()).await
                 {
                     rollback_created_session(&state, &entry, &session_id, None).await;
                     return Err(ApiError::unprocessable("The source branch does not exist."));
@@ -1347,7 +1419,9 @@ async fn switch_session_account(
         .ok_or_else(|| ApiError::not_found("Unknown session."))?;
     let session = entry.session();
     if session.kind != SessionKind::Agent {
-        return Err(ApiError::unprocessable("Only agent sessions have accounts."));
+        return Err(ApiError::unprocessable(
+            "Only agent sessions have accounts.",
+        ));
     }
     if session.status != SessionState::Active {
         return Err(ApiError::conflict("Reopen the session before switching."));
@@ -1595,7 +1669,11 @@ async fn update_account_usage(
     if request.rows.len() > 16 {
         return Err(ApiError::bad_request("Too many usage rows."));
     }
-    if request.rows.iter().any(|row| row.label.chars().count() > 80) {
+    if request
+        .rows
+        .iter()
+        .any(|row| row.label.chars().count() > 80)
+    {
         return Err(ApiError::bad_request("A usage label is too long."));
     }
     let account = state
@@ -1636,7 +1714,8 @@ async fn auto_switch_account(state: &AppState, account: &Account) {
                 candidate.id != account.id
                     && !candidate.sample
                     && candidate.client == client
-                    && crate::providers::usage_state(candidate) == crate::providers::UsageState::Room
+                    && crate::providers::usage_state(candidate)
+                        == crate::providers::UsageState::Room
             })
             .max_by_key(crate::providers::remaining_percent);
 
@@ -1987,9 +2066,7 @@ async fn withdraw_question(
 fn question_error(failure: QuestionFailure) -> ApiError {
     match failure {
         QuestionFailure::NotFound => ApiError::not_found("Unknown question."),
-        QuestionFailure::NotPending => {
-            ApiError::conflict("This question is no longer pending.")
-        }
+        QuestionFailure::NotPending => ApiError::conflict("This question is no longer pending."),
         QuestionFailure::Closed => ApiError::conflict("The session is closed."),
     }
 }
@@ -2719,8 +2796,8 @@ fn configure_session_tools(
     let add_args = state.command_override().is_none();
     match client {
         Client::ClaudeCode => {
-            let path =
-                crate::mcp::write_claude_config(data_dir, session_id, state.port()).map_err(|error| {
+            let path = crate::mcp::write_claude_config(data_dir, session_id, state.port())
+                .map_err(|error| {
                     tracing::error!(session = %session_id, %error, "could not write MCP config");
                     ApiError::unprocessable("Could not prepare session tools.")
                 })?;
@@ -2759,11 +2836,7 @@ fn configure_session_tools(
     Ok(())
 }
 
-fn start_opencode_poller(
-    state: AppState,
-    entry: Arc<SessionEntry>,
-    base_url: String,
-) {
+fn start_opencode_poller(state: AppState, entry: Arc<SessionEntry>, base_url: String) {
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(2));
         interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
@@ -2795,8 +2868,7 @@ fn start_opencode_poller(
                 }
                 None => {
                     if let Some(pending) = session.pending_permission
-                        && let Some(updated) =
-                            entry.clear_external_permission(&pending.request_id)
+                        && let Some(updated) = entry.clear_external_permission(&pending.request_id)
                     {
                         state.emit(SessionEvent::updated(updated));
                     }
@@ -2904,13 +2976,19 @@ fn validated_env(
                 .chars()
                 .all(|character| character.is_ascii_alphanumeric() || character == '_');
         if !valid_name {
-            return Err(ApiError::bad_request("An environment variable name is not valid."));
+            return Err(ApiError::bad_request(
+                "An environment variable name is not valid.",
+            ));
         }
         if item.value.chars().count() > 2000 || item.value.contains('\0') {
-            return Err(ApiError::bad_request("An environment variable value is not valid."));
+            return Err(ApiError::bad_request(
+                "An environment variable value is not valid.",
+            ));
         }
         if !seen.insert(name.to_owned()) {
-            return Err(ApiError::bad_request("An environment variable is set twice."));
+            return Err(ApiError::bad_request(
+                "An environment variable is set twice.",
+            ));
         }
     }
     Ok(values

@@ -54,6 +54,17 @@ function accountOption(account: Account): ComboboxOption {
   };
 }
 
+function defaultAccount(
+  project: Project | null | undefined,
+  accounts: Account[],
+): Account | null {
+  const id = project?.defaultAccountId;
+  if (!id) {
+    return null;
+  }
+  return accounts.find((account) => account.id === id) ?? null;
+}
+
 export function NewSessionDialog({
   projects,
   accounts,
@@ -62,11 +73,20 @@ export function NewSessionDialog({
   onCreated,
   onClose,
 }: NewSessionDialogProps) {
+  const initialProject =
+    projects.find((project) => project.id === initialProjectId) ?? null;
+  const initialAccount = defaultAccount(initialProject, accounts);
   const [projectId, setProjectId] = useState<string | null>(initialProjectId ?? null);
   const [kind, setKind] = useState<SessionKind>('agent');
-  const [client, setClient] = useState<Client | null>(null);
-  const [accountId, setAccountId] = useState<string | null>(null);
-  const [sourceBranch, setSourceBranch] = useState<string | null>(null);
+  const [client, setClient] = useState<Client | null>(
+    initialAccount?.client ?? null,
+  );
+  const [accountId, setAccountId] = useState<string | null>(
+    initialAccount?.id ?? null,
+  );
+  const [sourceBranch, setSourceBranch] = useState<string | null>(
+    initialProject?.defaultSourceBranch ?? null,
+  );
   const [firstPrompt, setFirstPrompt] = useState('');
   const [envText, setEnvText] = useState('');
   const [name, setName] = useState('');
@@ -146,10 +166,18 @@ export function NewSessionDialog({
 
   function chooseProject(id: string | null) {
     const nextProject = projects.find((project) => project.id === id);
+    const account = defaultAccount(nextProject, accounts);
 
     setProjectId(id);
-    setSourceBranch(null);
-    setErrors((current) => ({ ...current, project: undefined }));
+    setClient(account?.client ?? null);
+    setAccountId(account?.id ?? null);
+    setSourceBranch(nextProject?.defaultSourceBranch ?? null);
+    setErrors((current) => ({
+      ...current,
+      project: undefined,
+      client: undefined,
+      account: undefined,
+    }));
 
     if (nextProject && (!folderEdited || folder === '')) {
       setFolder(nextProject.folder);
@@ -473,6 +501,11 @@ export function NewSessionDialog({
                 label="Source branch (optional)"
                 value={sourceBranch}
                 loadOptions={loadBranchOptions}
+                selectedOption={
+                  sourceBranch
+                    ? { id: sourceBranch, label: sourceBranch }
+                    : null
+                }
                 onChange={setSourceBranch}
                 placeholder="Current branch"
                 hint="The new session branch starts from this commit."

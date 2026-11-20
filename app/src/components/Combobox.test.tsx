@@ -142,6 +142,35 @@ describe('Combobox', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('Choose a project.');
   });
 
+  it('clears the field when the selected value is cleared', async () => {
+    function Clearable() {
+      const [value, setValue] = useState<string | null>('p1');
+      return (
+        <>
+          <Combobox
+            id="project"
+            label="Project"
+            value={value}
+            options={options}
+            onChange={setValue}
+          />
+          <button type="button" onClick={() => setValue(null)}>
+            Clear
+          </button>
+        </>
+      );
+    }
+
+    const user = userEvent.setup();
+    render(<Clearable />);
+    const input = screen.getByLabelText('Project');
+    expect(input).toHaveValue('Core');
+
+    await user.click(screen.getByRole('button', { name: 'Clear' }));
+
+    expect(input).toHaveValue('');
+  });
+
   it('updates the selection when an option is chosen', async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();

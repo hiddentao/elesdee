@@ -242,10 +242,15 @@ pub enum AuxEvent {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Project {
     pub id: String,
     pub name: String,
     pub folder: String,
+    #[serde(default)]
+    pub default_account_id: Option<String>,
+    #[serde(default)]
+    pub default_source_branch: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -562,9 +567,13 @@ impl AppState {
                     state.questions.unwrap_or_default(),
                     state.session_requests.unwrap_or_default(),
                 ),
-                Some(LoadResult::Missing | LoadResult::Corrupt) | None => {
-                    (Vec::new(), seed::accounts(), Vec::new(), Vec::new(), Vec::new())
-                }
+                Some(LoadResult::Missing | LoadResult::Corrupt) | None => (
+                    Vec::new(),
+                    seed::accounts(),
+                    Vec::new(),
+                    Vec::new(),
+                    Vec::new(),
+                ),
             };
         let mut accounts = accounts;
         let seed_ids = seed::accounts()
@@ -782,9 +791,7 @@ impl AppState {
         text: String,
         options: Vec<String>,
     ) -> Result<Question, QuestionFailure> {
-        let entry = self
-            .session(session_id)
-            .ok_or(QuestionFailure::NotFound)?;
+        let entry = self.session(session_id).ok_or(QuestionFailure::NotFound)?;
         let session = entry.session();
         if session.status != SessionState::Closed {
             let question = Question {
@@ -811,11 +818,7 @@ impl AppState {
         }
     }
 
-    pub fn answer_question(
-        &self,
-        id: &str,
-        answer: String,
-    ) -> Result<Question, QuestionFailure> {
+    pub fn answer_question(&self, id: &str, answer: String) -> Result<Question, QuestionFailure> {
         let question = {
             let mut questions = lock(&self.inner.questions);
             let question = questions
@@ -851,12 +854,9 @@ impl AppState {
     }
 
     fn finish_question(&self, question: &Question) {
-        let still_pending = lock(&self.inner.questions)
-            .iter()
-            .any(|other| {
-                other.session_id == question.session_id
-                    && other.status == QuestionStatus::Pending
-            });
+        let still_pending = lock(&self.inner.questions).iter().any(|other| {
+            other.session_id == question.session_id && other.status == QuestionStatus::Pending
+        });
         if !still_pending
             && let Some(entry) = self.session(&question.session_id)
             && let Some(updated) = entry.clear_question()
@@ -875,8 +875,7 @@ impl AppState {
             questions
                 .iter_mut()
                 .filter(|question| {
-                    question.session_id == session_id
-                        && question.status == QuestionStatus::Pending
+                    question.session_id == session_id && question.status == QuestionStatus::Pending
                 })
                 .map(|question| {
                     question.status = QuestionStatus::Withdrawn;
@@ -1007,9 +1006,28 @@ impl AppState {
         let id = with_suffix(&base, |candidate| {
             projects.iter().any(|project| project.id == candidate)
         });
-        let project = Project { id, name, folder };
+        let project = Project {
+            id,
+            name,
+            folder,
+            default_account_id: None,
+            default_source_branch: None,
+        };
         projects.push(project.clone());
         Ok(project)
+    }
+
+    pub fn update_project_defaults(
+        &self,
+        id: &str,
+        default_account_id: Option<String>,
+        default_source_branch: Option<String>,
+    ) -> Option<Project> {
+        let mut projects = lock(&self.inner.projects);
+        let project = projects.iter_mut().find(|project| project.id == id)?;
+        project.default_account_id = default_account_id;
+        project.default_source_branch = default_source_branch;
+        Some(project.clone())
     }
 
     pub fn account(&self, id: &str) -> Option<Account> {

@@ -1065,7 +1065,9 @@ async fn branch_listing_reports_local_and_remote_branches() {
     let repo = TempDirectory::new("branch-list");
     init_git_repo(&repo.path);
     assert!(
-        run_git(&repo.path, &["checkout", "-b", "feature"]).status.success(),
+        run_git(&repo.path, &["checkout", "-b", "feature"])
+            .status
+            .success(),
         "create feature branch"
     );
     assert!(run_git(&repo.path, &["checkout", "main"]).status.success());
@@ -1140,7 +1142,9 @@ async fn source_branch_sets_the_worktree_base() {
     let repo = TempDirectory::new("source-repo");
     init_git_repo(&repo.path);
     assert!(
-        run_git(&repo.path, &["checkout", "-b", "feature"]).status.success(),
+        run_git(&repo.path, &["checkout", "-b", "feature"])
+            .status
+            .success(),
         "create feature branch"
     );
     fs::write(repo.path.join("feature.txt"), "from feature\n").expect("write feature file");
@@ -1226,7 +1230,11 @@ async fn unknown_source_branch_is_rejected() {
             .as_str()
             .is_some_and(|error| error.contains("source branch"))
     );
-    assert_eq!(git_ref_count(&repo.path), 1, "a failed launch left a branch");
+    assert_eq!(
+        git_ref_count(&repo.path),
+        1,
+        "a failed launch left a branch"
+    );
 }
 
 fn url_escape(value: &str) -> String {
@@ -1338,10 +1346,7 @@ async fn usage_near_the_limit_switches_then_pauses_without_room() {
     .await;
     assert_eq!(status, StatusCode::OK);
 
-    let switched = wait_for_session(&app, id, |session| {
-        session["accountId"] == second
-    })
-    .await;
+    let switched = wait_for_session(&app, id, |session| session["accountId"] == second).await;
     assert_eq!(switched["status"], "active");
     assert_eq!(switched["workState"], "working");
 
@@ -1354,10 +1359,7 @@ async fn usage_near_the_limit_switches_then_pauses_without_room() {
     .await;
     assert_eq!(status, StatusCode::OK);
 
-    let paused = wait_for_session(&app, id, |session| {
-        session["workState"] == "paused"
-    })
-    .await;
+    let paused = wait_for_session(&app, id, |session| session["workState"] == "paused").await;
     assert_eq!(paused["status"], "active");
     assert!(
         paused["preview"]
@@ -1373,10 +1375,7 @@ async fn usage_near_the_limit_switches_then_pauses_without_room() {
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    let resumed = wait_for_session(&app, id, |session| {
-        session["workState"] == "working"
-    })
-    .await;
+    let resumed = wait_for_session(&app, id, |session| session["workState"] == "working").await;
     assert_eq!(resumed["accountId"], first);
 
     let (status, _) = close_session(&app, id).await;
@@ -1400,11 +1399,7 @@ async fn create_test_account(app: &Router, name: &str, key: &str) -> String {
     account["id"].as_str().expect("account id").to_owned()
 }
 
-async fn wait_for_session(
-    app: &Router,
-    id: &str,
-    ready: impl Fn(&Value) -> bool,
-) -> Value {
+async fn wait_for_session(app: &Router, id: &str, ready: impl Fn(&Value) -> bool) -> Value {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
     loop {
         let (_, bootstrap) = call(app, "GET", "/api/bootstrap", None).await;
@@ -1450,9 +1445,8 @@ async fn claude_sessions_get_and_clean_up_their_mcp_config() {
     let id = session["id"].as_str().expect("session id");
     let config_path = data_dir.path.join("mcp").join(format!("{id}.json"));
     assert!(config_path.is_file(), "the MCP config was not written");
-    let config: Value =
-        serde_json::from_slice(&fs::read(&config_path).expect("read MCP config"))
-            .expect("parse MCP config");
+    let config: Value = serde_json::from_slice(&fs::read(&config_path).expect("read MCP config"))
+        .expect("parse MCP config");
     let url = config["mcpServers"]["elesdee"]["url"]
         .as_str()
         .expect("MCP URL");
@@ -1876,7 +1870,10 @@ async fn invalid_environment_names_are_rejected() {
     ));
     ensure_test_project(&app, &repo.path).await;
 
-    for (name, status) in [("1BAD", StatusCode::BAD_REQUEST), ("BAD-NAME", StatusCode::BAD_REQUEST)] {
+    for (name, status) in [
+        ("1BAD", StatusCode::BAD_REQUEST),
+        ("BAD-NAME", StatusCode::BAD_REQUEST),
+    ] {
         let (result, body) = call(
             &app,
             "POST",
@@ -2151,6 +2148,197 @@ async fn project_list_filters_by_name_and_folder() {
     let (status, miss) = call(&app, "GET", "/api/projects?q=missing", None).await;
     assert_eq!(status, StatusCode::OK, "{miss}");
     assert!(miss.as_array().expect("projects").is_empty());
+}
+
+#[tokio::test]
+async fn project_defaults_can_be_set_and_cleared() {
+    let repo = TempDirectory::new("project-defaults");
+    init_git_repo(&repo.path);
+    assert!(
+        run_git(&repo.path, &["checkout", "-b", "feature"])
+            .status
+            .success(),
+        "create feature branch"
+    );
+    assert!(run_git(&repo.path, &["checkout", "main"]).status.success());
+
+    let app = router(AppState::ephemeral());
+    ensure_test_project(&app, &repo.path).await;
+
+    let (status, updated) = call(
+        &app,
+        "PATCH",
+        "/api/projects/web",
+        Some(json!({
+            "defaultAccountId": "max",
+            "defaultSourceBranch": "feature"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{updated}");
+    assert_eq!(updated["defaultAccountId"], "max");
+    assert_eq!(updated["defaultSourceBranch"], "feature");
+
+    let (status, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    assert_eq!(status, StatusCode::OK, "{bootstrap}");
+    assert_eq!(bootstrap["projects"][0]["defaultAccountId"], "max");
+    assert_eq!(bootstrap["projects"][0]["defaultSourceBranch"], "feature");
+
+    let (status, cleared) = call(
+        &app,
+        "PATCH",
+        "/api/projects/web",
+        Some(json!({ "defaultAccountId": null })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{cleared}");
+    assert_eq!(cleared["defaultAccountId"], Value::Null);
+    assert_eq!(
+        cleared["defaultSourceBranch"], "feature",
+        "an absent field keeps its value"
+    );
+
+    let (status, cleared) = call(
+        &app,
+        "PATCH",
+        "/api/projects/web",
+        Some(json!({ "defaultSourceBranch": "   " })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{cleared}");
+    assert_eq!(cleared["defaultAccountId"], Value::Null);
+    assert_eq!(
+        cleared["defaultSourceBranch"],
+        Value::Null,
+        "an empty branch clears the default"
+    );
+}
+
+#[tokio::test]
+async fn project_defaults_reject_an_unknown_account() {
+    let repo = TempDirectory::new("project-defaults-account");
+    let app = router(AppState::ephemeral());
+    ensure_test_project(&app, &repo.path).await;
+
+    let (status, body) = call(
+        &app,
+        "PATCH",
+        "/api/projects/web",
+        Some(json!({ "defaultAccountId": "missing" })),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert!(
+        body["error"]
+            .as_str()
+            .is_some_and(|error| !error.is_empty())
+    );
+}
+
+#[tokio::test]
+async fn project_defaults_reject_an_unsafe_or_missing_branch() {
+    let repo = TempDirectory::new("project-defaults-branch");
+    init_git_repo(&repo.path);
+    let app = router(AppState::ephemeral());
+    ensure_test_project(&app, &repo.path).await;
+
+    let (status, body) = call(
+        &app,
+        "PATCH",
+        "/api/projects/web",
+        Some(json!({ "defaultSourceBranch": "bad branch" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+
+    let (status, body) = call(
+        &app,
+        "PATCH",
+        "/api/projects/web",
+        Some(json!({ "defaultSourceBranch": "missing-branch" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+
+    let plain = TempDirectory::new("project-defaults-plain");
+    let plain_app = router(AppState::ephemeral());
+    ensure_test_project(&plain_app, &plain.path).await;
+    let (status, body) = call(
+        &plain_app,
+        "PATCH",
+        "/api/projects/web",
+        Some(json!({ "defaultSourceBranch": "main" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+}
+
+#[tokio::test]
+async fn project_defaults_reject_an_unknown_project() {
+    let app = router(AppState::ephemeral());
+
+    let (status, body) = call(
+        &app,
+        "PATCH",
+        "/api/projects/missing",
+        Some(json!({ "defaultAccountId": null })),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+}
+
+#[tokio::test]
+async fn project_defaults_are_saved_and_reloaded() {
+    let data_dir = TempDirectory::new("project-defaults-save");
+    let repo = TempDirectory::new("project-defaults-save-repo");
+    init_git_repo(&repo.path);
+
+    {
+        let app = router(AppState::with_data_dir(data_dir.path.clone()));
+        ensure_test_project(&app, &repo.path).await;
+        let (status, body) = call(
+            &app,
+            "PATCH",
+            "/api/projects/web",
+            Some(json!({
+                "defaultAccountId": "max",
+                "defaultSourceBranch": "main"
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+    }
+
+    let app = router(AppState::with_data_dir(data_dir.path.clone()));
+    let (status, body) = call(&app, "GET", "/api/bootstrap", None).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["projects"][0]["defaultAccountId"], "max");
+    assert_eq!(body["projects"][0]["defaultSourceBranch"], "main");
+}
+
+#[tokio::test]
+async fn old_project_state_loads_without_defaults() {
+    let data_dir = TempDirectory::new("project-old-state");
+    let folder = TempDirectory::new("project-old-state-folder");
+    let stored = json!({
+        "version": 1,
+        "projects": [{
+            "id": "web",
+            "name": "web",
+            "folder": folder.path.to_string_lossy()
+        }],
+        "sessions": []
+    });
+    fs::write(data_dir.path.join("state.json"), stored.to_string()).expect("write old state");
+
+    let app = router(AppState::with_data_dir(data_dir.path.clone()));
+    let (status, body) = call(&app, "GET", "/api/bootstrap", None).await;
+
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["projects"][0]["defaultAccountId"], Value::Null);
+    assert_eq!(body["projects"][0]["defaultSourceBranch"], Value::Null);
 }
 
 #[tokio::test]
@@ -4960,10 +5148,15 @@ async fn deepseek_account_keeps_its_key_out_of_the_state() {
     let (status, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
     assert_eq!(status, StatusCode::OK);
     let text = bootstrap.to_string();
-    assert!(!text.contains("sk-deepseek-secret"), "bootstrap leaked the key");
-    let state_text =
-        fs::read_to_string(data_dir.path.join("state.json")).expect("read state file");
-    assert!(!state_text.contains("sk-deepseek-secret"), "state leaked the key");
+    assert!(
+        !text.contains("sk-deepseek-secret"),
+        "bootstrap leaked the key"
+    );
+    let state_text = fs::read_to_string(data_dir.path.join("state.json")).expect("read state file");
+    assert!(
+        !state_text.contains("sk-deepseek-secret"),
+        "state leaked the key"
+    );
 }
 
 #[tokio::test]
