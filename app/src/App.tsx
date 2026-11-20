@@ -34,6 +34,7 @@ import {
   installClient,
   listDevices,
   listProviderOptions,
+  moveSession,
   pairingQrUrl,
   removeDevice,
   removeProvider,
@@ -123,6 +124,7 @@ import { useLanguage } from './i18n/LanguageProvider';
 import type { Translate } from './i18n';
 import {
   closeSessionTab,
+  moveSessionTab,
   openSessionTab,
   type TabsByProject,
 } from './state/tabs';
@@ -1112,6 +1114,50 @@ export default function App() {
     );
   }
 
+  async function performMove(
+    session: Session,
+    projectId: string,
+  ): Promise<boolean> {
+    if (session.projectId === projectId) {
+      return true;
+    }
+
+    const previousProjectId = session.projectId;
+    const wasActiveTab =
+      tabsByProject[previousProjectId]?.active === session.id;
+
+    try {
+      const updated = await moveSession(session.id, projectId);
+      setSessions((current) =>
+        current.map((item) => (item.id === updated.id ? updated : item)),
+      );
+      setTabsByProject((current) =>
+        moveSessionTab(
+          current,
+          previousProjectId,
+          updated.projectId,
+          updated.id,
+        ),
+      );
+      setActiveProjectId((current) =>
+        wasActiveTab && current === previousProjectId
+          ? updated.projectId
+          : current,
+      );
+      setToast({ message: t('app.sessionMoved'), error: false });
+      return true;
+    } catch (error) {
+      setToast({
+        message:
+          error instanceof ApiError
+            ? error.message
+            : t('app.sessionNotMoved'),
+        error: true,
+      });
+      return false;
+    }
+  }
+
   async function answerPermission(
     session: Session,
     decision: PermissionDecision,
@@ -1287,6 +1333,7 @@ export default function App() {
             onSelectProject={openProject}
             onSelectSession={openSession}
             onSessionMenu={openSessionMenu}
+            onMoveSession={performMove}
             onAddProject={() => setProjectDialogOpen(true)}
             onNewSession={(projectId) => openNewSession(projectId)}
             onProjectSettings={(project) => setProjectSettingsId(project.id)}

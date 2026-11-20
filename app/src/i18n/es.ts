@@ -21,6 +21,8 @@ export const es = {
   'app.sessionNotReopened': 'La sesión no se ha reabierto.',
   'app.sessionResumed': 'Sesión reanudada.',
   'app.sessionNotResumed': 'La sesión no se ha reanudado.',
+  'app.sessionMoved': 'Sesión movida.',
+  'app.sessionNotMoved': 'La sesión no se ha movido.',
   'app.accountSwitched': 'Cuenta cambiada.',
   'app.permissionResolved':
     'Esa solicitud de permiso ya se ha resuelto.',
@@ -82,6 +84,13 @@ export const es = {
   'sidebar.usage': 'Uso',
   'sidebar.settings': 'Ajustes',
   'sidebar.noAttentionNeeded': 'No requiere atención',
+  'sidebar.moveStarted': 'Moviendo {name}.',
+  'sidebar.moveInstructions':
+    'Moviendo {name}. Proyecto de destino: {project}. Usa las flechas arriba y abajo para elegir otro proyecto, Intro para mover y Escape para cancelar.',
+  'sidebar.moveTarget': 'Proyecto de destino: {project}.',
+  'sidebar.moveCancelled': 'Movimiento cancelado.',
+  'sidebar.moved': '{name} se ha movido a {project}.',
+  'sidebar.moveFailed': '{name} no se ha movido.',
 
   'session.headerActions': 'Acciones de la sesión',
   'session.bodyLabel': 'Sesión {name}',

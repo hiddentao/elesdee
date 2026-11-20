@@ -411,6 +411,18 @@ button:disabled {
   margin-top: 6px;
 }
 
+.project-group.is-drop-target {
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  outline: 2px dashed var(--accent);
+  outline-offset: 2px;
+}
+
+.project-group.is-drop-target .project-toggle,
+.project-group.is-drop-target .project-name {
+  color: var(--text);
+}
+
 .project-head {
   display: flex;
   align-items: center;
@@ -656,6 +668,10 @@ button:disabled {
 
 .session-row.is-closed {
   color: var(--text-3);
+}
+
+.session-row.is-dragging {
+  opacity: 0.5;
 }
 
 .status-marker {

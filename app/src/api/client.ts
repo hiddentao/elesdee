@@ -414,6 +414,14 @@ export function updateSessionAllowedConfigs(
   });
 }
 
+export function moveSession(id: string, projectId: string): Promise<Session> {
+  return request<Session>(`/api/sessions/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ projectId }),
+  });
+}
+
 export function resumeSession(id: string): Promise<Session> {
   return request<Session>(`/api/sessions/${encodeURIComponent(id)}/resume`, post({}));
 }

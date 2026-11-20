@@ -920,6 +920,14 @@ impl SessionEntry {
         state.session.clone()
     }
 
+    /// Changes the project that groups the session. The folder, branch,
+    /// worktree, process and log stay as they are.
+    pub fn move_to_project(&self, project_id: String) -> Session {
+        let mut state = lock(&self.data);
+        state.session.project_id = project_id;
+        state.session.clone()
+    }
+
     pub fn set_allowed_configs(&self, config_ids: Vec<String>) -> Option<Session> {
         let mut state = lock(&self.data);
         if state.session.status != SessionState::Active || state.session.kind != SessionKind::Agent

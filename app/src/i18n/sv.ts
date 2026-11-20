@@ -21,6 +21,8 @@ export const sv = {
   'app.sessionNotReopened': 'Sessionen öppnades inte igen.',
   'app.sessionResumed': 'Sessionen återupptogs.',
   'app.sessionNotResumed': 'Sessionen återupptogs inte.',
+  'app.sessionMoved': 'Sessionen flyttades.',
+  'app.sessionNotMoved': 'Sessionen flyttades inte.',
   'app.accountSwitched': 'Konto bytt.',
   'app.permissionResolved':
     'Den behörighetsbegäran har redan hanterats.',
@@ -82,6 +84,13 @@ export const sv = {
   'sidebar.usage': 'Användning',
   'sidebar.settings': 'Inställningar',
   'sidebar.noAttentionNeeded': 'Ingen uppmärksamhet behövs',
+  'sidebar.moveStarted': 'Flyttar {name}.',
+  'sidebar.moveInstructions':
+    'Flyttar {name}. Målprojekt: {project}. Använd upp- och nedpilarna för att välja ett annat projekt, Enter för att flytta, Escape för att avbryta.',
+  'sidebar.moveTarget': 'Målprojekt: {project}.',
+  'sidebar.moveCancelled': 'Flytten avbröts.',
+  'sidebar.moved': '{name} flyttades till {project}.',
+  'sidebar.moveFailed': '{name} flyttades inte.',
 
   'session.headerActions': 'Sessionsåtgärder',
   'session.bodyLabel': 'Session {name}',

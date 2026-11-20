@@ -21,6 +21,8 @@ export const nl = {
   'app.sessionNotReopened': 'De sessie is niet heropend.',
   'app.sessionResumed': 'Sessie hervat.',
   'app.sessionNotResumed': 'De sessie is niet hervat.',
+  'app.sessionMoved': 'Sessie verplaatst.',
+  'app.sessionNotMoved': 'De sessie is niet verplaatst.',
   'app.accountSwitched': 'Account gewisseld.',
   'app.permissionResolved':
     'Dat toestemmingsverzoek is al afgehandeld.',
@@ -82,6 +84,13 @@ export const nl = {
   'sidebar.usage': 'Gebruik',
   'sidebar.settings': 'Instellingen',
   'sidebar.noAttentionNeeded': 'Geen aandacht nodig',
+  'sidebar.moveStarted': '{name} wordt verplaatst.',
+  'sidebar.moveInstructions':
+    '{name} wordt verplaatst. Doelproject: {project}. Gebruik de pijlen omhoog en omlaag om een ander project te kiezen, Enter om te verplaatsen, Escape om te annuleren.',
+  'sidebar.moveTarget': 'Doelproject: {project}.',
+  'sidebar.moveCancelled': 'Verplaatsen geannuleerd.',
+  'sidebar.moved': '{name} is verplaatst naar {project}.',
+  'sidebar.moveFailed': '{name} is niet verplaatst.',
 
   'session.headerActions': 'Sessieacties',
   'session.bodyLabel': 'Sessie {name}',

@@ -21,6 +21,8 @@ export const ko = {
   'app.sessionNotReopened': '세션을 다시 열지 못했습니다.',
   'app.sessionResumed': '세션을 재개했습니다.',
   'app.sessionNotResumed': '세션을 재개하지 못했습니다.',
+  'app.sessionMoved': '세션을 이동했습니다.',
+  'app.sessionNotMoved': '세션을 이동하지 못했습니다.',
   'app.accountSwitched': '계정을 전환했습니다.',
   'app.permissionResolved':
     '해당 권한 요청은 이미 처리되었습니다.',
@@ -81,6 +83,13 @@ export const ko = {
   'sidebar.usage': '사용량',
   'sidebar.settings': '설정',
   'sidebar.noAttentionNeeded': '주의 필요 없음',
+  'sidebar.moveStarted': '{name}을(를) 이동하는 중입니다.',
+  'sidebar.moveInstructions':
+    '{name}을(를) 이동하는 중입니다. 대상 프로젝트: {project}. 위아래 화살표로 다른 프로젝트를 선택하고 Enter로 이동하며 Escape로 취소합니다.',
+  'sidebar.moveTarget': '대상 프로젝트: {project}.',
+  'sidebar.moveCancelled': '이동을 취소했습니다.',
+  'sidebar.moved': '{name}을(를) {project}(으)로 이동했습니다.',
+  'sidebar.moveFailed': '{name}을(를) 이동하지 않았습니다.',
 
   'session.headerActions': '세션 작업',
   'session.bodyLabel': '{name} 세션',

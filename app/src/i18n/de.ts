@@ -21,6 +21,8 @@ export const de = {
   'app.sessionNotReopened': 'Die Sitzung wurde nicht wieder geöffnet.',
   'app.sessionResumed': 'Sitzung fortgesetzt.',
   'app.sessionNotResumed': 'Die Sitzung wurde nicht fortgesetzt.',
+  'app.sessionMoved': 'Sitzung verschoben.',
+  'app.sessionNotMoved': 'Die Sitzung wurde nicht verschoben.',
   'app.accountSwitched': 'Konto gewechselt.',
   'app.permissionResolved':
     'Diese Berechtigungsanfrage wurde bereits beantwortet.',
@@ -82,6 +84,13 @@ export const de = {
   'sidebar.usage': 'Nutzung',
   'sidebar.settings': 'Einstellungen',
   'sidebar.noAttentionNeeded': 'Keine Aufmerksamkeit nötig',
+  'sidebar.moveStarted': '{name} wird verschoben.',
+  'sidebar.moveInstructions':
+    '{name} wird verschoben. Zielprojekt: {project}. Wähle mit den Pfeiltasten nach oben und unten ein anderes Projekt, Enter zum Verschieben, Escape zum Abbrechen.',
+  'sidebar.moveTarget': 'Zielprojekt: {project}.',
+  'sidebar.moveCancelled': 'Verschieben abgebrochen.',
+  'sidebar.moved': '{name} wurde nach {project} verschoben.',
+  'sidebar.moveFailed': '{name} wurde nicht verschoben.',
 
   'session.headerActions': 'Sitzungsaktionen',
   'session.bodyLabel': '{name}-Sitzung',

@@ -21,6 +21,8 @@ export const it = {
   'app.sessionNotReopened': 'La sessione non è stata riaperta.',
   'app.sessionResumed': 'Sessione ripresa.',
   'app.sessionNotResumed': 'La sessione non è stata ripresa.',
+  'app.sessionMoved': 'Sessione spostata.',
+  'app.sessionNotMoved': 'La sessione non è stata spostata.',
   'app.accountSwitched': 'Account cambiato.',
   'app.permissionResolved':
     'Questa richiesta di autorizzazione è già stata risolta.',
@@ -82,6 +84,13 @@ export const it = {
   'sidebar.usage': 'Utilizzo',
   'sidebar.settings': 'Impostazioni',
   'sidebar.noAttentionNeeded': 'Nessuna attenzione necessaria',
+  'sidebar.moveStarted': 'Spostamento di {name}.',
+  'sidebar.moveInstructions':
+    'Spostamento di {name}. Progetto di destinazione: {project}. Usa le frecce su e giù per scegliere un altro progetto, Invio per spostare, Esc per annullare.',
+  'sidebar.moveTarget': 'Progetto di destinazione: {project}.',
+  'sidebar.moveCancelled': 'Spostamento annullato.',
+  'sidebar.moved': '{name} è stata spostata in {project}.',
+  'sidebar.moveFailed': '{name} non è stata spostata.',
 
   'session.headerActions': 'Azioni della sessione',
   'session.bodyLabel': 'Sessione {name}',

@@ -21,6 +21,8 @@ export const zhCN = {
   'app.sessionNotReopened': '会话未能重新打开。',
   'app.sessionResumed': '会话已恢复。',
   'app.sessionNotResumed': '会话未能恢复。',
+  'app.sessionMoved': '会话已移动。',
+  'app.sessionNotMoved': '会话未移动。',
   'app.accountSwitched': '已切换账户。',
   'app.permissionResolved': '该权限请求已处理。',
   'app.answerSent': '答案已发送。',
@@ -79,6 +81,13 @@ export const zhCN = {
   'sidebar.usage': '用量',
   'sidebar.settings': '设置',
   'sidebar.noAttentionNeeded': '无需关注',
+  'sidebar.moveStarted': '正在移动 {name}。',
+  'sidebar.moveInstructions':
+    '正在移动 {name}。目标项目：{project}。使用上下方向键选择其他项目，按 Enter 移动，按 Escape 取消。',
+  'sidebar.moveTarget': '目标项目：{project}。',
+  'sidebar.moveCancelled': '移动已取消。',
+  'sidebar.moved': '{name} 已移动到 {project}。',
+  'sidebar.moveFailed': '{name} 未移动。',
 
   'session.headerActions': '会话操作',
   'session.bodyLabel': '{name} 会话',

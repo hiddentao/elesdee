@@ -37,6 +37,14 @@ If you leave the name empty, an agent session is named from the first prompt, or
 
 At most 64 sessions can run at once. Close a session to free a slot.
 
+## Move a session to another project
+
+A project groups sessions. Moving a session changes only its project. The session keeps its folder, branch, worktree and log. A running session keeps running, and a closed session keeps its log.
+
+In the grouped session list, drag a session onto another project. The target project shows a dashed outline. Press Escape during the drag to cancel. A small pointer movement still selects the session.
+
+To move a session with the keyboard, focus its row and press **M**. The sidebar says which project is the target. Use the up and down arrows to choose another project, **Enter** to move, or **Escape** to cancel.
+
 ## Terminals
 
 The terminal is the real agent terminal. Type in it, scroll it and use its keyboard shortcuts. The app sends your input to the program, not to a copy.
