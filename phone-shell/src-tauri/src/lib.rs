@@ -23,6 +23,17 @@ use notifications::{
 use tauri::Manager;
 use ui::UiStore;
 
+/// Blocks top-level navigation outside the shell and the UI package.
+///
+/// The hook runs for the webview created from the configuration, because
+/// Tauri installs a navigation handler on every webview. A new-window request
+/// is not a navigation; see the note in [`run`].
+fn navigation_plugin<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
+    tauri::plugin::Builder::new("elesdee-navigation")
+        .on_navigation(|_webview, url| ui::navigation_allowed(url.as_str(), ui::PACKAGE_ORIGIN))
+        .build()
+}
+
 /// Starts the phone shell.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -33,7 +44,12 @@ pub fn run() {
     #[cfg(mobile)]
     let builder = builder.plugin(tauri_plugin_barcode_scanner::init());
 
+    // Tauri 2.12 has no plugin hook for a new-window request. Its only handler
+    // is a builder method on a webview this shell does not create in code, so
+    // the platform webview answers the request. The macOS webview refuses it
+    // when no handler is set, so no second webview opens.
     let app = builder
+        .plugin(navigation_plugin())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
