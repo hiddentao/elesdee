@@ -1,10 +1,17 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+} from 'react';
 import { ApiError, listProviderModels, listProviders } from '../api/client';
 import type {
   AgentCheck,
   AiConfig,
   Client,
   ClientInstall,
+  ClientUpdateCheck,
   CreateConfigInput,
   CreateProviderInput,
   InstallStage,
@@ -30,6 +37,8 @@ interface AiConfigDialogProps {
   agents: AgentCheck[];
   agentsChecked: boolean;
   onInstallClient: (client: Client) => Promise<ClientInstall>;
+  onUpdateClient: (client: Client) => Promise<ClientInstall>;
+  onCheckClientUpdate: (client: Client) => Promise<ClientUpdateCheck>;
   onGetClientInstall: (id: string) => Promise<ClientInstall>;
   onClientInstalled: (agent: AgentCheck) => void;
   initialProviderId?: string | null;
@@ -121,6 +130,8 @@ export function AiConfigDialog({
   agents,
   agentsChecked,
   onInstallClient,
+  onUpdateClient,
+  onCheckClientUpdate,
   onGetClientInstall,
   onClientInstalled,
   initialProviderId = null,
@@ -162,8 +173,19 @@ export function AiConfigDialog({
   const [errors, setErrors] = useState<FormErrors>({});
   const [submitting, setSubmitting] = useState(false);
   const [installs, setInstalls] = useState<Record<string, ClientInstall>>({});
+  const [installModes, setInstallModes] = useState<
+    Record<string, 'install' | 'update'>
+  >({});
   const [installTarget, setInstallTarget] = useState<Client | null>(null);
   const [installError, setInstallError] = useState<string | null>(null);
+  const [checks, setChecks] = useState<Record<string, ClientUpdateCheck>>({});
+  const [updateTarget, setUpdateTarget] = useState<Client | null>(null);
+  const [updateCheck, setUpdateCheck] = useState<ClientUpdateCheck | null>(
+    null,
+  );
+  const [updateChecking, setUpdateChecking] = useState(false);
+  const updateRequest = useRef(0);
+  const pendingChecks = useRef(new Set<Client>());
 
   const provider = providers.find((item) => item.id === providerId) ?? null;
   const option = options.find((item) => item.id === provider?.vendor) ?? null;
@@ -171,6 +193,7 @@ export function AiConfigDialog({
   const efforts = client ? (option?.efforts[client] ?? []) : [];
   const defaultName =
     provider && client ? `${provider.name} (${client})` : '';
+  const updateError = updateCheck?.error ?? null;
 
   useEffect(() => {
     if (!client || clients.includes(client)) {
@@ -196,11 +219,17 @@ export function AiConfigDialog({
             }
             setInstalls((current) => ({ ...current, [next.client]: next }));
             if (next.state === 'done') {
+              setChecks((current) => {
+                const remaining = { ...current };
+                delete remaining[next.client];
+                return remaining;
+              });
               onClientInstalled({
                 name: next.client,
                 installed: true,
                 version: next.version,
                 path: next.path,
+                copy: 'app',
               });
             }
           })
@@ -234,6 +263,57 @@ export function AiConfigDialog({
       window.clearTimeout(timer);
     };
   }, [installs, onClientInstalled, onGetClientInstall, t]);
+
+  useEffect(() => {
+    if (!agentsChecked || !provider) {
+      return;
+    }
+    for (const item of provider.supportedClients) {
+      const agent = agentFor(agents, item);
+      if (
+        agent?.copy !== 'app' ||
+        checks[item] !== undefined ||
+        pendingChecks.current.has(item) ||
+        installs[item]?.state === 'running'
+      ) {
+        continue;
+      }
+      pendingChecks.current.add(item);
+      onCheckClientUpdate(item)
+        .then((next) => {
+          setChecks((current) => ({ ...current, [item]: next }));
+        })
+        .catch((error) => {
+          setChecks((current) => ({
+            ...current,
+            [item]: {
+              client: item,
+              copy: 'app',
+              installed: true,
+              currentVersion: agent.version,
+              latestVersion: null,
+              updateAvailable: false,
+              canUpdate: true,
+              error:
+                error instanceof ApiError
+                  ? error.message
+                  : t('configs.updateCheckFailed'),
+            },
+          }));
+        })
+        .finally(() => {
+          pendingChecks.current.delete(item);
+        });
+    }
+  }, [
+    agents,
+    agentsChecked,
+    checks,
+    installs,
+    onCheckClientUpdate,
+    provider,
+    t,
+  ]);
 
   const loadProviderOptions = useCallback<ComboboxLoader>(
     async (query, signal) => {
@@ -291,12 +371,77 @@ export function AiConfigDialog({
     setInstallError(null);
     try {
       const job = await onInstallClient(target);
+      setInstallModes((current) => ({ ...current, [target]: 'install' }));
       setInstalls((current) => ({ ...current, [job.client]: job }));
     } catch (error) {
       setInstallError(
         error instanceof ApiError
           ? error.message
           : t('configs.installReasonInternal'),
+      );
+    }
+  }
+
+  async function openUpdate(client: Client) {
+    const request = updateRequest.current + 1;
+    updateRequest.current = request;
+    setUpdateTarget(client);
+    setUpdateCheck(null);
+    setUpdateChecking(true);
+    try {
+      const next = await onCheckClientUpdate(client);
+      if (updateRequest.current !== request) {
+        return;
+      }
+      setUpdateCheck(next);
+      setChecks((current) => ({ ...current, [client]: next }));
+    } catch (error) {
+      if (updateRequest.current !== request) {
+        return;
+      }
+      setUpdateCheck({
+        client,
+        copy: 'app',
+        installed: true,
+        currentVersion: agentFor(agents, client)?.version ?? null,
+        latestVersion: null,
+        updateAvailable: false,
+        canUpdate: true,
+        error:
+          error instanceof ApiError
+            ? error.message
+            : t('configs.updateCheckFailed'),
+      });
+    } finally {
+      if (updateRequest.current === request) {
+        setUpdateChecking(false);
+      }
+    }
+  }
+
+  function closeUpdate() {
+    updateRequest.current += 1;
+    setUpdateTarget(null);
+    setUpdateCheck(null);
+    setUpdateChecking(false);
+  }
+
+  async function confirmUpdate() {
+    if (!updateTarget || updateCheck === null || updateCheck.error !== null) {
+      return;
+    }
+    const target = updateTarget;
+    closeUpdate();
+    setInstallError(null);
+    try {
+      const job = await onUpdateClient(target);
+      setInstallModes((current) => ({ ...current, [target]: 'update' }));
+      setInstalls((current) => ({ ...current, [job.client]: job }));
+    } catch (error) {
+      setInstallError(
+        error instanceof ApiError
+          ? error.message
+          : t('configs.updateReasonInternal'),
       );
     }
   }
@@ -363,7 +508,7 @@ export function AiConfigDialog({
         busyLabel={t(editing ? 'configs.saving' : 'configs.adding')}
         onClose={onClose}
         busy={submitting}
-        inert={providerOpen || installTarget !== null}
+        inert={providerOpen || installTarget !== null || updateTarget !== null}
       >
         <div className="dialog-head">
           <h2 className="dialog-title" id="config-dialog-title">
@@ -411,11 +556,16 @@ export function AiConfigDialog({
                   {clients.map((item) => {
                     const agent = agentFor(agents, item);
                     const job = installs[item];
+                    const mode = installModes[item] ?? 'install';
+                    const check = checks[item];
                     const running = job?.state === 'running';
                     const failed = job?.state === 'failed';
                     const done = job?.state === 'done';
                     const installed = agent?.installed === true || done;
                     const version = done ? job?.version : agent?.version;
+                    const owned = agent?.copy === 'app' || done;
+                    const latest = check?.latestVersion;
+                    const newer = check?.updateAvailable === true && latest;
                     return (
                       <div
                         className={`agent-row${client === item ? ' is-selected' : ''}`}
@@ -446,19 +596,36 @@ export function AiConfigDialog({
                                 className="agent-progress"
                                 max={job.total}
                                 value={job.step}
-                                aria-label={t('configs.installProgress', {
-                                  client: item,
-                                })}
+                                aria-label={t(
+                                  mode === 'update'
+                                    ? 'configs.updateProgress'
+                                    : 'configs.installProgress',
+                                  { client: item },
+                                )}
                               />
                             </>
                           ) : installed ? (
-                            <span className="agent-state">
-                              {version
-                                ? t('firstRun.installedWithVersion', {
-                                    version: shortVersion(version),
-                                  })
-                                : t('firstRun.installed')}
-                            </span>
+                            <>
+                              <span className="agent-state">
+                                {version
+                                  ? t('firstRun.installedWithVersion', {
+                                      version: shortVersion(version),
+                                    })
+                                  : t('firstRun.installed')}
+                              </span>
+                              {owned ? (
+                                <button
+                                  type="button"
+                                  className="btn btn-ghost agent-install-button"
+                                  aria-label={t('configs.updateClient', {
+                                    client: item,
+                                  })}
+                                  onClick={() => void openUpdate(item)}
+                                >
+                                  {t('configs.update')}
+                                </button>
+                              ) : null}
+                            </>
                           ) : agentsChecked && agent ? (
                             <>
                               <span className="agent-state is-missing">
@@ -480,9 +647,31 @@ export function AiConfigDialog({
                             </>
                           ) : null}
                         </div>
+                        {installed && owned && newer ? (
+                          <p className="agent-note" role="status">
+                            {t('configs.updateAvailable', {
+                              version: shortVersion(newer),
+                            })}
+                          </p>
+                        ) : null}
+                        {installed && !owned && agent?.copy === 'user' ? (
+                          <p className="agent-note">
+                            {t('configs.clientManaged')}
+                          </p>
+                        ) : null}
+                        {installed && !owned && agent?.copy === 'bundled' ? (
+                          <p className="agent-note">
+                            {t('configs.clientBundled')}
+                          </p>
+                        ) : null}
                         {failed && job ? (
                           <p className="agent-install-error" role="alert">
-                            {t('configs.installFailed', { client: item })}
+                            {t(
+                              mode === 'update'
+                                ? 'configs.updateFailed'
+                                : 'configs.installFailed',
+                              { client: item },
+                            )}
                             {job.error ? ` ${job.error}` : ''}
                           </p>
                         ) : null}
@@ -697,6 +886,74 @@ export function AiConfigDialog({
             >
               {t('configs.installStart', { client: installTarget })}
             </button>
+          </div>
+        </Dialog>
+      ) : null}
+
+      {updateTarget ? (
+        <Dialog
+          titleId="update-client-title"
+          descriptionId="update-client-description"
+          onClose={closeUpdate}
+        >
+          <div className="dialog-head">
+            <h2 className="dialog-title" id="update-client-title">
+              {t('configs.updateTitle', { client: updateTarget })}
+            </h2>
+            <p className="dialog-sub" id="update-client-description">
+              {t('configs.updateConfirm', { client: updateTarget })}
+            </p>
+          </div>
+          <div className="dialog-body">
+            {updateChecking ? (
+              <p className="field-hint" role="status">
+                {t('configs.updateChecking')}
+              </p>
+            ) : updateError ? (
+              <p className="field-error" role="alert">
+                {t('configs.updateCheckFailed')} {updateError}
+              </p>
+            ) : updateCheck ? (
+              <div className="update-versions">
+                <p>
+                  {updateCheck.currentVersion
+                    ? t('configs.updateCurrentVersion', {
+                        version: shortVersion(updateCheck.currentVersion),
+                      })
+                    : t('configs.updateCurrentUnknown')}
+                </p>
+                <p>
+                  {updateCheck.latestVersion
+                    ? t('configs.updateLatestVersion', {
+                        version: shortVersion(updateCheck.latestVersion),
+                      })
+                    : t('configs.updateLatestUnknown')}
+                </p>
+              </div>
+            ) : null}
+          </div>
+          <div className="dialog-foot">
+            <button type="button" className="btn btn-ghost" onClick={closeUpdate}>
+              {t('common.cancel')}
+            </button>
+            {updateError ? (
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => void openUpdate(updateTarget)}
+              >
+                {t('configs.updateRetry')}
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => void confirmUpdate()}
+                disabled={updateChecking || updateCheck === null}
+              >
+                {t('configs.updateStart', { client: updateTarget })}
+              </button>
+            )}
           </div>
         </Dialog>
       ) : null}

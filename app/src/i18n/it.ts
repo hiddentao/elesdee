@@ -874,6 +874,29 @@ export const it = {
   'configs.installFailed': 'Impossibile installare {client}.',
   'configs.installReasonInternal':
     'Il client non è stato installato. Riprova.',
+  'configs.update': 'Aggiorna',
+  'configs.updateClient': 'Aggiorna {client}',
+  'configs.updateAvailable': 'Aggiornamento disponibile · {version}',
+  'configs.updateProgress': 'Aggiornamento di {client}',
+  'configs.updateFailed': 'Impossibile aggiornare {client}.',
+  'configs.updateReasonInternal':
+    'Il client non è stato aggiornato. Riprova.',
+  'configs.clientManaged':
+    'Gestito fuori da elesdee. Aggiornalo con lo strumento che lo ha installato.',
+  'configs.clientBundled':
+    'Incluso in elesdee. Aggiorna elesdee per aggiornarlo.',
+  'configs.updateTitle': 'Aggiorna {client}',
+  'configs.updateChecking': 'Verifica della versione del fornitore…',
+  'configs.updateConfirm':
+    'elesdee scarica la versione corrente di {client} dal fornitore, verifica la versione e sostituisce questa copia. Le sessioni e le impostazioni restano.',
+  'configs.updateStart': 'Aggiorna {client}',
+  'configs.updateRetry': 'Verifica di nuovo',
+  'configs.updateCheckFailed':
+    'Impossibile verificare la versione del fornitore.',
+  'configs.updateCurrentVersion': 'Questa copia: {version}',
+  'configs.updateLatestVersion': 'Versione del fornitore: {version}',
+  'configs.updateCurrentUnknown': 'Questa copia: versione sconosciuta',
+  'configs.updateLatestUnknown': 'Versione del fornitore: sconosciuta',
   'configs.name': 'Nome (facoltativo)',
   'configs.namePlaceholder': 'Provider e client',
   'configs.nameHint': 'Il nome predefinito è {name}.',

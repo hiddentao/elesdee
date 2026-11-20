@@ -876,6 +876,29 @@ export const fr = {
   'configs.installFailed': 'Impossible d’installer {client}.',
   'configs.installReasonInternal':
     'Le client n’a pas été installé. Réessayez.',
+  'configs.update': 'Mettre à jour',
+  'configs.updateClient': 'Mettre à jour {client}',
+  'configs.updateAvailable': 'Mise à jour disponible · {version}',
+  'configs.updateProgress': 'Mise à jour de {client}',
+  'configs.updateFailed': 'Impossible de mettre à jour {client}.',
+  'configs.updateReasonInternal':
+    'Le client n’a pas été mis à jour. Réessayez.',
+  'configs.clientManaged':
+    'Géré en dehors d’elesdee. Mettez-le à jour avec l’outil qui l’a installé.',
+  'configs.clientBundled':
+    'Fourni avec elesdee. Mettez elesdee à jour pour le mettre à jour.',
+  'configs.updateTitle': 'Mettre à jour {client}',
+  'configs.updateChecking': 'Vérification de la version du fournisseur…',
+  'configs.updateConfirm':
+    'elesdee télécharge la version actuelle de {client} chez son fournisseur, vérifie sa version et remplace cette copie. Vos sessions et réglages sont conservés.',
+  'configs.updateStart': 'Mettre à jour {client}',
+  'configs.updateRetry': 'Vérifier à nouveau',
+  'configs.updateCheckFailed':
+    'Impossible de vérifier la version du fournisseur.',
+  'configs.updateCurrentVersion': 'Cette copie : {version}',
+  'configs.updateLatestVersion': 'Version du fournisseur : {version}',
+  'configs.updateCurrentUnknown': 'Cette copie : version inconnue',
+  'configs.updateLatestUnknown': 'Version du fournisseur : inconnue',
   'configs.name': 'Nom (facultatif)',
   'configs.namePlaceholder': 'Fournisseur et client',
   'configs.nameHint': 'Le nom par défaut est {name}.',

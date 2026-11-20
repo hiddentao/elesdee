@@ -208,7 +208,7 @@ Version 1 supports four coding agents: Claude Code, Codex, OpenCode 2 and Antigr
   5. A copy inside the app bundle.
   6. The app's own copy under its data folder.
 - An executable runs only from one of these known folders. The app never takes a client path from a request.
-- The health check returns each client's installed state, the path it runs, and its version.
+- The health check returns each client's installed state, the path it runs, its version and the source of that copy: the app's own copy, a user install, or a copy bundled in the app.
 
 **Installing a client**
 
@@ -218,6 +218,14 @@ Version 1 supports four coding agents: Claude Code, Codex, OpenCode 2 and Antigr
 - After the install, the app runs the copy's version command. A copy that does not run or does not report a version is not accepted.
 - A successful install replaces an older app copy. A failed install keeps the older copy and leaves no partial copy behind. The error stays visible, and I can try again.
 - The app uses the copy it installed only when it finds no copy in the earlier places.
+
+**Updating a client**
+
+- Only the app's own copy has an Update action. A user install and a bundled copy never change from inside the app.
+- The app reads the vendor's current version without downloading the client. When the vendor has a newer version, the row shows it as soon as it is known and does not block the form. Nothing updates by itself.
+- Update asks first and shows the version of this copy and the vendor's current version. It then uses the vendor's install method in a staging folder, runs the new copy's version command, and swaps it in.
+- A successful update replaces the app's copy. A failed update keeps the old copy, removes the staging folder and shows the reason. I can try again.
+- A user install shows how to update it with the tool that installed it. A bundled copy says that updating elesdee updates it. The app never replaces either copy.
 
 **Permission prompts**
 

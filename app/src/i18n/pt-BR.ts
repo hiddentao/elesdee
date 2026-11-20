@@ -878,6 +878,29 @@ export const ptBR = {
   'configs.installFailed': 'Não foi possível instalar {client}.',
   'configs.installReasonInternal':
     'O cliente não foi instalado. Tente novamente.',
+  'configs.update': 'Atualizar',
+  'configs.updateClient': 'Atualizar {client}',
+  'configs.updateAvailable': 'Atualização disponível · {version}',
+  'configs.updateProgress': 'Atualizando {client}',
+  'configs.updateFailed': 'Não foi possível atualizar {client}.',
+  'configs.updateReasonInternal':
+    'O cliente não foi atualizado. Tente novamente.',
+  'configs.clientManaged':
+    'Gerenciado fora do elesdee. Atualize com a ferramenta que o instalou.',
+  'configs.clientBundled':
+    'Incluído no elesdee. Atualize o elesdee para atualizá-lo.',
+  'configs.updateTitle': 'Atualizar {client}',
+  'configs.updateChecking': 'Verificando a versão do fornecedor…',
+  'configs.updateConfirm':
+    'O elesdee baixa a versão atual do {client} do fornecedor, verifica a versão e substitui esta cópia. Suas sessões e configurações permanecem.',
+  'configs.updateStart': 'Atualizar {client}',
+  'configs.updateRetry': 'Verificar novamente',
+  'configs.updateCheckFailed':
+    'Não foi possível verificar a versão do fornecedor.',
+  'configs.updateCurrentVersion': 'Esta cópia: {version}',
+  'configs.updateLatestVersion': 'Versão do fornecedor: {version}',
+  'configs.updateCurrentUnknown': 'Esta cópia: versão desconhecida',
+  'configs.updateLatestUnknown': 'Versão do fornecedor: desconhecida',
   'configs.name': 'Nome (opcional)',
   'configs.namePlaceholder': 'Provedor e cliente',
   'configs.nameHint': 'O nome padrão é {name}.',

@@ -545,6 +545,10 @@ pub fn router(state: AppState) -> Router {
     let regular = Router::new()
         .route("/api/health", get(health))
         .route("/api/clients/{client}/install", post(start_client_install))
+        .route(
+            "/api/clients/{client}/update",
+            get(client_update_check).post(start_client_update),
+        )
         .route("/api/clients/install/{id}", get(client_install))
         .route("/api/bootstrap", get(bootstrap))
         .route("/api/projects", get(list_projects).post(create_project))
@@ -889,6 +893,50 @@ async fn client_install(
     clients::install_status(&id)
         .map(Json)
         .ok_or_else(|| ApiError::not_found("Unknown install."))
+}
+
+async fn client_update_check(
+    State(state): State<AppState>,
+    UrlPath(client): UrlPath<String>,
+) -> Result<Json<clients::ClientUpdateCheck>, ApiError> {
+    let client =
+        Client::from_slug(&client).ok_or_else(|| ApiError::not_found("Unknown client."))?;
+    let data_dir = state.data_dir().map(Path::to_path_buf);
+    let check =
+        tokio::task::spawn_blocking(move || clients::check_update(client, data_dir.as_deref()))
+            .await
+            .map_err(|error| {
+                ApiError::unprocessable(format!("Could not check for updates: {error}"))
+            })?;
+    Ok(Json(check))
+}
+
+async fn start_client_update(
+    State(state): State<AppState>,
+    UrlPath(client): UrlPath<String>,
+    Json(_request): Json<InstallRequest>,
+) -> Result<(StatusCode, Json<clients::ClientInstall>), ApiError> {
+    let client =
+        Client::from_slug(&client).ok_or_else(|| ApiError::not_found("Unknown client."))?;
+    let data_dir = state
+        .data_dir()
+        .ok_or_else(|| ApiError::unprocessable("Client update needs a data directory."))?
+        .to_path_buf();
+    match clients::start_update(client, data_dir) {
+        Ok(install) => Ok((StatusCode::ACCEPTED, Json(install))),
+        Err(clients::UpdateStartError::Busy) => Err(ApiError::conflict(
+            "An install is already running for this client.",
+        )),
+        Err(clients::UpdateStartError::NoDataDirectory) => Err(ApiError::unprocessable(
+            "Client update needs a data directory.",
+        )),
+        Err(clients::UpdateStartError::NotInstalled) => {
+            Err(ApiError::unprocessable("The client is not installed."))
+        }
+        Err(clients::UpdateStartError::NotAppOwned) => Err(ApiError::conflict(
+            "This copy is managed outside elesdee. Update it with the tool that installed it.",
+        )),
+    }
 }
 
 async fn bootstrap(State(state): State<AppState>) -> Json<Bootstrap> {

@@ -1522,6 +1522,32 @@ button:disabled {
   overflow-wrap: anywhere;
 }
 
+.agent-note {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--text-2);
+  font-size: 11px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.agent-note[role='status'] {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.update-versions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--text-2);
+  font-size: 12px;
+}
+
+.update-versions p {
+  margin: 0;
+}
+
 .boot-retry {
   margin-top: 16px;
 }

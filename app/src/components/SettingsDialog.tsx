@@ -6,6 +6,7 @@ import type {
   AppSettings,
   Client,
   ClientInstall,
+  ClientUpdateCheck,
   CreateConfigInput,
   CreateProviderInput,
   PairedDevice,
@@ -59,6 +60,8 @@ interface SettingsDialogProps {
   agents: AgentCheck[];
   agentsChecked: boolean;
   onInstallClient: (client: Client) => Promise<ClientInstall>;
+  onUpdateClient: (client: Client) => Promise<ClientInstall>;
+  onCheckClientUpdate: (client: Client) => Promise<ClientUpdateCheck>;
   onGetClientInstall: (id: string) => Promise<ClientInstall>;
   onClientInstalled: (agent: AgentCheck) => void;
   update: UpdateSnapshot | null;
@@ -113,6 +116,8 @@ export function SettingsDialog({
   agents,
   agentsChecked,
   onInstallClient,
+  onUpdateClient,
+  onCheckClientUpdate,
   onGetClientInstall,
   onClientInstalled,
   update,
@@ -1163,6 +1168,8 @@ export function SettingsDialog({
           agents={agents}
           agentsChecked={agentsChecked}
           onInstallClient={onInstallClient}
+          onUpdateClient={onUpdateClient}
+          onCheckClientUpdate={onCheckClientUpdate}
           onGetClientInstall={onGetClientInstall}
           onClientInstalled={onClientInstalled}
           initialProviderId={configProviderId}

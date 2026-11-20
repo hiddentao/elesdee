@@ -10,9 +10,16 @@ const agents: AgentCheck[] = [
     installed: true,
     version: '2.1.328 (Claude Code)',
     path: '/usr/local/bin/claude',
+    copy: 'user',
   },
-  { name: 'Codex', installed: false, version: null, path: null },
-  { name: 'OpenCode 2', installed: false, version: null, path: null },
+  { name: 'Codex', installed: false, version: null, path: null, copy: null },
+  {
+    name: 'OpenCode 2',
+    installed: false,
+    version: null,
+    path: null,
+    copy: null,
+  },
 ];
 
 describe('FirstLaunch', () => {

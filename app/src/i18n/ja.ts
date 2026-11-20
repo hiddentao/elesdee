@@ -875,6 +875,29 @@ export const ja = {
   'configs.installFailed': '{client} をインストールできませんでした。',
   'configs.installReasonInternal':
     'クライアントはインストールされませんでした。もう一度お試しください。',
+  'configs.update': '更新',
+  'configs.updateClient': '{client} を更新',
+  'configs.updateAvailable': 'アップデートがあります · {version}',
+  'configs.updateProgress': '{client} を更新中',
+  'configs.updateFailed': '{client} を更新できませんでした。',
+  'configs.updateReasonInternal':
+    'クライアントは更新されませんでした。もう一度お試しください。',
+  'configs.clientManaged':
+    'elesdee の外部で管理されています。インストールしたツールで更新してください。',
+  'configs.clientBundled':
+    'elesdee に付属しています。更新するには elesdee を更新してください。',
+  'configs.updateTitle': '{client} を更新',
+  'configs.updateChecking': 'ベンダーのバージョンを確認中…',
+  'configs.updateConfirm':
+    'elesdee はベンダーから現在の {client} をダウンロードし、バージョンを確認してこのコピーを置き換えます。セッションと設定は保持されます。',
+  'configs.updateStart': '{client} を更新',
+  'configs.updateRetry': '再確認',
+  'configs.updateCheckFailed':
+    'ベンダーのバージョンを確認できませんでした。',
+  'configs.updateCurrentVersion': 'このコピー: {version}',
+  'configs.updateLatestVersion': 'ベンダーのバージョン: {version}',
+  'configs.updateCurrentUnknown': 'このコピー: バージョン不明',
+  'configs.updateLatestUnknown': 'ベンダーのバージョン: 不明',
   'configs.name': '名前（任意）',
   'configs.namePlaceholder': 'プロバイダーとクライアント',
   'configs.nameHint': '既定の名前は {name} です。',

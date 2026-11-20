@@ -46,11 +46,13 @@ The service binds `127.0.0.1` only. It accepts requests only for loopback hostna
 
 ## Client discovery and install
 
-- `GET /api/health` returns one `AgentCheck` for each of the four clients. `path` is the executable that the check runs. The client search checks `PATH`, the user install folders, the Antigravity folders, Homebrew, the app bundle and the app's own copy in its data folder, and it never runs a login shell. A relative `PATH` entry is ignored.
+- `GET /api/health` returns one `AgentCheck` for each of the four clients. `path` is the executable that the check runs and `copy` names its source: `app` for the app's own copy under its data folder, `user` for a copy in `PATH`, a user folder or Homebrew, `bundled` for a copy inside the app bundle, and `null` when the client is missing. The client search checks `PATH`, the user install folders, the Antigravity folders, Homebrew, the app bundle and the app's own copy in its data folder, and it never runs a login shell. A relative `PATH` entry is ignored.
 - `POST /api/clients/{client}/install` accepts the slugs `claude-code`, `codex`, `opencode-2` and `antigravity`, starts an install in the background, and returns `202` with a `ClientInstall`. An unknown slug returns 404. A second install for the same client while one runs returns 409. A service with no data directory returns 422.
 - The core uses the vendor's install script and keeps the copy in a private folder under `<data dir>/clients/<client>`. It runs the installed copy's `--version` before it accepts the copy. A successful install replaces an older app copy. A failure removes the staged copy, keeps the older copy and sets `error`.
-- `GET /api/clients/install/{id}` returns the current view. `state` is `running`, `done` or `failed`; `stage` and `step` follow the install. `path` and `version` are set when the install is done. An unknown id returns 404.
-- The install runs only when a caller sends the request. The health check never installs a client.
+- `GET /api/clients/{client}/update` reads the vendor's current version and returns a `ClientUpdateCheck`. It reads version metadata only and never downloads or runs an installer. `currentVersion` is the found copy's version, `latestVersion` is the vendor's, `updateAvailable` is true only when `latestVersion` is newer, and `canUpdate` is true only when `copy` is `app`. A missing client returns `installed: false` with no error. A failed vendor read returns `error` and no `latestVersion`. An unknown slug returns 404.
+- `POST /api/clients/{client}/update` starts a background update of the app's own copy and returns `202` with a `ClientInstall`. It uses the same staging, `--version` check and swap as an install. It returns 422 when the client is missing or the service has no data directory, and 409 when the found copy is `user` or `bundled` or an install already runs. The user copy and the bundled copy are never touched.
+- `GET /api/clients/install/{id}` returns the current view. `state` is `running`, `done` or `failed`; `stage` and `step` follow the install or update. `path` and `version` are set when the job is done. An unknown id returns 404.
+- The install and update run only when a caller sends the request. The health check and the update check never install a client.
 
 ## List endpoints
 
@@ -600,11 +602,25 @@ interface UsageRow {
   resetsAt?: number;             // Unix seconds
 }
 
+type ClientCopy = "app" | "user" | "bundled";
+
 interface AgentCheck {
   name: Client;
   installed: boolean;
   version: string | null;
   path: string | null;    // the executable the check runs
+  copy: ClientCopy | null; // null when the client is missing
+}
+
+interface ClientUpdateCheck {
+  client: Client;
+  copy: ClientCopy | null;
+  installed: boolean;
+  currentVersion: string | null;
+  latestVersion: string | null;
+  updateAvailable: boolean;
+  canUpdate: boolean;     // true only for the app's own copy
+  error: string | null;   // a vendor version read failure
 }
 
 interface ClientInstall {
@@ -683,6 +699,8 @@ interface HistoryEvent {
 | --- | --- | --- | --- |
 | GET | `/api/health` | | `{ ok, version, agents: AgentCheck[] }` |
 | POST | `/api/clients/{client}/install` | `{}` | `202` `ClientInstall` |
+| GET | `/api/clients/{client}/update` | | `ClientUpdateCheck` |
+| POST | `/api/clients/{client}/update` | `{}` | `202` `ClientInstall` |
 | GET | `/api/clients/install/{id}` | | `ClientInstall` |
 | GET | `/api/bootstrap` | | `{ projects, providers, configs, sessions, questions, sessionRequests, settings }` |
 | GET | `/api/projects?q={text}` | | `Project[]` |

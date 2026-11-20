@@ -6,6 +6,7 @@ import type {
   AiConfig,
   Client,
   ClientInstall,
+  ClientUpdateCheck,
   CreateConfigInput,
   Provider,
   ProviderOption,
@@ -58,25 +59,36 @@ afterEach(() => {
 });
 
 const agents: AgentCheck[] = [
-  { name: 'Claude Code', installed: false, version: null, path: null },
+  {
+    name: 'Claude Code',
+    installed: false,
+    version: null,
+    path: null,
+    copy: null,
+  },
   {
     name: 'Codex',
     installed: true,
     version: '0.9.0 (codex)',
     path: '/usr/local/bin/codex',
+    copy: 'user',
   },
   {
     name: 'OpenCode 2',
     installed: true,
     version: '1.0.0',
     path: '/usr/local/bin/opencode',
+    copy: 'user',
   },
 ];
 
 interface InstallCallbacks {
   onInstallClient: (client: Client) => Promise<ClientInstall>;
+  onUpdateClient: (client: Client) => Promise<ClientInstall>;
+  onCheckClientUpdate: (client: Client) => Promise<ClientUpdateCheck>;
   onGetClientInstall: (id: string) => Promise<ClientInstall>;
   onClientInstalled: (agent: AgentCheck) => void;
+  agents?: AgentCheck[];
 }
 
 function renderDialog(
@@ -86,6 +98,8 @@ function renderDialog(
   ) => Promise<AiConfig>,
   installCallbacks: InstallCallbacks = {
     onInstallClient: vi.fn(),
+    onUpdateClient: vi.fn(),
+    onCheckClientUpdate: vi.fn(),
     onGetClientInstall: vi.fn(),
     onClientInstalled: vi.fn(),
   },
@@ -95,9 +109,11 @@ function renderDialog(
       <AiConfigDialog
         providers={[provider]}
         options={[option]}
-        agents={agents}
+        agents={installCallbacks.agents ?? agents}
         agentsChecked
         onInstallClient={installCallbacks.onInstallClient}
+        onUpdateClient={installCallbacks.onUpdateClient}
+        onCheckClientUpdate={installCallbacks.onCheckClientUpdate}
         onGetClientInstall={installCallbacks.onGetClientInstall}
         onClientInstalled={installCallbacks.onClientInstalled}
         onSaveConfig={onSaveConfig}
@@ -113,6 +129,48 @@ function renderDialog(
     </LanguageProvider>,
   );
   return onSaveConfig;
+}
+
+function updateCheck(
+  overrides: Partial<ClientUpdateCheck> = {},
+): ClientUpdateCheck {
+  return {
+    client: 'Claude Code',
+    copy: 'app',
+    installed: true,
+    currentVersion: '1.0.0',
+    latestVersion: '2.0.0',
+    updateAvailable: true,
+    canUpdate: true,
+    error: null,
+    ...overrides,
+  };
+}
+
+function appAgents(): AgentCheck[] {
+  return [
+    {
+      name: 'Claude Code',
+      installed: true,
+      version: '1.0.0',
+      path: '/data/clients/claude-code/bin/claude',
+      copy: 'app',
+    },
+    {
+      name: 'Codex',
+      installed: true,
+      version: '0.9.0',
+      path: '/usr/local/bin/codex',
+      copy: 'user',
+    },
+    {
+      name: 'OpenCode 2',
+      installed: true,
+      version: '3.0.0',
+      path: '/Applications/elesdee.app/Contents/Resources/clients/opencode/bin/opencode',
+      copy: 'bundled',
+    },
+  ];
 }
 
 function installJob(overrides: Partial<ClientInstall> = {}): ClientInstall {
@@ -267,6 +325,8 @@ describe('AiConfigDialog', () => {
     const onClientInstalled = vi.fn();
     renderDialog(vi.fn(), {
       onInstallClient,
+      onUpdateClient: vi.fn(),
+      onCheckClientUpdate: vi.fn(),
       onGetClientInstall,
       onClientInstalled,
     });
@@ -295,6 +355,7 @@ describe('AiConfigDialog', () => {
       installed: true,
       version: '3.0.0',
       path: '/data/clients/claude-code/bin/claude',
+      copy: 'app',
     });
     expect(
       screen.queryByRole('button', { name: 'Install Claude Code' }),
@@ -311,6 +372,8 @@ describe('AiConfigDialog', () => {
     const onGetClientInstall = vi.fn();
     renderDialog(vi.fn(), {
       onInstallClient,
+      onUpdateClient: vi.fn(),
+      onCheckClientUpdate: vi.fn(),
       onGetClientInstall,
       onClientInstalled: vi.fn(),
     });
@@ -331,5 +394,173 @@ describe('AiConfigDialog', () => {
       screen.getByRole('button', { name: 'Install Claude Code' }),
     ).toBeInTheDocument();
     expect(onGetClientInstall).not.toHaveBeenCalled();
+  });
+
+  it('shows an update for the app copy and instructions for other copies', async () => {
+    const onCheckClientUpdate = vi.fn(async () => updateCheck());
+    renderDialog(vi.fn(), {
+      onInstallClient: vi.fn(),
+      onUpdateClient: vi.fn(),
+      onCheckClientUpdate,
+      onGetClientInstall: vi.fn(),
+      onClientInstalled: vi.fn(),
+      agents: appAgents(),
+    });
+
+    expect(
+      await screen.findByText('Update available · 2.0.0'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Update Claude Code' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'Managed outside elesdee. Update it with the tool that installed it.',
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'Included with elesdee. Update elesdee to update it.',
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Update Codex' }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Update OpenCode 2' }),
+    ).not.toBeInTheDocument();
+    expect(onCheckClientUpdate).toHaveBeenCalledTimes(1);
+    expect(onCheckClientUpdate).toHaveBeenCalledWith('Claude Code');
+  });
+
+  it('updates the app copy after confirmation and shows the new version', async () => {
+    const onCheckClientUpdate = vi.fn(async () => updateCheck());
+    const onUpdateClient = vi.fn(async () => installJob());
+    const onGetClientInstall = vi.fn(async () =>
+      installJob({
+        state: 'done',
+        stage: 'finishing',
+        step: 5,
+        version: '2.0.0',
+        path: '/data/clients/claude-code/bin/claude',
+      }),
+    );
+    const onClientInstalled = vi.fn();
+    renderDialog(vi.fn(), {
+      onInstallClient: vi.fn(),
+      onUpdateClient,
+      onCheckClientUpdate,
+      onGetClientInstall,
+      onClientInstalled,
+      agents: appAgents(),
+    });
+    const user = userEvent.setup();
+
+    await screen.findByText('Update available · 2.0.0');
+    await user.click(
+      screen.getByRole('button', { name: 'Update Claude Code' }),
+    );
+    const dialog = await screen.findByRole('dialog', {
+      name: 'Update Claude Code',
+    });
+    expect(
+      await within(dialog).findByText('This copy: 1.0.0'),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByText('Vendor version: 2.0.0'),
+    ).toBeInTheDocument();
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Update Claude Code' }),
+    );
+
+    expect(onUpdateClient).toHaveBeenCalledWith('Claude Code');
+    expect(
+      await screen.findByText('Installed · 2.0.0'),
+    ).toBeInTheDocument();
+    expect(onClientInstalled).toHaveBeenCalledWith({
+      name: 'Claude Code',
+      installed: true,
+      version: '2.0.0',
+      path: '/data/clients/claude-code/bin/claude',
+      copy: 'app',
+    });
+  });
+
+  it('reports a failed update, keeps the old version and offers the action again', async () => {
+    const onCheckClientUpdate = vi.fn(async () => updateCheck());
+    const onUpdateClient = vi.fn(async () =>
+      installJob({
+        state: 'failed',
+        error: 'The download failed.',
+      }),
+    );
+    renderDialog(vi.fn(), {
+      onInstallClient: vi.fn(),
+      onUpdateClient,
+      onCheckClientUpdate,
+      onGetClientInstall: vi.fn(),
+      onClientInstalled: vi.fn(),
+      agents: appAgents(),
+    });
+    const user = userEvent.setup();
+
+    await screen.findByText('Update available · 2.0.0');
+    await user.click(
+      screen.getByRole('button', { name: 'Update Claude Code' }),
+    );
+    const dialog = await screen.findByRole('dialog', {
+      name: 'Update Claude Code',
+    });
+    await within(dialog).findByText('Vendor version: 2.0.0');
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Update Claude Code' }),
+    );
+
+    expect(
+      await screen.findByText('Could not update Claude Code. The download failed.'),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Installed · 1.0.0')).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Update Claude Code' }),
+    ).toBeInTheDocument();
+  });
+
+  it('does not update when the vendor version cannot be read', async () => {
+    const onCheckClientUpdate = vi.fn(async () =>
+      updateCheck({
+        latestVersion: null,
+        updateAvailable: false,
+        error: 'The vendor did not return a version.',
+      }),
+    );
+    const onUpdateClient = vi.fn();
+    renderDialog(vi.fn(), {
+      onInstallClient: vi.fn(),
+      onUpdateClient,
+      onCheckClientUpdate,
+      onGetClientInstall: vi.fn(),
+      onClientInstalled: vi.fn(),
+      agents: appAgents(),
+    });
+    const user = userEvent.setup();
+
+    await user.click(
+      screen.getByRole('button', { name: 'Update Claude Code' }),
+    );
+    const dialog = await screen.findByRole('dialog', {
+      name: 'Update Claude Code',
+    });
+    expect(
+      await within(dialog).findByText(
+        /Could not check the vendor’s version\. The vendor did not return a version\./,
+      ),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByRole('button', { name: 'Check again' }),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).queryByRole('button', { name: 'Update Claude Code' }),
+    ).not.toBeInTheDocument();
+    expect(onUpdateClient).not.toHaveBeenCalled();
   });
 });
