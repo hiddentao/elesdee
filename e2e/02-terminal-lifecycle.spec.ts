@@ -24,6 +24,7 @@ test('terminal session create, echo, close, reopen and delete', async ({
   const dialog = page.getByRole('dialog');
 
   const projectCombo = dialog.getByRole('combobox', { name: 'Project' });
+  await projectCombo.click();
   await projectCombo.fill(label);
   await page.getByRole('option', { name: new RegExp(label) }).click();
   await dialog.getByRole('radio', { name: 'Terminal' }).click();
