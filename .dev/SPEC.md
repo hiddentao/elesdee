@@ -100,15 +100,18 @@ The agents write their conversation to files on disk, and each keeps its own int
 
 - Claude Code: hooks, added at launch through `--settings`, like the other launch overrides.
   - HTTP hooks "send the event's JSON input as an HTTP POST request to a URL" ([Claude Code docs](https://code.claude.com/docs/en/hooks)). The URL is the core service on localhost.
-  - Events for the message view: `UserPromptSubmit` (my prompt), `MessageDisplay` (assistant text, which "runs while an assistant message streams to the screen"), `PreToolUse` and `PostToolUse` (tool calls and results), `Stop` (the final reply) and `Notification` (permission prompts) ([Claude Code docs](https://code.claude.com/docs/en/hooks)).
+  - Events for the message view: `UserPromptSubmit` (my prompt), `MessageDisplay` (assistant text, which "runs while an assistant message streams to the screen"), `PreToolUse` and `PostToolUse` (tool calls and results), `Stop` (the final reply) and `Notification` (a permission prompt, or the idle signal that the agent waits for my input) ([Claude Code docs](https://code.claude.com/docs/en/hooks)).
+  - A non-permission `Notification` sets the session's waiting state to input, so the desktop and phone notices fire. My next prompt and any tool use clear it; a pending permission prompt or question keeps its own state.
   - `MessageDisplay` holds the terminal's rendering until the hook returns, so the core service must answer at once.
 - Codex: the app-server protocol, shared with the terminal UI.
   - The core service starts `codex app-server` on a local socket and launches the terminal UI with `codex --remote unix://PATH`, so the terminal UI is a client of that server ([Codex docs](https://learn.chatgpt.com/docs/app-server)).
   - The core service connects its own client to the same server. It reads history with `thread/turns/list` and `thread/items/list`, and follows live `item/*` events ([Codex docs](https://learn.chatgpt.com/docs/app-server)).
+  - A `turn/started` notification means the agent works; `turn/completed` means it is idle and waits for my input.
   - Risks: the `codex app-server` command is labelled experimental. The docs do not say outright that a second client can follow a thread that the terminal UI is running. The test build must check this.
 - OpenCode 2: its server API.
   - The API has session, event, permission, command and PTY routes ([OpenCode docs](https://opencode.ai/docs/server/)).
   - The core service starts the OpenCode 2 server and connects to it as a client, next to the real terminal.
+  - A finished assistant record means the agent is idle and waits for my input; a user record or a streaming assistant record means it works.
   - The test build must check which events carry streamed assistant text, tool rows and permission prompts.
 - Antigravity: no structured event interface. Its sessions stay on the terminal, and the phone opens them there.
 
@@ -597,7 +600,7 @@ The phone app has no lock of its own. The phone's screen lock is enough.
 
 - The phone shows notifications and questions from sessions only while the elesdee app is open. There are no push notifications when the app is closed.
 - When I open the app, it shows what I missed. The desktop does not send a desktop notification when the focused window already shows it: the card for a waiting session, the done status for that session, or the message toast.
-- The app asks for the system notification permission on first use.
+- The app asks for the system notification permission when it starts.
 - The phone does not notify for a waiting session or a done status while that session is on its screen and the app is in front. A refused permission shows in the shell, and the session list keeps working.
 
 **What triggers a notification**

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { ApiError } from '../api/transport';
 import type { ChangedFile, SessionChanges } from '../api/types';
 import {
   changeTotals,
@@ -6,8 +7,10 @@ import {
   diffLineKind,
   fileExtension,
   fileSize,
+  imageErrorKey,
   isImageName,
   joinFilePath,
+  loadFilePreview,
   parentFilePath,
 } from './files';
 
@@ -94,5 +97,65 @@ describe('phone file helpers', () => {
     expect(fileSize(512)).toEqual({ value: 512, unit: 'B' });
     expect(fileSize(2048)).toEqual({ value: 2, unit: 'KB' });
     expect(fileSize(3 * 1024 * 1024)).toEqual({ value: 3, unit: 'MB' });
+  });
+
+  it('maps a failed image read to the size or support message', () => {
+    expect(imageErrorKey(new ApiError(413, 'The image is too large.'))).toBe(
+      'phone.fileTooLarge',
+    );
+    expect(imageErrorKey(new ApiError(415, 'Not an image.'))).toBe(
+      'phone.fileNotImage',
+    );
+  });
+
+  it('keeps an image over the cap distinct from an unsupported image', async () => {
+    const large = await loadFilePreview('shot.png', 'shot.png', {
+      readText: async () => ({ content: '' }),
+      readImage: async () => {
+        throw new ApiError(413, 'The image is too large.');
+      },
+    });
+    expect(large).toEqual({ kind: 'error', key: 'phone.fileTooLarge' });
+
+    const unsupported = await loadFilePreview('shot.png', 'shot.png', {
+      readText: async () => ({ content: '' }),
+      readImage: async () => {
+        throw new ApiError(415, 'Not an image.');
+      },
+    });
+    expect(unsupported).toEqual({ kind: 'error', key: 'phone.fileNotImage' });
+  });
+
+  it('previews an image without an extension after the text read fails', async () => {
+    const blob = new Blob(['png'], { type: 'image/png' });
+    const preview = await loadFilePreview('SCREENSHOT', 'SCREENSHOT', {
+      readText: async () => {
+        throw new ApiError(422, 'The file is not UTF-8 text.');
+      },
+      readImage: async () => blob,
+    });
+    expect(preview).toEqual({ kind: 'image', blob });
+  });
+
+  it('reports a binary file that is not an image as not text', async () => {
+    const preview = await loadFilePreview('data.bin', 'data.bin', {
+      readText: async () => {
+        throw new ApiError(422, 'The file is not UTF-8 text.');
+      },
+      readImage: async () => {
+        throw new ApiError(415, 'Not an image.');
+      },
+    });
+    expect(preview).toEqual({ kind: 'error', key: 'phone.fileNotText' });
+  });
+
+  it('reads a text file without an image request', async () => {
+    const preview = await loadFilePreview('notes.md', 'notes.md', {
+      readText: async () => ({ content: '# Notes' }),
+      readImage: async () => {
+        throw new Error('the image route must not run');
+      },
+    });
+    expect(preview).toEqual({ kind: 'text', content: '# Notes' });
   });
 });

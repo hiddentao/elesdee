@@ -29,7 +29,7 @@ The core starts Claude Code with a per-session settings file:
 - `UserPromptSubmit` sets the work state to working and clears the waiting state.
 - `PostToolUse` sets waitingFor to null and keeps the session active.
 - `MessageDisplay` and `Stop` update the preview with the last non-empty line, capped at about 80 characters; `Stop` sets the work state to done.
-- `Notification` with a permission message sets waitingFor to permission.
+- `Notification` with a permission message sets waitingFor to permission. Any other notification sets waitingFor to input: the agent is idle and waits for the next prompt. It never replaces a pending permission or question.
 - The matcher on `PreToolUse` and `PostToolUse` limits the card to mutating actions: `Bash|Edit|Write|MultiEdit|NotebookEdit|WebFetch`. Read-only tools, `AskUserQuestion` and `ExitPlanMode` do not reach the hook. If a hook arrives for another tool anyway, the core returns 204 and creates no card; the TUI handles that tool.
 - `PreToolUse` for a matching tool creates a pending permission:
   - `requestId`: the `tool_use_id`, or a generated id when absent.

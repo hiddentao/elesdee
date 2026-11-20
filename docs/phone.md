@@ -59,13 +59,13 @@ Antigravity and terminal sessions have no structured source, so they open on the
 
 The phone app sends a notification while it is open when a session waits for you: it needs input, a permission answer or an approval. It also sends one when an agent reports its task done or uses the Notify me tool. Tap the notification to open that session. The app stays quiet for a waiting session or a done status that its screen already shows.
 
-The app asks for the phone's notification permission on first use. If you refuse, the app says that notifications are off and the session list keeps working. There are no push notifications when the app is closed. The browser layout raises no system notification; its cards and action notices are the in-app path.
+The app asks for the phone's notification permission when it starts. If you refuse, the app says that notifications are off and the session list keeps working. There are no push notifications when the app is closed. The browser layout raises no system notification; its cards and action notices are the in-app path.
 
 ## Files, images, uploads and changes
 
 **Files** and **Changes** sit beside the session actions.
 
-**Files** lists the session folder one folder at a time. Tap a folder to open it, and **Up** returns to the parent. A text file opens in a read-only view. An image file, such as PNG, JPEG, GIF, WebP, AVIF or BMP, opens as a picture. A binary file, an image that is not supported and an image over the size cap each show a short explanation instead of a broken view.
+**Files** lists the session folder one folder at a time. Tap a folder to open it, and **Up** returns to the parent. A text file opens in a read-only view. An image file, such as PNG, JPEG, GIF, WebP, AVIF or BMP, opens as a picture. A binary file, an image that is not supported and an image over the size cap each show their own short explanation instead of a broken view.
 
 **Upload a file** opens the file picker on the phone, or the browser's file picker in this layout. One file of up to 25 MiB is sent. It goes in elesdee's own folder for the session, not in the repository, with a private file mode. The name is reduced to one name, an existing file is never replaced, and a repeated name gets a number. The agent is told the path in its input.
 

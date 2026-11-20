@@ -78,7 +78,12 @@ import {
   isImageName,
   parentFilePath,
 } from '../../../app/src/phone/files';
-import { diffRows, imageDataUrl, uploadNoticeFor } from './files';
+import {
+  diffRows,
+  imageDataUrl,
+  loadPreview,
+  uploadNoticeFor,
+} from './files';
 import type {
   AiConfig,
   BootstrapResponse,
@@ -1738,51 +1743,39 @@ export class ShellApp {
     this.filesError = null;
     this.filePreview = null;
     this.scheduleRender();
-    try {
-      if (isImageName(entry.name)) {
-        const image = await phone.readImage(
+    const result = await loadPreview(
+      isImageName(entry.name),
+      () =>
+        phone.request(screen.computer.id, 'files.read', {
+          sessionId: screen.session.id,
+          path: entry.path,
+        }) as Promise<{ content: string }>,
+      () =>
+        phone.readImage(
           screen.computer.id,
           screen.session.id,
           entry.path,
-        );
-        if (
-          this.screen.name !== 'session' ||
-          this.screen.session.id !== screen.session.id
-        ) {
-          return;
-        }
-        this.filePreview = {
-          kind: 'image',
-          name: entry.path,
-          src: imageDataUrl(image.contentType, image.data),
-        };
-      } else {
-        const file = (await phone.request(screen.computer.id, 'files.read', {
-          sessionId: screen.session.id,
-          path: entry.path,
-        })) as { content: string };
-        if (
-          this.screen.name !== 'session' ||
-          this.screen.session.id !== screen.session.id
-        ) {
-          return;
-        }
-        this.filePreview = {
-          kind: 'text',
-          name: entry.path,
-          content: file.content,
-        };
-      }
-    } catch {
-      if (
-        this.screen.name !== 'session' ||
-        this.screen.session.id !== screen.session.id
-      ) {
-        return;
-      }
-      this.filesError = {
-        key: isImageName(entry.name) ? 'files.notImage' : 'files.notText',
-        tone: 'error',
+        ),
+    );
+    if (
+      this.screen.name !== 'session' ||
+      this.screen.session.id !== screen.session.id
+    ) {
+      return;
+    }
+    if (result.kind === 'error') {
+      this.filesError = { key: result.key, tone: 'error' };
+    } else if (result.kind === 'image') {
+      this.filePreview = {
+        kind: 'image',
+        name: entry.path,
+        src: imageDataUrl(result.value.contentType, result.value.data),
+      };
+    } else {
+      this.filePreview = {
+        kind: 'text',
+        name: entry.path,
+        content: result.value.content,
       };
     }
     this.scheduleRender();

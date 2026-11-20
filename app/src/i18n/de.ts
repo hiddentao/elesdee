@@ -652,7 +652,9 @@ export const de = {
   'phone.filesTruncated': 'Dieser Ordner enthält mehr Dateien, als das Telefon zeigt.',
   'phone.filesRefresh': 'Aktualisieren',
   'phone.fileNotText': 'Diese Datei ist kein Text, daher kann das Telefon sie nicht zeigen.',
-  'phone.fileNotImage': 'Dieses Bild wird nicht unterstützt oder ist zu groß.',
+  'phone.fileNotImage': 'Dieses Bild wird nicht unterstützt.',
+  'phone.fileTooLarge':
+    'Dieses Bild ist zu groß, daher kann das Telefon es nicht zeigen.',
   'phone.imagePreview': 'Bild {name}',
   'phone.changesLoading': 'Änderungen werden geladen…',
   'phone.changesNotGit': 'Dieser Ordner ist kein Git-Repository.',

@@ -659,7 +659,9 @@ export const pl = {
   'phone.filesTruncated': 'Ten folder ma więcej plików, niż pokazuje telefon.',
   'phone.filesRefresh': 'Odśwież',
   'phone.fileNotText': 'Ten plik nie jest tekstem, więc telefon nie może go pokazać.',
-  'phone.fileNotImage': 'Ten obraz nie jest obsługiwany lub jest za duży.',
+  'phone.fileNotImage': 'Ten obraz nie jest obsługiwany.',
+  'phone.fileTooLarge':
+    'Ten obraz jest za duży, więc telefon nie może go pokazać.',
   'phone.imagePreview': 'Obraz {name}',
   'phone.changesLoading': 'Ładowanie zmian…',
   'phone.changesNotGit': 'Ten folder nie jest repozytorium Git.',
