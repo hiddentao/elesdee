@@ -60,3 +60,14 @@ test('the stacked session action row is gone from both surfaces', () => {
   assert.doesNotMatch(browser, /\.phone-session-actions/);
   assert.doesNotMatch(shell, /\.session-actions\s*\{/);
 });
+
+test('the clipped tab strip and swipe rows draw their focus ring inside', () => {
+  assert.match(
+    block(browser, '.phone-tab:focus-visible'),
+    /outline-offset:\s*-4px/,
+  );
+  assert.match(
+    block(browser, '.phone-swipe-row .phone-sheet-row:focus-visible'),
+    /outline-offset:\s*-4px/,
+  );
+});

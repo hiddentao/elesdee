@@ -628,6 +628,7 @@ export const fr = {
   'phone.noProjects': 'Ajoutez un projet sur l’ordinateur pour démarrer une session.',
   'phone.everythingElse': 'Tout le reste',
   'phone.noSessions': 'Aucune session pour l’instant.',
+  'phone.noFilterMatches': 'Aucune session ne correspond à ce filtre.',
   'phone.allTabsLabel': 'Tous les onglets, {count}',
   'phone.closeTabs': 'Fermer les onglets',
   'phone.closeTabLabel': 'Fermer l’onglet, {name}',

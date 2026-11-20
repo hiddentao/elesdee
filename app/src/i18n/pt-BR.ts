@@ -632,6 +632,7 @@ export const ptBR = {
   'phone.noProjects': 'Adicione um projeto no computador para iniciar uma sessão.',
   'phone.everythingElse': 'Todo o resto',
   'phone.noSessions': 'Nenhuma sessão ainda.',
+  'phone.noFilterMatches': 'Nenhuma sessão corresponde a este filtro.',
   'phone.allTabsLabel': 'Todas as abas, {count}',
   'phone.closeTabs': 'Fechar abas',
   'phone.closeTabLabel': 'Fechar aba, {name}',

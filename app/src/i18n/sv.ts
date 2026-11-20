@@ -628,6 +628,7 @@ export const sv = {
   'phone.noProjects': 'Lägg till ett projekt på datorn för att starta en session.',
   'phone.everythingElse': 'Allt annat',
   'phone.noSessions': 'Inga sessioner ännu.',
+  'phone.noFilterMatches': 'Inga sessioner matchar det här filtret.',
   'phone.allTabsLabel': 'Alla flikar, {count}',
   'phone.closeTabs': 'Stäng flikar',
   'phone.closeTabLabel': 'Stäng fliken, {name}',

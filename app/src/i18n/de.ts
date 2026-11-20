@@ -622,6 +622,7 @@ export const de = {
   'phone.noProjects': 'Füge am Computer ein Projekt hinzu, um eine Sitzung zu starten.',
   'phone.everythingElse': 'Alles andere',
   'phone.noSessions': 'Noch keine Sitzungen.',
+  'phone.noFilterMatches': 'Keine Sitzung passt zu diesem Filter.',
   'phone.allTabsLabel': 'Alle Tabs, {count}',
   'phone.closeTabs': 'Tabs schließen',
   'phone.closeTabLabel': 'Tab schließen, {name}',

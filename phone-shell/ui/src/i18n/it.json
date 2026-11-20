@@ -25,6 +25,7 @@
   "sessions.title": "Sessioni",
   "sessions.loading": "Caricamento delle sessioni…",
   "sessions.empty": "Nessuna sessione per ora.",
+  "sessions.emptyFilter": "Nessuna sessione corrisponde a questo filtro.",
   "sessions.waiting": "In attesa di te",
   "sessions.other": "Tutto il resto",
   "sessions.refresh": "Aggiorna",

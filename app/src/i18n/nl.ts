@@ -625,6 +625,7 @@ export const nl = {
   'phone.noProjects': 'Voeg op de computer een project toe om een sessie te starten.',
   'phone.everythingElse': 'Al het andere',
   'phone.noSessions': 'Nog geen sessies.',
+  'phone.noFilterMatches': 'Geen sessies komen overeen met dit filter.',
   'phone.allTabsLabel': 'Alle tabbladen, {count}',
   'phone.closeTabs': 'Tabbladen sluiten',
   'phone.closeTabLabel': 'Tab sluiten, {name}',

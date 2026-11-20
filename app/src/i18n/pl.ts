@@ -629,6 +629,7 @@ export const pl = {
   'phone.noProjects': 'Dodaj projekt na komputerze, aby rozpocząć sesję.',
   'phone.everythingElse': 'Wszystko inne',
   'phone.noSessions': 'Brak sesji.',
+  'phone.noFilterMatches': 'Żadna sesja nie pasuje do tego filtra.',
   'phone.allTabsLabel': 'Wszystkie karty, {count}',
   'phone.closeTabs': 'Zamknij karty',
   'phone.closeTabLabel': 'Zamknij kartę, {name}',
