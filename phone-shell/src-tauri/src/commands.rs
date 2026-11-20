@@ -1,24 +1,38 @@
 //! The bridge between the shell screens and the link client.
 //!
 //! Every method name from the screens is parsed against the shared allowlist
-//! before it reaches the computer. The pairing screen shows the code while a
-//! separate call waits for the user's answer on the computer.
+//! before it reaches the computer. The connection manager reconnects after a
+//! drop with bounded delays, resumes each output stream from the last sequence
+//! and stops on a revoked device. No state lock is held across a network wait.
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::time::{Duration, Instant};
 
 use elesdee_link::{
-    AppConnection, BRIDGE_VERSION, ClientError, ComputerRecord, LinkClient, Method,
-    PROTOCOL_VERSION, PairingCancel, PairingStart, Response,
+    AppConnection, BRIDGE_VERSION, ClientError, ComputerRecord, EventStream, LinkClient, Method,
+    OutputStream, PROTOCOL_VERSION, PairingCancel, PairingStart, ReconnectPolicy, Response,
+    is_terminal,
 };
 use serde::Serialize;
 use serde_json::Value;
-use tauri::Manager;
-use tauri::State;
-use tokio::sync::Mutex;
+use tauri::async_runtime::JoinHandle;
+use tauri::{AppHandle, Emitter, Manager, State};
+use tokio::sync::{Mutex, watch};
 
 use crate::store::ShellStore;
+
+/// Reports a boolean field only when it is true.
+fn is_false(value: &bool) -> bool {
+    !*value
+}
+
+/// The Tauri event that reports connection state changes.
+pub const CONNECTION_EVENT: &str = "phone:connection";
+
+/// The Tauri event that carries one subscription value.
+pub const SUBSCRIPTION_EVENT: &str = "phone:subscription";
 
 /// A failure that the screens can explain in the phone's language.
 #[derive(Debug, Clone, Serialize)]
@@ -60,6 +74,7 @@ impl From<ClientError> for CommandError {
             ClientError::Forbidden(method) => {
                 Self::new("forbidden", format!("The method is not allowed: {method}"))
             }
+            ClientError::Remote(body) => Self::new(body.code().as_str(), body.message().to_owned()),
             ClientError::TooLarge => Self::new("too_large", "The message is too large."),
             ClientError::Timeout => Self::new("timeout", "The computer did not answer."),
             ClientError::ConnectionClosed => {
@@ -74,6 +89,36 @@ impl From<ClientError> for CommandError {
     }
 }
 
+/// A message for the screens about one computer connection.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConnectionState {
+    /// The computer endpoint id.
+    pub computer_id: String,
+    /// One of `connected`, `disconnected`, `reconnecting` or `stopped`.
+    pub state: &'static str,
+    /// The failure, when the state is `disconnected` or `stopped`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<CommandError>,
+}
+
+/// One value from a live event or output subscription.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SubscriptionValue {
+    /// The subscription id chosen by the screens.
+    pub id: String,
+    /// The event value, when the computer sent one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub event: Option<Value>,
+    /// The failure, when the subscription stopped for an error.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<CommandError>,
+    /// True when the computer ended the stream.
+    #[serde(skip_serializing_if = "is_false")]
+    pub ended: bool,
+}
+
 /// The live state of one shell process.
 pub struct ShellState {
     inner: Mutex<PhoneShell>,
@@ -86,7 +131,13 @@ struct PhoneShell {
     startup_error: Option<CommandError>,
     pairing: Option<PairingStart>,
     pairing_cancel: Option<PairingCancel>,
-    connections: HashMap<String, Arc<AppConnection>>,
+    managers: HashMap<String, Arc<ConnectionManager>>,
+    subscriptions: HashMap<String, Subscription>,
+}
+
+struct Subscription {
+    computer_id: String,
+    handle: JoinHandle<()>,
 }
 
 impl ShellState {
@@ -97,7 +148,8 @@ impl ShellState {
                 startup_error: None,
                 pairing: None,
                 pairing_cancel: None,
-                connections: HashMap::new(),
+                managers: HashMap::new(),
+                subscriptions: HashMap::new(),
             }),
             pairing_gate: Mutex::new(()),
             pairing_cancelled: AtomicBool::new(false),
@@ -111,7 +163,8 @@ impl ShellState {
                 startup_error: Some(CommandError::new(code, message)),
                 pairing: None,
                 pairing_cancel: None,
-                connections: HashMap::new(),
+                managers: HashMap::new(),
+                subscriptions: HashMap::new(),
             }),
             pairing_gate: Mutex::new(()),
             pairing_cancelled: AtomicBool::new(false),
@@ -126,6 +179,20 @@ impl PhoneShell {
                 .clone()
                 .unwrap_or_else(|| CommandError::new("startup", "The phone link did not start."))
         })
+    }
+
+    fn cancel_subscriptions(&mut self, computer_id: &str) {
+        let ids = self
+            .subscriptions
+            .iter()
+            .filter(|(_, subscription)| subscription.computer_id == computer_id)
+            .map(|(id, _)| id.clone())
+            .collect::<Vec<_>>();
+        for id in ids {
+            if let Some(subscription) = self.subscriptions.remove(&id) {
+                subscription.handle.abort();
+            }
+        }
     }
 }
 
@@ -191,8 +258,16 @@ pub struct PairConfirm {
 pub struct ComputerView {
     /// The stored computer record.
     pub computer: ComputerRecord,
-    /// True when the shell holds an open connection.
+    /// True when the shell holds an open or reconnecting manager.
     pub connected: bool,
+}
+
+/// The result of opening a live subscription.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SubscriptionOpened {
+    /// The subscription id chosen by the screens.
+    pub id: String,
 }
 
 #[tauri::command]
@@ -211,16 +286,23 @@ pub async fn phone_info(state: State<'_, ShellState>) -> Result<PhoneInfo, Comma
 pub async fn phone_computers(
     state: State<'_, ShellState>,
 ) -> Result<Vec<ComputerView>, CommandError> {
-    let shell = state.inner.lock().await;
-    let client = shell.client()?;
+    let (client, managers) = {
+        let shell = state.inner.lock().await;
+        (shell.client()?, shell.managers.clone())
+    };
     let computers = client.computers().map_err(CommandError::from)?;
-    Ok(computers
-        .into_iter()
-        .map(|computer| ComputerView {
-            connected: shell.connections.contains_key(&computer.id),
+    let mut views = Vec::with_capacity(computers.len());
+    for computer in computers {
+        let connected = match managers.get(&computer.id) {
+            Some(manager) => manager.connection().await.is_some(),
+            None => false,
+        };
+        views.push(ComputerView {
             computer,
-        })
-        .collect())
+            connected,
+        });
+    }
+    Ok(views)
 }
 
 #[tauri::command]
@@ -303,37 +385,58 @@ pub async fn phone_forget(
     state: State<'_, ShellState>,
     computer_id: String,
 ) -> Result<(), CommandError> {
-    let mut shell = state.inner.lock().await;
-    if let Some(connection) = shell.connections.remove(&computer_id) {
-        connection.close();
+    let (manager, client) = {
+        let mut shell = state.inner.lock().await;
+        shell.cancel_subscriptions(&computer_id);
+        (shell.managers.remove(&computer_id), shell.client()?)
+    };
+    if let Some(manager) = manager {
+        manager.stop().await;
     }
-    let client = shell.client()?;
     client.forget(&computer_id).map_err(CommandError::from)
 }
 
 #[tauri::command]
 pub async fn phone_connect(
     state: State<'_, ShellState>,
+    app: AppHandle,
     computer_id: String,
 ) -> Result<ComputerRecord, CommandError> {
-    let client = {
-        let shell = state.inner.lock().await;
-        shell.client()?
+    let (client, record) = {
+        let mut shell = state.inner.lock().await;
+        let client = shell.client()?;
+        if let Some(manager) = shell.managers.get(&computer_id) {
+            if !manager.is_terminal() {
+                return Ok(manager.record().clone());
+            }
+            shell.managers.remove(&computer_id);
+        }
+        let record = client
+            .computers()
+            .map_err(CommandError::from)?
+            .into_iter()
+            .find(|computer| computer.id == computer_id)
+            .ok_or_else(|| CommandError::new("not_found", "This computer is not in the list."))?;
+        (client, record)
     };
-    let record = client
-        .computers()
-        .map_err(CommandError::from)?
-        .into_iter()
-        .find(|computer| computer.id == computer_id)
-        .ok_or_else(|| CommandError::new("not_found", "This computer is not in the list."))?;
-    let connection = client.connect(&record).await.map_err(CommandError::from)?;
-    let mut shell = state.inner.lock().await;
-    if let Some(previous) = shell
-        .connections
-        .insert(record.id.clone(), Arc::new(connection))
+
+    let manager = ConnectionManager::new(client, record.clone());
     {
-        previous.close();
+        let mut shell = state.inner.lock().await;
+        if let Some(existing) = shell.managers.get(&computer_id) {
+            return Ok(existing.record().clone());
+        }
+        shell
+            .managers
+            .insert(computer_id.clone(), Arc::clone(&manager));
     }
+
+    if let Err(error) = manager.connect_first(&app).await {
+        let mut shell = state.inner.lock().await;
+        shell.managers.remove(&computer_id);
+        return Err(error);
+    }
+    manager.spawn_supervisor(app).await;
     Ok(record)
 }
 
@@ -342,9 +445,13 @@ pub async fn phone_disconnect(
     state: State<'_, ShellState>,
     computer_id: String,
 ) -> Result<(), CommandError> {
-    let mut shell = state.inner.lock().await;
-    if let Some(connection) = shell.connections.remove(&computer_id) {
-        connection.close();
+    let manager = {
+        let mut shell = state.inner.lock().await;
+        shell.cancel_subscriptions(&computer_id);
+        shell.managers.remove(&computer_id)
+    };
+    if let Some(manager) = manager {
+        manager.stop().await;
     }
     Ok(())
 }
@@ -359,14 +466,20 @@ pub async fn phone_request(
     let method = Method::parse(&method).ok_or_else(|| {
         CommandError::new("forbidden", format!("The method is not allowed: {method}"))
     })?;
-    let connection = {
+    if method.is_streaming() {
+        return Err(CommandError::new(
+            "streaming",
+            "Use a subscription for this method.",
+        ));
+    }
+    let manager = {
         let shell = state.inner.lock().await;
-        shell
-            .connections
-            .get(&computer_id)
-            .map(Arc::clone)
-            .ok_or_else(|| CommandError::new("not_connected", "Connect to this computer first."))?
-    };
+        shell.managers.get(&computer_id).map(Arc::clone)
+    }
+    .ok_or_else(|| CommandError::new("not_connected", "Connect to this computer first."))?;
+    let connection = manager.connection().await.ok_or_else(|| {
+        CommandError::new("not_connected", "The computer connection is not ready.")
+    })?;
     let response = connection
         .request(method, params, Vec::new())
         .await
@@ -378,9 +491,420 @@ pub async fn phone_request(
             body.message().to_owned(),
         )),
         Response::StreamStart => Err(CommandError::new(
-            "unsupported",
-            "A streaming response is not handled here.",
+            "streaming",
+            "Use a subscription for this method.",
         )),
+    }
+}
+
+/// Opens a live event or output subscription.
+///
+/// The screens choose the id. They listen for the same id before they call
+/// this command, so no value is lost between the call and the listener.
+#[tauri::command]
+pub async fn phone_subscribe(
+    state: State<'_, ShellState>,
+    app: AppHandle,
+    computer_id: String,
+    id: String,
+    channel: String,
+    params: Option<Value>,
+) -> Result<SubscriptionOpened, CommandError> {
+    let channel = Channel::parse(&channel)?;
+    let session_id = match channel {
+        Channel::Events => None,
+        Channel::Output => Some(
+            params
+                .as_ref()
+                .and_then(|params| params.get("sessionId"))
+                .and_then(Value::as_str)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| {
+                    CommandError::new("bad_request", "The output stream needs a session id.")
+                })?
+                .to_owned(),
+        ),
+    };
+    let after = params
+        .as_ref()
+        .and_then(|params| params.get("after"))
+        .and_then(Value::as_u64)
+        .unwrap_or_default();
+
+    let manager = {
+        let mut shell = state.inner.lock().await;
+        if let Some(previous) = shell.subscriptions.remove(&id) {
+            previous.handle.abort();
+        }
+        shell.managers.get(&computer_id).map(Arc::clone)
+    }
+    .ok_or_else(|| CommandError::new("not_connected", "Connect to this computer first."))?;
+
+    let last_seq = Arc::new(AtomicU64::new(after));
+    let generation = manager.generation();
+    let task_owner = Arc::clone(&manager);
+    let task_id = id.clone();
+    let handle = tauri::async_runtime::spawn(async move {
+        run_subscription(
+            app, task_owner, task_id, channel, session_id, last_seq, generation,
+        )
+        .await;
+    });
+
+    let mut shell = state.inner.lock().await;
+    shell.subscriptions.insert(
+        id.clone(),
+        Subscription {
+            computer_id,
+            handle,
+        },
+    );
+    Ok(SubscriptionOpened { id })
+}
+
+/// Closes a live subscription.
+#[tauri::command]
+pub async fn phone_unsubscribe(
+    state: State<'_, ShellState>,
+    id: String,
+) -> Result<(), CommandError> {
+    let mut shell = state.inner.lock().await;
+    if let Some(subscription) = shell.subscriptions.remove(&id) {
+        subscription.handle.abort();
+    }
+    Ok(())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Channel {
+    Events,
+    Output,
+}
+
+impl Channel {
+    fn parse(value: &str) -> Result<Self, CommandError> {
+        match value {
+            "events" => Ok(Self::Events),
+            "output" => Ok(Self::Output),
+            _ => Err(CommandError::new(
+                "bad_request",
+                "The subscription channel is not valid.",
+            )),
+        }
+    }
+}
+
+async fn run_subscription(
+    app: AppHandle,
+    manager: Arc<ConnectionManager>,
+    id: String,
+    channel: Channel,
+    session_id: Option<String>,
+    last_seq: Arc<AtomicU64>,
+    mut generation: watch::Receiver<u64>,
+) {
+    loop {
+        if manager.is_terminal() {
+            return;
+        }
+        let Some(connection) = manager.connection().await else {
+            if generation.changed().await.is_err() {
+                return;
+            }
+            continue;
+        };
+
+        match open_stream(&connection, channel, session_id.as_deref(), &last_seq).await {
+            Ok(mut stream) => {
+                let mut clean_end = false;
+                loop {
+                    match stream.next().await {
+                        Ok(Some(value)) => {
+                            if let Some(seq) = value.get("seq").and_then(Value::as_u64) {
+                                last_seq.store(seq, Ordering::SeqCst);
+                            }
+                            emit_subscription(
+                                &app,
+                                SubscriptionValue {
+                                    id: id.clone(),
+                                    event: Some(value),
+                                    error: None,
+                                    ended: false,
+                                },
+                            );
+                        }
+                        Ok(None) => {
+                            clean_end = true;
+                            emit_subscription(
+                                &app,
+                                SubscriptionValue {
+                                    id: id.clone(),
+                                    event: None,
+                                    error: None,
+                                    ended: true,
+                                },
+                            );
+                            break;
+                        }
+                        Err(error) => {
+                            let terminal = is_terminal(&error);
+                            emit_subscription(
+                                &app,
+                                SubscriptionValue {
+                                    id: id.clone(),
+                                    event: None,
+                                    error: Some(CommandError::from(error)),
+                                    ended: false,
+                                },
+                            );
+                            if terminal {
+                                return;
+                            }
+                            break;
+                        }
+                    }
+                }
+                if clean_end {
+                    // A closed output stream stays closed. An event stream
+                    // that fell behind is reopened on the same connection.
+                    if channel == Channel::Output {
+                        return;
+                    }
+                    tokio::time::sleep(Duration::from_millis(500)).await;
+                    continue;
+                }
+            }
+            Err(error) => {
+                let terminal = is_terminal(&error);
+                emit_subscription(
+                    &app,
+                    SubscriptionValue {
+                        id: id.clone(),
+                        event: None,
+                        error: Some(CommandError::from(error)),
+                        ended: false,
+                    },
+                );
+                if terminal {
+                    return;
+                }
+            }
+        }
+
+        if manager.is_terminal() {
+            return;
+        }
+        // Wait for the supervisor to install a new connection. The next
+        // output subscription replays from the last sequence seen.
+        if generation.changed().await.is_err() {
+            return;
+        }
+    }
+}
+
+enum LiveStream {
+    Events(EventStream),
+    Output(OutputStream),
+}
+
+impl LiveStream {
+    async fn next(&mut self) -> Result<Option<Value>, ClientError> {
+        match self {
+            Self::Events(stream) => stream.next().await,
+            Self::Output(stream) => stream.next().await,
+        }
+    }
+}
+
+async fn open_stream(
+    connection: &AppConnection,
+    channel: Channel,
+    session_id: Option<&str>,
+    last_seq: &AtomicU64,
+) -> Result<LiveStream, ClientError> {
+    match channel {
+        Channel::Events => Ok(LiveStream::Events(connection.events().await?)),
+        Channel::Output => {
+            let session_id =
+                session_id.ok_or(ClientError::Protocol("the session id is missing"))?;
+            Ok(LiveStream::Output(
+                connection
+                    .output(session_id, last_seq.load(Ordering::SeqCst))
+                    .await?,
+            ))
+        }
+    }
+}
+
+fn emit_subscription(app: &AppHandle, value: SubscriptionValue) {
+    if let Err(error) = app.emit(SUBSCRIPTION_EVENT, value) {
+        tracing::warn!(%error, "could not emit a subscription value");
+    }
+}
+
+fn emit_connection(app: &AppHandle, state: ConnectionState) {
+    if let Err(error) = app.emit(CONNECTION_EVENT, state) {
+        tracing::warn!(%error, "could not emit a connection state");
+    }
+}
+
+/// One live connection with its reconnect loop and its subscriptions.
+struct ConnectionManager {
+    client: Arc<LinkClient>,
+    record: ComputerRecord,
+    current: Mutex<Option<Arc<AppConnection>>>,
+    generation: watch::Sender<u64>,
+    terminal: AtomicBool,
+    supervisor: Mutex<Option<JoinHandle<()>>>,
+}
+
+impl ConnectionManager {
+    fn new(client: Arc<LinkClient>, record: ComputerRecord) -> Arc<Self> {
+        let (generation, _) = watch::channel(0);
+        Arc::new(Self {
+            client,
+            record,
+            current: Mutex::new(None),
+            generation,
+            terminal: AtomicBool::new(false),
+            supervisor: Mutex::new(None),
+        })
+    }
+
+    fn record(&self) -> &ComputerRecord {
+        &self.record
+    }
+
+    async fn connection(&self) -> Option<Arc<AppConnection>> {
+        self.current.lock().await.clone()
+    }
+
+    fn generation(&self) -> watch::Receiver<u64> {
+        self.generation.subscribe()
+    }
+
+    fn is_terminal(&self) -> bool {
+        self.terminal.load(Ordering::SeqCst)
+    }
+
+    async fn connect_first(self: &Arc<Self>, app: &AppHandle) -> Result<(), CommandError> {
+        let connection = self
+            .client
+            .connect(&self.record)
+            .await
+            .map_err(CommandError::from)?;
+        self.install(Arc::new(connection)).await;
+        emit_connection(
+            app,
+            ConnectionState {
+                computer_id: self.record.id.clone(),
+                state: "connected",
+                error: None,
+            },
+        );
+        Ok(())
+    }
+
+    async fn install(&self, connection: Arc<AppConnection>) {
+        *self.current.lock().await = Some(connection);
+        self.generation.send_modify(|generation| *generation += 1);
+    }
+
+    async fn clear(&self) {
+        *self.current.lock().await = None;
+        self.generation.send_modify(|generation| *generation += 1);
+    }
+
+    async fn spawn_supervisor(self: Arc<Self>, app: AppHandle) {
+        let manager = Arc::clone(&self);
+        let handle = tauri::async_runtime::spawn(async move {
+            let mut policy = ReconnectPolicy::new();
+            loop {
+                if manager.is_terminal() {
+                    break;
+                }
+                let Some(connection) = manager.connection().await else {
+                    match manager.client.connect(&manager.record).await {
+                        Ok(connection) => {
+                            manager.install(Arc::new(connection)).await;
+                            emit_connection(
+                                &app,
+                                ConnectionState {
+                                    computer_id: manager.record.id.clone(),
+                                    state: "connected",
+                                    error: None,
+                                },
+                            );
+                            continue;
+                        }
+                        Err(error) => {
+                            let terminal = is_terminal(&error);
+                            emit_connection(
+                                &app,
+                                ConnectionState {
+                                    computer_id: manager.record.id.clone(),
+                                    state: if terminal { "stopped" } else { "disconnected" },
+                                    error: Some(CommandError::from(error)),
+                                },
+                            );
+                            if terminal {
+                                manager.terminal.store(true, Ordering::SeqCst);
+                                break;
+                            }
+                            emit_connection(
+                                &app,
+                                ConnectionState {
+                                    computer_id: manager.record.id.clone(),
+                                    state: "reconnecting",
+                                    error: None,
+                                },
+                            );
+                            tokio::time::sleep(policy.next_delay()).await;
+                            continue;
+                        }
+                    }
+                };
+
+                let connected_at = Instant::now();
+                let reason = connection.wait_closed().await;
+                manager.clear().await;
+                let terminal = is_terminal(&reason);
+                emit_connection(
+                    &app,
+                    ConnectionState {
+                        computer_id: manager.record.id.clone(),
+                        state: if terminal { "stopped" } else { "disconnected" },
+                        error: Some(CommandError::from(reason)),
+                    },
+                );
+                if terminal {
+                    manager.terminal.store(true, Ordering::SeqCst);
+                    break;
+                }
+                policy.record_connection(connected_at.elapsed());
+                emit_connection(
+                    &app,
+                    ConnectionState {
+                        computer_id: manager.record.id.clone(),
+                        state: "reconnecting",
+                        error: None,
+                    },
+                );
+                tokio::time::sleep(policy.next_delay()).await;
+            }
+        });
+        *self.supervisor.lock().await = Some(handle);
+    }
+
+    async fn stop(&self) {
+        self.terminal.store(true, Ordering::SeqCst);
+        if let Some(handle) = self.supervisor.lock().await.take() {
+            handle.abort();
+        }
+        if let Some(connection) = self.current.lock().await.take() {
+            connection.close();
+        }
+        self.generation.send_modify(|generation| *generation += 1);
     }
 }
 
@@ -391,5 +915,24 @@ fn platform() -> &'static str {
         "ios"
     } else {
         "desktop"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_event_and_output_channels_parse() {
+        assert_eq!(Channel::parse("events").expect("events"), Channel::Events);
+        assert_eq!(Channel::parse("output").expect("output"), Channel::Output);
+        assert!(Channel::parse("terminal").is_err());
+    }
+
+    #[test]
+    fn a_revoked_error_is_terminal() {
+        assert!(is_terminal(&ClientError::Revoked));
+        assert!(is_terminal(&ClientError::NotPaired));
+        assert!(!is_terminal(&ClientError::ConnectionClosed));
     }
 }

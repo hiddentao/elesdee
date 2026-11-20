@@ -57,5 +57,15 @@
   "error.cancelledByUser": "Anslutningen avbröts.",
   "error.noPairing": "Ingen anslutning pågår.",
   "error.notConnected": "Anslut till datorn först.",
-  "error.generic": "Begäran misslyckades."
+  "error.generic": "Begäran misslyckades.",
+  "session.open": "Öppna",
+  "session.output": "Utdata",
+  "session.loading": "Läser in utdata…",
+  "session.emptyOutput": "Den här sessionen har ingen utdata än.",
+  "session.ended": "Sessionen har avslutats.",
+  "session.dropped": "En del av den gamla utdatan saknas.",
+  "session.live": "Live",
+  "connection.reconnecting": "Ansluter igen…",
+  "connection.disconnected": "Anslutningen bröts. Ansluter igen…",
+  "connection.stopped": "Anslutningen stoppades."
 }

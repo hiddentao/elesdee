@@ -62,3 +62,26 @@ export interface CommandError {
   status?: string;
   message: string;
 }
+
+export type ConnectionPhase =
+  | 'connected'
+  | 'disconnected'
+  | 'reconnecting'
+  | 'stopped';
+
+export interface ConnectionState {
+  computerId: string;
+  state: ConnectionPhase;
+  error?: CommandError;
+}
+
+export interface SubscriptionValue {
+  id: string;
+  event?: unknown;
+  error?: CommandError;
+  ended?: boolean;
+}
+
+export interface SubscriptionOpened {
+  id: string;
+}

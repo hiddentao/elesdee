@@ -57,5 +57,15 @@
   "error.cancelledByUser": "페어링을 취소했습니다.",
   "error.noPairing": "진행 중인 페어링이 없습니다.",
   "error.notConnected": "먼저 이 컴퓨터에 연결하세요.",
-  "error.generic": "요청에 실패했습니다."
+  "error.generic": "요청에 실패했습니다.",
+  "session.open": "열기",
+  "session.output": "출력",
+  "session.loading": "출력을 불러오는 중…",
+  "session.emptyOutput": "이 세션에는 아직 출력이 없습니다.",
+  "session.ended": "세션이 종료되었습니다.",
+  "session.dropped": "이전 출력 일부가 누락되었습니다.",
+  "session.live": "실시간",
+  "connection.reconnecting": "다시 연결하는 중…",
+  "connection.disconnected": "연결이 끊어졌습니다. 다시 연결하는 중…",
+  "connection.stopped": "연결이 중지되었습니다."
 }

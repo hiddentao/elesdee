@@ -57,5 +57,15 @@
   "error.cancelledByUser": "Vinculación cancelada.",
   "error.noPairing": "No hay ninguna vinculación en curso.",
   "error.notConnected": "Conéctate primero a este ordenador.",
-  "error.generic": "La solicitud ha fallado."
+  "error.generic": "La solicitud ha fallado.",
+  "session.open": "Abrir",
+  "session.output": "Salida",
+  "session.loading": "Cargando la salida…",
+  "session.emptyOutput": "Esta sesión aún no tiene salida.",
+  "session.ended": "La sesión terminó.",
+  "session.dropped": "Falta parte de la salida antigua.",
+  "session.live": "En vivo",
+  "connection.reconnecting": "Reconectando…",
+  "connection.disconnected": "La conexión se perdió. Reconectando…",
+  "connection.stopped": "La conexión se detuvo."
 }

@@ -134,6 +134,68 @@ interface PairedDevice {
 - `DELETE /api/devices/{id}` returns 404 for an unknown id. It saves state and closes the device's live connections with link close code 3.
 - The pairing handshake itself uses the pair ALPN, not these routes. It accepts one request and answers with a confirmation code, then a final `paired`, `denied` or `expired` message.
 
+## Link app protocol
+
+The routes above are local. A paired phone uses the `elesdee/app/1` transport. It opens one control stream and sends `hello` within five seconds. The computer answers `welcome` on the same stream. A connection that sends no compatible hello is closed.
+
+```ts
+interface AppHello {
+  v: 1;
+  bridgeVersion: number;   // the phone shell bridge
+  protocolVersion: 1;
+  platform: string;        // "android", "ios" or "desktop"
+  appVersion: string;
+  lastUiBuildId?: string;
+}
+
+interface Welcome {
+  v: 1;
+  computerId: string;      // z-base-32 endpoint id
+  computerName: string;
+  appVersion: string;
+  protocolVersion: 1;
+  minBridgeVersion: number;
+  ui: unknown | null;      // the UI package manifest, or null
+}
+```
+
+A phone checks the message version, the protocol version, the computer id against the stored address, and `minBridgeVersion`. A phone below the minimum shows an update message.
+
+Every later stream carries one request with the shared four-byte JSON length frame. A unary method becomes an in-process request to the local router. The link sends `Host: 127.0.0.1`, no `Origin`, and `Content-Type: application/json` on a POST. The local request rules still apply.
+
+| Method | Local route |
+| --- | --- |
+| `bootstrap` | `GET /api/bootstrap` |
+| `health` | `GET /api/health` |
+| `projects.list` | `GET /api/projects?q=` |
+| `branches.list` | `GET /api/branches?folder=&q=` |
+| `providers.list` | `GET /api/providers` |
+| `accounts.list` | `GET /api/accounts?q=` |
+| `sessions.create` | `POST /api/sessions`, with any `folder` removed |
+| `sessions.close` | `POST /api/sessions/{id}/close` |
+| `sessions.input` | `POST /api/sessions/{id}/input` |
+| `sessions.permission` | `POST /api/sessions/{id}/permission` |
+| `sessions.account` | `POST /api/sessions/{id}/account` |
+| `sessions.resume` | `POST /api/sessions/{id}/resume` |
+| `questions.list` | `GET /api/questions` |
+| `questions.answer` | `POST /api/questions/{id}/answer` |
+| `sessionRequests.approve` | `POST /api/session-requests/{id}/approve` |
+| `sessionRequests.deny` | `POST /api/session-requests/{id}/deny` |
+| `files.list` | `GET /api/sessions/{id}/files?path=` |
+| `files.read` | `GET /api/sessions/{id}/file?path=` |
+| `diff.read` | `GET /api/sessions/{id}/changes` |
+| `events.subscribe` | `GET /api/events`, streamed |
+| `output.subscribe` | `GET /api/sessions/{id}/output?after=`, streamed |
+
+- The result is the local route's JSON, or the local error message with the matching link code. A method outside the allowlist returns `forbidden` before a handler runs.
+- `sessions.upload`, `files.image`, `ui.manifest`, `ui.download` and `demoServers.list` are allowlisted but return `unsupported` until their steps.
+- `events.subscribe` has no parameters. It forwards `session.updated` from the event stream and the question, request, notification, shared-file and account events from the auxiliary stream. A phone that falls behind loses the stream and reconnects; the bootstrap snapshot shows the current state.
+- `output.subscribe` takes `{ sessionId, after }`. It sends a stream start, replays the retained output with a higher sequence than `after`, and keeps the stream open. A replayed event may carry `gap`. The stream ends when the session closes. A slow reader gets a fresh snapshot from its last sequence, which fills the gap.
+- The link holds the same output stream permit as the local API and applies its own stream cap.
+- A revoked device has its live connections closed with code 3.
+
+The phone shell reconnects after a drop. It waits 0.5 s, 1 s, 2 s, 4 s, 8 s, 15 s and then 30 s, with ±20% jitter. A connection that stayed up for 30 seconds resets the sequence. The shell reopens the event stream and resumes each output stream from the last sequence seen. A revoked or unknown device stops the retries.
+
 ## Agent permissions
 
 - Antigravity has no hooks and no permission card. Its own terminal handles prompts.

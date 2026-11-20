@@ -10,6 +10,7 @@
 //! new ALPN, so an old phone shows an update message instead of a parse error.
 #![deny(missing_docs)]
 
+mod app;
 mod client;
 mod error;
 mod framing;
@@ -17,12 +18,17 @@ mod identity;
 mod limits;
 mod method;
 mod pairing;
+mod reconnect;
 mod ticket;
 
+pub use app::{
+    AppHello, FrameError, MAX_APP_FRAME_BYTES, Welcome, WelcomeError, read_app_frame,
+    write_app_frame,
+};
 pub use client::{
-    AppConnection, BRIDGE_VERSION, ClientError, ComputerRecord, LinkClient, PairReply,
-    PairingCancel, PairingConfirm, PairingMachine, PairingRejection, PairingStart, PairingState,
-    PhoneStore, StoreError, load_or_create_identity,
+    AppConnection, BRIDGE_VERSION, ClientError, ComputerRecord, EventStream, LinkClient,
+    OutputStream, PairReply, PairingCancel, PairingConfirm, PairingMachine, PairingRejection,
+    PairingStart, PairingState, PhoneStore, StoreError, load_or_create_identity,
 };
 pub use error::{ErrorBody, ErrorCode, LinkError, PairingError};
 pub use framing::{Request, Response, StreamEvent};
@@ -36,6 +42,7 @@ pub use limits::{
 };
 pub use method::Method;
 pub use pairing::{PairingSession, pairing_code};
+pub use reconnect::{RECONNECT_DELAYS, RECONNECT_RESET, ReconnectPolicy, is_terminal, next_retry};
 pub use ticket::{PAIR_TICKET_KIND, PAIR_TICKET_VERSION, PairTicket};
 
 pub use iroh::{EndpointAddr, EndpointId, PublicKey, SecretKey};

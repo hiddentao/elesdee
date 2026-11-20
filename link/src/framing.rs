@@ -8,7 +8,7 @@
 //! 4-byte big-endian JSON length | JSON header | optional binary body
 //! ```
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::limits::{MAX_HEADER_BYTES, MAX_UI_PACKAGE_BYTES, MAX_UPLOAD_BYTES};
@@ -305,12 +305,20 @@ struct RawResponse {
     ok: bool,
     #[serde(default)]
     stream: bool,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "present_value")]
     result: Option<Value>,
     #[serde(default)]
     error: Option<ErrorBody>,
     #[serde(default)]
     bytes: Option<u32>,
+}
+
+/// Keeps a present `null` result distinct from a missing result field.
+fn present_value<'de, D>(deserializer: D) -> Result<Option<Value>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Value::deserialize(deserializer).map(Some)
 }
 
 /// One JSON event in a streaming response.
@@ -466,6 +474,20 @@ mod tests {
         assert_eq!(
             header_json(&frame),
             json!({"v": 1, "ok": true, "result": {"sessions": []}})
+        );
+        assert_eq!(
+            Response::decode(&frame).expect("response decodes"),
+            response
+        );
+    }
+
+    #[test]
+    fn a_null_result_round_trips() {
+        let response = Response::ok(Value::Null);
+        let frame = response.encode().expect("response encodes");
+        assert_eq!(
+            header_json(&frame),
+            json!({"v": 1, "ok": true, "result": null})
         );
         assert_eq!(
             Response::decode(&frame).expect("response decodes"),

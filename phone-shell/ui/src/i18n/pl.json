@@ -57,5 +57,15 @@
   "error.cancelledByUser": "Parowanie anulowane.",
   "error.noPairing": "Nie trwa parowanie.",
   "error.notConnected": "Najpierw połącz się z tym komputerem.",
-  "error.generic": "Żądanie nie powiodło się."
+  "error.generic": "Żądanie nie powiodło się.",
+  "session.open": "Otwórz",
+  "session.output": "Dane wyjściowe",
+  "session.loading": "Ładowanie danych wyjściowych…",
+  "session.emptyOutput": "Ta sesja nie ma jeszcze danych wyjściowych.",
+  "session.ended": "Sesja została zakończona.",
+  "session.dropped": "Brakuje części starszych danych wyjściowych.",
+  "session.live": "Na żywo",
+  "connection.reconnecting": "Ponowne łączenie…",
+  "connection.disconnected": "Połączenie zostało utracone. Ponowne łączenie…",
+  "connection.stopped": "Połączenie zostało zatrzymane."
 }

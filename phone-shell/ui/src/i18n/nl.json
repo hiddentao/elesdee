@@ -57,5 +57,15 @@
   "error.cancelledByUser": "Koppeling geannuleerd.",
   "error.noPairing": "Er loopt geen koppeling.",
   "error.notConnected": "Verbind eerst met deze computer.",
-  "error.generic": "De aanvraag is mislukt."
+  "error.generic": "De aanvraag is mislukt.",
+  "session.open": "Openen",
+  "session.output": "Uitvoer",
+  "session.loading": "Uitvoer wordt geladen…",
+  "session.emptyOutput": "Deze sessie heeft nog geen uitvoer.",
+  "session.ended": "De sessie is beëindigd.",
+  "session.dropped": "Een deel van de oude uitvoer ontbreekt.",
+  "session.live": "Live",
+  "connection.reconnecting": "Opnieuw verbinden…",
+  "connection.disconnected": "De verbinding is weggevallen. Opnieuw verbinden…",
+  "connection.stopped": "De verbinding is gestopt."
 }

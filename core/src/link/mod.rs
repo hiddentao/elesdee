@@ -5,8 +5,9 @@
 //! This module owns the endpoint start and stop, the pairing state machine, the
 //! paired device list access and the authenticated app path.
 //!
-//! Step 2 answers one safe method, `bootstrap`. The remaining allowlisted
-//! methods return `unsupported` until the app connection step adds them.
+//! The app path runs the `hello` and `welcome` handshake, dispatches every
+//! allowlisted unary method through the local router, and forwards the event
+//! and session output streams with sequence replay.
 
 mod app;
 pub mod hub;
@@ -21,7 +22,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use chrono::{SecondsFormat, Utc};
 use elesdee_link::{
-    APP_ALPN, DeviceIdentity, FORWARD_ALPN, MAX_STREAMS_PER_CONNECTION, PAIR_ALPN, SecretKey,
+    APP_ALPN, DeviceIdentity, FORWARD_ALPN, MAX_STREAMS_PER_CONNECTION, PAIR_ALPN,
+    QUIC_IDLE_TIMEOUT, QUIC_KEEP_ALIVE, SecretKey,
 };
 use iroh::endpoint::VarInt;
 use iroh::endpoint::presets;
@@ -180,6 +182,10 @@ fn persist_endpoint_identity(state: &AppState, endpoint: &Endpoint) {
 async fn bind_endpoint(secret_key: SecretKey) -> Result<Endpoint, iroh::endpoint::BindError> {
     let transport = QuicTransportConfig::builder()
         .max_concurrent_bidi_streams(VarInt::from_u32(MAX_STREAMS_PER_CONNECTION as u32))
+        .keep_alive_interval(QUIC_KEEP_ALIVE)
+        .max_idle_timeout(Some(
+            VarInt::from_u32(QUIC_IDLE_TIMEOUT.as_millis() as u32).into(),
+        ))
         .build();
     Endpoint::builder(presets::N0)
         .secret_key(secret_key)

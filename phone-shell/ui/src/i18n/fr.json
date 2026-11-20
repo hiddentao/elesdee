@@ -57,5 +57,15 @@
   "error.cancelledByUser": "Association annulée.",
   "error.noPairing": "Aucune association n’est en cours.",
   "error.notConnected": "Connectez-vous d’abord à cet ordinateur.",
-  "error.generic": "La demande a échoué."
+  "error.generic": "La demande a échoué.",
+  "session.open": "Ouvrir",
+  "session.output": "Sortie",
+  "session.loading": "Chargement de la sortie…",
+  "session.emptyOutput": "Cette session n'a pas encore de sortie.",
+  "session.ended": "La session est terminée.",
+  "session.dropped": "Une partie de l'ancienne sortie manque.",
+  "session.live": "En direct",
+  "connection.reconnecting": "Reconnexion…",
+  "connection.disconnected": "La connexion a été interrompue. Reconnexion…",
+  "connection.stopped": "La connexion est arrêtée."
 }

@@ -21,8 +21,9 @@ use elesdee_core::link::{PairReply, PairRequest, read_pair_frame, write_pair_fra
 use elesdee_core::state::PairedDevice;
 use elesdee_core::{AppState, LinkService};
 use elesdee_link::{
-    APP_ALPN, ErrorCode, MAX_HEADER_BYTES, MAX_UPLOAD_BYTES, Method, PAIR_ALPN, PairTicket,
-    Request, Response, SecretKey, pairing_code,
+    APP_ALPN, AppHello, CLOSE_REVOKED, ErrorCode, MAX_APP_FRAME_BYTES, MAX_HEADER_BYTES,
+    MAX_UPLOAD_BYTES, Method, PAIR_ALPN, PairTicket, Request, Response, SecretKey, StreamEvent,
+    Welcome, pairing_code, read_app_frame, write_app_frame,
 };
 
 const TEST_HOST: &str = "127.0.0.1:4319";
@@ -102,6 +103,10 @@ fn test_state(path: &Path) -> AppState {
     )
 }
 
+fn shell_state(path: &Path) -> AppState {
+    AppState::with_test_command_and_data_dir(vec!["/bin/sh".to_owned()], path.to_path_buf())
+}
+
 async fn loopback_endpoint() -> Endpoint {
     Endpoint::builder(presets::Minimal)
         .bind_addr(SocketAddr::from(([127, 0, 0, 1], 0)))
@@ -176,19 +181,107 @@ async fn approve_and_read(
     (connection, device)
 }
 
-async fn app_request(phone: &Endpoint, addr: &EndpointAddr, request: Request) -> Response {
+async fn app_connect(
+    phone: &Endpoint,
+    addr: &EndpointAddr,
+) -> (iroh::endpoint::Connection, Welcome) {
     let connection = phone
         .connect(addr.clone(), APP_ALPN)
         .await
         .expect("app connect");
+    let (mut send, mut recv) = connection.open_bi().await.expect("control stream");
+    let hello = AppHello::new(1, "android", "0.1.0");
+    write_app_frame(&mut send, &hello, MAX_APP_FRAME_BYTES)
+        .await
+        .expect("write hello");
+    send.finish().expect("finish hello");
+    let welcome: Welcome = read_app_frame(&mut recv, MAX_APP_FRAME_BYTES)
+        .await
+        .expect("read welcome");
+    (connection, welcome)
+}
+
+async fn request_on(connection: &iroh::endpoint::Connection, request: Request) -> Response {
     let (mut send, mut recv) = connection.open_bi().await.expect("app stream");
     let encoded = request.encode().expect("encode request");
     send.write_all(&encoded).await.expect("write request");
     send.finish().expect("finish request");
-    let frame = recv.read_to_end(READ_LIMIT).await.expect("read response");
-    let response = Response::decode(&frame).expect("decode response");
+    read_response(&mut recv).await
+}
+
+async fn raw_request_on(connection: &iroh::endpoint::Connection, frame: Vec<u8>) -> Response {
+    let (mut send, mut recv) = connection.open_bi().await.expect("raw app stream");
+    send.write_all(&frame).await.expect("write raw request");
+    send.finish().expect("finish raw request");
+    read_response(&mut recv).await
+}
+
+async fn read_response(recv: &mut RecvStream) -> Response {
+    let (header, body) = read_frame(recv).await;
+    let encoded = serde_json::to_vec(&header).expect("header encodes");
+    let mut frame = (encoded.len() as u32).to_be_bytes().to_vec();
+    frame.extend_from_slice(&encoded);
+    frame.extend_from_slice(&body);
+    Response::decode(&frame).expect("decode response")
+}
+
+async fn read_stream_event(recv: &mut RecvStream) -> Option<Value> {
+    let mut length = [0u8; 4];
+    match recv.read_exact(&mut length).await {
+        Ok(()) => {}
+        Err(iroh::endpoint::ReadExactError::FinishedEarly(0)) => return None,
+        Err(error) => panic!("stream event length: {error}"),
+    }
+    let length = u32::from_be_bytes(length) as usize;
+    assert!(length > 0 && length <= MAX_HEADER_BYTES);
+    let mut header = vec![0u8; length];
+    recv.read_exact(&mut header).await.expect("stream event");
+    Some(
+        StreamEvent::decode(&{
+            let mut frame = (length as u32).to_be_bytes().to_vec();
+            frame.extend_from_slice(&header);
+            frame
+        })
+        .expect("decode stream event")
+        .into_value(),
+    )
+}
+
+async fn read_frame(recv: &mut RecvStream) -> (Value, Vec<u8>) {
+    let mut length = [0u8; 4];
+    recv.read_exact(&mut length).await.expect("frame length");
+    let length = u32::from_be_bytes(length) as usize;
+    assert!(length > 0 && length <= MAX_HEADER_BYTES);
+    let mut header = vec![0u8; length];
+    recv.read_exact(&mut header).await.expect("frame header");
+    let value: Value = serde_json::from_slice(&header).expect("frame header is JSON");
+    let body_length = value
+        .get("bytes")
+        .and_then(Value::as_u64)
+        .unwrap_or_default() as usize;
+    let mut body = vec![0u8; body_length];
+    if body_length > 0 {
+        recv.read_exact(&mut body).await.expect("frame body");
+    }
+    (value, body)
+}
+
+async fn app_request(phone: &Endpoint, addr: &EndpointAddr, request: Request) -> Response {
+    let (connection, _welcome) = app_connect(phone, addr).await;
+    let response = request_on(&connection, request).await;
     connection.close(0u32.into(), b"done");
     response
+}
+
+fn raw_request_frame(method: &str, params: Option<Value>) -> Vec<u8> {
+    let mut header = json!({"v": 1, "method": method});
+    if let Some(params) = params {
+        header["params"] = params;
+    }
+    let encoded = serde_json::to_vec(&header).expect("raw header encodes");
+    let mut frame = (encoded.len() as u32).to_be_bytes().to_vec();
+    frame.extend_from_slice(&encoded);
+    frame
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -253,7 +346,7 @@ async fn a_phone_pairs_once_and_reads_sessions() {
             "bootstrap did not list the session: {result}"
         );
 
-        // A paired phone cannot create a session with its own folder.
+        // A paired phone cannot choose a session folder.
         let response = app_request(
             &phone,
             &addr,
@@ -267,16 +360,17 @@ async fn a_phone_pairs_once_and_reads_sessions() {
             ),
         )
         .await;
+        let created = response.result().expect("session create result");
         assert_eq!(
-            response.error_body().expect("session create error").code(),
-            ErrorCode::Unsupported
+            created["folder"], session["folder"],
+            "the phone chose the session folder"
         );
         let after = app_request(&phone, &addr, Request::new(Method::Bootstrap, None)).await;
         let result = after.result().expect("bootstrap result");
         assert_eq!(
             result["sessions"].as_array().expect("sessions").len(),
-            1,
-            "the remote folder request created a session"
+            2,
+            "the remote session was not created in the project folder"
         );
 
         // The device is saved without any secret.
@@ -356,7 +450,7 @@ async fn an_oversized_header_is_rejected_before_the_body() {
         let (pair_connection, _device) = approve_and_read(&app, &phone, &ticket).await;
         pair_connection.close(0u32.into(), b"done");
 
-        let connection = phone.connect(addr, APP_ALPN).await.expect("app connect");
+        let (connection, _welcome) = app_connect(&phone, &addr).await;
         let (mut send, mut recv) = connection.open_bi().await.expect("app stream");
         let length = ((MAX_HEADER_BYTES + 1) as u32).to_be_bytes();
         send.write_all(&length).await.expect("write length");
@@ -472,6 +566,330 @@ async fn a_removed_device_cannot_connect() {
     })
     .await
     .expect("removal integration test timed out");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_phone_says_hello_and_calls_the_allowed_methods() {
+    tokio::time::timeout(TIMEOUT, async {
+        let directory = TempDirectory::new("hello");
+        let state = test_state(&directory.path);
+        let app = router(state.clone());
+        let session = create_terminal(&app, &directory.path).await;
+        let session_id = session["id"].as_str().expect("session id").to_owned();
+        let folder = session["folder"]
+            .as_str()
+            .expect("session folder")
+            .to_owned();
+
+        let service = LinkService::start_with_endpoint(state.clone(), loopback_endpoint().await);
+        let addr = service.addr();
+        let ticket = PairTicket::decode_string(
+            &state
+                .link()
+                .create_ticket_at(elesdee_core::link::now_unix() + 120, false)
+                .expect("ticket")
+                .ticket,
+        )
+        .expect("decode ticket");
+        let phone = loopback_endpoint().await;
+        let (pair_connection, _device) = approve_and_read(&app, &phone, &ticket).await;
+        pair_connection.close(0u32.into(), b"done");
+
+        let (connection, welcome) = app_connect(&phone, &addr).await;
+        let desktop = state.link().desktop().expect("desktop");
+        assert_eq!(welcome.v, 1);
+        assert_eq!(welcome.computer_id, desktop.id_string);
+        assert_eq!(welcome.computer_name, desktop.name);
+        assert_eq!(welcome.protocol_version, 1);
+        assert_eq!(welcome.min_bridge_version, 1);
+
+        let response = request_on(&connection, Request::new(Method::Health, None)).await;
+        let health = response.result().expect("health result");
+        assert_eq!(health["ok"], true);
+        assert!(
+            health["agents"].is_array(),
+            "health has no agents: {health}"
+        );
+
+        let response = request_on(&connection, Request::new(Method::ProjectsList, None)).await;
+        let projects = response.result().expect("projects result");
+        assert!(
+            projects
+                .as_array()
+                .expect("projects array")
+                .iter()
+                .any(|project| project["id"] == "web"),
+            "projects did not list the project: {projects}"
+        );
+
+        let response = request_on(
+            &connection,
+            Request::new(
+                Method::SessionsCreate,
+                Some(json!({
+                    "projectId": "web",
+                    "kind": "terminal",
+                    "folder": "/",
+                })),
+            ),
+        )
+        .await;
+        let created = response.result().expect("created session");
+        let created_id = created["id"].as_str().expect("created id").to_owned();
+        assert_eq!(created["folder"], folder, "the phone chose the folder");
+
+        let response = request_on(
+            &connection,
+            Request::new(
+                Method::SessionsClose,
+                Some(json!({"sessionId": created_id})),
+            ),
+        )
+        .await;
+        let closed = response.result().expect("closed session");
+        assert_eq!(closed["status"], "closed");
+
+        let response = request_on(&connection, Request::new(Method::QuestionsList, None)).await;
+        assert!(
+            response
+                .result()
+                .expect("questions")
+                .as_array()
+                .expect("questions array")
+                .is_empty()
+        );
+
+        let denied = raw_request_on(
+            &connection,
+            raw_request_frame("sessions.delete", Some(json!({"sessionId": session_id}))),
+        )
+        .await;
+        assert_eq!(
+            denied.error_body().expect("denied error").code(),
+            ErrorCode::Forbidden
+        );
+
+        let response = request_on(
+            &connection,
+            Request::new(Method::FilesList, Some(json!({"sessionId": session_id}))),
+        )
+        .await;
+        assert!(
+            response.result().expect("file list")["entries"].is_array(),
+            "file list is missing entries"
+        );
+
+        connection.close(0u32.into(), b"done");
+        phone.close().await;
+        service.shutdown().await;
+        assert!(state.shutdown_all());
+    })
+    .await
+    .expect("hello test timed out");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn events_and_output_replay_reach_the_phone() {
+    tokio::time::timeout(TIMEOUT, async {
+        let directory = TempDirectory::new("streams");
+        let state = shell_state(&directory.path);
+        let app = router(state.clone());
+        let session = create_terminal(&app, &directory.path).await;
+        let session_id = session["id"].as_str().expect("session id").to_owned();
+
+        let service = LinkService::start_with_endpoint(state.clone(), loopback_endpoint().await);
+        let addr = service.addr();
+        let ticket = PairTicket::decode_string(
+            &state
+                .link()
+                .create_ticket_at(elesdee_core::link::now_unix() + 120, false)
+                .expect("ticket")
+                .ticket,
+        )
+        .expect("decode ticket");
+        let phone = loopback_endpoint().await;
+        let (pair_connection, _device) = approve_and_read(&app, &phone, &ticket).await;
+        pair_connection.close(0u32.into(), b"done");
+        let (connection, _welcome) = app_connect(&phone, &addr).await;
+
+        let (mut event_send, mut event_recv) = connection.open_bi().await.expect("event stream");
+        write_request(&mut event_send, Request::new(Method::EventsSubscribe, None)).await;
+        assert!(matches!(
+            read_response(&mut event_recv).await,
+            Response::StreamStart
+        ));
+
+        let (status, _) = call(
+            &app,
+            "PATCH",
+            &format!("/api/sessions/{session_id}"),
+            Some(json!({"name": "renamed from the desktop"})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+
+        let renamed = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                let event = read_stream_event(&mut event_recv)
+                    .await
+                    .expect("event stream ended early");
+                if event["type"] == "session.updated"
+                    && event["session"]["name"] == "renamed from the desktop"
+                {
+                    break event;
+                }
+            }
+        })
+        .await
+        .expect("the rename event did not arrive");
+        assert_eq!(renamed["session"]["id"], session_id);
+
+        let (mut output_send, mut output_recv) = connection.open_bi().await.expect("output stream");
+        write_request(
+            &mut output_send,
+            Request::new(
+                Method::OutputSubscribe,
+                Some(json!({"sessionId": session_id, "after": 0})),
+            ),
+        )
+        .await;
+        assert!(matches!(
+            read_response(&mut output_recv).await,
+            Response::StreamStart
+        ));
+
+        let response = request_on(
+            &connection,
+            Request::new(
+                Method::SessionsInput,
+                Some(json!({"sessionId": session_id, "data": "printf 'hello\\n'\n"})),
+            ),
+        )
+        .await;
+        assert_eq!(response.result(), Some(&Value::Null), "input was rejected");
+
+        let first = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                let event = read_stream_event(&mut output_recv)
+                    .await
+                    .expect("output stream ended early");
+                let data = event["data"].as_str().unwrap_or_default();
+                if data.contains("hello") {
+                    break event;
+                }
+            }
+        })
+        .await
+        .expect("the first output did not arrive");
+        let first_seq = first["seq"].as_u64().expect("first sequence");
+
+        let response = request_on(
+            &connection,
+            Request::new(
+                Method::SessionsInput,
+                Some(json!({"sessionId": session_id, "data": "printf 'world\\n'\n"})),
+            ),
+        )
+        .await;
+        assert!(response.result().is_some(), "second input was rejected");
+
+        let second = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                let event = read_stream_event(&mut output_recv)
+                    .await
+                    .expect("output stream ended early");
+                let data = event["data"].as_str().unwrap_or_default();
+                if data.contains("world") {
+                    break event;
+                }
+            }
+        })
+        .await
+        .expect("the live output did not arrive");
+        let second_seq = second["seq"].as_u64().expect("second sequence");
+        assert!(
+            second_seq > first_seq,
+            "sequences did not increase: {first_seq} then {second_seq}"
+        );
+
+        let response = request_on(
+            &connection,
+            Request::new(
+                Method::SessionsClose,
+                Some(json!({"sessionId": session_id})),
+            ),
+        )
+        .await;
+        assert_eq!(response.result().expect("closed")["status"], "closed");
+        let ended = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                if read_stream_event(&mut output_recv).await.is_none() {
+                    break;
+                }
+            }
+        })
+        .await;
+        assert!(ended.is_ok(), "the output stream did not end on close");
+
+        connection.close(0u32.into(), b"done");
+        phone.close().await;
+        service.shutdown().await;
+        assert!(state.shutdown_all());
+    })
+    .await
+    .expect("stream test timed out");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_live_revoked_connection_closes_with_code_three() {
+    tokio::time::timeout(TIMEOUT, async {
+        let directory = TempDirectory::new("live-revoked");
+        let state = test_state(&directory.path);
+        let app = router(state.clone());
+        let service = LinkService::start_with_endpoint(state.clone(), loopback_endpoint().await);
+        let addr = service.addr();
+        let ticket = PairTicket::decode_string(
+            &state
+                .link()
+                .create_ticket_at(elesdee_core::link::now_unix() + 120, false)
+                .expect("ticket")
+                .ticket,
+        )
+        .expect("decode ticket");
+        let phone = loopback_endpoint().await;
+        let (pair_connection, device) = approve_and_read(&app, &phone, &ticket).await;
+        pair_connection.close(0u32.into(), b"done");
+        let (connection, _welcome) = app_connect(&phone, &addr).await;
+        let endpoint_id = device["endpointId"]
+            .as_str()
+            .expect("endpoint id")
+            .to_owned();
+
+        let (status, _) = call(&app, "DELETE", &format!("/api/devices/{endpoint_id}"), None).await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+
+        let closed = tokio::time::timeout(Duration::from_secs(10), connection.closed())
+            .await
+            .expect("the live phone was not closed");
+        match closed {
+            ConnectionError::ApplicationClosed(close) => {
+                assert_eq!(close.error_code, VarInt::from_u32(CLOSE_REVOKED));
+            }
+            other => panic!("unexpected close for a removed phone: {other:?}"),
+        }
+
+        phone.close().await;
+        service.shutdown().await;
+        assert!(state.shutdown_all());
+    })
+    .await
+    .expect("live revocation test timed out");
+}
+
+async fn write_request(send: &mut iroh::endpoint::SendStream, request: Request) {
+    let encoded = request.encode().expect("encode request");
+    send.write_all(&encoded).await.expect("write request");
+    send.finish().expect("finish request");
 }
 
 #[tokio::test]

@@ -15,7 +15,10 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use data_encoding::BASE32_NOPAD;
 use iroh::endpoint::presets;
-use iroh::endpoint::{Connection, ConnectionError, RecvStream, SendStream, VarInt};
+use iroh::endpoint::{
+    Connection, ConnectionError, QuicTransportConfig, ReadExactError, RecvStream, SendStream,
+    VarInt,
+};
 use iroh::{Endpoint, EndpointAddr};
 use iroh_tickets::Ticket;
 use serde::{Deserialize, Serialize};
@@ -23,13 +26,17 @@ use serde_json::Value;
 use tokio::time::timeout;
 use zeroize::Zeroize;
 
+use crate::app::{
+    AppHello, FrameError, MAX_APP_FRAME_BYTES, Welcome, read_app_frame, write_app_frame,
+};
 use crate::limits::{
-    CONFIRMATION_TTL_SECS, MAX_HEADER_BYTES, MAX_PAIR_FRAME_BYTES, MAX_UI_PACKAGE_BYTES,
+    CONFIRMATION_TTL_SECS, HELLO_TIMEOUT, MAX_HEADER_BYTES, MAX_PAIR_FRAME_BYTES,
+    MAX_STREAMS_PER_CONNECTION, MAX_UI_PACKAGE_BYTES, QUIC_IDLE_TIMEOUT, QUIC_KEEP_ALIVE,
     UNARY_REQUEST_TIMEOUT,
 };
 use crate::{
-    APP_ALPN, CLOSE_NOT_PAIRED, CLOSE_REVOKED, DeviceIdentity, LinkError, Method, PAIR_ALPN,
-    PROTOCOL_VERSION, PairTicket, Request, Response,
+    APP_ALPN, CLOSE_NOT_PAIRED, CLOSE_REVOKED, DeviceIdentity, ErrorBody, LinkError, Method,
+    PAIR_ALPN, PROTOCOL_VERSION, PairTicket, Request, Response,
 };
 
 /// The bridge version that this client implements.
@@ -404,19 +411,29 @@ impl PairingCancel {
 }
 
 /// A connection to one paired computer.
+///
+/// The connection has passed the `hello` and `welcome` handshake. Requests and
+/// subscriptions share the QUIC connection.
 pub struct AppConnection {
     connection: Connection,
+    welcome: Welcome,
 }
 
 impl fmt::Debug for AppConnection {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("AppConnection")
             .field("computer", &self.connection.remote_id().to_z32())
+            .field("welcome", &self.welcome)
             .finish()
     }
 }
 
 impl AppConnection {
+    /// Returns the computer's welcome message.
+    pub fn welcome(&self) -> &Welcome {
+        &self.welcome
+    }
+
     /// Sends one allowlisted request and returns its response.
     ///
     /// # Errors
@@ -470,14 +487,168 @@ impl AppConnection {
         self.request(method, params, Vec::new()).await
     }
 
+    /// Opens the event stream.
+    ///
+    /// The stream starts with the computer's stream header. Each later frame
+    /// is one event. A queue overflow ends the stream, so the caller opens a
+    /// new connection and reads a fresh snapshot.
+    ///
+    /// # Errors
+    ///
+    /// Returns the computer's refusal, a transport failure or a timeout.
+    pub async fn events(&self) -> Result<EventStream, ClientError> {
+        let recv = self.open_stream(Method::EventsSubscribe, None).await?;
+        Ok(EventStream {
+            recv,
+            connection: self.connection.clone(),
+        })
+    }
+
+    /// Opens a session output stream that replays from `after`.
+    ///
+    /// # Errors
+    ///
+    /// Returns the computer's refusal, a transport failure or a timeout.
+    pub async fn output(&self, session_id: &str, after: u64) -> Result<OutputStream, ClientError> {
+        let params = serde_json::json!({"sessionId": session_id, "after": after});
+        let recv = self
+            .open_stream(Method::OutputSubscribe, Some(params))
+            .await?;
+        Ok(OutputStream {
+            recv,
+            connection: self.connection.clone(),
+        })
+    }
+
+    async fn open_stream(
+        &self,
+        method: Method,
+        params: Option<Value>,
+    ) -> Result<RecvStream, ClientError> {
+        timeout(UNARY_REQUEST_TIMEOUT, async {
+            let (mut send, mut recv) = self
+                .connection
+                .open_bi()
+                .await
+                .map_err(|error| classify_closed(&error))?;
+            let frame = Request::new(method, params).encode()?;
+            send.write_all(&frame)
+                .await
+                .map_err(|_| ClientError::Transport("the request could not be sent".to_owned()))?;
+            let _ = send.finish();
+            let response = read_response(&mut recv).await?;
+            match response {
+                Response::StreamStart => Ok(recv),
+                Response::Error(body) => Err(ClientError::Remote(body)),
+                Response::Ok { .. } => Err(ClientError::Protocol(
+                    "the computer did not start the stream",
+                )),
+            }
+        })
+        .await
+        .map_err(|_| ClientError::Timeout)?
+    }
+
     /// Returns the computer endpoint id as z-base-32.
     pub fn computer_id(&self) -> String {
         self.connection.remote_id().to_z32()
     }
 
+    /// Waits until the connection closes.
+    ///
+    /// The result classifies a revocation, an unknown device and an ordinary
+    /// drop, so the caller can decide whether to retry.
+    pub async fn wait_closed(&self) -> ClientError {
+        let error = self.connection.closed().await;
+        classify_closed(&error)
+    }
+
     /// Closes the connection.
     pub fn close(&self) {
         self.connection.close(VarInt::from_u32(0), b"closed");
+    }
+}
+
+/// A live event stream from one computer.
+///
+/// Each call to [`Self::next`] returns one event. `None` means the computer
+/// ended the stream cleanly.
+pub struct EventStream {
+    recv: RecvStream,
+    connection: Connection,
+}
+
+impl std::fmt::Debug for EventStream {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EventStream").finish_non_exhaustive()
+    }
+}
+
+impl EventStream {
+    /// Returns the next event, or `None` when the stream ended.
+    ///
+    /// # Errors
+    ///
+    /// Returns a revoked device, an unknown device or a transport failure.
+    pub async fn next(&mut self) -> Result<Option<Value>, ClientError> {
+        read_stream_event(&mut self.recv, &self.connection).await
+    }
+}
+
+/// A live session output stream from one computer.
+///
+/// The first events replay the retained output after the requested sequence.
+/// A replayed event may carry a `gap` object when older text was dropped.
+pub struct OutputStream {
+    recv: RecvStream,
+    connection: Connection,
+}
+
+impl std::fmt::Debug for OutputStream {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OutputStream").finish_non_exhaustive()
+    }
+}
+
+impl OutputStream {
+    /// Returns the next output event, or `None` when the session closed and
+    /// the stream ended.
+    ///
+    /// # Errors
+    ///
+    /// Returns a revoked device, an unknown device or a transport failure.
+    pub async fn next(&mut self) -> Result<Option<Value>, ClientError> {
+        read_stream_event(&mut self.recv, &self.connection).await
+    }
+}
+
+async fn read_stream_event(
+    recv: &mut RecvStream,
+    connection: &Connection,
+) -> Result<Option<Value>, ClientError> {
+    let mut length = [0u8; 4];
+    match recv.read_exact(&mut length).await {
+        Ok(()) => {}
+        Err(ReadExactError::FinishedEarly(0)) => return Ok(None),
+        Err(_) => return Err(stream_closed(connection)),
+    }
+    let length = u32::from_be_bytes(length) as usize;
+    if length == 0 || length > MAX_HEADER_BYTES {
+        return Err(ClientError::TooLarge);
+    }
+    let mut header = vec![0u8; length];
+    recv.read_exact(&mut header)
+        .await
+        .map_err(|_| stream_closed(connection))?;
+    let value: Value = serde_json::from_slice(&header)
+        .map_err(|_| ClientError::Protocol("the stream event is not valid"))?;
+    Ok(Some(value))
+}
+
+fn stream_closed(connection: &Connection) -> ClientError {
+    match connection.close_reason() {
+        Some(error) => classify_closed(&error),
+        None => ClientError::ConnectionClosed,
     }
 }
 
@@ -508,9 +679,17 @@ impl LinkClient {
     /// Returns a store or transport failure.
     pub async fn start(store: Arc<dyn PhoneStore>) -> Result<Self, ClientError> {
         let identity = load_or_create_identity(store.as_ref())?;
+        let transport = QuicTransportConfig::builder()
+            .max_concurrent_bidi_streams(VarInt::from_u32(MAX_STREAMS_PER_CONNECTION as u32))
+            .keep_alive_interval(QUIC_KEEP_ALIVE)
+            .max_idle_timeout(Some(
+                VarInt::from_u32(QUIC_IDLE_TIMEOUT.as_millis() as u32).into(),
+            ))
+            .build();
         let endpoint = Endpoint::builder(presets::N0)
             .secret_key(identity.secret_key().clone())
             .alpns(vec![PAIR_ALPN.to_vec(), APP_ALPN.to_vec()])
+            .transport_config(transport)
             .bind()
             .await
             .map_err(|error| ClientError::Transport(error.to_string()))?;
@@ -661,11 +840,16 @@ impl LinkClient {
         }
     }
 
-    /// Opens the app connection to a paired computer.
+    /// Opens the app connection to a paired computer and runs the handshake.
+    ///
+    /// The phone sends `hello` on the control stream and reads `welcome`. A
+    /// revoked device, an unknown device, a protocol mismatch or a timeout
+    /// returns an error.
     ///
     /// # Errors
     ///
-    /// Returns a connect failure, a protocol mismatch or a revoked device.
+    /// Returns a connect failure, a protocol mismatch, a revoked device or a
+    /// timeout.
     pub async fn connect(&self, computer: &ComputerRecord) -> Result<AppConnection, ClientError> {
         if computer.protocol_version != PROTOCOL_VERSION {
             return Err(ClientError::Protocol(
@@ -682,7 +866,69 @@ impl LinkClient {
         .await
         .map_err(|_| ClientError::Timeout)?
         .map_err(|error| ClientError::Transport(error.to_string()))?;
-        Ok(AppConnection { connection })
+
+        let welcome = match self.handshake(&connection, computer).await {
+            Ok(welcome) => welcome,
+            Err(error) => {
+                connection.close(VarInt::from_u32(0), b"handshake failed");
+                return Err(error);
+            }
+        };
+        Ok(AppConnection {
+            connection,
+            welcome,
+        })
+    }
+
+    async fn handshake(
+        &self,
+        connection: &Connection,
+        computer: &ComputerRecord,
+    ) -> Result<Welcome, ClientError> {
+        let (mut send, mut recv) = timeout(HELLO_TIMEOUT, connection.open_bi())
+            .await
+            .map_err(|_| ClientError::Timeout)?
+            .map_err(|error| classify_closed(&error))?;
+        let hello = AppHello::new(
+            BRIDGE_VERSION,
+            computer_platform(),
+            env!("CARGO_PKG_VERSION"),
+        );
+        timeout(
+            HELLO_TIMEOUT,
+            write_app_frame(&mut send, &hello, MAX_APP_FRAME_BYTES),
+        )
+        .await
+        .map_err(|_| ClientError::Timeout)?
+        .map_err(frame_error)?;
+        let _ = send.finish();
+
+        let welcome: Welcome = timeout(
+            HELLO_TIMEOUT,
+            read_app_frame(&mut recv, MAX_APP_FRAME_BYTES),
+        )
+        .await
+        .map_err(|_| ClientError::Timeout)?
+        .map_err(|error| match error {
+            FrameError::Stream => stream_closed(connection),
+            other => ClientError::Protocol(if matches!(other, FrameError::TooLarge) {
+                "the welcome message is too large"
+            } else {
+                "the welcome message is not valid"
+            }),
+        })?;
+        welcome
+            .validate(&computer.id, BRIDGE_VERSION)
+            .map_err(|error| {
+                ClientError::Protocol(match error {
+                    crate::WelcomeError::Protocol => "the computer protocol is not supported",
+                    crate::WelcomeError::ComputerMismatch => {
+                        "the computer id does not match the stored address"
+                    }
+                    crate::WelcomeError::PhoneTooOld => "the phone app is too old",
+                })
+            })?;
+        Ok(welcome)
     }
 
     /// Closes the endpoint.
@@ -737,6 +983,24 @@ fn now_unix() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_secs())
         .unwrap_or_default()
+}
+
+fn computer_platform() -> &'static str {
+    if cfg!(target_os = "android") {
+        "android"
+    } else if cfg!(target_os = "ios") {
+        "ios"
+    } else {
+        "desktop"
+    }
+}
+
+fn frame_error(error: FrameError) -> ClientError {
+    match error {
+        FrameError::TooLarge => ClientError::TooLarge,
+        FrameError::Malformed => ClientError::Protocol("the hello message is not valid"),
+        FrameError::Stream => ClientError::ConnectionClosed,
+    }
 }
 
 async fn write_json<T: Serialize>(send: &mut SendStream, value: &T) -> Result<(), ClientError> {
@@ -861,6 +1125,8 @@ pub enum ClientError {
     NotPaired,
     /// The method is not on the phone allowlist.
     Forbidden(String),
+    /// The computer refused the request.
+    Remote(ErrorBody),
     /// The frame or message is over its limit.
     TooLarge,
     /// The request or reply timed out.
@@ -888,6 +1154,7 @@ impl fmt::Display for ClientError {
             Self::Revoked => f.write_str("this computer removed this phone"),
             Self::NotPaired => f.write_str("this phone is not paired with the computer"),
             Self::Forbidden(method) => write!(f, "the method is not allowed: {method}"),
+            Self::Remote(body) => write!(f, "the computer refused the request: {}", body.message()),
             Self::TooLarge => f.write_str("the link message is too large"),
             Self::Timeout => f.write_str("the link request timed out"),
             Self::ConnectionClosed => f.write_str("the connection closed"),
