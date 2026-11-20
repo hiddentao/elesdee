@@ -15,11 +15,31 @@ const agentStub = path.join(runDir, 'agent-stub.sh');
 const signInStub = path.join(runDir, 'sign-in-stub.sh');
 const signInControl = path.join(runDir, 'sign-in-control.txt');
 const tailscaleBin = path.join(runDir, 'tailscale-bin');
+const tailscaleCalls = path.join(runDir, 'tailscale-calls.txt');
 
 fs.mkdirSync(tailscaleBin, { recursive: true });
+fs.writeFileSync(tailscaleCalls, '');
 fs.writeFileSync(
   path.join(tailscaleBin, 'tailscale'),
-  '#!/bin/sh\nif [ "$1 $2" = "status --json" ]; then\n  printf \'{"BackendState":"Running","Self":{"DNSName":"elesdee-e2e.tailnet.ts.net.","TailscaleIPs":["100.101.102.103","fd7a:115c:a1e0::1"]}}\'\n  exit 0\nfi\nif [ "$1" = "funnel" ]; then\n  exit 0\nfi\nexit 1\n',
+  `#!/bin/sh
+if [ "$1 $2" = "status --json" ]; then
+  printf '{"BackendState":"Running","Self":{"DNSName":"elesdee-e2e.tailnet.ts.net.","TailscaleIPs":["100.101.102.103","fd7a:115c:a1e0::1"]}}'
+  exit 0
+fi
+if [ "$1" = "funnel" ]; then
+  printf '%s\\n' "$*" >> '${tailscaleCalls}'
+  if [ "$2" = "--bg" ]; then
+    exit 0
+  fi
+  if [ "$2" = "--https=443" ] && [ "$4" = "off" ]; then
+    exit 0
+  fi
+  # The foreground form never returns, so a regression waits for the client
+  # timeout instead of passing.
+  sleep 30
+fi
+exit 1
+`,
 );
 fs.chmodSync(path.join(tailscaleBin, 'tailscale'), 0o755);
 const corePath = `${tailscaleBin}${path.delimiter}${process.env.PATH ?? ''}`;

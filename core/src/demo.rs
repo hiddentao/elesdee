@@ -83,6 +83,8 @@ pub enum DemoFailure {
     TooMany,
     /// The demo server is stopped.
     Stopped,
+    /// Tailscale refused to turn off the public address.
+    FunnelUnavailable,
     /// No demo server has that id in this session.
     NotFound,
 }
@@ -100,6 +102,9 @@ impl fmt::Display for DemoFailure {
             Self::PortInUse => "Another session registered that port.",
             Self::TooMany => "A session may register at most 8 demo servers.",
             Self::Stopped => "The demo server is stopped. Register it again first.",
+            Self::FunnelUnavailable => {
+                "Tailscale could not turn off the public address. The server stays public. Try Stop again."
+            }
             Self::NotFound => "Unknown demo server.",
         })
     }

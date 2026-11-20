@@ -2152,6 +2152,11 @@ impl AppState {
     /// app is public at a time, because Funnel serves the public HTTPS port
     /// on the device from one local target. A failure leaves every server
     /// local and returns the reason.
+    ///
+    /// The session is checked again after the client command. If the session
+    /// started closing or pausing while the command ran, Funnel is turned off
+    /// again and the change is refused, so a stopped session never records a
+    /// public address.
     pub fn enable_funnel(
         &self,
         session_id: &str,
@@ -2166,7 +2171,7 @@ impl AppState {
             .session(session_id)
             .ok_or(DemoFailure::UnknownSession)?;
         let session = entry.session();
-        if session.status != SessionState::Active {
+        if session.status != SessionState::Active || entry.is_closing() {
             return Err(DemoFailure::Closed.into());
         }
         let server = session
@@ -2199,6 +2204,23 @@ impl AppState {
             .tailscale
             .enable_funnel(server.port)
             .map_err(|error| FunnelFailure::Unavailable(error.to_string()))?;
+        let current = entry.session();
+        let still_open = current.status == SessionState::Active
+            && !entry.is_closing()
+            && current
+                .demo_servers
+                .iter()
+                .any(|server| server.id == server_id && server.is_active());
+        if !still_open {
+            if let Err(error) = self.inner.tailscale.disable_funnel(server.port) {
+                tracing::warn!(
+                    port = server.port,
+                    %error,
+                    "could not turn off the public demo address"
+                );
+            }
+            return Err(DemoFailure::Closed.into());
+        }
         let session = entry
             .set_funnel(server_id, Some(address.clone()))
             .map_err(FunnelFailure::Demo)?;
@@ -2259,24 +2281,44 @@ impl AppState {
 
     /// Turns off every public address in a session.
     ///
-    /// Close, pause and stop call this before the server records change. A
-    /// refused command is logged and does not block the session change.
-    pub fn disable_demo_funnels(&self, session: &Session) {
-        for server in &session.demo_servers {
-            if server.funnel_address.is_none() {
-                continue;
-            }
-            if let Err(error) = self.inner.tailscale.disable_funnel(server.port) {
-                tracing::warn!(
-                    port = server.port,
+    /// The demo lock serializes the change with an enable that is in flight,
+    /// so the session is read again inside the critical section. Close, pause,
+    /// delete and the app start call this before the server records change. An
+    /// address stays on the record when the client refuses the command, so a
+    /// later stop or the next app start can retry it. Returns the updated
+    /// session when at least one address was turned off.
+    pub fn disable_demo_funnels(&self, session_id: &str) -> Option<Session> {
+        let _guard = lock(&self.inner.demo_lock);
+        let entry = self.session(session_id)?;
+        let servers = entry
+            .session()
+            .demo_servers
+            .iter()
+            .filter(|server| server.funnel_address.is_some())
+            .map(|server| (server.id.clone(), server.port))
+            .collect::<Vec<_>>();
+        let mut updated = None;
+        for (server_id, port) in servers {
+            match self.inner.tailscale.disable_funnel(port) {
+                Ok(()) => {
+                    if let Ok(session) = entry.set_funnel(&server_id, None) {
+                        updated = Some(session);
+                    }
+                }
+                Err(error) => tracing::warn!(
+                    port,
                     %error,
                     "could not turn off the public demo address"
-                );
+                ),
             }
         }
+        updated
     }
 
     /// Stops one demo server in a session and returns its port.
+    ///
+    /// A public address is turned off first. When the client refuses, the
+    /// server stays active and public, and the user may retry Stop.
     pub fn stop_demo_server(
         &self,
         session_id: &str,
@@ -2301,6 +2343,7 @@ impl AppState {
                 %error,
                 "could not turn off the public demo address"
             );
+            return Err(DemoFailure::FunnelUnavailable);
         }
         let session = entry.stop_demo_server(server_id)?;
         Ok((session, server.port))
@@ -2491,7 +2534,7 @@ impl AppState {
     }
 
     pub fn close_session(&self, entry: &SessionEntry) -> Result<Session, CloseFailure> {
-        self.disable_demo_funnels(&entry.session());
+        self.disable_demo_funnels(&entry.id());
         let result = sessions::close_entry(entry, &self.inner.events);
         if result.is_ok() {
             let mut store = lock(&self.inner.sessions);
@@ -2527,7 +2570,7 @@ impl AppState {
             }
             entry
         };
-        self.disable_demo_funnels(&entry.session());
+        self.disable_demo_funnels(&entry.id());
         let mut store = lock(&self.inner.sessions);
         let Some(current) = store.entries.get(id) else {
             return Err(DeleteSessionFailure::NotFound);

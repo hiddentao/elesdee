@@ -1925,9 +1925,9 @@ fn configure_environment(command: &mut CommandBuilder) {
 fn mark_demo_servers_stopped(session: &mut Session) {
     for server in &mut session.demo_servers {
         server.state = DemoServerState::Stopped;
-        // A public address belongs to a running server. Stop clears it with
-        // the server, and the caller turns the Funnel mapping off first.
-        server.funnel_address = None;
+        // A public address is cleared only after the Funnel mapping is off.
+        // A refused command leaves it on the record so a later stop or the
+        // next app start can retry.
     }
 }
 
