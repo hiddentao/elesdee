@@ -3874,6 +3874,26 @@ async fn delete_session(
         return Err(ApiError::conflict("Close the session before deleting it."));
     }
 
+    // Turn every public address off before the worktree and files go. The
+    // address is the only record of a mapping that may still be on in the
+    // Tailscale daemon, so a refusal keeps the session and removes nothing.
+    let cleanup_worker = state.clone();
+    let cleanup_id = id.clone();
+    let cleanup =
+        tokio::task::spawn_blocking(move || cleanup_worker.disable_demo_funnels(&cleanup_id))
+            .await
+            .map_err(blocking_error)?;
+    let remaining = cleanup.remaining_message();
+    if let Some(updated) = cleanup.updated {
+        state.emit(SessionEvent::updated(updated));
+    }
+    if let Some(remaining) = remaining {
+        state.save();
+        return Err(ApiError::unprocessable(format!(
+            "{remaining} The session was not deleted. Try again after Tailscale accepts the command."
+        )));
+    }
+
     state.stop_browser(&id).await;
     if session.kind == SessionKind::Agent
         && let Some(repo_root) = entry.repo_root()
@@ -3913,6 +3933,9 @@ async fn delete_session(
             DeleteSessionFailure::Active => {
                 ApiError::conflict("Close the session before deleting it.")
             }
+            DeleteSessionFailure::PublicAddress => ApiError::unprocessable(
+                "A public demo address is still on, so the session was not deleted. Try again after Tailscale accepts the command.",
+            ),
         })?;
     state.save();
     Ok(StatusCode::NO_CONTENT)

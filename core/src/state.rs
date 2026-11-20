@@ -737,6 +737,55 @@ pub struct DuplicateProjectFolder;
 pub enum DeleteSessionFailure {
     NotFound,
     Active,
+    /// A public demo address is still on, so the session must stay.
+    PublicAddress,
+}
+
+/// A public demo address that the Tailscale client did not turn off.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RemainingPublicAddress {
+    /// The loopback port whose public mapping may still be on.
+    pub port: u16,
+    /// Why the client refused the command.
+    pub reason: String,
+}
+
+/// The result of turning off a session's public demo addresses.
+#[derive(Debug, Default)]
+pub struct FunnelCleanup {
+    /// The updated session when at least one address was turned off.
+    pub updated: Option<Session>,
+    /// Public addresses that the client refused to turn off.
+    pub remaining: Vec<RemainingPublicAddress>,
+}
+
+impl FunnelCleanup {
+    /// Describes the public addresses that remain, or nothing when none do.
+    pub fn remaining_message(&self) -> Option<String> {
+        let first = self.remaining.first()?;
+        let ports = self
+            .remaining
+            .iter()
+            .map(|address| address.port.to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+        Some(format!(
+            "The public demo address on port {ports} could not be turned off. {}",
+            first.reason
+        ))
+    }
+}
+
+/// Turns a Funnel client error into a short reason for the user.
+fn funnel_failure_reason(error: &crate::tailscale::FunnelError) -> String {
+    match error {
+        crate::tailscale::FunnelError::Unavailable => {
+            "Tailscale is not installed, not running or not signed in.".to_owned()
+        }
+        crate::tailscale::FunnelError::Command(reason) => {
+            format!("Tailscale refused the command: {reason}")
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -2285,11 +2334,14 @@ impl AppState {
     /// so the session is read again inside the critical section. Close, pause,
     /// delete and the app start call this before the server records change. An
     /// address stays on the record when the client refuses the command, so a
-    /// later stop or the next app start can retry it. Returns the updated
-    /// session when at least one address was turned off.
-    pub fn disable_demo_funnels(&self, session_id: &str) -> Option<Session> {
+    /// later stop, a delete retry or the next app start can retry it. The
+    /// report names every address that remains public.
+    pub fn disable_demo_funnels(&self, session_id: &str) -> FunnelCleanup {
+        let mut cleanup = FunnelCleanup::default();
         let _guard = lock(&self.inner.demo_lock);
-        let entry = self.session(session_id)?;
+        let Some(entry) = self.session(session_id) else {
+            return cleanup;
+        };
         let servers = entry
             .session()
             .demo_servers
@@ -2297,22 +2349,27 @@ impl AppState {
             .filter(|server| server.funnel_address.is_some())
             .map(|server| (server.id.clone(), server.port))
             .collect::<Vec<_>>();
-        let mut updated = None;
         for (server_id, port) in servers {
             match self.inner.tailscale.disable_funnel(port) {
                 Ok(()) => {
                     if let Ok(session) = entry.set_funnel(&server_id, None) {
-                        updated = Some(session);
+                        cleanup.updated = Some(session);
                     }
                 }
-                Err(error) => tracing::warn!(
-                    port,
-                    %error,
-                    "could not turn off the public demo address"
-                ),
+                Err(error) => {
+                    tracing::warn!(
+                        port,
+                        %error,
+                        "could not turn off the public demo address"
+                    );
+                    cleanup.remaining.push(RemainingPublicAddress {
+                        port,
+                        reason: funnel_failure_reason(&error),
+                    });
+                }
             }
         }
-        updated
+        cleanup
     }
 
     /// Stops one demo server in a session and returns its port.
@@ -2559,24 +2616,26 @@ impl AppState {
         store.active = store.active.saturating_sub(1);
     }
 
+    /// Removes a closed session from the store.
+    ///
+    /// The caller must turn off every public demo address first. A session
+    /// that still holds one is refused, because the address is the only record
+    /// of a mapping that may still be on in the Tailscale daemon.
     pub fn delete_session(&self, id: &str) -> Result<(), DeleteSessionFailure> {
-        let entry = {
-            let store = lock(&self.inner.sessions);
-            let Some(entry) = store.entries.get(id).cloned() else {
-                return Err(DeleteSessionFailure::NotFound);
-            };
-            if entry.is_active() {
-                return Err(DeleteSessionFailure::Active);
-            }
-            entry
-        };
-        self.disable_demo_funnels(&entry.id());
         let mut store = lock(&self.inner.sessions);
-        let Some(current) = store.entries.get(id) else {
+        let Some(entry) = store.entries.get(id) else {
             return Err(DeleteSessionFailure::NotFound);
         };
-        if current.is_active() {
+        if entry.is_active() {
             return Err(DeleteSessionFailure::Active);
+        }
+        if entry
+            .session()
+            .demo_servers
+            .iter()
+            .any(|server| server.funnel_address.is_some())
+        {
+            return Err(DeleteSessionFailure::PublicAddress);
         }
         store.entries.remove(id);
         store.order.retain(|existing| existing != id);

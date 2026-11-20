@@ -11717,6 +11717,130 @@ async fn demo_servers_funnel_stop_keeps_the_address_when_tailscale_refuses() {
 
 #[cfg(unix)]
 #[tokio::test]
+async fn delete_refuses_while_a_public_address_remains() {
+    let data_dir = TempDirectory::new("delete-funnel-data");
+    let repo = TempDirectory::new("delete-funnel-repo");
+    let calls = data_dir.path.join("funnel-calls.txt");
+    let allowed = data_dir.path.join("off-allowed.txt");
+    let calls_text = calls.to_string_lossy().into_owned();
+    let allowed_text = allowed.to_string_lossy().into_owned();
+    let binary = write_fake_tailscale(
+        &data_dir.path,
+        &format!(
+            "case \"$1\" in\nstatus) printf '{{\"BackendState\":\"Running\",\"Self\":{{\"DNSName\":\"studio.tailnet.ts.net.\",\"TailscaleIPs\":[\"100.101.102.103\"]}}}}' ;;\nfunnel) printf '%s\\n' \"$*\" >> '{calls_text}'\nif [ \"$2\" = \"--bg\" ]; then exit 0; fi\nif [ -e '{allowed_text}' ]; then exit 0; fi\necho 'Tailscale is stopping.' >&2\nexit 1 ;;\nesac"
+        ),
+    );
+    let state = AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    )
+    .with_test_tailscale_binary(binary);
+    let app = router(state);
+    let session = create_terminal(&app, &repo.path).await;
+    let id = session["id"].as_str().expect("session id").to_owned();
+
+    let (failed, text) = mcp_text(
+        &app,
+        &id,
+        "register_demo_server",
+        json!({ "name": "Preview", "port": 6300 }),
+    )
+    .await;
+    assert!(!failed, "{text}");
+    let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    let listed = bootstrap["sessions"]
+        .as_array()
+        .expect("sessions")
+        .iter()
+        .find(|session| session["id"] == id)
+        .expect("session");
+    let server_id = demo_servers(listed)[0]["id"]
+        .as_str()
+        .expect("server id")
+        .to_owned();
+    let enable_route = format!("/api/sessions/{id}/demo-servers/{server_id}/funnel");
+    let delete_route = format!("/api/sessions/{id}");
+
+    let (status, body) = call(
+        &app,
+        "POST",
+        &enable_route,
+        Some(json!({ "confirmed": true })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    // Close retries the turn-off and keeps the address when Tailscale refuses.
+    let (status, closed) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+    let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    let listed = bootstrap["sessions"]
+        .as_array()
+        .expect("sessions")
+        .iter()
+        .find(|session| session["id"] == id)
+        .expect("closed session");
+    assert_eq!(listed["status"], "closed", "{listed}");
+    assert_eq!(demo_servers(listed)[0]["state"], "stopped", "{listed}");
+    assert_eq!(
+        demo_servers(listed)[0]["funnelAddress"],
+        "https://studio.tailnet.ts.net/",
+        "{listed}"
+    );
+
+    // Delete turns the address off before the destructive work and refuses
+    // while the client has not accepted the command.
+    let (status, body) = call(&app, "DELETE", &delete_route, None).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert!(
+        body["error"]
+            .as_str()
+            .is_some_and(|error| error.contains("could not be turned off")),
+        "{body}"
+    );
+
+    let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    let listed = bootstrap["sessions"]
+        .as_array()
+        .expect("sessions")
+        .iter()
+        .find(|session| session["id"] == id)
+        .expect("session kept after a refused delete");
+    assert_eq!(
+        demo_servers(listed)[0]["funnelAddress"],
+        "https://studio.tailnet.ts.net/",
+        "{listed}"
+    );
+
+    // After Tailscale accepts the command, the delete goes through.
+    fs::write(&allowed, "retry\n").expect("allow the next turn-off");
+    let (status, body) = call(&app, "DELETE", &delete_route, None).await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+
+    let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    assert!(
+        !bootstrap["sessions"]
+            .as_array()
+            .expect("sessions")
+            .iter()
+            .any(|session| session["id"] == id)
+    );
+
+    let written = fs::read_to_string(&calls).expect("read calls");
+    let lines = written.lines().collect::<Vec<_>>();
+    assert_eq!(lines[0], "funnel --bg 6300", "{written}");
+    assert!(
+        lines
+            .iter()
+            .filter(|line| **line == "funnel --https=443 localhost:6300 off")
+            .count()
+            >= 3,
+        "{written}"
+    );
+}
+
+#[cfg(unix)]
+#[tokio::test]
 async fn demo_servers_funnel_enable_race_with_close_leaves_nothing_public() {
     let data_dir = TempDirectory::new("demo-funnel-race-data");
     let repo = TempDirectory::new("demo-funnel-race-repo");

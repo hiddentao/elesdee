@@ -161,6 +161,8 @@ A closed session can be deleted. Open the session menu and choose **Delete…**.
 
 Delete removes the session and its log from the app. The branch stays in Git.
 
+Delete turns off a public demo address first. If Tailscale refuses, the app keeps the session and its address and shows the reason, so you can try again after Tailscale accepts the command.
+
 ## Session menu
 
 Right-click a session in the sidebar or its tab, or use the menu button in the session header. The menu holds:

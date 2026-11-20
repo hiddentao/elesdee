@@ -170,7 +170,7 @@ The agents write their conversation to files on disk, and each keeps its own int
 - The app does not open a pull request. I do that myself.
 - Reopen re-creates the worktree from the session branch.
 - At Close and at pause, the app stops the session's demo servers and closes its browser tabs. Browser logins are kept.
-- Closed sessions stay until I delete them. For a closed session, the session menu has Delete, which removes its log from the app. The branch stays in Git.
+- Closed sessions stay until I delete them. For a closed session, the session menu has Delete, which removes its log from the app. The branch stays in Git. Delete tries the demo-server turn-off before it removes anything. If a public address is still on, Delete refuses, says why and keeps the session, so I can retry after Tailscale accepts the command.
 
 **Tabs**
 
@@ -569,6 +569,7 @@ The IDE changes no Tailscale setting. To share a demo with people outside my Tai
 - One demo server is public at a time. Making another server public turns the first one off.
 - Stop, close, pause and an app restart turn Funnel off. Close and pause turn it off before the agent wait or the Git work begins. If Tailscale is missing, stopped or refuses the command, the server stays local and the panel shows the reason.
 - A refused turn-off keeps the public address on the record, because the mapping may still be on in the daemon. The panel shows the reason and Stop can be retried. The next app start also retries, and clears the address only after the client accepts the command.
+- Delete turns every public address off before it removes the worktree, the files or the session record. If the client refuses, Delete returns an error with the reason, keeps the session and its address, and removes nothing, so I can retry after Tailscale accepts the command. The only record of the public port is never dropped while the daemon may still serve it.
 
 ## Mobile companion app
 
