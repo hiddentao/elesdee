@@ -1,6 +1,6 @@
 ---
 title: Permissions
-description: Answer Claude Code permission requests from the app.
+description: Answer Claude Code, Codex and OpenCode 2 permission requests from the app.
 order: 7
 ---
 

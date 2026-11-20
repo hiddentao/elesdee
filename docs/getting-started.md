@@ -48,8 +48,9 @@ To start from GitHub, choose **From GitHub** instead of **Local folder**. Choose
 1. Open **Settings**.
 2. Open **Providers**.
 3. Choose **Add provider**.
-4. Enter a name and a Google API key.
-5. Save.
+4. Choose the vendor and the sign-in method.
+5. Enter a name and the key, server URL or sign-in that the vendor needs.
+6. Save.
 
 The key goes to the system keychain. It is not written to the app's state file, a log or a session output.
 

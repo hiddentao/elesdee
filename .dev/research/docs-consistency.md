@@ -134,27 +134,28 @@ Scope: the behaviors changed on 20 November 2026 — Tailscale Funnel, deleting 
 
 ## Facts that appear in two documents and disagree
 
-| Fact | Document A | Document B | Code follows |
-| --- | --- | --- | --- |
-| A refused turn-off shows the reason and can be retried | `SPEC.md:571` | `api.md:389` (close, pause and startup only log) | B |
-| The session menu contents | `SPEC.md:153` (no Reopen, no header button) | `docs/sessions.md:168-176` (Reopen and header button) | B |
-| Clients per vendor | `docs/agents.md:57-68` | `SPEC.md:371-381`, `providers-configs.md:116-126` | B |
-| Add-provider steps | `docs/getting-started.md:48-52` | `docs/agents.md:71-77` | B |
-| GitHub launch search | `AGENTS.md:34` (not built) | `docs/sessions.md:30` (built) | B |
-| Permission cards | `docs/troubleshooting.md:39` (Claude Code only) | `docs/permissions.md:9, 28-32`, `SPEC.md:250` (three clients) | B |
-| Builds kept on the phone | `SPEC.md:586` (two) | `phone-shell.md:438, 958` (three) | B |
-| What the retained previous build is for | `docs/phone.md:19` ("next attempt") | `phone-shell.md:438, 458, 970` and `SPEC.md:586` (keeps an open page working) | B |
-| Keep-awake while paused | `docs/settings.md:16` (does not hold) | `SPEC.md:73` ("while any agent session is running"); code holds | A and B agree; code differs |
+None remain among the documents changed in this pass. Each fact below now reads the same way everywhere it appears:
 
-## Public docs that name internal behavior users cannot see
+| Fact | Documents that now agree |
+| --- | --- |
+| A refused Funnel turn-off keeps the address; Stop shows the reason and can be retried, and a stopped server shows the retained address with the same action | `SPEC.md`, `.dev/api.md`, `docs/session-tools.md`, `AGENTS.md` |
+| The session menu | `SPEC.md` and `docs/sessions.md` both name Reopen and the menu button in the session header |
+| Clients per vendor | `docs/agents.md` now carries the full list from `core/src/providers.rs`, as `SPEC.md` and `.dev/providers-configs.md` already did |
+| Add-provider steps | `docs/getting-started.md` and `docs/agents.md` both start with the vendor and the sign-in method |
+| GitHub launch search | `AGENTS.md` and `docs/sessions.md` both treat it as built |
+| Permission cards | `docs/troubleshooting.md`, `docs/index.md`, `docs/permissions.md` and `SPEC.md` all name Claude Code, Codex and OpenCode 2 |
+| Builds kept on the phone | `SPEC.md`, `.dev/phone-shell.md` and `docs/phone.md` name the build on screen, the current build and the build it replaces, and give the same reason for keeping them |
+| Keep-awake while paused | `docs/settings.md` and `SPEC.md` say an active agent session holds the computer awake, including a paused one, and the code agrees |
 
-These are `docs/` pages, which should describe what a user can do. Each line below names an internal mechanism that has no user-visible control or result.
+## Public docs that name internal behavior
 
-- `docs/session-tools.md:109` — names the MCP server, a Claude "launch-only MCP config", loading the skill folder "as a plugin", a "private Codex home", and an "OpenCode launch-only config file". A user only sees that the tools exist.
-- `docs/agents.md:111` — "passes the key in the child process environment", "creates a private home folder for the session, writes a settings file that selects Gemini". A user only sees that a Google provider works.
-- `docs/phone.md:21` — "they do not use a local computer address on the phone. The browser layout at `/phone.html` keeps using the computer's local API." The local API and transport selection are internal; the user-visible fact is that the phone needs the paired app connection.
-- `docs/troubleshooting.md:27` — "In development, check that the core service runs before the UI. Vite forwards `/api` requests to the core service." This is developer tooling, not user troubleshooting. Move it to `AGENTS.md` ("Running the app"), which already covers it.
-- `docs/sessions.md:30` — "The match uses the git remote, so two checkouts with the same folder name stay apart." The user-visible result is that the right folder is chosen; the matching rule is internal. Lower priority than the four above.
+None remain. These pages now describe what a user sees:
+
+- `docs/session-tools.md` says the tools and skills reach Claude Code, Codex and OpenCode 2 sessions and leave the repository and global settings alone, without naming the server or the per-client launch files.
+- `docs/agents.md` says the provider's settings and key reach the client and the session's temporary settings are removed, without naming the child environment or the private home folder.
+- `docs/phone.md` says the downloaded interface uses the phone app's connection, without naming the local API or the transport selection.
+- `docs/troubleshooting.md` no longer carries development instructions; `AGENTS.md` already covers them under "Running the app".
+- `docs/sessions.md` says the right repository is chosen even when two checkouts share a folder name, without naming the git remote.
 
 ## Checked and correct
 

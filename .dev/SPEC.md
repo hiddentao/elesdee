@@ -70,7 +70,7 @@ The desktop app is a Tauri app. Version 1 is for macOS; Windows and Linux follow
 
 - If the window crashes or I close it, sessions keep running and the phone stays connected. When the window opens again, it reconnects.
 - Start at login: a setting, "Start elesdee when the system starts", is off by default. When it is on, the core service starts when I log in and resumes the sessions; the window opens only when I click the app. When it is off, elesdee starts only when I open it.
-- Sleep: a setting, "Keep the computer awake while agents work", is off by default. When it is on, the computer does not go to sleep on its own while any agent session is running. When it is off, sessions pause while the Mac sleeps, and the phone cannot connect.
+- Sleep: a setting, "Keep the computer awake while agents work", is off by default. When it is on, the computer does not go to sleep on its own while any agent session is active, including one that is paused or has reported done. When it is off, sessions pause while the Mac sleeps, and the phone cannot connect.
 - When I quit the app while sessions are running, the app asks me first. If I confirm, the core service saves every session and stops. On the next launch, the sessions resume. Crash recovery (below) covers a crash of the core service or a restart of the Mac.
 - All parts live in this one repository: the core service and the shared connection library (Rust), the Mac app (Tauri), the phone shell (Tauri mobile) and the shared UI (React). One change can update them together, and one release workflow builds them.
 - Every pull request runs lint and format checks, unit tests, the Mac and Android builds, a check that every interface text exists in all 12 languages, and end-to-end tests that start the app and drive real sessions with a test agent.
@@ -149,8 +149,8 @@ The agents write their conversation to files on disk, and each keeps its own int
 
 **Session menu**
 
-- Right-click a session in the sidebar, or its tab, to open a menu of actions.
-- The menu holds Rename, Switch AI config, Move to project, and Close or Delete. The branch chip's menu holds Copy branch name, Copy folder path, Open folder and Open in Terminal. A session without a branch shows no branch chip, so its menu also holds Copy folder path.
+- Right-click a session in the sidebar, or its tab, or choose the menu button in the session header, to open a menu of actions.
+- The menu holds Reopen for a closed session, Rename, Move to project, Switch AI config, and Close or Delete. The branch chip's menu holds Copy branch name, Copy folder path, Open folder and Open in Terminal. A session without a branch shows no branch chip, so its menu also holds Copy folder path.
 - Move to project opens a chooser of the other projects and moves the session to the chosen one. It does the same as dragging the session.
 - One action is Close. Close stops the session. The app asks me to confirm first.
 - Close is the only way to stop a session for good. The app can also pause a session that is out of usage (see Auto-switch).
@@ -565,10 +565,10 @@ The IDE changes no Tailscale setting. To share a demo with people outside my Tai
 - The session's Files panel offers a Make public action for an active demo server. The action first asks me to confirm and says that anyone on the internet can open the server. The confirmation is modal: the rest of the window is inert and focus stays in it.
 - On confirmation, the IDE runs `tailscale funnel --bg <port>` for that registered loopback port with the Tailscale client it already found. The background form lets the command return once the client accepts it. It never exposes another port and never takes an executable path from the agent.
 - The confirmation is the app's dialog. The core treats the `confirmed` boolean in the local request as that confirmation, because it cannot tell a user at the dialog from any other local caller. The dialog is the intended gate, but a local caller that sends the boolean directly bypasses it.
-- The public address is `https://<machine>.<tailnet>.ts.net/`. The Files panel shows it only while the server is active, with one Stop action that turns Funnel off.
+- The public address is `https://<machine>.<tailnet>.ts.net/`. The Files panel shows it while the server is active, with one Stop action that turns Funnel off. A stopped server that still holds the address shows it with a warning and the same Stop public action.
 - One demo server is public at a time. Making another server public turns the first one off.
 - Stop, close, pause and an app restart turn Funnel off. Close and pause turn it off before the agent wait or the Git work begins. If Tailscale is missing, stopped or refuses the command, the server stays local and the panel shows the reason.
-- A refused turn-off keeps the public address on the record, because the mapping may still be on in the daemon. The panel shows the reason and Stop can be retried. The next app start also retries, and clears the address only after the client accepts the command.
+- A refused turn-off keeps the public address on the record, because the mapping may still be on in the daemon. A refused Stop keeps the server active and shows the reason, so Stop can be retried. After a close or pause, the server shows as stopped, and the panel still shows the retained public address with the warning and one Stop public action; that action retries the turn-off and shows the reason if Tailscale refuses again. The next app start also retries, and clears the address only after the client accepts the command.
 - Delete turns every public address off before it removes the worktree, the files or the session record. If the client refuses, Delete returns an error with the reason, keeps the session and its address, and removes nothing, so I can retry after Tailscale accepts the command. The only record of the public port is never dropped while the daemon may still serve it.
 
 ## Mobile companion app
@@ -583,7 +583,7 @@ The mobile app is the only way to control the IDE remotely. It is for iOS and An
 - Each Mac holds the UI package of its own version. On connect, the phone compares that version with its stored copy for that Mac. If the Mac has a new version, the phone downloads the whole package once and stores it.
 - The UI is not streamed. It runs from the stored package on the phone. Only data goes over the connection: session output, my input, and events.
 - So after I update the desktop app, the phone gets the new UI the next time it connects. The phone app needs no update.
-- An update does not break the screen that is open. The phone keeps the build on screen and the current build, so the open page keeps loading its scripts and styles even after a second update, and the shell shows the new build when it next opens the screens.
+- An update does not break the screen that is open. The phone keeps the build on screen, the current build and the build it replaces, so the open page keeps loading its scripts and styles even after a second update, and the shell shows the new build when it next opens the screens.
 - The shell shows the stored UI package through a Tauri custom protocol, which serves web pages from the app's own code ([Tauri docs](https://docs.rs/tauri/latest/tauri/struct.Builder.html)).
 - The shell downloads UI packages only from paired Macs, over the authenticated connection. The UI cannot load code from the internet.
 - The shell offers its native features to the screens through a small bridge with its own version number. If a Mac's screens need a newer bridge, the phone tells me to update the phone app.
