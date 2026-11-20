@@ -424,6 +424,8 @@ export const fr = {
   'newSession.folder': 'Dossier',
   'newSession.folderPlaceholder': 'Saisissez un chemin de dossier',
   'newSession.browse': 'Parcourir…',
+  'newSession.repositoryPlaceholder':
+    'Saisissez un chemin de dossier ou choisissez un dépôt récent',
   'newSession.gitHint':
     'Le dossier doit se trouver dans un dépôt Git.',
   'newSession.sourceBranch': 'Branche source (facultatif)',

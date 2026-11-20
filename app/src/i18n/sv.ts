@@ -423,6 +423,8 @@ export const sv = {
   'newSession.folder': 'Mapp',
   'newSession.folderPlaceholder': 'Ange en mappsökväg',
   'newSession.browse': 'Bläddra…',
+  'newSession.repositoryPlaceholder':
+    'Ange en mappsökväg eller välj ett tidigare repository',
   'newSession.gitHint':
     'Mappen måste ligga i ett Git-lager.',
   'newSession.sourceBranch': 'Källgren (valfritt)',

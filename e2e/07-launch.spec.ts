@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { expect, test } from '@playwright/test';
+import { expect, test, type Locator } from '@playwright/test';
 import {
   bootstrap,
   closeSession,
@@ -46,7 +46,11 @@ test('launches from a chosen branch and names the session from the prompt', asyn
   await expect(branchCombo).toHaveValue('feature');
 
   const prompt = 'Fix the sky courier';
-  await dialog.getByLabel('First prompt (optional)').fill(prompt);
+  const promptField = dialog.getByLabel('First prompt (optional)');
+  await expect(promptField).toBeHidden();
+  await dialog.getByText('Additional settings').click();
+  await expect(promptField).toBeVisible();
+  await promptField.fill(prompt);
   await dialog.getByRole('button', { name: 'Start session' }).click();
 
   await expect(dialog).not.toBeVisible();
@@ -71,4 +75,105 @@ test('launches from a chosen branch and names the session from the prompt', asyn
   expect(session?.firstPrompt).toBe(prompt);
 
   await closeSession(request, session!.id);
+});
+
+test('picks a recent repository from an earlier session', async ({
+  page,
+  request,
+}) => {
+  const label = uniqueName('recent-project');
+  const sourceLabel = uniqueName('recent-source');
+  const baseRepo = createGitRepo(`${label}-base`);
+  const sourceRepo = createGitRepo(sourceLabel);
+  await createProject(request, label, baseRepo);
+  const sourceProject = await createProject(request, sourceLabel, sourceRepo);
+
+  async function chooseProjectAndConfig(dialog: Locator, projectName: string) {
+    const projectCombo = dialog.getByRole('combobox', { name: 'Project' });
+    await projectCombo.click();
+    await projectCombo.fill(projectName);
+    await page
+      .getByRole('option', { name: new RegExp(projectName) })
+      .click();
+
+    const configCombo = dialog.getByRole('combobox', {
+      name: 'AI config',
+      exact: true,
+    });
+    await configCombo.click();
+    await configCombo.fill('Anthropic Max');
+    await page.getByRole('option', { name: /Anthropic Max/ }).click();
+  }
+
+  await openApp(page);
+  await page
+    .locator('.titlebar')
+    .getByRole('button', { name: 'New session' })
+    .click();
+  let dialog = page.getByRole('dialog');
+  await chooseProjectAndConfig(dialog, sourceLabel);
+  await expect(
+    dialog.getByRole('combobox', { name: 'Repository folder' }),
+  ).toHaveValue(sourceRepo);
+  await dialog.getByRole('button', { name: 'Start session' }).click();
+  await expect(dialog).not.toBeVisible();
+
+  let data = await bootstrap(request);
+  const earlier = data.sessions.find(
+    (item) => item.projectId === sourceProject.id,
+  );
+  expect(earlier).toBeTruthy();
+  await closeSession(request, earlier!.id);
+
+  await page
+    .locator('.titlebar')
+    .getByRole('button', { name: 'New session' })
+    .click();
+  dialog = page.getByRole('dialog');
+  await chooseProjectAndConfig(dialog, label);
+
+  const repository = dialog.getByRole('combobox', {
+    name: 'Repository folder',
+  });
+  await expect(repository).toHaveValue(baseRepo);
+  await repository.click();
+  const recent = page.getByRole('option', {
+    name: new RegExp(sourceRepo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
+  });
+  await expect(recent).toBeVisible();
+  await recent.click();
+
+  await expect(repository).toHaveValue(sourceRepo);
+  await expect(
+    dialog.getByRole('combobox', { name: 'Project' }),
+  ).toHaveValue(label);
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+});
+
+test.describe('at 1024 pixels', () => {
+  test.use({ viewport: { width: 1024, height: 800 } });
+
+  test('the launch form fits without horizontal scroll', async ({ page }) => {
+    await openApp(page);
+    await page
+      .locator('.titlebar')
+      .getByRole('button', { name: 'New session' })
+      .click();
+    const dialog = page.getByRole('dialog');
+
+    await dialog.getByText('Additional settings').click();
+    await expect(dialog.getByLabel('Repository folder')).toBeVisible();
+    await expect(dialog.getByLabel('First prompt (optional)')).toBeVisible();
+
+    const pageOverflow = await page.evaluate(
+      () =>
+        document.documentElement.scrollWidth -
+        document.documentElement.clientWidth,
+    );
+    expect(pageOverflow).toBeLessThanOrEqual(0);
+    const dialogOverflow = await dialog.evaluate(
+      (element) => element.scrollWidth - element.clientWidth,
+    );
+    expect(dialogOverflow).toBeLessThanOrEqual(0);
+  });
 });

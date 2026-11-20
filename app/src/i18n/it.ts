@@ -424,6 +424,8 @@ export const it = {
   'newSession.folder': 'Cartella',
   'newSession.folderPlaceholder': 'Digita un percorso di cartella',
   'newSession.browse': 'Sfoglia…',
+  'newSession.repositoryPlaceholder':
+    'Digita un percorso di cartella o scegli un repository recente',
   'newSession.gitHint':
     'La cartella deve trovarsi in un repository Git.',
   'newSession.sourceBranch': 'Branch di origine (facoltativo)',

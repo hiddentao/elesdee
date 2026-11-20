@@ -1415,6 +1415,7 @@ export default function App() {
           projects={projects}
           providers={providers}
           configs={configs}
+          sessions={sessions}
           initialProjectId={dialogProjectId ?? activeProjectId}
           onCreate={createSession}
           onCreated={handleCreated}

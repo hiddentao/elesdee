@@ -423,6 +423,8 @@ export const es = {
   'newSession.folder': 'Carpeta',
   'newSession.folderPlaceholder': 'Escribe una ruta de carpeta',
   'newSession.browse': 'Examinar…',
+  'newSession.repositoryPlaceholder':
+    'Escribe una ruta de carpeta o elige un repositorio reciente',
   'newSession.gitHint':
     'La carpeta debe estar dentro de un repositorio Git.',
   'newSession.sourceBranch': 'Rama de origen (opcional)',

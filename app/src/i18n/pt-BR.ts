@@ -424,6 +424,8 @@ export const ptBR = {
   'newSession.folder': 'Pasta',
   'newSession.folderPlaceholder': 'Digite um caminho de pasta',
   'newSession.browse': 'Procurar…',
+  'newSession.repositoryPlaceholder':
+    'Digite um caminho de pasta ou escolha um repositório recente',
   'newSession.gitHint':
     'A pasta deve estar dentro de um repositório Git.',
   'newSession.sourceBranch': 'Branch de origem (opcional)',

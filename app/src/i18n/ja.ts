@@ -423,6 +423,8 @@ export const ja = {
   'newSession.folder': 'フォルダー',
   'newSession.folderPlaceholder': 'フォルダーのパスを入力',
   'newSession.browse': '参照…',
+  'newSession.repositoryPlaceholder':
+    'フォルダーのパスを入力するか、最近のリポジトリを選択',
   'newSession.gitHint':
     'フォルダーは Git リポジトリ内にある必要があります。',
   'newSession.sourceBranch': 'ソースブランチ（任意）',

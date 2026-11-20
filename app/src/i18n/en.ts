@@ -410,6 +410,8 @@ export const en = {
   'newSession.folder': 'Folder',
   'newSession.folderPlaceholder': 'Type a folder path',
   'newSession.browse': 'Browse…',
+  'newSession.repositoryPlaceholder':
+    'Type a folder path or pick a recent repository',
   'newSession.gitHint': 'The folder must be inside a Git repository.',
   'newSession.sourceBranch': 'Source branch (optional)',
   'newSession.sourceBranchPlaceholder': 'Current branch',

@@ -31,6 +31,7 @@ interface NewSessionDialogProps {
   projects: Project[];
   providers: Provider[];
   configs: AiConfig[];
+  sessions: Session[];
   initialProjectId?: string | null;
   onCreate: (input: CreateSessionInput) => Promise<Session>;
   onCreated: (session: Session) => void;
@@ -52,6 +53,57 @@ function projectOption(project: Project): ComboboxOption {
     label: project.name,
     meta: project.folder,
   };
+}
+
+function folderLabel(folder: string): string {
+  const trimmed = folder.replace(/[\\/]+$/, '');
+  const parts = trimmed.split(/[\\/]/);
+  return parts[parts.length - 1] || folder;
+}
+
+const RECENT_REPOSITORY_LIMIT = 20;
+
+function recentRepositoryOptions(
+  sessions: Session[],
+  projects: Project[],
+  query: string,
+): ComboboxOption[] {
+  const projectsById = new Map(
+    projects.map((project) => [project.id, project]),
+  );
+  const normalized = query.trim().toLowerCase();
+  const latest = new Map<string, number>();
+
+  for (const session of sessions) {
+    const path = projectsById.get(session.projectId)?.folder?.trim();
+    if (!path) {
+      continue;
+    }
+    const started = Date.parse(session.startedAt) || 0;
+    if (!latest.has(path) || started > latest.get(path)!) {
+      latest.set(path, started);
+    }
+  }
+
+  const entries = [...latest.entries()].sort(
+    (left, right) => right[1] - left[1],
+  );
+  const options: ComboboxOption[] = [];
+  for (const [path] of entries) {
+    const label = folderLabel(path);
+    if (
+      normalized &&
+      !path.toLowerCase().includes(normalized) &&
+      !label.toLowerCase().includes(normalized)
+    ) {
+      continue;
+    }
+    options.push({ id: path, label, closedLabel: path, meta: path });
+    if (options.length === RECENT_REPOSITORY_LIMIT) {
+      break;
+    }
+  }
+  return options;
 }
 
 function defaultAllowedConfigs(
@@ -115,6 +167,7 @@ export function NewSessionDialog({
   projects,
   providers,
   configs,
+  sessions,
   initialProjectId,
   onCreate,
   onCreated,
@@ -235,6 +288,30 @@ export function NewSessionDialog({
     [folder, t],
   );
 
+  const loadRepositoryOptions = useCallback<ComboboxLoader>(
+    async (query, signal) => {
+      if (kind !== 'agent') {
+        return [];
+      }
+      await new Promise<void>((resolve) => {
+        const timer = window.setTimeout(resolve, 0);
+        signal.addEventListener(
+          'abort',
+          () => {
+            window.clearTimeout(timer);
+            resolve();
+          },
+          { once: true },
+        );
+      });
+      if (signal.aborted) {
+        return [];
+      }
+      return recentRepositoryOptions(sessions, projects, query);
+    },
+    [kind, projects, sessions],
+  );
+
   const selectedProject = projectId
     ? projects.find((project) => project.id === projectId) ?? null
     : null;
@@ -311,14 +388,20 @@ export function NewSessionDialog({
     }));
   }
 
+  function applyRepository(next: string) {
+    if (next !== folder.trim()) {
+      setSourceBranch(null);
+    }
+    setFolder(next);
+    setFolderEdited(true);
+    setErrors((current) => ({ ...current, folder: undefined }));
+  }
+
   async function browse() {
     try {
       const chosen = await pickFolder();
       if (chosen) {
-        setFolder(chosen);
-        setFolderEdited(true);
-        setSourceBranch(null);
-        setErrors((current) => ({ ...current, folder: undefined }));
+        applyRepository(chosen);
       }
     } catch {
       setErrors((current) => ({
@@ -326,6 +409,10 @@ export function NewSessionDialog({
         form: t('newSession.errorPicker'),
       }));
     }
+  }
+
+  function chooseRepository(id: string | null) {
+    applyRepository(id?.trim() ?? '');
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -570,72 +657,111 @@ export function NewSessionDialog({
             </>
           ) : null}
 
-          <div className="field">
-            <label htmlFor="new-session-folder">
-              {kind === 'agent'
-                ? t('newSession.repositoryFolder')
-                : t('newSession.folder')}
-            </label>
-            <div className="field-row">
-              <input
-                id="new-session-folder"
-                className="text-input"
-                value={folder}
-                placeholder={t('newSession.folderPlaceholder')}
-                spellCheck={false}
-                required
-                aria-invalid={errors.folder ? true : undefined}
-                aria-describedby={
-                  [
-                    kind === 'agent' ? 'new-session-folder-hint' : null,
-                    errors.folder ? 'new-session-folder-error' : null,
-                  ]
-                    .filter(Boolean)
-                    .join(' ') || undefined
-                }
-                onChange={(event) => {
-                  setFolder(event.target.value);
-                  setFolderEdited(true);
-                  setSourceBranch(null);
-                  setErrors((current) => ({ ...current, folder: undefined }));
-                }}
-              />
-              {isTauri() ? (
-                <button type="button" className="btn btn-ghost" onClick={() => void browse()}>
-                  {t('newSession.browse')}
-                </button>
+          {kind === 'agent' ? (
+            <Combobox
+              id="new-session-folder"
+              label={t('newSession.repositoryFolder')}
+              value={folder.trim() || null}
+              loadOptions={loadRepositoryOptions}
+              selectedOption={
+                folder.trim()
+                  ? {
+                      id: folder.trim(),
+                      label: folderLabel(folder.trim()),
+                      closedLabel: folder.trim(),
+                      meta: folder.trim(),
+                    }
+                  : null
+              }
+              onChange={chooseRepository}
+              placeholder={t('newSession.repositoryPlaceholder')}
+              hint={t('newSession.gitHint')}
+              error={errors.folder}
+              required
+              allowCustom
+              action={
+                isTauri() ? (
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    onClick={() => void browse()}
+                  >
+                    {t('newSession.browse')}
+                  </button>
+                ) : undefined
+              }
+            />
+          ) : (
+            <div className="field">
+              <label htmlFor="new-session-folder">{t('newSession.folder')}</label>
+              <div className="field-row">
+                <input
+                  id="new-session-folder"
+                  className="text-input"
+                  value={folder}
+                  placeholder={t('newSession.folderPlaceholder')}
+                  spellCheck={false}
+                  required
+                  aria-invalid={errors.folder ? true : undefined}
+                  aria-describedby={
+                    errors.folder ? 'new-session-folder-error' : undefined
+                  }
+                  onChange={(event) => applyRepository(event.target.value)}
+                />
+                {isTauri() ? (
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    onClick={() => void browse()}
+                  >
+                    {t('newSession.browse')}
+                  </button>
+                ) : null}
+              </div>
+              {errors.folder ? (
+                <p
+                  className="field-error"
+                  id="new-session-folder-error"
+                  role="alert"
+                >
+                  {errors.folder}
+                </p>
               ) : null}
             </div>
-            {kind === 'agent' ? (
-              <p className="field-hint" id="new-session-folder-hint">
-                {t('newSession.gitHint')}
-              </p>
-            ) : null}
-            {errors.folder ? (
-              <p className="field-error" id="new-session-folder-error" role="alert">
-                {errors.folder}
-              </p>
-            ) : null}
-          </div>
+          )}
 
           {kind === 'agent' ? (
-            <>
-              <Combobox
-                key={folder}
-                id="new-session-branch"
-                label={t('newSession.sourceBranch')}
-                value={sourceBranch}
-                loadOptions={loadBranchOptions}
-                selectedOption={
-                  sourceBranch
-                    ? { id: sourceBranch, label: sourceBranch }
-                    : null
-                }
-                onChange={setSourceBranch}
-                placeholder={t('newSession.sourceBranchPlaceholder')}
-                hint={t('newSession.sourceBranchHint')}
-              />
+            <Combobox
+              key={folder}
+              id="new-session-branch"
+              label={t('newSession.sourceBranch')}
+              value={sourceBranch}
+              loadOptions={loadBranchOptions}
+              selectedOption={
+                sourceBranch
+                  ? { id: sourceBranch, label: sourceBranch }
+                  : null
+              }
+              onChange={setSourceBranch}
+              placeholder={t('newSession.sourceBranchPlaceholder')}
+              hint={t('newSession.sourceBranchHint')}
+            />
+          ) : null}
 
+          <div className="field">
+            <label htmlFor="new-session-name">{t('newSession.name')}</label>
+            <input
+              id="new-session-name"
+              className="text-input"
+              value={name}
+              placeholder={t('newSession.namePlaceholder')}
+              onChange={(event) => setName(event.target.value)}
+            />
+          </div>
+
+          <details className="field additional-settings">
+            <summary>{t('newSession.additional')}</summary>
+            {kind === 'agent' ? (
               <div className="field">
                 <label htmlFor="new-session-prompt">
                   {t('newSession.firstPrompt')}
@@ -652,22 +778,7 @@ export function NewSessionDialog({
                   {t('newSession.firstPromptHint')}
                 </p>
               </div>
-            </>
-          ) : null}
-
-          <div className="field">
-            <label htmlFor="new-session-name">{t('newSession.name')}</label>
-            <input
-              id="new-session-name"
-              className="text-input"
-              value={name}
-              placeholder={t('newSession.namePlaceholder')}
-              onChange={(event) => setName(event.target.value)}
-            />
-          </div>
-
-          <details className="field additional-settings">
-            <summary>{t('newSession.additional')}</summary>
+            ) : null}
             {dirty ? (
               <fieldset className="field" id="new-session-uncommitted">
                 <legend>{t('newSession.uncommitted')}</legend>
