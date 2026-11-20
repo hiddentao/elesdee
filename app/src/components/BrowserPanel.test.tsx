@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   activateBrowserTab,
   browserBack,
@@ -81,6 +81,10 @@ function stateWith(
     ...overrides,
   };
 }
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -323,7 +327,104 @@ describe('BrowserPanel', () => {
       expect(pressBrowserKey).toHaveBeenCalledWith('s1', 'Tab', 8),
     );
 
-    fireEvent.keyDown(live, { key: 'a', ctrlKey: true });
+    fireEvent.keyDown(live, { key: 'Escape' });
+    await waitFor(() =>
+      expect(pressBrowserKey).toHaveBeenCalledWith('s1', 'Escape', 0),
+    );
+
     expect(typeBrowserText).toHaveBeenCalledTimes(1);
+  });
+
+  it('sends modified letter and digit chords to the page', async () => {
+    vi.mocked(getBrowserState).mockResolvedValue(stateWith([tab()]));
+    render(<BrowserPanel session={makeSession()} />);
+
+    const live = await screen.findByRole('application', {
+      name: 'Live browser page',
+    });
+
+    expect(fireEvent.keyDown(live, { key: 'a', ctrlKey: true })).toBe(false);
+    await waitFor(() =>
+      expect(pressBrowserKey).toHaveBeenCalledWith('s1', 'a', 2),
+    );
+
+    fireEvent.keyDown(live, { key: 'c', metaKey: true });
+    await waitFor(() =>
+      expect(pressBrowserKey).toHaveBeenCalledWith('s1', 'c', 4),
+    );
+
+    fireEvent.keyDown(live, { key: '1', altKey: true });
+    await waitFor(() =>
+      expect(pressBrowserKey).toHaveBeenCalledWith('s1', '1', 1),
+    );
+
+    fireEvent.keyDown(live, { key: 'a', ctrlKey: true, shiftKey: true });
+    await waitFor(() =>
+      expect(pressBrowserKey).toHaveBeenCalledWith('s1', 'A', 10),
+    );
+
+    fireEvent.keyDown(live, { key: 'ArrowLeft', altKey: true });
+    await waitFor(() =>
+      expect(pressBrowserKey).toHaveBeenCalledWith('s1', 'ArrowLeft', 1),
+    );
+
+    fireEvent.keyDown(live, { key: 'Home', ctrlKey: true });
+    await waitFor(() =>
+      expect(pressBrowserKey).toHaveBeenCalledWith('s1', 'Home', 2),
+    );
+
+    expect(typeBrowserText).not.toHaveBeenCalled();
+  });
+
+  it('leaves the app window shortcuts to the app on a Mac', async () => {
+    const userAgent = vi
+      .spyOn(navigator, 'userAgent', 'get')
+      .mockReturnValue(
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/537.36',
+      );
+    vi.mocked(getBrowserState).mockResolvedValue(stateWith([tab()]));
+    render(<BrowserPanel session={makeSession()} />);
+
+    const live = await screen.findByRole('application', {
+      name: 'Live browser page',
+    });
+
+    for (const key of ['q', 'w', 'm', 'h']) {
+      expect(fireEvent.keyDown(live, { key, metaKey: true })).toBe(true);
+    }
+    await new Promise((resolve) => window.setTimeout(resolve, 60));
+    expect(pressBrowserKey).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(live, { key: 'a', metaKey: true });
+    await waitFor(() =>
+      expect(pressBrowserKey).toHaveBeenCalledWith('s1', 'a', 4),
+    );
+    expect(pressBrowserKey).toHaveBeenCalledTimes(1);
+
+    userAgent.mockRestore();
+  });
+
+  it('leaves the window close shortcut to the app on other platforms', async () => {
+    const userAgent = vi
+      .spyOn(navigator, 'userAgent', 'get')
+      .mockReturnValue('Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36');
+    vi.mocked(getBrowserState).mockResolvedValue(stateWith([tab()]));
+    render(<BrowserPanel session={makeSession()} />);
+
+    const live = await screen.findByRole('application', {
+      name: 'Live browser page',
+    });
+
+    expect(fireEvent.keyDown(live, { key: 'w', ctrlKey: true })).toBe(true);
+    await new Promise((resolve) => window.setTimeout(resolve, 60));
+    expect(pressBrowserKey).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(live, { key: 'a', ctrlKey: true });
+    await waitFor(() =>
+      expect(pressBrowserKey).toHaveBeenCalledWith('s1', 'a', 2),
+    );
+    expect(pressBrowserKey).toHaveBeenCalledTimes(1);
+
+    userAgent.mockRestore();
   });
 });

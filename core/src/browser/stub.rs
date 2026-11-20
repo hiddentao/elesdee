@@ -126,8 +126,13 @@ impl Stub {
         Ok(info)
     }
 
-    /// Presses a named key from the live view.
-    pub async fn press_key(&self, page: &str, key: &str) -> Result<PageInfo, String> {
+    /// Presses a key from the live view and records its modifier mask.
+    pub async fn press_key(
+        &self,
+        page: &str,
+        key: &str,
+        modifiers: u8,
+    ) -> Result<PageInfo, String> {
         let info = {
             let inner = lock(self);
             inner
@@ -136,7 +141,12 @@ impl Stub {
                 .map(page_info)
                 .ok_or_else(|| "No page is open.".to_owned())?
         };
-        self.record_console("log", &format!("Live key {key}"));
+        let line = if modifiers == 0 {
+            format!("Live key {key}")
+        } else {
+            format!("Live key {key} with modifiers {modifiers}")
+        };
+        self.record_console("log", &line);
         Ok(info)
     }
 

@@ -213,30 +213,43 @@ impl Chromium {
         page_info(page).await
     }
 
-    /// Presses a named key that does not insert text, such as Enter or an
-    /// arrow key.
+    /// Presses a named key, a letter or a digit. A command modifier makes the
+    /// event a shortcut instead of text, so the page receives the combination.
     pub async fn press_key(
         &self,
         page: &Page,
         key: &str,
         modifiers: u8,
     ) -> Result<PageInfo, String> {
-        let definition = key_definition(key)
+        let definition = key_definition(key, modifiers)
             .ok_or_else(|| format!("The live view cannot press the key {key}."))?;
         let down = if definition.text.is_some() {
             DispatchKeyEventType::KeyDown
         } else {
             DispatchKeyEventType::RawKeyDown
         };
+        let commands = if cfg!(target_os = "macos") {
+            editing_commands(&definition.code, modifiers)
+        } else {
+            &[]
+        };
         let mut pressed = DispatchKeyEventParams::new(down);
         pressed.modifiers = Some(i64::from(modifiers));
-        pressed.key = Some(key.to_owned());
-        pressed.code = Some(definition.code.to_owned());
+        pressed.key = Some(definition.key.clone());
+        pressed.code = Some(definition.code.clone());
         pressed.windows_virtual_key_code = Some(definition.key_code);
         pressed.native_virtual_key_code = Some(definition.key_code);
+        if !commands.is_empty() {
+            pressed.commands = Some(
+                commands
+                    .iter()
+                    .map(|command| (*command).to_owned())
+                    .collect(),
+            );
+        }
         if let Some(text) = definition.text {
-            pressed.text = Some(text.to_owned());
-            pressed.unmodified_text = Some(text.to_owned());
+            pressed.text = Some(text.clone());
+            pressed.unmodified_text = Some(text);
         }
         page.execute(pressed)
             .await
@@ -244,8 +257,8 @@ impl Chromium {
 
         let mut released = DispatchKeyEventParams::new(DispatchKeyEventType::KeyUp);
         released.modifiers = Some(i64::from(modifiers));
-        released.key = Some(key.to_owned());
-        released.code = Some(definition.code.to_owned());
+        released.key = Some(definition.key);
+        released.code = Some(definition.code);
         released.windows_virtual_key_code = Some(definition.key_code);
         released.native_virtual_key_code = Some(definition.key_code);
         page.execute(released)
@@ -423,14 +436,56 @@ impl Chromium {
     }
 }
 
+/// The DevTools modifier bits. The same order is used by the desktop panel.
+const MOD_ALT: u8 = 1;
+const MOD_CONTROL: u8 = 2;
+const MOD_META: u8 = 4;
+const MOD_SHIFT: u8 = 8;
+const COMMAND_MODIFIERS: u8 = MOD_ALT | MOD_CONTROL | MOD_META;
+
+#[derive(Debug, PartialEq, Eq)]
 struct KeyDefinition {
-    code: &'static str,
+    key: String,
+    code: String,
     key_code: i64,
-    text: Option<&'static str>,
+    text: Option<String>,
 }
 
-/// The non-text keys that the live view can press.
-fn key_definition(key: &str) -> Option<KeyDefinition> {
+/// The keys that the live view can press: the named keys, the letters and the
+/// digits. A command modifier suppresses the inserted text, so the page sees a
+/// shortcut instead of a typed character.
+fn key_definition(key: &str, modifiers: u8) -> Option<KeyDefinition> {
+    let command = modifiers & COMMAND_MODIFIERS != 0;
+    let shift = modifiers & MOD_SHIFT != 0;
+
+    if key.len() == 1 {
+        let base = key.chars().next()?;
+        if base.is_ascii_alphabetic() {
+            let upper = base.to_ascii_uppercase();
+            let lower = base.to_ascii_lowercase();
+            let value = if shift { upper } else { lower };
+            return Some(KeyDefinition {
+                key: value.to_string(),
+                code: format!("Key{upper}"),
+                key_code: i64::from(upper as u8),
+                text: (!command).then(|| value.to_string()),
+            });
+        }
+        if base.is_ascii_digit() {
+            let value = if shift {
+                shifted_digit(base).unwrap_or(base)
+            } else {
+                base
+            };
+            return Some(KeyDefinition {
+                key: value.to_string(),
+                code: format!("Digit{base}"),
+                key_code: i64::from(base as u8),
+                text: (!command).then(|| value.to_string()),
+            });
+        }
+    }
+
     let (code, key_code, text) = match key {
         "Enter" => ("Enter", 13, Some("\r")),
         "Tab" => ("Tab", 9, Some("\t")),
@@ -449,10 +504,94 @@ fn key_definition(key: &str) -> Option<KeyDefinition> {
         _ => return None,
     };
     Some(KeyDefinition {
-        code,
+        key: key.to_owned(),
+        code: code.to_owned(),
         key_code,
-        text,
+        text: if command {
+            None
+        } else {
+            text.map(str::to_owned)
+        },
     })
+}
+
+/// The character that the unshifted digit produces with Shift on a US layout.
+fn shifted_digit(digit: char) -> Option<char> {
+    Some(match digit {
+        '1' => '!',
+        '2' => '@',
+        '3' => '#',
+        '4' => '$',
+        '5' => '%',
+        '6' => '^',
+        '7' => '&',
+        '8' => '*',
+        '9' => '(',
+        '0' => ')',
+        _ => return None,
+    })
+}
+
+/// The editing commands that a Mac shortcut runs. The renderer receives the
+/// key event, but the editor command must travel in the DevTools event as
+/// well. A system that handles the shortcut itself gets no command here.
+fn editing_commands(code: &str, modifiers: u8) -> &'static [&'static str] {
+    const SHIFT: u8 = MOD_SHIFT;
+    const CONTROL: u8 = MOD_CONTROL;
+    const ALT: u8 = MOD_ALT;
+    const META: u8 = MOD_META;
+    const CONTROL_SHIFT: u8 = MOD_CONTROL | MOD_SHIFT;
+    const ALT_SHIFT: u8 = MOD_ALT | MOD_SHIFT;
+    const META_SHIFT: u8 = MOD_META | MOD_SHIFT;
+    match (modifiers & (SHIFT | CONTROL | ALT | META), code) {
+        (META, "KeyA") => &["selectAll"],
+        (META, "KeyC") => &["copy"],
+        (META, "KeyX") => &["cut"],
+        (META, "KeyV") => &["paste"],
+        (META, "KeyZ") => &["undo"],
+        (META_SHIFT, "KeyZ") => &["redo"],
+        (META, "Backspace") | (META_SHIFT, "Backspace") => &["deleteToBeginningOfLine"],
+        (ALT, "Backspace") | (ALT_SHIFT, "Backspace") => &["deleteWordBackward"],
+        (ALT, "Delete") | (ALT_SHIFT, "Delete") => &["deleteWordForward"],
+        (ALT, "ArrowLeft") => &["moveWordLeft"],
+        (ALT, "ArrowRight") => &["moveWordRight"],
+        (ALT_SHIFT, "ArrowLeft") => &["moveWordLeftAndModifySelection"],
+        (ALT_SHIFT, "ArrowRight") => &["moveWordRightAndModifySelection"],
+        (META, "ArrowUp") => &["moveToBeginningOfDocument"],
+        (META, "ArrowDown") => &["moveToEndOfDocument"],
+        (META, "ArrowLeft") => &["moveToLeftEndOfLine"],
+        (META, "ArrowRight") => &["moveToRightEndOfLine"],
+        (META_SHIFT, "ArrowUp") => &["moveToBeginningOfDocumentAndModifySelection"],
+        (META_SHIFT, "ArrowDown") => &["moveToEndOfDocumentAndModifySelection"],
+        (META_SHIFT, "ArrowLeft") => &["moveToLeftEndOfLineAndModifySelection"],
+        (META_SHIFT, "ArrowRight") => &["moveToRightEndOfLineAndModifySelection"],
+        (SHIFT, "ArrowUp") => &["moveUpAndModifySelection"],
+        (SHIFT, "ArrowDown") => &["moveDownAndModifySelection"],
+        (SHIFT, "ArrowLeft") => &["moveLeftAndModifySelection"],
+        (SHIFT, "ArrowRight") => &["moveRightAndModifySelection"],
+        (SHIFT, "Home") => &["moveToBeginningOfDocumentAndModifySelection"],
+        (SHIFT, "End") => &["moveToEndOfDocumentAndModifySelection"],
+        (SHIFT, "PageUp") => &["pageUpAndModifySelection"],
+        (SHIFT, "PageDown") => &["pageDownAndModifySelection"],
+        (CONTROL, "KeyA") => &["moveToBeginningOfParagraph"],
+        (CONTROL, "KeyE") => &["moveToEndOfParagraph"],
+        (CONTROL, "KeyB") => &["moveBackward"],
+        (CONTROL, "KeyF") => &["moveForward"],
+        (CONTROL, "KeyD") => &["deleteForward"],
+        (CONTROL, "KeyH") => &["deleteBackward"],
+        (CONTROL, "KeyK") => &["deleteToEndOfParagraph"],
+        (CONTROL, "KeyN") => &["moveDown"],
+        (CONTROL, "KeyP") => &["moveUp"],
+        (CONTROL, "KeyV") => &["pageDown"],
+        (CONTROL, "KeyY") => &["yank"],
+        (CONTROL, "ArrowUp") => &["scrollPageUp"],
+        (CONTROL, "ArrowDown") => &["scrollPageDown"],
+        (CONTROL, "ArrowLeft") => &["moveToLeftEndOfLine"],
+        (CONTROL, "ArrowRight") => &["moveToRightEndOfLine"],
+        (CONTROL_SHIFT, "ArrowLeft") => &["moveToLeftEndOfLineAndModifySelection"],
+        (CONTROL_SHIFT, "ArrowRight") => &["moveToRightEndOfLineAndModifySelection"],
+        _ => &[],
+    }
 }
 
 async fn viewport_size(page: &Page, expression: &str, fallback: f64) -> f64 {
@@ -536,4 +675,115 @@ pub fn default_chromium_path() -> Option<PathBuf> {
     chromiumoxide::detection::default_executable(Default::default())
         .ok()
         .filter(|path| path.is_file())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn maps_letters_to_their_key_codes() {
+        let lower = key_definition("a", 0).expect("letter");
+        assert_eq!(lower.key, "a");
+        assert_eq!(lower.code, "KeyA");
+        assert_eq!(lower.key_code, 65);
+        assert_eq!(lower.text.as_deref(), Some("a"));
+
+        let upper = key_definition("Z", 0).expect("letter");
+        assert_eq!(upper.key, "z");
+        assert_eq!(upper.code, "KeyZ");
+        assert_eq!(upper.key_code, 90);
+        assert_eq!(upper.text.as_deref(), Some("z"));
+    }
+
+    #[test]
+    fn maps_digits_to_their_key_codes() {
+        let zero = key_definition("0", 0).expect("digit");
+        assert_eq!(zero.key, "0");
+        assert_eq!(zero.code, "Digit0");
+        assert_eq!(zero.key_code, 48);
+        assert_eq!(zero.text.as_deref(), Some("0"));
+
+        let nine = key_definition("9", 0).expect("digit");
+        assert_eq!(nine.key, "9");
+        assert_eq!(nine.code, "Digit9");
+        assert_eq!(nine.key_code, 57);
+        assert_eq!(nine.text.as_deref(), Some("9"));
+    }
+
+    #[test]
+    fn shift_changes_the_letter_and_digit_values() {
+        let letter = key_definition("a", MOD_SHIFT).expect("shifted letter");
+        assert_eq!(letter.key, "A");
+        assert_eq!(letter.text.as_deref(), Some("A"));
+
+        let digit = key_definition("1", MOD_SHIFT).expect("shifted digit");
+        assert_eq!(digit.key, "!");
+        assert_eq!(digit.code, "Digit1");
+        assert_eq!(digit.text.as_deref(), Some("!"));
+    }
+
+    #[test]
+    fn every_command_modifier_suppresses_text() {
+        for modifiers in [
+            MOD_ALT,
+            MOD_CONTROL,
+            MOD_META,
+            MOD_ALT | MOD_CONTROL,
+            MOD_CONTROL | MOD_META,
+            MOD_ALT | MOD_CONTROL | MOD_META,
+        ] {
+            let letter = key_definition("a", modifiers).expect("letter");
+            assert_eq!(letter.text, None, "mask {modifiers}");
+            assert_eq!(letter.key, "a", "mask {modifiers}");
+
+            let named = key_definition("Enter", modifiers).expect("named key");
+            assert_eq!(named.text, None, "mask {modifiers}");
+            assert_eq!(named.key, "Enter", "mask {modifiers}");
+        }
+    }
+
+    #[test]
+    fn shift_and_a_command_modifier_keep_the_shifted_value() {
+        let chord = key_definition("a", MOD_CONTROL | MOD_SHIFT).expect("chord");
+        assert_eq!(chord.key, "A");
+        assert_eq!(chord.text, None);
+    }
+
+    #[test]
+    fn rejects_unsupported_keys() {
+        assert!(key_definition("F13", 0).is_none());
+        assert!(key_definition("!", 0).is_none());
+        assert!(key_definition("ab", 0).is_none());
+    }
+
+    #[test]
+    fn maps_the_common_mac_editing_shortcuts() {
+        assert_eq!(editing_commands("KeyA", MOD_META), &["selectAll"]);
+        assert_eq!(editing_commands("KeyC", MOD_META), &["copy"]);
+        assert_eq!(editing_commands("KeyX", MOD_META), &["cut"]);
+        assert_eq!(editing_commands("KeyV", MOD_META), &["paste"]);
+        assert_eq!(editing_commands("KeyZ", MOD_META), &["undo"]);
+        assert_eq!(editing_commands("KeyZ", MOD_META | MOD_SHIFT), &["redo"]);
+        assert_eq!(
+            editing_commands("Backspace", MOD_ALT),
+            &["deleteWordBackward"]
+        );
+        assert_eq!(
+            editing_commands("ArrowLeft", MOD_META),
+            &["moveToLeftEndOfLine"]
+        );
+        assert_eq!(
+            editing_commands("KeyA", MOD_CONTROL),
+            &["moveToBeginningOfParagraph"]
+        );
+    }
+
+    #[test]
+    fn leaves_other_shortcuts_with_the_page() {
+        assert_eq!(editing_commands("KeyA", 0), &[] as &[&str]);
+        assert_eq!(editing_commands("KeyA", MOD_SHIFT), &[] as &[&str]);
+        assert_eq!(editing_commands("KeyF", MOD_META), &[] as &[&str]);
+        assert_eq!(editing_commands("Digit1", MOD_META), &[] as &[&str]);
+    }
 }
