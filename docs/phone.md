@@ -59,7 +59,7 @@ Antigravity and terminal sessions have no structured source, so they open on the
 
 The phone app sends a notification while it is open when a session waits for you: it needs input, a permission answer or an approval. It also sends one when an agent reports its task done or uses the Notify me tool. Tap the notification to open that session. The app stays quiet for a waiting session or a done status that its screen already shows.
 
-The app asks for the phone's notification permission on first use. If you refuse, the app says that notifications are off and the session list keeps working. There are no push notifications when the app is closed. The browser layout raises no system notification; its cards and action notices are the in-app path.
+The app asks for the phone's notification permission when it starts. If you refuse, the app says that notifications are off and the session list keeps working. There are no push notifications when the app is closed. The browser layout raises no system notification; its cards and action notices are the in-app path.
 
 ## Files, images, uploads and changes
 
