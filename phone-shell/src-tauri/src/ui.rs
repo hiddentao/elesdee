@@ -297,21 +297,34 @@ impl UiStore {
             return self.save_status(UiStatus::simple(computer_id, "none"));
         };
 
-        if let Some(mut installed) = self.find_build(computer_id, &manifest.build_id) {
-            installed.computer_name = Some(connection.welcome().computer_name.clone());
-            return self.use_build(computer_id, installed);
-        }
+        let computer_name = connection.welcome().computer_name.clone();
+        self.reuse_or_install(
+            computer_id,
+            &manifest,
+            &computer_name,
+            self.download_and_install(computer_id, &manifest, connection),
+        )
+        .await
+    }
 
+    /// Reuses a stored build or installs the offered one, one at a time.
+    ///
+    /// The gate covers the stored-build check as well as the install, so a
+    /// background check cannot prune the temporary folder or the newly placed
+    /// build of another update for the same computer.
+    async fn reuse_or_install(
+        &self,
+        computer_id: &str,
+        manifest: &UiManifest,
+        computer_name: &str,
+        install: impl std::future::Future<Output = Result<Installed, UiError>>,
+    ) -> UiStatus {
         let _gate = self.gate.lock().await;
         if let Some(mut installed) = self.find_build(computer_id, &manifest.build_id) {
-            installed.computer_name = Some(connection.welcome().computer_name.clone());
+            installed.computer_name = Some(computer_name.to_owned());
             return self.use_build(computer_id, installed);
         }
-
-        match self
-            .download_and_install(computer_id, &manifest, connection)
-            .await
-        {
+        match install.await {
             Ok(installed) => self.use_build(computer_id, installed),
             Err(error) => self.save_status(UiStatus::failed(computer_id, &error)),
         }
@@ -1351,6 +1364,62 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(response.body(), b"first-js");
         assert_eq!(read_current(&ui_root).expect("current").0, third);
+
+        let _ = std::fs::remove_dir_all(folder);
+    }
+
+    #[tokio::test]
+    async fn two_concurrent_updates_keep_both_builds_and_the_page_build() {
+        let folder = temp_folder("concurrent");
+        let store = UiStore::new(&folder);
+        let current = format!("blake3:{}", "a".repeat(64));
+        let next = format!("blake3:{}", "b".repeat(64));
+        let current_directory =
+            stored_build(&folder, "computer", &current, b"current", b"current-js");
+        let ui_root = store.ui_root("computer").expect("root");
+        write_current(&ui_root, &current, Some("Studio")).expect("current");
+        assert_eq!(store.activate("computer").state, "ready");
+
+        let builds = ui_root.join("builds");
+        let current_manifest = manifest(current.clone(), 0, 0);
+        let next_manifest = manifest(next.clone(), 0, 0);
+        let install_next = async {
+            let temp = builds.join(".tmp-concurrent");
+            std::fs::create_dir_all(&temp).map_err(storage)?;
+            std::fs::write(temp.join(INDEX_FILE), b"next").map_err(storage)?;
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            let directory = place_build(&builds, &temp, &next)?;
+            Ok(Installed {
+                computer_id: "computer".to_owned(),
+                build_id: next.clone(),
+                computer_name: Some("Studio".to_owned()),
+                directory,
+            })
+        };
+
+        // One update installs a new build while the other reuses the build
+        // that is already stored and on screen.
+        let (next_status, current_status) = tokio::join!(
+            store.reuse_or_install("computer", &next_manifest, "Studio", install_next),
+            store.reuse_or_install("computer", &current_manifest, "Studio", async {
+                unreachable!("the stored build is reused")
+            },),
+        );
+
+        assert_eq!(next_status.state, "ready");
+        assert_eq!(current_status.state, "ready");
+        assert!(store.find_build("computer", &next).is_some());
+        assert!(store.find_build("computer", &current).is_some());
+        assert_eq!(read_current(&ui_root).expect("current").0, current);
+
+        let page = store.handle(request(&format!("/ui/computer/{}/", build_path(&current))));
+        assert_eq!(page.status(), StatusCode::OK);
+        assert_eq!(page.body(), b"current");
+        let response = store.handle(request(&format!("/ui/computer/{}/", build_path(&next))));
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.body(), b"next");
+        assert!(!builds.join(".tmp-concurrent").exists());
+        assert!(current_directory.join(INDEX_FILE).is_file());
 
         let _ = std::fs::remove_dir_all(folder);
     }

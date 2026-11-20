@@ -437,6 +437,8 @@ Step 5 implements this in `phone-shell/src-tauri/src/ui.rs`.
 5. Extract into a temporary folder under `<data>/computers/<computerId>/ui/builds/`, then rename it to `blake3-<hex>`.
 6. Write `current.json` atomically. Keep the current build, the build it replaces and the build on screen; delete other build folders and leftover temporary folders. A build folder without an entry page is incomplete and is replaced.
 
+The stored-build check and the install share one gate per shell, so one update at a time can touch the build folders. A background reconnect that reuses a stored build waits for an in-flight install instead of pruning its temporary folder or its newly placed build.
+
 Reject a package when it has:
 
 - a path with `..`, an absolute path, a symlink, a backslash, an empty segment, or a name over 512 bytes;
