@@ -73,7 +73,6 @@ feature is absent. P2 means completion, operations or polish.
 | P2 | Settings has no Devices page: paired phones and Remove are absent | Settings; After pairing | `app/src/components/SettingsDialog.tsx`, core device store and routes, phone shell | M — 3–5 days |
 | P2 | No local log file and no Export diagnostics action | Privacy; Settings | `core/src/main.rs`, new diagnostics module, `api.rs`, `SettingsDialog.tsx`, `src-tauri` | M — 3–5 days |
 | P2 | No desktop updater: no check, download, signature check or install flow | Update checks; Update while sessions run | `src-tauri/Cargo.toml`, `tauri.conf.json`, `src-tauri/src/main.rs`, update UI, release workflow | L — 2–3 weeks |
-| P2 | Notifications are in-app toasts only; waiting-for-you does not raise a notification | What triggers a notification; Notifications | `app/src/App.tsx`, `core/src/state.rs`, `src-tauri` notification plugin | M — 3–5 days |
 | P2 | A missing agent is not installed; the app only reports it | Agent support | `core/src/clients.rs`, new installer, setup UI | L — 2–4 weeks |
 | P2 | Claude, Codex and OpenCode are found only on PATH; a packaged app may miss Homebrew, npm or `~/.local/bin` installs | Agent support | `core/src/clients.rs`, `src-tauri/src/main.rs` | S — 2–3 days |
 | P2 | A session cannot be dragged from one project to another | Projects | `app/src/components/Sidebar.tsx`, `app/src/App.tsx`, `core/src/api.rs`, `app/src/state/tabs.ts` | M — 3–5 days |
@@ -241,10 +240,10 @@ builds, signs and notarizes a macOS zip and copies the core into the app bundle.
 `src-tauri/Cargo.toml`, `tauri.conf.json`, `src-tauri/src/main.rs`, update UI, release workflow.
 Size: L.
 
-**21. Notifications.** Spec: What triggers a notification. `notify_me` creates an in-app toast
-(`app/src/App.tsx`). A session waiting for permission, input or approval shows a badge and a
-screen-reader announcement, but no desktop notification. There is no OS notification plugin. Files:
-`app/src/App.tsx`, `core/src/state.rs`, `src-tauri` notification plugin. Size: M.
+**21. Notifications. Built.** The desktop shell uses the Tauri notification plugin. A session that
+waits for input, a permission answer or a new-session approval, an agent that reports done, and the
+Notify me tool raise a desktop notification. A notification click opens that session. See
+"What triggers a notification" in the spec.
 
 **22. Missing agent install.** Spec: Agent support. The app detects agents and versions, but does
 not install a copy when one is missing. Files: `core/src/clients.rs`, new installer, setup UI.
@@ -299,6 +298,8 @@ ask the server for its model list and accept the name when the server cannot ans
 - Twelve language catalogs, the Settings Languages page and the phone language sheet.
 - Quit dialog and Tauri close handling; pause/resume; auto-switch logic (not fed by real usage).
 - MCP server and ten tools; the elesdee skill for Claude and OpenCode; Codex MCP wiring.
+- Desktop notifications for a waiting session, a done report and Notify me, with a click that
+  opens the session. The focused window skips a notice it already shows.
 - E2E suite, CI, macOS release workflow with optional signing and notarization.
 
 ## Excluded by request

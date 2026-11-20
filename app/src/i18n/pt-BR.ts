@@ -585,4 +585,15 @@ export const ptBR = {
   'changeStatus.renamed': 'Renomeado',
   'changeStatus.untracked': 'Novo',
   'changeStatus.conflicted': 'Conflito',
+
+  'notifications.waitingTitle': '{name} precisa de você',
+  'notifications.permissionBody': 'Aprove ou recuse uma solicitação.',
+  'notifications.questionBody': 'Responda a uma pergunta.',
+  'notifications.inputBody': 'A sessão está aguardando entrada.',
+  'notifications.startBody': 'Aprove uma nova sessão.',
+  'notifications.requestTitle': 'Solicitação de nova sessão',
+  'notifications.requestBody': '{name} quer iniciar uma sessão.',
+  'notifications.doneTitle': '{name} terminou',
+  'notifications.doneBody': 'A tarefa está concluída.',
+  'notifications.messageTitle': '{name} diz',
 } satisfies Record<MessageKey, string>;

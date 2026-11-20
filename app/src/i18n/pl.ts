@@ -582,4 +582,15 @@ export const pl = {
   'changeStatus.renamed': 'Zmieniono nazwę',
   'changeStatus.untracked': 'Nowy',
   'changeStatus.conflicted': 'Konflikt',
+
+  'notifications.waitingTitle': '{name} potrzebuje Cię',
+  'notifications.permissionBody': 'Zatwierdź lub odrzuć prośbę.',
+  'notifications.questionBody': 'Odpowiedz na pytanie.',
+  'notifications.inputBody': 'Sesja czeka na dane wejściowe.',
+  'notifications.startBody': 'Zatwierdź nową sesję.',
+  'notifications.requestTitle': 'Prośba o nową sesję',
+  'notifications.requestBody': '{name} chce rozpocząć sesję.',
+  'notifications.doneTitle': '{name} zakończył pracę',
+  'notifications.doneBody': 'Zadanie jest ukończone.',
+  'notifications.messageTitle': '{name} mówi',
 } satisfies Record<MessageKey, string>;

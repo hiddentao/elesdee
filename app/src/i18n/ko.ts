@@ -577,4 +577,15 @@ export const ko = {
   'changeStatus.renamed': '이름 변경됨',
   'changeStatus.untracked': '새 파일',
   'changeStatus.conflicted': '충돌',
+
+  'notifications.waitingTitle': '{name} 님이 기다리고 있습니다',
+  'notifications.permissionBody': '요청을 승인하거나 거부하세요.',
+  'notifications.questionBody': '질문에 답하세요.',
+  'notifications.inputBody': '세션이 입력을 기다리고 있습니다.',
+  'notifications.startBody': '새 세션을 승인하세요.',
+  'notifications.requestTitle': '새 세션 요청',
+  'notifications.requestBody': '{name} 님이 세션을 시작하려고 합니다.',
+  'notifications.doneTitle': '{name} 님이 완료했습니다',
+  'notifications.doneBody': '작업이 완료되었습니다.',
+  'notifications.messageTitle': '{name} 님의 메시지',
 } satisfies Record<MessageKey, string>;

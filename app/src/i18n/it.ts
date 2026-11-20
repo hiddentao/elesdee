@@ -582,4 +582,15 @@ export const it = {
   'changeStatus.renamed': 'Rinominato',
   'changeStatus.untracked': 'Nuovo',
   'changeStatus.conflicted': 'Conflitto',
+
+  'notifications.waitingTitle': '{name} ha bisogno di te',
+  'notifications.permissionBody': 'Approva o rifiuta una richiesta.',
+  'notifications.questionBody': 'Rispondi a una domanda.',
+  'notifications.inputBody': 'La sessione attende un input.',
+  'notifications.startBody': 'Approva una nuova sessione.',
+  'notifications.requestTitle': 'Richiesta di nuova sessione',
+  'notifications.requestBody': '{name} vuole avviare una sessione.',
+  'notifications.doneTitle': '{name} ha finito',
+  'notifications.doneBody': 'L’attività è completata.',
+  'notifications.messageTitle': '{name} dice',
 } satisfies Record<MessageKey, string>;

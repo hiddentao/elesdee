@@ -31,6 +31,11 @@ import {
   updateSessionAllowedAccounts,
 } from './api/client';
 import { subscribeAux, subscribeEvents } from './api/events';
+import {
+  ensureNotificationPermission,
+  showDesktopNotification,
+  subscribeNotificationClicks,
+} from './api/notifications';
 import { isTauri, openFolder, openTerminal } from './api/shell';
 import type {
   Account,
@@ -150,11 +155,34 @@ export default function App() {
   const sessionsRef = useRef<Session[]>([]);
   sessionsRef.current = sessions;
   const activeSessionIdRef = useRef<string | null>(null);
+  const requestsOpenRef = useRef(false);
   const activeStatusRef = useRef<Session['status'] | null>(null);
   const allowCloseRef = useRef(false);
   const activeSessionCount = sessions.filter(
     (session) => session.status === 'active',
   ).length;
+
+  function notifyWaiting(session: Session) {
+    const waiting = session.waitingFor;
+    if (!waiting) {
+      return;
+    }
+    const bodyKey =
+      waiting === 'permission'
+        ? 'notifications.permissionBody'
+        : waiting === 'question'
+          ? 'notifications.questionBody'
+          : waiting === 'start'
+            ? 'notifications.startBody'
+            : 'notifications.inputBody';
+    void showDesktopNotification({
+      sessionId: session.id,
+      title: tRef.current('notifications.waitingTitle', { name: session.name }),
+      body: tRef.current(bodyKey),
+      kind: 'waiting',
+      sessionVisible: session.id === activeSessionIdRef.current,
+    });
+  }
 
   function setDock(sessionId: string, tab: DockTab | null) {
     setDocks((current) => ({ ...current, [sessionId]: tab }));
@@ -264,6 +292,7 @@ export default function App() {
     quitOpen;
 
   activeSessionIdRef.current = activeSessionId;
+  requestsOpenRef.current = requestsOpen;
 
   useLayoutEffect(() => {
     if (focusMainRef.current) {
@@ -275,6 +304,10 @@ export default function App() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    void ensureNotificationPermission();
+  }, []);
 
   useEffect(() => {
     if (loadState !== 'ready') {
@@ -302,6 +335,10 @@ export default function App() {
             setAnnouncement(
               tRef.current('app.announcementWaiting', { name: session.name }),
             );
+          }
+
+          if (session.waitingFor && session.waitingFor !== previous.waitingFor) {
+            void notifyWaiting(session);
           }
         }
 
@@ -349,6 +386,19 @@ export default function App() {
             ? [...others, event.request]
             : others;
         });
+        if (event.request.status === 'pending') {
+          void showDesktopNotification({
+            sessionId: event.request.parentSessionId,
+            title: tRef.current('notifications.requestTitle'),
+            body: tRef.current('notifications.requestBody', {
+              name: event.request.parentSessionName,
+            }),
+            kind: 'waiting',
+            sessionVisible:
+              event.request.parentSessionId === activeSessionIdRef.current ||
+              requestsOpenRef.current,
+          });
+        }
         return;
       }
       if (event.type === 'sharedfile.created') {
@@ -369,9 +419,32 @@ export default function App() {
         });
         return;
       }
+      if (event.notification.kind === 'done') {
+        void showDesktopNotification({
+          sessionId: event.notification.sessionId,
+          title: tRef.current('notifications.doneTitle', {
+            name: event.notification.sessionName,
+          }),
+          body: tRef.current('notifications.doneBody'),
+          kind: 'done',
+          sessionVisible:
+            event.notification.sessionId === activeSessionIdRef.current,
+        });
+        return;
+      }
       setToast({
         message: `${event.notification.sessionName}: ${event.notification.message}`,
         error: false,
+      });
+      void showDesktopNotification({
+        sessionId: event.notification.sessionId,
+        title: tRef.current('notifications.messageTitle', {
+          name: event.notification.sessionName,
+        }),
+        body: event.notification.message,
+        kind: 'message',
+        sessionVisible:
+          event.notification.sessionId === activeSessionIdRef.current,
       });
     }, undefined, () => void refresh());
   }, [loadState, eventAttempt, refresh]);
@@ -489,6 +562,33 @@ export default function App() {
       openSessionTab(current, session.projectId, session.id),
     );
   }, []);
+
+  useEffect(() => {
+    let stop: (() => void) | undefined;
+    let disposed = false;
+    void subscribeNotificationClicks((sessionId) => {
+      const session = sessionsRef.current.find(
+        (item) => item.id === sessionId,
+      );
+      if (session) {
+        openSession(session);
+      }
+    })
+      .then((unlisten) => {
+        if (disposed) {
+          unlisten();
+        } else {
+          stop = unlisten;
+        }
+      })
+      .catch(() => {
+        // A missing desktop shell leaves the app without notification clicks.
+      });
+    return () => {
+      disposed = true;
+      stop?.();
+    };
+  }, [openSession]);
 
   function handleCreated(session: Session) {
     setSessions((current) =>

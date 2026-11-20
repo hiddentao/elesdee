@@ -580,4 +580,15 @@ export const ja = {
   'changeStatus.renamed': '名前変更',
   'changeStatus.untracked': '新規',
   'changeStatus.conflicted': '競合',
+
+  'notifications.waitingTitle': '{name} があなたを待っています',
+  'notifications.permissionBody': 'リクエストを承認または拒否してください。',
+  'notifications.questionBody': '質問に回答してください。',
+  'notifications.inputBody': 'セッションは入力を待っています。',
+  'notifications.startBody': '新しいセッションを承認してください。',
+  'notifications.requestTitle': '新しいセッションのリクエスト',
+  'notifications.requestBody': '{name} がセッションを開始しようとしています。',
+  'notifications.doneTitle': '{name} が完了しました',
+  'notifications.doneBody': 'タスクは完了しました。',
+  'notifications.messageTitle': '{name} からのメッセージ',
 } satisfies Record<MessageKey, string>;

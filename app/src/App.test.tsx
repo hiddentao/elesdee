@@ -23,6 +23,11 @@ import {
   updateProjectDefaults,
 } from './api/client';
 import { subscribeEvents } from './api/events';
+import {
+  ensureNotificationPermission,
+  showDesktopNotification,
+  subscribeNotificationClicks,
+} from './api/notifications';
 import { isTauri, openFolder, openTerminal } from './api/shell';
 import type { Account } from './api/types';
 
@@ -61,6 +66,12 @@ vi.mock('./api/shell', () => ({
   isTauri: vi.fn(() => false),
   openFolder: vi.fn(),
   openTerminal: vi.fn(),
+}));
+
+vi.mock('./api/notifications', () => ({
+  ensureNotificationPermission: vi.fn(),
+  showDesktopNotification: vi.fn(),
+  subscribeNotificationClicks: vi.fn(),
 }));
 
 vi.mock('./components/TerminalPane', () => ({
@@ -165,6 +176,9 @@ beforeEach(() => {
   });
   vi.mocked(subscribeEvents).mockReturnValue(() => {});
   vi.mocked(isTauri).mockReturnValue(false);
+  vi.mocked(ensureNotificationPermission).mockResolvedValue(undefined);
+  vi.mocked(showDesktopNotification).mockResolvedValue(false);
+  vi.mocked(subscribeNotificationClicks).mockResolvedValue(() => {});
   vi.mocked(openFolder).mockResolvedValue(undefined);
   vi.mocked(openTerminal).mockResolvedValue(undefined);
 });
@@ -714,6 +728,48 @@ describe('project switching', () => {
     );
     expect(
       screen.getByRole('heading', { name: 'Core task' }),
+    ).toBeInTheDocument();
+  });
+});
+
+describe('desktop notifications', () => {
+  it('opens the session named in a notification click', async () => {
+    let click: ((sessionId: string) => void) | undefined;
+    vi.mocked(subscribeNotificationClicks).mockImplementation((onSession) => {
+      click = onSession;
+      return Promise.resolve(() => {});
+    });
+    const first = makeSession({
+      id: 's1',
+      name: 'First task',
+      short: 'first-task',
+      projectId: 'p1',
+    });
+    const second = makeSession({
+      id: 's2',
+      name: 'Second task',
+      short: 'second-task',
+      projectId: 'p1',
+    });
+    vi.mocked(bootstrap).mockResolvedValue({
+      projects: [{ id: 'p1', name: 'web', folder: '/dev/web' }],
+      accounts: [],
+      sessions: [first, second],
+    });
+
+    render(<App />);
+
+    await screen.findByRole('button', { name: /First task/ });
+    expect(subscribeNotificationClicks).toHaveBeenCalled();
+
+    act(() => click?.('s2'));
+
+    expect(await screen.findByRole('tab', { name: /Second task/ })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    expect(
+      screen.getByRole('heading', { name: 'Second task' }),
     ).toBeInTheDocument();
   });
 });

@@ -581,4 +581,15 @@ export const sv = {
   'changeStatus.renamed': 'Omdöpt',
   'changeStatus.untracked': 'Ny',
   'changeStatus.conflicted': 'Konflikt',
+
+  'notifications.waitingTitle': '{name} behöver dig',
+  'notifications.permissionBody': 'Godkänn eller avvisa en begäran.',
+  'notifications.questionBody': 'Svara på en fråga.',
+  'notifications.inputBody': 'Sessionen väntar på inmatning.',
+  'notifications.startBody': 'Godkänn en ny session.',
+  'notifications.requestTitle': 'Begäran om ny session',
+  'notifications.requestBody': '{name} vill starta en session.',
+  'notifications.doneTitle': '{name} är klar',
+  'notifications.doneBody': 'Uppgiften är klar.',
+  'notifications.messageTitle': '{name} säger',
 } satisfies Record<MessageKey, string>;

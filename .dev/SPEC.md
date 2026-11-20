@@ -557,12 +557,14 @@ The phone app has no lock of its own. The phone's screen lock is enough.
 **Notifications on the phone**
 
 - The phone shows notifications and questions from sessions only while the elesdee app is open. There are no push notifications when the app is closed.
-- When I open the app, it shows what I missed. The desktop always shows notifications.
+- When I open the app, it shows what I missed. The desktop does not send a desktop notification when the focused window already shows it: the card for a waiting session, the done status for that session, or the message toast.
+- The app asks for the system notification permission on first use.
 
 **What triggers a notification**
 
 - The app sends a notification only when a session is waiting for me: it needs input, a permission answer, or an approval.
-- Agents can also send one with the Notify me tool.
+- Agents can also send one with the Notify me tool, or when they report their task done.
+- A click on the notification brings the app forward and opens that session.
 - Other events (an agent's turn ended, a provider switch or pause, errors) show in the app but do not send a notification.
 
 **Pairing (one time)**

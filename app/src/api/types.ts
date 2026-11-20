@@ -223,6 +223,7 @@ export interface Notification {
   sessionId: string;
   sessionName: string;
   message: string;
+  kind: 'message' | 'done';
   createdAt: string;
 }
 

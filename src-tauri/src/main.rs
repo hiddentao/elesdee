@@ -8,6 +8,8 @@ use std::sync::Mutex;
 
 use tauri::{Emitter, Manager};
 
+mod notifications;
+
 struct CoreProcess(Mutex<Option<Child>>);
 
 #[derive(Default)]
@@ -177,14 +179,19 @@ fn opener(terminal: bool) -> Command {
 fn main() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
         .manage(QuitState::default())
         .invoke_handler(tauri::generate_handler![
             open_folder,
             open_terminal,
             open_url,
-            quit_app
+            quit_app,
+            notifications::notification_permission_state,
+            notifications::request_notification_permission,
+            notifications::show_notification
         ])
         .setup(|app| {
+            notifications::register_click_handler(app.handle());
             app.manage(CoreProcess(Mutex::new(start_core())));
             Ok(())
         })
