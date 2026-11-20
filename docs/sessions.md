@@ -76,7 +76,11 @@ A session can ask to start another session. The request appears in the parent se
 
 ## Switch account
 
-Open the session menu and choose **Switch account…**. Choose another account and confirm. The session keeps its worktree and restarts with the new account. The same client continues its conversation. A different client starts again in the same worktree, and it gets the handoff note and the end of the previous log as its first message.
+Click the provider pill in the session header. The chooser lists every account on this computer with its remaining usage and marks the account the automatic switch would use next. Choose an account and confirm. The session keeps its worktree and restarts with the new account. The same client continues its conversation. A different client starts again in the same worktree, and it gets the handoff note and the end of the previous log as its first message.
+
+You can also open the session menu and choose **Switch account…**.
+
+Hover the usage bar in the pill for the current account's limits and the session's context left. The context left comes from Claude Code. Other clients show **Context left unknown**. Context compacts automatically, and the app shows no context warning.
 
 The app switches by itself when an account is near its usage limit and another account has room. It uses the latest usage it read from the provider. If a read fails, the last numbers stay visible and the account says the reading is stale; the failure does not stop a session. If no account has room, the session pauses. A pause keeps the handoff note, and a later switch to a different client passes it on. Choose **Resume** when an account has room, or wait for the app to resume it.
 
@@ -135,6 +139,7 @@ Right-click a session in the sidebar or its tab, or use the menu button in the s
 
 - **Reopen** for a closed session
 - **Rename…**
+- **Switch account…** for an active agent session
 - **Copy folder path**
 - **Copy branch name**
 - **Close…** for an active session, or **Delete…** for a closed one

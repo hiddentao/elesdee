@@ -304,6 +304,16 @@ struct UsageRequest {
     rows: Vec<crate::state::UsageRow>,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SwitchOptions {
+    /// Every account the switch endpoint accepts. The per-session allowed
+    /// list from the spec is not stored yet.
+    accounts: Vec<Account>,
+    /// The account the automatic switch would move to next, if one has room.
+    next_account_id: Option<String>,
+}
+
 #[derive(Debug, Deserialize)]
 struct AnswerRequest {
     answer: String,
@@ -450,6 +460,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/sessions/{id}/resize", post(resize_session))
         .route("/api/sessions/{id}/reopen", post(reopen_session))
         .route("/api/sessions/{id}/account", post(switch_session_account))
+        .route("/api/sessions/{id}/switch-options", get(switch_options))
         .route("/api/sessions/{id}/resume", post(resume_session))
         .route("/api/sessions/{id}/permission", post(answer_permission))
         .route("/api/sessions/{id}/files", get(list_session_files))
@@ -1987,6 +1998,29 @@ async fn reopen_session(
     Ok(Json(session))
 }
 
+async fn switch_options(
+    State(state): State<AppState>,
+    UrlPath(id): UrlPath<String>,
+) -> Result<Json<SwitchOptions>, ApiError> {
+    let entry = state
+        .session(&id)
+        .ok_or_else(|| ApiError::not_found("Unknown session."))?;
+    let session = entry.session();
+    if session.kind != SessionKind::Agent {
+        return Err(ApiError::unprocessable(
+            "Only agent sessions have accounts.",
+        ));
+    }
+    let accounts = state.accounts();
+    let next = session.client.and_then(|client| {
+        crate::providers::auto_switch_target(&accounts, client, session.account_id.as_deref())
+    });
+    Ok(Json(SwitchOptions {
+        accounts,
+        next_account_id: next.map(|account| account.id),
+    }))
+}
+
 async fn switch_session_account(
     State(state): State<AppState>,
     UrlPath(id): UrlPath<String>,
@@ -2309,28 +2343,27 @@ async fn claude_statusline(
     body: Result<Json<serde_json::Value>, JsonRejection>,
 ) -> Result<Response, ApiError> {
     let Query(query) = query.map_err(|_| ApiError::forbidden("Invalid hook credentials."))?;
-    let provided = query.token.as_deref().unwrap_or_default();
-    let entry = state
-        .session(&id)
-        .ok_or_else(|| ApiError::forbidden("Invalid hook credentials."))?;
+    let entry = authorize_claude_session(&state, &id, query.token.as_deref())?;
     let session = entry.session();
-    if session.kind != SessionKind::Agent || session.client != Some(Client::ClaudeCode) {
-        return Err(ApiError::forbidden("Invalid hook credentials."));
-    }
-    let expected = entry
-        .claude_token()
-        .ok_or_else(|| ApiError::forbidden("Invalid hook credentials."))?;
-    if !claude::token_matches(&expected, provided) {
-        return Err(ApiError::forbidden("Invalid hook credentials."));
-    }
-
     let Json(input) = body.map_err(|_| ApiError::bad_request("Invalid status line input."))?;
+
     if let Some(account_id) = session.account_id.as_deref() {
         let rows = crate::usage::claude_rows(&input);
         if !rows.is_empty() {
             crate::usage::apply_usage(&state, account_id, crate::usage::STATUS_LINE, rows).await;
         }
     }
+
+    record_claude_session_id(
+        &state,
+        &entry,
+        input.get("session_id").and_then(serde_json::Value::as_str),
+    );
+    let context_left = input.get("context_window").and_then(context_remaining);
+    if let Some(session) = entry.note_context_left(context_left) {
+        state.emit(SessionEvent::updated(session));
+    }
+
     Ok(StatusCode::NO_CONTENT.into_response())
 }
 
@@ -2357,17 +2390,11 @@ pub(crate) async fn auto_switch_account(state: &AppState, account: &Account) {
             continue;
         };
 
-        let target = state
-            .accounts()
-            .into_iter()
-            .filter(|candidate| {
-                candidate.id != account.id
-                    && !candidate.sample
-                    && candidate.client == client
-                    && crate::providers::usage_state(candidate)
-                        == crate::providers::UsageState::Room
-            })
-            .max_by_key(crate::providers::remaining_percent);
+        let target = crate::providers::auto_switch_target(
+            &state.accounts(),
+            client,
+            Some(account.id.as_str()),
+        );
 
         let Some(target) = target else {
             let Ok(_guard) = entry.try_lifecycle().ok_or(()) else {
@@ -3141,16 +3168,13 @@ async fn question_events(
     Ok(Sse::new(stream))
 }
 
-async fn claude_hook(
-    State(state): State<AppState>,
-    UrlPath(id): UrlPath<String>,
-    query: Result<Query<HookQuery>, QueryRejection>,
-    body: Result<Json<HookInput>, JsonRejection>,
-) -> Result<Response, ApiError> {
-    let Query(query) = query.map_err(|_| ApiError::forbidden("Invalid hook credentials."))?;
-    let provided = query.token.as_deref().unwrap_or_default();
+fn authorize_claude_session(
+    state: &AppState,
+    id: &str,
+    token: Option<&str>,
+) -> Result<Arc<SessionEntry>, ApiError> {
     let entry = state
-        .session(&id)
+        .session(id)
         .ok_or_else(|| ApiError::forbidden("Invalid hook credentials."))?;
     let session = entry.session();
     if session.kind != SessionKind::Agent || session.client != Some(Client::ClaudeCode) {
@@ -3159,9 +3183,25 @@ async fn claude_hook(
     let expected = entry
         .claude_token()
         .ok_or_else(|| ApiError::forbidden("Invalid hook credentials."))?;
-    if !claude::token_matches(&expected, provided) {
+    if !claude::token_matches(&expected, token.unwrap_or_default()) {
         return Err(ApiError::forbidden("Invalid hook credentials."));
     }
+    Ok(entry)
+}
+
+fn context_remaining(context_window: &serde_json::Value) -> Option<u8> {
+    let remaining = context_window.get("remaining_percentage")?.as_f64()?;
+    Some(remaining.clamp(0.0, 100.0).round() as u8)
+}
+
+async fn claude_hook(
+    State(state): State<AppState>,
+    UrlPath(id): UrlPath<String>,
+    query: Result<Query<HookQuery>, QueryRejection>,
+    body: Result<Json<HookInput>, JsonRejection>,
+) -> Result<Response, ApiError> {
+    let Query(query) = query.map_err(|_| ApiError::forbidden("Invalid hook credentials."))?;
+    let entry = authorize_claude_session(&state, &id, query.token.as_deref())?;
 
     let Json(input) = body.map_err(|_| ApiError::bad_request("Invalid hook input."))?;
     record_claude_session_id(&state, &entry, input.session_id.as_deref());
@@ -3480,6 +3520,7 @@ fn prepare_terminal(
         config: BTreeMap::new(),
         agent_session_id: None,
         handoff_note: None,
+        context_left: None,
         started_at: timestamp(),
         shortcuts: Vec::new(),
     };
@@ -3570,6 +3611,7 @@ async fn prepare_agent(
         config: BTreeMap::new(),
         agent_session_id,
         handoff_note: None,
+        context_left: None,
         started_at: timestamp(),
         shortcuts: shortcuts::for_client(account.client),
     };

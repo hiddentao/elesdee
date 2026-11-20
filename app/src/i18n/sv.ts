@@ -96,6 +96,9 @@ export const sv = {
   'session.newSession': 'Ny session',
   'session.closeMenu': 'Stäng menyn',
   'session.menuLabel': 'Åtgärder för {name}',
+  'session.contextLeft': 'Kvarvarande kontext',
+  'session.contextLeftUnknown': 'Kvarvarande kontext okänd',
+  'session.contextCompacts': 'Kompakteras automatiskt.',
   'session.reopen': 'Öppna igen',
   'session.resume': 'Återuppta',
   'session.renameMenu': 'Byt namn…',
@@ -390,6 +393,13 @@ export const sv = {
   'switchAccount.busyLabel': 'Byter konto…',
   'switchAccount.submitting': 'Byter…',
   'switchAccount.submit': 'Byt konto',
+  'switchAccount.nextAuto': 'Nästa automatiska byte',
+  'switchAccount.handoffSame':
+      'Ett byte inom {client} fortsätter samtalet.',
+  'switchAccount.handoffOther':
+      'Ett byte till {client} skriver först en överlämningsanteckning.',
+  'switchAccount.loading': 'Läser in konton…',
+  'switchAccount.loadFailed': 'Kontona lästes inte in.',
 
   'terminal.disconnected': 'Utdata är frånkopplad.',
   'terminal.reconnected': 'Utdata återansluten.',

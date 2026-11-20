@@ -16,6 +16,10 @@ The app reads usage from official sources. Claude Code reports its plan limits w
 
 Choose **Add account** to connect a provider. Choose the provider, the sign-in method, and the fields it needs: an API key, a server URL, a model or an API style. See [Agents and providers](agents.md) for the provider list.
 
+Usage belongs to this computer. The account rows show the remaining usage of each account. In a session, the provider pill shows the current account's usage; hover it for every limit and the session's context left, or click it to switch the session to another account. The chooser shows remaining usage and marks the account the automatic switch would use next. Every account on this computer is available to the session; a per-session allowed list is not available yet.
+
+Context left comes from Claude Code. Other clients show **Context left unknown**. Context compacts automatically.
+
 ## Presets
 
 A launch preset names an account and can add a model, environment variables and agent config settings. Every connected account appears here as a preset too, marked as coming from the account.

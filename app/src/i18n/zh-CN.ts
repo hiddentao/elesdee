@@ -93,6 +93,9 @@ export const zhCN = {
   'session.newSession': '新建会话',
   'session.closeMenu': '关闭菜单',
   'session.menuLabel': '{name} 的操作',
+  'session.contextLeft': '剩余上下文',
+  'session.contextLeftUnknown': '剩余上下文未知',
+  'session.contextCompacts': '自动压缩。',
   'session.reopen': '重新打开',
   'session.resume': '恢复',
   'session.renameMenu': '重命名…',
@@ -361,6 +364,13 @@ export const zhCN = {
   'switchAccount.busyLabel': '正在切换账户…',
   'switchAccount.submitting': '正在切换…',
   'switchAccount.submit': '切换账户',
+  'switchAccount.nextAuto': '下次自动切换',
+  'switchAccount.handoffSame':
+      '在 {client} 内切换会继续对话。',
+  'switchAccount.handoffOther':
+      '切换到 {client} 会先写入交接说明。',
+  'switchAccount.loading': '正在加载账户…',
+  'switchAccount.loadFailed': '账户未加载。',
 
   'terminal.disconnected': '输出已断开。',
   'terminal.reconnected': '输出已重新连接。',

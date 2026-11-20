@@ -1,43 +1,94 @@
-import { useState, type FormEvent } from 'react';
-import { ApiError } from '../api/client';
-import type { Account, Session } from '../api/types';
-import { type Language } from '../i18n';
+import {
+  useCallback,
+  useEffect,
+  useState,
+  type FormEvent,
+} from 'react';
+import {
+  ApiError,
+  getSwitchOptions,
+  listAccounts,
+} from '../api/client';
+import type { Account, Session, SwitchOptions } from '../api/types';
 import { useLanguage } from '../i18n/LanguageProvider';
 import { accountUsage } from '../state/usage';
-import { Combobox, type ComboboxOption } from './Combobox';
+import { Combobox, type ComboboxLoader } from './Combobox';
 import { Dialog } from './Dialog';
 
 interface SwitchAccountDialogProps {
   session: Session;
-  accounts: Account[];
   onSwitch: (accountId: string) => Promise<void>;
   onClose: () => void;
 }
 
-function accountOption(
-  account: Account,
-  language: Language,
-): ComboboxOption {
-  return {
-    id: account.id,
-    label: account.name,
-    meta: `${account.client} · ${accountUsage(account, language).summary}`,
-  };
-}
-
 export function SwitchAccountDialog({
   session,
-  accounts,
   onSwitch,
   onClose,
 }: SwitchAccountDialogProps) {
   const { t, language } = useLanguage();
-  const options = accounts
-    .filter((account) => account.id !== session.accountId)
-    .map((account) => accountOption(account, language));
+  const [options, setOptions] = useState<SwitchOptions | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   const [accountId, setAccountId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setOptions(null);
+    setLoadFailed(false);
+    getSwitchOptions(session.id)
+      .then((next) => {
+        if (!cancelled) {
+          setOptions(next);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setLoadFailed(true);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [session.id, attempt]);
+
+  const loadAccounts = useCallback<ComboboxLoader>(
+    async (query, signal) => {
+      if (!options) {
+        return [];
+      }
+      const allowed = new Set(options.accounts.map((account) => account.id));
+      const list = await listAccounts(query, signal);
+      return list
+        .filter(
+          (account) =>
+            allowed.has(account.id) && account.id !== session.accountId,
+        )
+        .map((account) => ({
+          id: account.id,
+          label: account.name,
+          meta: `${account.client} · ${accountUsage(account, language).summary}`,
+          tag:
+            account.id === options.nextAccountId
+              ? t('switchAccount.nextAuto')
+              : account.sample
+                ? t('common.sample')
+                : undefined,
+        }));
+    },
+    [options, session.accountId, language, t],
+  );
+
+  const selectedAccount: Account | null = accountId
+    ? (options?.accounts.find((account) => account.id === accountId) ?? null)
+    : null;
+  const hint = selectedAccount
+    ? selectedAccount.client === session.client
+      ? t('switchAccount.handoffSame', { client: selectedAccount.client })
+      : t('switchAccount.handoffOther', { client: selectedAccount.client })
+    : t('switchAccount.hint');
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -78,49 +129,76 @@ export function SwitchAccountDialog({
         </p>
       </div>
 
-      <form className="dialog-form" onSubmit={handleSubmit} noValidate>
+      {options === null && !loadFailed ? (
         <div className="dialog-body">
-          <Combobox
-            id="switch-account"
-            label={t('switchAccount.account')}
-            value={accountId}
-            options={options}
-            onChange={(id) => {
-              setAccountId(id);
-              setError(null);
-            }}
-            placeholder={
-              options.length === 0
-                ? t('switchAccount.noOther')
-                : t('switchAccount.placeholder')
-            }
-            hint={t('switchAccount.hint')}
-            error={error ?? undefined}
-            required
-            autoFocus
-          />
+          <p className="dialog-sub" role="status">
+            {t('switchAccount.loading')}
+          </p>
         </div>
+      ) : null}
 
-        <div className="dialog-foot">
+      {loadFailed ? (
+        <div className="dialog-body">
+          <p className="form-error" role="alert">
+            {t('switchAccount.loadFailed')}
+          </p>
           <button
             type="button"
             className="btn btn-ghost"
-            onClick={onClose}
-            disabled={submitting}
+            onClick={() => setAttempt((current) => current + 1)}
           >
-            {t('common.cancel')}
-          </button>
-          <button
-            type="submit"
-            className="btn btn-primary"
-            disabled={submitting || options.length === 0}
-          >
-            {submitting
-              ? t('switchAccount.submitting')
-              : t('switchAccount.submit')}
+            {t('common.retry')}
           </button>
         </div>
-      </form>
+      ) : null}
+
+      {options ? (
+        <form className="dialog-form" onSubmit={handleSubmit} noValidate>
+          <div className="dialog-body">
+            <Combobox
+              id="switch-account"
+              label={t('switchAccount.account')}
+              value={accountId}
+              loadOptions={loadAccounts}
+              onChange={(id) => {
+                setAccountId(id);
+                setError(null);
+              }}
+              placeholder={
+                options.accounts.length <= 1
+                  ? t('switchAccount.noOther')
+                  : t('switchAccount.placeholder')
+              }
+              hint={hint}
+              error={error ?? undefined}
+              required
+              autoFocus
+            />
+          </div>
+
+          <div className="dialog-foot">
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={onClose}
+              disabled={submitting}
+            >
+              {t('common.cancel')}
+            </button>
+            <button
+              type="submit"
+              className="btn btn-primary"
+              disabled={
+                submitting || !accountId || options.accounts.length <= 1
+              }
+            >
+              {submitting
+                ? t('switchAccount.submitting')
+                : t('switchAccount.submit')}
+            </button>
+          </div>
+        </form>
+      ) : null}
     </Dialog>
   );
 }

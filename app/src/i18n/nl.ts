@@ -96,6 +96,9 @@ export const nl = {
   'session.newSession': 'Nieuwe sessie',
   'session.closeMenu': 'Menu sluiten',
   'session.menuLabel': 'Acties voor {name}',
+  'session.contextLeft': 'Resterende context',
+  'session.contextLeftUnknown': 'Resterende context onbekend',
+  'session.contextCompacts': 'Wordt automatisch ingekort.',
   'session.reopen': 'Heropenen',
   'session.resume': 'Hervatten',
   'session.renameMenu': 'Naam wijzigen…',
@@ -390,6 +393,13 @@ export const nl = {
   'switchAccount.busyLabel': 'Account wordt gewisseld…',
   'switchAccount.submitting': 'Wisselen…',
   'switchAccount.submit': 'Account wisselen',
+  'switchAccount.nextAuto': 'Volgende automatische wissel',
+  'switchAccount.handoffSame':
+      'Een wissel binnen {client} zet het gesprek voort.',
+  'switchAccount.handoffOther':
+      'Een wissel naar {client} schrijft eerst een overdrachtsnotitie.',
+  'switchAccount.loading': 'Accounts worden geladen…',
+  'switchAccount.loadFailed': 'De accounts zijn niet geladen.',
 
   'terminal.disconnected': 'De uitvoer is losgekoppeld.',
   'terminal.reconnected': 'Uitvoer weer verbonden.',

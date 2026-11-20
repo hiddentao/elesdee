@@ -96,6 +96,9 @@ export const es = {
   'session.newSession': 'Nueva sesión',
   'session.closeMenu': 'Cerrar menú',
   'session.menuLabel': 'Acciones para {name}',
+  'session.contextLeft': 'Contexto restante',
+  'session.contextLeftUnknown': 'Contexto restante desconocido',
+  'session.contextCompacts': 'Se compacta automáticamente.',
   'session.reopen': 'Reabrir',
   'session.resume': 'Reanudar',
   'session.renameMenu': 'Cambiar nombre…',
@@ -393,6 +396,13 @@ export const es = {
   'switchAccount.busyLabel': 'Cambiando de cuenta…',
   'switchAccount.submitting': 'Cambiando…',
   'switchAccount.submit': 'Cambiar de cuenta',
+  'switchAccount.nextAuto': 'Próximo cambio automático',
+  'switchAccount.handoffSame':
+      'Un cambio dentro de {client} continúa la conversación.',
+  'switchAccount.handoffOther':
+      'Un cambio a {client} escribe primero una nota de traspaso.',
+  'switchAccount.loading': 'Cargando cuentas…',
+  'switchAccount.loadFailed': 'No se cargaron las cuentas.',
 
   'terminal.disconnected': 'La salida está desconectada.',
   'terminal.reconnected': 'Salida reconectada.',

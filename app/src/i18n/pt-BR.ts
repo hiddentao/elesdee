@@ -97,6 +97,9 @@ export const ptBR = {
   'session.newSession': 'Nova sessão',
   'session.closeMenu': 'Fechar menu',
   'session.menuLabel': 'Ações para {name}',
+  'session.contextLeft': 'Contexto restante',
+  'session.contextLeftUnknown': 'Contexto restante desconhecido',
+  'session.contextCompacts': 'Compacta automaticamente.',
   'session.reopen': 'Reabrir',
   'session.resume': 'Retomar',
   'session.renameMenu': 'Renomear…',
@@ -395,6 +398,13 @@ export const ptBR = {
   'switchAccount.busyLabel': 'Trocando conta…',
   'switchAccount.submitting': 'Trocando…',
   'switchAccount.submit': 'Trocar conta',
+  'switchAccount.nextAuto': 'Próxima troca automática',
+  'switchAccount.handoffSame':
+      'Uma troca dentro de {client} continua a conversa.',
+  'switchAccount.handoffOther':
+      'Uma troca para {client} grava primeiro uma nota de passagem.',
+  'switchAccount.loading': 'Carregando contas…',
+  'switchAccount.loadFailed': 'As contas não foram carregadas.',
 
   'terminal.disconnected': 'A saída está desconectada.',
   'terminal.reconnected': 'Saída reconectada.',

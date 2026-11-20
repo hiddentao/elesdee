@@ -21,8 +21,9 @@ The list below is a snapshot at `a33b77a`. These items have since closed and are
 longer gaps: crash recovery, the handoff note, the skill pack, Wait for session and
 Share file, real usage sources for Claude Code, Codex and DeepSeek, launch fetch and
 pull with the uncommitted-changes choice, launch presets, the phone Languages sheet,
-the phone shell skeleton, and the phone app connection step in progress. Register demo
-server stays open until demo servers exist.
+the phone shell skeleton, the phone app connection step in progress, and the manual
+switch from the usage pill with the context-left value. Register demo server stays
+open until demo servers exist.
 
 ## Verdict
 
@@ -145,13 +146,13 @@ worktree starts from the source ref. The branch combobox lists local and remote 
 remote / plain-folder source choice. Files: `core/src/git.rs`, `api.rs`,
 `app/src/components/NewSessionDialog.tsx`, `app/src/api/types.ts`. Size: M.
 
-**8. Manual switch completeness.**
-Spec: Manual switch; Usage panel. Switching accounts works through the session menu and
-`SwitchAccountDialog`. The provider pill click only pins its tooltip
-(`app/src/components/UsagePill.tsx`); the spec says click the pill to switch accounts. The
-session header has no context-left value. A different-client switch starts the new client with no
-handoff summary. Files: `app/src/components/UsagePill.tsx`, `SessionHeader.tsx`,
-`SwitchAccountDialog.tsx`, `core/src/api.rs`, `sessions.rs`. Size: M.
+**8. Manual switch completeness. Closed for the switch and the context display.**
+Spec: Manual switch; Usage panel. Clicking the provider pill now opens the chooser. It lists
+every account the switch endpoint accepts with its remaining usage and marks the automatic
+switch target. The pill tooltip shows the session's context left. A different-client switch
+sends the handoff note and the end of the log. Remaining: the per-session allowed-provider
+list (gap 6), the spec's subscription-first cross-client switch order (gap 6), and a context
+figure for Codex, OpenCode 2 and Antigravity, whose clients expose no official field yet.
 
 **9. Subscription sign-in.**
 Spec: Subscription sign-in. `AddAccountDialog` offers Subscription for Anthropic and OpenAI, but

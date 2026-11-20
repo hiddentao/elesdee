@@ -37,6 +37,7 @@ export interface Session {
   accountId: string | null;
   branch: string | null;
   handoffNote?: string | null;
+  contextLeft?: number | null;
   folder: string;
   preview: string;
   waitingFor: WaitingFor | null;
@@ -99,6 +100,11 @@ export interface Account {
   server: string | null;
   model: string | null;
   apiStyle?: string | null;
+}
+
+export interface SwitchOptions {
+  accounts: Account[];
+  nextAccountId: string | null;
 }
 
 export interface ProviderInfo {

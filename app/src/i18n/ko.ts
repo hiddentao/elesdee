@@ -95,6 +95,9 @@ export const ko = {
   'session.newSession': '새 세션',
   'session.closeMenu': '메뉴 닫기',
   'session.menuLabel': '{name} 작업',
+  'session.contextLeft': '남은 컨텍스트',
+  'session.contextLeftUnknown': '남은 컨텍스트 알 수 없음',
+  'session.contextCompacts': '자동으로 압축됩니다.',
   'session.reopen': '다시 열기',
   'session.resume': '재개',
   'session.renameMenu': '이름 변경…',
@@ -392,6 +395,13 @@ export const ko = {
   'switchAccount.busyLabel': '계정 전환 중…',
   'switchAccount.submitting': '전환 중…',
   'switchAccount.submit': '계정 전환',
+  'switchAccount.nextAuto': '다음 자동 전환',
+  'switchAccount.handoffSame':
+      '{client} 내에서 전환하면 대화가 이어집니다.',
+  'switchAccount.handoffOther':
+      '{client}(으)로 전환하면 먼저 인계 메모를 작성합니다.',
+  'switchAccount.loading': '계정을 불러오는 중…',
+  'switchAccount.loadFailed': '계정을 불러오지 못했습니다.',
 
   'terminal.disconnected': '출력이 끊겼습니다.',
   'terminal.reconnected': '출력이 다시 연결되었습니다.',

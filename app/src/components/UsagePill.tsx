@@ -1,13 +1,27 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import type { Account } from '../api/types';
+import type { Account, Session } from '../api/types';
 import { accountUsage, usageStatusText } from '../state/usage';
 import { useLanguage } from '../i18n/LanguageProvider';
 import { UsageLimitRow } from './UsageLimitRow';
 
-export function UsagePill({ account }: { account: Account }) {
+interface UsagePillProps {
+  session: Session;
+  account: Account;
+  canSwitch: boolean;
+  onOpenSwitch: () => void;
+}
+
+export function UsagePill({
+  session,
+  account,
+  canSwitch,
+  onOpenSwitch,
+}: UsagePillProps) {
   const { t, language } = useLanguage();
   const usage = accountUsage(account, language);
   const status = usageStatusText(account, language, t) ?? account.foot;
+  const contextLeft =
+    typeof session.contextLeft === 'number' ? session.contextLeft : null;
   const tipId = useId();
   const rootRef = useRef<HTMLSpanElement>(null);
   const [pinned, setPinned] = useState(false);
@@ -31,6 +45,12 @@ export function UsagePill({ account }: { account: Account }) {
   }, [open]);
 
   function handleClick() {
+    if (canSwitch) {
+      setPinned(false);
+      setHovered(false);
+      onOpenSwitch();
+      return;
+    }
     if (pinned) {
       setPinned(false);
       setHovered(false);
@@ -54,9 +74,12 @@ export function UsagePill({ account }: { account: Account }) {
       <button
         type="button"
         className="provider-pill"
-        aria-expanded={open}
-        aria-controls={tipId}
+        aria-haspopup={canSwitch ? 'dialog' : undefined}
+        aria-expanded={canSwitch ? undefined : open}
+        aria-controls={open ? tipId : undefined}
         aria-describedby={open ? tipId : undefined}
+        onFocus={() => setHovered(true)}
+        onBlur={() => setHovered(false)}
         onClick={handleClick}
         onKeyDown={(event) => {
           if (event.key === 'Escape' && open) {
@@ -103,6 +126,29 @@ export function UsagePill({ account }: { account: Account }) {
           {status ? (
             <span className="usage-tip-foot">{status}</span>
           ) : null}
+          <span className="usage-tip-context">
+            <span className="usage-tip-context-head">
+              <strong>{t('session.contextLeft')}</strong>
+              <span>
+                {contextLeft === null
+                  ? t('session.contextLeftUnknown')
+                  : t('usage.percentLeft', {
+                      percent: Math.round(contextLeft),
+                    })}
+              </span>
+            </span>
+            {contextLeft === null ? null : (
+              <span className="usage-bar" aria-hidden="true">
+                <span
+                  className="usage-bar-fill"
+                  style={{ width: `${contextLeft}%` }}
+                />
+              </span>
+            )}
+            <span className="usage-tip-note">
+              {t('session.contextCompacts')}
+            </span>
+          </span>
         </span>
       ) : null}
     </span>

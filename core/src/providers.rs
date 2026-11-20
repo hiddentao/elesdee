@@ -259,9 +259,28 @@ pub fn remaining_percent(account: &Account) -> Option<u8> {
         .min()
 }
 
+/// Picks the account the automatic switch moves to next. It stays inside the
+/// session's client and skips samples, the current account and accounts
+/// without a known usage figure. The account with the most usage left wins.
+pub fn auto_switch_target(
+    accounts: &[Account],
+    client: Client,
+    current_account_id: Option<&str>,
+) -> Option<Account> {
+    accounts
+        .iter()
+        .filter(|candidate| Some(candidate.id.as_str()) != current_account_id)
+        .filter(|candidate| !candidate.sample)
+        .filter(|candidate| candidate.client == client)
+        .filter(|candidate| usage_state(candidate) == UsageState::Room)
+        .max_by_key(|candidate| remaining_percent(candidate))
+        .cloned()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::state::UsageRow;
 
     fn account(provider: &str, client: Client, auth: Auth) -> Account {
         Account {
@@ -305,6 +324,66 @@ mod tests {
             clients_for_style("openai"),
             &[Client::Codex, Client::OpenCode2]
         );
+    }
+
+    #[test]
+    fn auto_switch_target_prefers_the_most_room_inside_the_client() {
+        let mut current = account("anthropic", Client::ClaudeCode, Auth::Subscription);
+        current.id = "current".to_owned();
+        let mut roomy = account("deepseek", Client::ClaudeCode, Auth::Key);
+        roomy.id = "roomy".to_owned();
+        roomy.rows = vec![UsageRow {
+            label: "Weekly".to_owned(),
+            used: Some(10),
+            value: None,
+            min: None,
+            warn: None,
+            window: None,
+            resets_at: None,
+        }];
+        let mut tighter = account("anthropic", Client::ClaudeCode, Auth::Subscription);
+        tighter.id = "tighter".to_owned();
+        tighter.rows = vec![UsageRow {
+            label: "Weekly".to_owned(),
+            used: Some(60),
+            value: None,
+            min: None,
+            warn: None,
+            window: None,
+            resets_at: None,
+        }];
+        let mut sample = account("anthropic", Client::ClaudeCode, Auth::Subscription);
+        sample.id = "sample".to_owned();
+        sample.sample = true;
+        sample.rows = vec![UsageRow {
+            label: "Weekly".to_owned(),
+            used: Some(5),
+            value: None,
+            min: None,
+            warn: None,
+            window: None,
+            resets_at: None,
+        }];
+        let mut other_client = account("openai", Client::Codex, Auth::Subscription);
+        other_client.id = "codex".to_owned();
+        other_client.rows = vec![UsageRow {
+            label: "Weekly".to_owned(),
+            used: Some(5),
+            value: None,
+            min: None,
+            warn: None,
+            window: None,
+            resets_at: None,
+        }];
+        let mut unknown = account("deepseek", Client::ClaudeCode, Auth::Key);
+        unknown.id = "unknown".to_owned();
+
+        let accounts = vec![current, roomy, tighter, sample, other_client, unknown];
+        let target = auto_switch_target(&accounts, Client::ClaudeCode, Some("current"))
+            .expect("a target account");
+        assert_eq!(target.id, "roomy");
+
+        assert!(auto_switch_target(&accounts, Client::Codex, Some("codex")).is_none());
     }
 
     #[test]

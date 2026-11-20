@@ -91,6 +91,9 @@ export const en = {
   'session.newSession': 'New session',
   'session.closeMenu': 'Close menu',
   'session.menuLabel': 'Actions for {name}',
+  'session.contextLeft': 'Context left',
+  'session.contextLeftUnknown': 'Context left unknown',
+  'session.contextCompacts': 'Compacts automatically.',
   'session.reopen': 'Reopen',
   'session.resume': 'Resume',
   'session.renameMenu': 'Rename…',
@@ -371,6 +374,13 @@ export const en = {
   'switchAccount.busyLabel': 'Switching account…',
   'switchAccount.submitting': 'Switching…',
   'switchAccount.submit': 'Switch account',
+  'switchAccount.nextAuto': 'Next auto-switch',
+  'switchAccount.handoffSame':
+    'Switching inside {client} continues the conversation.',
+  'switchAccount.handoffOther':
+    'Switching to {client} writes a handoff note first.',
+  'switchAccount.loading': 'Loading accounts…',
+  'switchAccount.loadFailed': 'The accounts were not loaded.',
 
   'terminal.disconnected': 'Output is disconnected.',
   'terminal.reconnected': 'Output reconnected.',

@@ -953,6 +953,7 @@ export default function App() {
                   }
                   panelOpen={activeDock !== null}
                   onTogglePanel={() => toggleDock(activeSession.id)}
+                  onOpenSwitch={() => setSwitchSessionId(activeSession.id)}
                 />
                 <div
                   className={`session-workspace${activeDock ? ' has-dock' : ''}`}
@@ -1074,7 +1075,6 @@ export default function App() {
       {switchTarget ? (
         <SwitchAccountDialog
           session={switchTarget}
-          accounts={accounts}
           onSwitch={performSwitch}
           onClose={() => setSwitchSessionId(null)}
         />

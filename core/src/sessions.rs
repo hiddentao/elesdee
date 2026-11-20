@@ -447,6 +447,16 @@ impl SessionEntry {
         Some(state.session.clone())
     }
 
+    pub fn note_context_left(&self, context_left: Option<u8>) -> Option<Session> {
+        let mut state = lock(&self.data);
+        let context_left = context_left.map(|value| value.min(100));
+        if state.session.context_left == context_left {
+            return None;
+        }
+        state.session.context_left = context_left;
+        Some(state.session.clone())
+    }
+
     pub fn short(&self) -> String {
         lock(&self.data).session.short.clone()
     }
@@ -625,6 +635,7 @@ impl SessionEntry {
         state.session.client = Some(client);
         state.session.agent_session_id = agent_session_id;
         state.session.shortcuts = shortcuts;
+        state.session.context_left = None;
         state.session.preview = format!("Switched to {client}.");
         state.preview_tail.clear();
         state.last_preview_at = None;
@@ -650,6 +661,7 @@ impl SessionEntry {
         state.session.work_state = Some(WorkState::Working);
         state.session.waiting_for = None;
         state.session.pending_permission = None;
+        state.session.context_left = None;
         state.session.preview = "Resumed.".to_owned();
         state.preview_tail.clear();
         state.last_preview_at = None;
@@ -666,6 +678,7 @@ impl SessionEntry {
             state.session.work_state = Some(WorkState::Working);
             state.session.waiting_for = None;
             state.session.pending_permission = None;
+            state.session.context_left = None;
             state.session.preview = preview.to_owned();
             state.preview_tail.clear();
             state.last_preview_at = None;
@@ -1914,6 +1927,7 @@ mod tests {
             config: BTreeMap::new(),
             agent_session_id: None,
             handoff_note: None,
+            context_left: None,
             started_at: "2026-01-01T00:00:00Z".to_owned(),
             shortcuts: Vec::new(),
         };
@@ -1957,6 +1971,7 @@ mod tests {
             config: BTreeMap::new(),
             agent_session_id: None,
             handoff_note: None,
+            context_left: None,
             started_at: "2026-01-01T00:00:00Z".to_owned(),
             shortcuts: Vec::new(),
         };

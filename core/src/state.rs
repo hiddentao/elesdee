@@ -180,6 +180,11 @@ pub struct Session {
     pub agent_session_id: Option<String>,
     #[serde(default)]
     pub handoff_note: Option<String>,
+    /// Percentage of the agent's context window that is still free. It comes
+    /// from the running client and stays `None` when that client reports no
+    /// figure.
+    #[serde(default)]
+    pub context_left: Option<u8>,
     pub started_at: String,
     pub shortcuts: Vec<Shortcut>,
 }
