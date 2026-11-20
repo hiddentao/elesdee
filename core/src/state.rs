@@ -217,6 +217,13 @@ pub enum QuestionStatus {
     Withdrawn,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum NotificationKind {
+    Message,
+    Done,
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Notification {
@@ -224,6 +231,7 @@ pub struct Notification {
     pub session_id: String,
     pub session_name: String,
     pub message: String,
+    pub kind: NotificationKind,
     pub created_at: String,
 }
 
@@ -1441,6 +1449,23 @@ impl AppState {
     }
 
     pub fn notify(&self, session_id: &str, message: String) -> Option<Notification> {
+        self.emit_notification(session_id, message, NotificationKind::Message)
+    }
+
+    pub fn notify_done(&self, session_id: &str) -> Option<Notification> {
+        self.emit_notification(
+            session_id,
+            "Reported done.".to_owned(),
+            NotificationKind::Done,
+        )
+    }
+
+    fn emit_notification(
+        &self,
+        session_id: &str,
+        message: String,
+        kind: NotificationKind,
+    ) -> Option<Notification> {
         let entry = self.session(session_id)?;
         let session = entry.session();
         let notification = Notification {
@@ -1448,6 +1473,7 @@ impl AppState {
             session_id: session.id.clone(),
             session_name: session.name.clone(),
             message,
+            kind,
             created_at: timestamp(),
         };
         self.emit_aux(AuxEvent::Notification {

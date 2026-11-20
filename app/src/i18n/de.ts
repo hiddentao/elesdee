@@ -573,4 +573,15 @@ export const de = {
   'changeStatus.renamed': 'Umbenannt',
   'changeStatus.untracked': 'Neu',
   'changeStatus.conflicted': 'Konflikt',
+
+  'notifications.waitingTitle': '{name} braucht dich',
+  'notifications.permissionBody': 'Genehmige oder lehne eine Anfrage ab.',
+  'notifications.questionBody': 'Beantworte eine Frage.',
+  'notifications.inputBody': 'Die Sitzung wartet auf eine Eingabe.',
+  'notifications.startBody': 'Genehmige eine neue Sitzung.',
+  'notifications.requestTitle': 'Anfrage für eine neue Sitzung',
+  'notifications.requestBody': '{name} möchte eine Sitzung starten.',
+  'notifications.doneTitle': '{name} ist fertig',
+  'notifications.doneBody': 'Die Aufgabe ist abgeschlossen.',
+  'notifications.messageTitle': '{name} sagt',
 } satisfies Record<MessageKey, string>;

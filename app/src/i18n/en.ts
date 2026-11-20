@@ -550,6 +550,17 @@ export const en = {
   'changeStatus.renamed': 'Renamed',
   'changeStatus.untracked': 'New',
   'changeStatus.conflicted': 'Conflict',
+
+  'notifications.waitingTitle': '{name} needs you',
+  'notifications.permissionBody': 'Approve or deny a request.',
+  'notifications.questionBody': 'Answer a question.',
+  'notifications.inputBody': 'The session is waiting for input.',
+  'notifications.startBody': 'Approve a new session.',
+  'notifications.requestTitle': 'New session request',
+  'notifications.requestBody': '{name} wants to start a session.',
+  'notifications.doneTitle': '{name} is done',
+  'notifications.doneBody': 'The task is complete.',
+  'notifications.messageTitle': '{name} says',
 } as const;
 
 export type MessageKey = keyof typeof en;

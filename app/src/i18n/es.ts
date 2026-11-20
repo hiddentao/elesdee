@@ -581,4 +581,15 @@ export const es = {
   'changeStatus.renamed': 'Renombrado',
   'changeStatus.untracked': 'Nuevo',
   'changeStatus.conflicted': 'Conflicto',
+
+  'notifications.waitingTitle': '{name} te necesita',
+  'notifications.permissionBody': 'Aprueba o deniega una solicitud.',
+  'notifications.questionBody': 'Responde a una pregunta.',
+  'notifications.inputBody': 'La sesión espera una entrada.',
+  'notifications.startBody': 'Aprueba una sesión nueva.',
+  'notifications.requestTitle': 'Solicitud de sesión nueva',
+  'notifications.requestBody': '{name} quiere iniciar una sesión.',
+  'notifications.doneTitle': '{name} ha terminado',
+  'notifications.doneBody': 'La tarea está terminada.',
+  'notifications.messageTitle': '{name} dice',
 } satisfies Record<MessageKey, string>;

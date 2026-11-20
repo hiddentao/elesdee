@@ -397,6 +397,7 @@ fn report_done(state: &AppState, session_id: &str) -> (String, bool) {
     match entry.report_done() {
         Some(session) => {
             state.emit(crate::state::SessionEvent::updated(session));
+            state.notify_done(session_id);
             state.save();
             ("Reported done.".to_owned(), false)
         }

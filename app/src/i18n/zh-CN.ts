@@ -533,4 +533,15 @@ export const zhCN = {
   'changeStatus.renamed': '已重命名',
   'changeStatus.untracked': '新增',
   'changeStatus.conflicted': '冲突',
+
+  'notifications.waitingTitle': '{name} 需要你',
+  'notifications.permissionBody': '批准或拒绝请求。',
+  'notifications.questionBody': '回答一个问题。',
+  'notifications.inputBody': '会话正在等待输入。',
+  'notifications.startBody': '批准新会话。',
+  'notifications.requestTitle': '新会话请求',
+  'notifications.requestBody': '{name} 想要启动一个会话。',
+  'notifications.doneTitle': '{name} 已完成',
+  'notifications.doneBody': '任务已完成。',
+  'notifications.messageTitle': '{name} 说',
 } satisfies Record<MessageKey, string>;

@@ -24,7 +24,9 @@ Use **Wait for answer** in the agent when it needs your answer. The agent can al
 
 ## Notifications
 
-The **Notify me** tool sends a short message. The app shows it as a notification.
+The **Notify me** tool sends a short message. The app shows a desktop notification and a message in the open window. **Report done** also sends a desktop notification.
+
+The app also sends a desktop notification when a session waits for your input, a permission answer or a new-session approval. Click the notification to bring the app forward and open that session. When the app window is already in front on that session, the card there is enough, so the app does not send the notification.
 
 ## Session coordination
 

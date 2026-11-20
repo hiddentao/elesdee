@@ -578,4 +578,15 @@ export const nl = {
   'changeStatus.renamed': 'Hernoemd',
   'changeStatus.untracked': 'Nieuw',
   'changeStatus.conflicted': 'Conflict',
+
+  'notifications.waitingTitle': '{name} heeft je nodig',
+  'notifications.permissionBody': 'Keur een verzoek goed of wijs het af.',
+  'notifications.questionBody': 'Beantwoord een vraag.',
+  'notifications.inputBody': 'De sessie wacht op invoer.',
+  'notifications.startBody': 'Keur een nieuwe sessie goed.',
+  'notifications.requestTitle': 'Verzoek voor een nieuwe sessie',
+  'notifications.requestBody': '{name} wil een sessie starten.',
+  'notifications.doneTitle': '{name} is klaar',
+  'notifications.doneBody': 'De taak is voltooid.',
+  'notifications.messageTitle': '{name} zegt',
 } satisfies Record<MessageKey, string>;

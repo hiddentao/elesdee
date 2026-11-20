@@ -582,4 +582,15 @@ export const fr = {
   'changeStatus.renamed': 'Renommé',
   'changeStatus.untracked': 'Nouveau',
   'changeStatus.conflicted': 'Conflit',
+
+  'notifications.waitingTitle': '{name} a besoin de vous',
+  'notifications.permissionBody': 'Approuvez ou refusez une demande.',
+  'notifications.questionBody': 'Répondez à une question.',
+  'notifications.inputBody': 'La session attend une saisie.',
+  'notifications.startBody': 'Approuvez une nouvelle session.',
+  'notifications.requestTitle': 'Demande de nouvelle session',
+  'notifications.requestBody': '{name} veut démarrer une session.',
+  'notifications.doneTitle': '{name} a terminé',
+  'notifications.doneBody': 'La tâche est terminée.',
+  'notifications.messageTitle': '{name} dit',
 } satisfies Record<MessageKey, string>;
