@@ -31,6 +31,8 @@ pub const MAX_UI_NAME_BYTES: usize = 512;
 
 const CURRENT_FILE: &str = "current.json";
 const INDEX_FILE: &str = "index.html";
+/// The generated script that carries the bridge marker to the package.
+const MARKER_FILE: &str = "__elesdee_bridge.js";
 const PACKAGE_CSP: &str = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src ipc: http://ipc.localhost; object-src 'none'; base-uri 'none'; frame-ancestors 'none'";
 
 /// The UI package manifest as the computer sends it.
@@ -188,6 +190,7 @@ impl UiStatus {
 struct Installed {
     computer_id: String,
     build_id: String,
+    computer_name: Option<String>,
     directory: PathBuf,
 }
 
@@ -201,6 +204,8 @@ impl Installed {
 #[serde(rename_all = "camelCase")]
 struct CurrentBuild {
     build_id: String,
+    #[serde(default)]
+    computer_name: Option<String>,
 }
 
 #[derive(Default)]
@@ -280,12 +285,14 @@ impl UiStore {
             return self.save_status(UiStatus::simple(computer_id, "none"));
         };
 
-        if let Some(installed) = self.find_build(computer_id, &manifest.build_id) {
+        if let Some(mut installed) = self.find_build(computer_id, &manifest.build_id) {
+            installed.computer_name = Some(connection.welcome().computer_name.clone());
             return self.use_build(computer_id, installed);
         }
 
         let _gate = self.gate.lock().await;
-        if let Some(installed) = self.find_build(computer_id, &manifest.build_id) {
+        if let Some(mut installed) = self.find_build(computer_id, &manifest.build_id) {
+            installed.computer_name = Some(connection.welcome().computer_name.clone());
             return self.use_build(computer_id, installed);
         }
 
@@ -386,7 +393,11 @@ impl UiStore {
         } else {
             std::fs::rename(&temp, &directory).map_err(storage)?;
         }
-        write_current(&ui_root, &served.build_id)?;
+        write_current(
+            &ui_root,
+            &served.build_id,
+            Some(connection.welcome().computer_name.as_str()),
+        )?;
         prune_builds(&builds, &served.build_id, previous.as_deref());
 
         tracing::info!(
@@ -398,6 +409,7 @@ impl UiStore {
         Ok(Installed {
             computer_id: computer_id.to_owned(),
             build_id: served.build_id,
+            computer_name: Some(connection.welcome().computer_name.clone()),
             directory,
         })
     }
@@ -417,20 +429,31 @@ impl UiStore {
 
     fn current_build_id(&self, computer_id: &str) -> Option<String> {
         let ui_root = self.ui_root(computer_id).ok()?;
-        read_current(&ui_root)
+        read_current(&ui_root).map(|current| current.0)
     }
 
     fn find_current(&self, computer_id: &str) -> Option<Installed> {
-        let build_id = self.current_build_id(computer_id)?;
-        self.find_build(computer_id, &build_id)
+        let ui_root = self.ui_root(computer_id).ok()?;
+        let (build_id, computer_name) = read_current(&ui_root)?;
+        self.find_build_with_name(computer_id, &build_id, computer_name)
     }
 
     fn find_build(&self, computer_id: &str, build_id: &str) -> Option<Installed> {
+        self.find_build_with_name(computer_id, build_id, None)
+    }
+
+    fn find_build_with_name(
+        &self,
+        computer_id: &str,
+        build_id: &str,
+        computer_name: Option<String>,
+    ) -> Option<Installed> {
         let ui_root = self.ui_root(computer_id).ok()?;
         let directory = ui_root.join("builds").join(build_dir_name(build_id).ok()?);
         directory.join(INDEX_FILE).is_file().then(|| Installed {
             computer_id: computer_id.to_owned(),
             build_id: build_id.to_owned(),
+            computer_name,
             directory,
         })
     }
@@ -452,8 +475,14 @@ impl UiStore {
             return not_found_response();
         };
         let rest = segments.collect::<Vec<_>>().join("/");
+        if rest == MARKER_FILE {
+            return marker_response(&installed);
+        }
         let name: &str = if rest.is_empty() { INDEX_FILE } else { &rest };
-        serve_file(&installed.directory, name, name == INDEX_FILE)
+        if name == INDEX_FILE {
+            return serve_index(&installed);
+        }
+        serve_file(&installed.directory, name)
     }
 
     /// Removes one computer's stored builds and its status.
@@ -632,16 +661,21 @@ fn build_hash(build_id: &str) -> Option<&str> {
     }
 }
 
-fn read_current(ui_root: &Path) -> Option<String> {
+fn read_current(ui_root: &Path) -> Option<(String, Option<String>)> {
     let bytes = std::fs::read(ui_root.join(CURRENT_FILE)).ok()?;
     let current: CurrentBuild = serde_json::from_slice(&bytes).ok()?;
     build_hash(&current.build_id)?;
-    Some(current.build_id)
+    Some((current.build_id, current.computer_name))
 }
 
-fn write_current(ui_root: &Path, build_id: &str) -> Result<(), UiError> {
+fn write_current(
+    ui_root: &Path,
+    build_id: &str,
+    computer_name: Option<&str>,
+) -> Result<(), UiError> {
     let current = CurrentBuild {
         build_id: build_id.to_owned(),
+        computer_name: computer_name.map(str::to_owned),
     };
     let bytes =
         serde_json::to_vec(&current).map_err(|error| UiError::Storage(error.to_string()))?;
@@ -672,38 +706,107 @@ fn prune_builds(builds: &Path, keep: &str, previous: Option<&str>) {
     }
 }
 
-fn serve_file(directory: &Path, name: &str, index: bool) -> HttpResponse<Vec<u8>> {
-    if check_entry_name(name).is_err() {
-        return not_found_response();
-    }
-    let target = directory.join(name);
-    let canonical_directory = match std::fs::canonicalize(directory) {
-        Ok(path) => path,
-        Err(_) => return not_found_response(),
-    };
-    let canonical_target = match std::fs::canonicalize(&target) {
-        Ok(path) => path,
-        Err(_) => return not_found_response(),
-    };
-    if !canonical_target.starts_with(&canonical_directory) {
-        return not_found_response();
-    }
-    let Ok(bytes) = std::fs::read(&canonical_target) else {
+fn serve_file(directory: &Path, name: &str) -> HttpResponse<Vec<u8>> {
+    let Some(bytes) = read_package_file(directory, name) else {
         return not_found_response();
     };
-    let cache = if index {
-        "no-store"
-    } else {
-        "public, max-age=31536000, immutable"
+    package_response(
+        bytes,
+        content_type(name),
+        "public, max-age=31536000, immutable",
+    )
+}
+
+/// Serves the entry page with the bridge marker before its scripts.
+fn serve_index(installed: &Installed) -> HttpResponse<Vec<u8>> {
+    let Some(bytes) = read_package_file(&installed.directory, INDEX_FILE) else {
+        return not_found_response();
     };
+    let body = match String::from_utf8(bytes) {
+        Ok(html) => inject_marker(&html, &build_path(&installed.build_id)).into_bytes(),
+        Err(error) => error.into_bytes(),
+    };
+    package_response(body, "text/html; charset=utf-8", "no-store")
+}
+
+/// Serves the generated marker script for the active build.
+fn marker_response(installed: &Installed) -> HttpResponse<Vec<u8>> {
+    package_response(
+        marker_script(installed),
+        "text/javascript; charset=utf-8",
+        "no-store",
+    )
+}
+
+fn package_response(
+    body: Vec<u8>,
+    mime: &'static str,
+    cache: &'static str,
+) -> HttpResponse<Vec<u8>> {
     HttpResponse::builder()
         .status(StatusCode::OK)
-        .header(header::CONTENT_TYPE, content_type(name))
+        .header(header::CONTENT_TYPE, mime)
         .header(header::CACHE_CONTROL, cache)
         .header(header::X_CONTENT_TYPE_OPTIONS, "nosniff")
         .header("Content-Security-Policy", PACKAGE_CSP)
-        .body(bytes)
+        .body(body)
         .unwrap_or_else(|_| not_found_response())
+}
+
+/// Reads one file only when it resolves inside the build folder.
+fn read_package_file(directory: &Path, name: &str) -> Option<Vec<u8>> {
+    if check_entry_name(name).is_err() {
+        return None;
+    }
+    let target = directory.join(name);
+    let canonical_directory = std::fs::canonicalize(directory).ok()?;
+    let canonical_target = std::fs::canonicalize(&target).ok()?;
+    if !canonical_target.starts_with(&canonical_directory) {
+        return None;
+    }
+    std::fs::read(canonical_target).ok()
+}
+
+/// Writes the bridge marker that selects the shell transport.
+fn marker_script(installed: &Installed) -> Vec<u8> {
+    let marker = serde_json::json!({
+        "computerId": installed.computer_id,
+        "computerName": installed.computer_name.clone().unwrap_or_default(),
+        "bridgeVersion": BRIDGE_VERSION,
+        "protocolVersion": PROTOCOL_VERSION,
+    });
+    format!("window.__ELESDEE_PHONE__ = {marker};\n").into_bytes()
+}
+
+/// Adds the marker script tag before the package's own scripts.
+fn inject_marker(html: &str, build: &str) -> String {
+    let Some(index) = marker_index(html) else {
+        return html.to_owned();
+    };
+    let tag = format!("<script src=\"/ui/{build}/{MARKER_FILE}\"></script>");
+    let mut output = String::with_capacity(html.len() + tag.len());
+    output.push_str(&html[..index]);
+    output.push_str(&tag);
+    output.push_str(&html[index..]);
+    output
+}
+
+fn marker_index(html: &str) -> Option<usize> {
+    let lower = html.to_ascii_lowercase();
+    for tag in ["head", "body"] {
+        let pattern = format!("<{tag}");
+        if let Some(start) = lower.find(&pattern) {
+            let after = start + pattern.len();
+            let boundary = matches!(
+                html[after..].chars().next(),
+                Some('>') | Some(' ') | Some('\t') | Some('\n') | Some('\r')
+            );
+            if boundary && let Some(offset) = html[start..].find('>') {
+                return Some(start + offset + 1);
+            }
+        }
+    }
+    lower.find("</head>")
 }
 
 fn content_type(name: &str) -> &'static str {
@@ -943,6 +1046,7 @@ mod tests {
             inner.active = Some(Installed {
                 computer_id: "computer".to_owned(),
                 build_id: build.clone(),
+                computer_name: Some("Studio".to_owned()),
                 directory: package.clone(),
             });
         }
@@ -967,5 +1071,97 @@ mod tests {
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
 
         let _ = std::fs::remove_dir_all(folder);
+    }
+
+    #[test]
+    fn the_entry_page_loads_the_marker_before_its_scripts() {
+        let folder = temp_folder("marker");
+        let package = folder.join("package");
+        std::fs::create_dir_all(package.join("assets")).expect("package");
+        std::fs::write(
+            package.join(INDEX_FILE),
+            b"<!doctype html><html><head><script src=\"./assets/app.js\"></script></head><body></body></html>",
+        )
+        .expect("index");
+        let build = format!("blake3:{}", blake3::hash(b"x").to_hex());
+        let store = UiStore::new(&folder);
+        {
+            let mut inner = lock(&store.inner);
+            inner.active = Some(Installed {
+                computer_id: "computer-1".to_owned(),
+                build_id: build.clone(),
+                computer_name: Some("Studio <desk>".to_owned()),
+                directory: package.clone(),
+            });
+        }
+
+        let path = build_path(&build);
+        let html = String::from_utf8(
+            store
+                .handle(
+                    HttpRequest::builder()
+                        .uri(format!("/ui/{path}/"))
+                        .body(Vec::new())
+                        .expect("request"),
+                )
+                .body()
+                .clone(),
+        )
+        .expect("html");
+        let marker = html
+            .find(&format!("/ui/{path}/{MARKER_FILE}"))
+            .expect("marker");
+        let script = html.find("./assets/app.js").expect("script");
+        assert!(marker < script, "the marker runs before the package script");
+
+        let response = store.handle(
+            HttpRequest::builder()
+                .uri(format!("/ui/{path}/{MARKER_FILE}"))
+                .body(Vec::new())
+                .expect("request"),
+        );
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response
+                .headers()
+                .get(header::CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok()),
+            Some("text/javascript; charset=utf-8")
+        );
+        let script = String::from_utf8(response.body().clone()).expect("script");
+        assert!(script.contains("window.__ELESDEE_PHONE__"));
+        assert!(script.contains("computer-1"));
+        assert!(script.contains("Studio <desk>"));
+        assert!(script.contains(&format!("\"bridgeVersion\":{BRIDGE_VERSION}")));
+
+        let response = store.handle(
+            HttpRequest::builder()
+                .uri(format!(
+                    "/ui/{}/{MARKER_FILE}",
+                    build_path(&format!("blake3:{}", blake3::hash(b"y").to_hex()))
+                ))
+                .body(Vec::new())
+                .expect("request"),
+        );
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+        let _ = std::fs::remove_dir_all(folder);
+    }
+
+    #[test]
+    fn a_page_without_a_head_keeps_its_bytes() {
+        let installed = Installed {
+            computer_id: "computer".to_owned(),
+            build_id: format!("blake3:{}", blake3::hash(b"x").to_hex()),
+            computer_name: None,
+            directory: PathBuf::new(),
+        };
+        assert_eq!(inject_marker("index", "blake3-x"), "index");
+        assert!(inject_marker("<html><body></body></html>", "blake3-x").contains(MARKER_FILE));
+        assert!(
+            marker_script(&installed)
+                .windows(13)
+                .any(|window| window == b"computerName\"")
+        );
     }
 }

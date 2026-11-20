@@ -14,10 +14,11 @@ use commands::{
     phone_computers, phone_connect, phone_disconnect, phone_forget, phone_forward_start,
     phone_forward_stop, phone_info, phone_pair_cancel, phone_pair_finish, phone_pair_start,
     phone_pick_upload, phone_read_image, phone_request, phone_subscribe, phone_ui_state,
-    phone_unsubscribe,
+    phone_unsubscribe, phone_upload,
 };
 use notifications::{
-    phone_notification_request, phone_notification_show, phone_notification_state,
+    phone_notification_event, phone_notification_request, phone_notification_show,
+    phone_notification_state,
 };
 use tauri::Manager;
 use ui::UiStore;
@@ -64,6 +65,7 @@ pub fn run() {
             phone_request,
             phone_read_image,
             phone_pick_upload,
+            phone_upload,
             phone_subscribe,
             phone_ui_state,
             phone_unsubscribe,
@@ -72,6 +74,7 @@ pub fn run() {
             phone_notification_state,
             phone_notification_request,
             phone_notification_show,
+            phone_notification_event,
         ])
         .build(tauri::generate_context!())
         .expect("the elesdee phone shell failed to start");

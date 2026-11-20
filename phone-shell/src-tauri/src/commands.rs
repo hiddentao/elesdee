@@ -529,8 +529,21 @@ pub async fn phone_request(
     method: String,
     params: Option<Value>,
 ) -> Result<Value, CommandError> {
-    let method = Method::parse(&method).ok_or_else(|| {
-        CommandError::new("forbidden", format!("The method is not allowed: {method}"))
+    let method = request_method(&method)?;
+    let connection = connection_for(&state, &computer_id).await?;
+    let response = connection
+        .request(method, params, Vec::new())
+        .await
+        .map_err(CommandError::from)?;
+    result_from(response)
+}
+
+/// Parses a method name against the shared allowlist.
+///
+/// A streaming method is refused here because it needs a subscription.
+fn request_method(name: &str) -> Result<Method, CommandError> {
+    let method = Method::parse(name).ok_or_else(|| {
+        CommandError::new("forbidden", format!("The method is not allowed: {name}"))
     })?;
     if method.is_streaming() {
         return Err(CommandError::new(
@@ -538,12 +551,7 @@ pub async fn phone_request(
             "Use a subscription for this method.",
         ));
     }
-    let connection = connection_for(&state, &computer_id).await?;
-    let response = connection
-        .request(method, params, Vec::new())
-        .await
-        .map_err(CommandError::from)?;
-    result_from(response)
+    Ok(method)
 }
 
 fn result_from(response: Response) -> Result<Value, CommandError> {
@@ -641,29 +649,89 @@ pub async fn phone_read_image(
         .await
         .map_err(CommandError::from)?;
     match response {
-        Response::Ok { result, body } => {
-            if body.len() as u64 > MAX_IMAGE_BYTES {
-                return Err(CommandError::new(
-                    "too_large",
-                    "The image is too large to show.",
-                ));
-            }
-            let content_type = result
-                .get("contentType")
-                .and_then(Value::as_str)
-                .unwrap_or("application/octet-stream")
-                .to_owned();
-            Ok(ImagePayload {
-                content_type,
-                data: base64::engine::general_purpose::STANDARD.encode(body),
-            })
-        }
+        Response::Ok { result, body } => image_payload(&result, body, MAX_IMAGE_BYTES),
         Response::Error(body) => Err(CommandError::new(
             body.code().as_str(),
             body.message().to_owned(),
         )),
         Response::StreamStart => Err(CommandError::new("streaming", "The image must not stream.")),
     }
+}
+
+/// Builds the base64 image payload after the size check.
+fn image_payload(result: &Value, body: Vec<u8>, max: u64) -> Result<ImagePayload, CommandError> {
+    if body.len() as u64 > max {
+        return Err(CommandError::new(
+            "too_large",
+            "The image is too large to show.",
+        ));
+    }
+    let content_type = result
+        .get("contentType")
+        .and_then(Value::as_str)
+        .unwrap_or("application/octet-stream")
+        .to_owned();
+    Ok(ImagePayload {
+        content_type,
+        data: base64::engine::general_purpose::STANDARD.encode(body),
+    })
+}
+
+/// Sends one base64 file body to a session over the link.
+///
+/// The body is decoded and checked before the connection is opened, so the
+/// shell state lock is never held across the network wait or the decode.
+#[tauri::command]
+pub async fn phone_upload(
+    state: State<'_, ShellState>,
+    computer_id: String,
+    session_id: String,
+    name: String,
+    data: String,
+) -> Result<Value, CommandError> {
+    let (name, bytes) = decode_upload(&session_id, &name, &data, MAX_UPLOAD_BYTES)?;
+    let connection = connection_for(&state, &computer_id).await?;
+    let response = connection
+        .request(
+            Method::SessionsUpload,
+            Some(json!({"sessionId": session_id, "filename": name})),
+            bytes,
+        )
+        .await
+        .map_err(CommandError::from)?;
+    result_from(response)
+}
+
+/// Decodes one upload body and checks it against the link upload cap.
+fn decode_upload(
+    session_id: &str,
+    name: &str,
+    encoded: &str,
+    max: usize,
+) -> Result<(String, Vec<u8>), CommandError> {
+    if session_id.trim().is_empty() {
+        return Err(CommandError::new(
+            "bad_request",
+            "The session id is required.",
+        ));
+    }
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(CommandError::new(
+            "bad_request",
+            "The file name is required.",
+        ));
+    }
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(encoded.trim())
+        .map_err(|_| CommandError::new("bad_request", "The file data is not valid."))?;
+    if bytes.len() > max {
+        return Err(CommandError::new(
+            "too_large",
+            "The file is over the upload limit.",
+        ));
+    }
+    Ok((name.to_owned(), bytes))
 }
 
 /// Reads a picked file and checks its size before it crosses the link.
@@ -714,25 +782,7 @@ pub async fn phone_subscribe(
     params: Option<Value>,
 ) -> Result<SubscriptionOpened, CommandError> {
     let channel = Channel::parse(&channel)?;
-    let session_id = match channel {
-        Channel::Events => None,
-        Channel::Output | Channel::History => Some(
-            params
-                .as_ref()
-                .and_then(|params| params.get("sessionId"))
-                .and_then(Value::as_str)
-                .filter(|value| !value.is_empty())
-                .ok_or_else(|| {
-                    CommandError::new("bad_request", "The session stream needs a session id.")
-                })?
-                .to_owned(),
-        ),
-    };
-    let after = params
-        .as_ref()
-        .and_then(|params| params.get("after"))
-        .and_then(Value::as_u64)
-        .unwrap_or_default();
+    let (session_id, after) = subscription_params(channel, params.as_ref())?;
 
     let manager = {
         let mut shell = state.inner.lock().await;
@@ -891,6 +941,31 @@ impl Channel {
             )),
         }
     }
+}
+
+/// Reads the session id and replay position from one subscription request.
+fn subscription_params(
+    channel: Channel,
+    params: Option<&Value>,
+) -> Result<(Option<String>, u64), CommandError> {
+    let session_id = match channel {
+        Channel::Events => None,
+        Channel::Output | Channel::History => Some(
+            params
+                .and_then(|params| params.get("sessionId"))
+                .and_then(Value::as_str)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| {
+                    CommandError::new("bad_request", "The session stream needs a session id.")
+                })?
+                .to_owned(),
+        ),
+    };
+    let after = params
+        .and_then(|params| params.get("after"))
+        .and_then(Value::as_u64)
+        .unwrap_or_default();
+    Ok((session_id, after))
 }
 
 async fn run_subscription(
@@ -1322,5 +1397,67 @@ mod tests {
         let error = read_upload_file(&folder).await.expect_err("a folder");
         assert_eq!(error.code, "not_a_file");
         let _ = std::fs::remove_dir_all(folder);
+    }
+
+    #[test]
+    fn a_unary_bridge_request_uses_the_allowlist() {
+        assert_eq!(
+            request_method("sessions.permission").expect("allowed"),
+            Method::SessionsPermission
+        );
+        let error = request_method("projects.create").expect_err("forbidden");
+        assert_eq!(error.code, "forbidden");
+        let error = request_method("output.subscribe").expect_err("streaming");
+        assert_eq!(error.code, "streaming");
+    }
+
+    #[test]
+    fn an_upload_decodes_its_bytes_and_checks_the_cap() {
+        let encoded = base64::engine::general_purpose::STANDARD.encode(b"hello");
+        let (name, bytes) = decode_upload("s1", "notes.txt", &encoded, 5).expect("upload");
+        assert_eq!(name, "notes.txt");
+        assert_eq!(bytes, b"hello");
+        let error = decode_upload("s1", "notes.txt", &encoded, 4).expect_err("cap");
+        assert_eq!(error.code, "too_large");
+        let error = decode_upload("", "notes.txt", &encoded, 5).expect_err("session");
+        assert_eq!(error.code, "bad_request");
+        let error = decode_upload("s1", "  ", &encoded, 5).expect_err("name");
+        assert_eq!(error.code, "bad_request");
+        let error = decode_upload("s1", "notes.txt", "not base64", 5).expect_err("data");
+        assert_eq!(error.code, "bad_request");
+    }
+
+    #[test]
+    fn only_session_channels_need_a_session_id() {
+        assert_eq!(
+            subscription_params(Channel::Events, None).expect("events"),
+            (None, 0)
+        );
+        let error = subscription_params(Channel::Output, None).expect_err("output");
+        assert_eq!(error.code, "bad_request");
+        let params = serde_json::json!({"sessionId": "s1", "after": 42});
+        assert_eq!(
+            subscription_params(Channel::History, Some(&params)).expect("history"),
+            (Some("s1".to_owned()), 42)
+        );
+    }
+
+    #[test]
+    fn an_image_payload_checks_the_cap_and_keeps_its_type() {
+        let payload = image_payload(
+            &serde_json::json!({"contentType": "image/png"}),
+            vec![1, 2, 3],
+            3,
+        )
+        .expect("image");
+        assert_eq!(payload.content_type, "image/png");
+        assert_eq!(
+            base64::engine::general_purpose::STANDARD
+                .decode(payload.data)
+                .expect("decode"),
+            vec![1, 2, 3]
+        );
+        let error = image_payload(&serde_json::json!({}), vec![0; 4], 3).expect_err("cap");
+        assert_eq!(error.code, "too_large");
     }
 }
