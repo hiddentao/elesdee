@@ -1479,9 +1479,7 @@ async fn update_provider(
     let minimum_balance = if crate::providers::vendor_has_balance(&fields.vendor) {
         match request.minimum_balance {
             Some(value) => validated_minimum_balance(value)?,
-            None => existing
-                .minimum_balance
-                .or(Some(crate::providers::DEFAULT_MINIMUM_BALANCE)),
+            None => existing.minimum_balance,
         }
     } else {
         None
@@ -3809,6 +3807,12 @@ async fn delete_session(
         .await;
     }
     entry.remove_session_files();
+    if let Some(data_dir) = state.data_dir() {
+        let uploads = data_dir.join("uploads").join(&id);
+        if uploads.is_dir() {
+            let _ = std::fs::remove_dir_all(uploads);
+        }
+    }
     if session.kind == SessionKind::Agent
         && let Some(data_dir) = state.data_dir()
     {

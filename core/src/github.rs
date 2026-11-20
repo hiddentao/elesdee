@@ -969,6 +969,7 @@ fn run_clone(url: &str, target: &Path, askpass: &Path, token: &str) -> Result<()
     let spawned = Command::new("git")
         .arg("clone")
         .arg("--quiet")
+        .arg("--")
         .arg(url)
         .arg(target)
         .env("GIT_TERMINAL_PROMPT", "0")
@@ -1021,6 +1022,7 @@ fn valid_folder_name(value: &str) -> bool {
     !value.is_empty()
         && value != "."
         && value != ".."
+        && !value.starts_with('-')
         && value.chars().count() <= 200
         && !value
             .chars()
@@ -1075,5 +1077,7 @@ mod tests {
         assert!(!valid_full_name("acme/web\\evil"));
         assert!(!valid_folder_name("."));
         assert!(!valid_folder_name(".."));
+        assert!(!valid_folder_name("--no-checkout"));
+        assert!(!valid_full_name("acme/--mirror"));
     }
 }

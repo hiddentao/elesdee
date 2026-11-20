@@ -41,7 +41,7 @@ The service binds `127.0.0.1` only. It accepts requests only for loopback hostna
 - Moving a session to another project changes only `projectId`. The folder, branch, worktree, process and log stay as they are, so a running session keeps running and a closed session keeps its log. An unknown project returns 404 and a session that is closing returns 409.
 - While a session runs, `preview` follows its latest non-empty output line. Terminal escape and control sequences are removed, whitespace is collapsed, and the text is capped at about 80 characters. It changes at most once every two seconds and sends `session.updated` only when the text changes. Closed sessions and close notes are never overwritten by output.
 - Reopening requires a closed session. It re-checks the folder and, for an agent, the AI config, installed client, repository and branch. A missing agent worktree is recreated from the branch; a stale or unregistered path is replaced. It keeps the log and sequence numbers.
-- Deleting requires a closed session and removes the session and its log. An agent branch is kept. If a failed close left a worktree, delete attempts to remove it.
+- Deleting requires a closed session and removes the session, its log and its uploaded files. An agent branch is kept. If a failed close left a worktree, delete attempts to remove it.
 - The client version check is cached for 10 seconds.
 
 ## Client discovery and install

@@ -2468,6 +2468,18 @@ async fn auto_switch_follows_the_prepaid_minimum_balance() {
         cleared["minimumBalance"].is_null(),
         "an explicit null clears"
     );
+    let (status, renamed) = call(
+        &app,
+        "PATCH",
+        &format!("/api/providers/{deepseek}"),
+        Some(json!({ "name": "Renamed DeepSeek" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{renamed}");
+    assert!(
+        renamed["minimumBalance"].is_null(),
+        "a cleared minimum stays cleared on an unrelated edit"
+    );
     let (status, _) = call(
         &app,
         "PATCH",
@@ -13077,6 +13089,13 @@ async fn an_upload_is_cleaned_stored_once_and_sent_to_the_session() {
     )
     .await;
     assert_eq!(status, StatusCode::CONFLICT, "{body}");
+
+    let (status, body) = call(&app, "DELETE", &format!("/api/sessions/{id}"), None).await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+    assert!(
+        !data_dir.path.join("uploads").join(&id).exists(),
+        "deleting a session removes its uploaded files"
+    );
 }
 
 #[tokio::test]
