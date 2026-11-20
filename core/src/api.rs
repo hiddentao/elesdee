@@ -1182,7 +1182,8 @@ async fn create_provider(
         usage_status: None,
         usage_source: None,
     });
-    if let Some(key) = key
+    if fields.auth == Auth::Key
+        && let Some(key) = key
         && let Err(error) = store_account_key(&state, &provider.id, key).await
     {
         state.remove_provider(&provider.id);
@@ -1219,11 +1220,15 @@ async fn update_provider(
             .unwrap_or(existing.api_style.as_deref()),
     )?;
 
-    let replacement_key = request
-        .key
-        .as_deref()
-        .map(str::trim)
-        .filter(|key| !key.is_empty());
+    let replacement_key = if fields.auth == Auth::Key {
+        request
+            .key
+            .as_deref()
+            .map(str::trim)
+            .filter(|key| !key.is_empty())
+    } else {
+        None
+    };
     if fields.auth == Auth::Key
         && replacement_key.is_none()
         && !account_key_available(&state, &id).await?

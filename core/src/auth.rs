@@ -527,6 +527,7 @@ async fn monitor(
                 attempt.state = SignInState::Verifying;
             }
             match verify(&binary, client, &overrides).await {
+                Ok(()) if lock(&attempt).state.is_terminal() => {}
                 Ok(()) => match connect(&state, &attempt) {
                     Ok(provider) => {
                         let mut attempt = lock(&attempt);

@@ -106,8 +106,8 @@ export function ProviderDialog({
   const option = options.find((item) => item.id === vendor) ?? null;
   const showKey = auth === 'key';
   const showServer = needsServer(vendor, auth) || Boolean(provider?.server);
-  const subscription = auth === 'subscription' && option?.signInClient !== null;
   const signInClient = option?.signInClient ?? null;
+  const subscription = auth === 'subscription' && signInClient !== null;
   const signingIn = isActive(signIn);
 
   function finish(savedProvider: Provider) {

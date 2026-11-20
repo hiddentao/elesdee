@@ -10755,6 +10755,7 @@ case "$1 $2" in
       subscription) printf '{"loggedIn":true,"authMethod":"claude.ai"}'; exit 0 ;;
       oauth) printf '{"loggedIn":true,"authMethod":"oauth_token"}'; exit 0 ;;
       api_key) printf '{"loggedIn":true,"authMethod":"api_key"}'; exit 0 ;;
+      slow) sleep 60; printf '{"loggedIn":true,"authMethod":"claude.ai"}'; exit 0 ;;
       *) printf '{"loggedIn":false,"authMethod":"none"}'; exit 1 ;;
     esac
     ;;
@@ -11079,6 +11080,62 @@ async fn signing_in_again_connects_an_existing_subscription_provider() {
         .find(|provider| provider["id"] == provider_id)
         .expect("listed provider");
     assert_eq!(listed["connected"], true);
+}
+
+#[tokio::test]
+async fn abandoning_while_the_credential_is_checked_connects_nothing() {
+    let data_dir = TempDirectory::new("signin-verify-cancel-data");
+    let stub = write_sign_in_stub(&data_dir.path);
+    let app = sign_in_app(
+        &data_dir.path,
+        &stub,
+        &[("FAKE_SIGNIN", "success"), ("FAKE_STATUS", "slow")],
+        None,
+    );
+
+    let (status, started) = call(
+        &app,
+        "POST",
+        "/api/sign-in",
+        Some(json!({ "vendor": "anthropic" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{started}");
+    let id = started["id"].as_str().expect("sign-in id").to_owned();
+    wait_for_sign_in(&app, &id, &["verifying"]).await;
+
+    let (status, _) = call(&app, "DELETE", &format!("/api/sign-in/{id}"), None).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let (_, view) = call(&app, "GET", &format!("/api/sign-in/{id}"), None).await;
+    assert_eq!(view["state"], "cancelled");
+    assert!(view["provider"].is_null());
+    assert_eq!(connected_provider_count(&app, "anthropic").await, 0);
+}
+
+#[tokio::test]
+async fn a_subscription_provider_never_stores_a_key() {
+    let secrets = Arc::new(MemorySecretStore::default());
+    let app = router(AppState::ephemeral().with_test_secret_store(secrets.clone()));
+
+    let (status, provider) = call(
+        &app,
+        "POST",
+        "/api/providers",
+        Some(json!({
+            "name": "Sign-in only",
+            "vendor": "anthropic",
+            "auth": "subscription",
+            "key": "sk-should-not-be-stored"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{provider}");
+    assert_eq!(provider["connected"], false);
+    let provider_id = provider["id"].as_str().expect("provider id");
+    assert_eq!(
+        secrets.get_key(provider_id).expect("read key").as_deref(),
+        None
+    );
 }
 
 #[tokio::test]
