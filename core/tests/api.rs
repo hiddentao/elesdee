@@ -259,11 +259,12 @@ async fn read_sse_until(mut body: Body, ready: impl Fn(&str) -> bool) -> String 
 
     while !ready(&text) {
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
-        let frame = tokio::time::timeout(remaining, body.frame())
-            .await
-            .expect("SSE response timed out")
-            .expect("SSE stream ended")
-            .expect("SSE frame failed");
+        let frame = match tokio::time::timeout(remaining, body.frame()).await {
+            Ok(Some(Ok(frame))) => frame,
+            Ok(Some(Err(error))) => panic!("SSE frame failed: {error}; received: {text:?}"),
+            Ok(None) => panic!("SSE stream ended; received: {text:?}"),
+            Err(_) => panic!("SSE response timed out; received: {text:?}"),
+        };
         if let Ok(data) = frame.into_data() {
             text.push_str(&String::from_utf8_lossy(&data));
         }
@@ -292,11 +293,12 @@ async fn read_output_until(mut body: Body, ready: impl Fn(&str) -> bool) -> Stri
 
     while !ready(&sse_data_text(&text)) {
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
-        let frame = tokio::time::timeout(remaining, body.frame())
-            .await
-            .expect("output stream timed out")
-            .expect("output stream ended")
-            .expect("output frame failed");
+        let frame = match tokio::time::timeout(remaining, body.frame()).await {
+            Ok(Some(Ok(frame))) => frame,
+            Ok(Some(Err(error))) => panic!("output frame failed: {error}; received: {text:?}"),
+            Ok(None) => panic!("output stream ended; received: {text:?}"),
+            Err(_) => panic!("output stream timed out; received: {text:?}"),
+        };
         if let Ok(data) = frame.into_data() {
             text.push_str(&String::from_utf8_lossy(&data));
         }
@@ -1116,21 +1118,17 @@ async fn rolled_output_log_signals_the_gap() {
 #[cfg(unix)]
 #[tokio::test]
 async fn close_kills_a_nohup_child() {
-    let app = router(AppState::ephemeral());
+    // The shell starts the detached child itself. Typed input would race the
+    // shell's startup, because the terminal echoes the line before the shell
+    // reads it.
+    let app = router(AppState::with_test_command(vec![
+        "/bin/sh".to_owned(),
+        "-c".to_owned(),
+        "nohup sleep 60 >/dev/null 2>&1 & echo CHILD:$!; wait".to_owned(),
+    ]));
     let folder = TempDirectory::new("nohup-child");
     let session = create_terminal(&app, &folder.path).await;
     let id = session["id"].as_str().expect("session id").to_owned();
-
-    let (status, body) = call(
-        &app,
-        "POST",
-        &format!("/api/sessions/{id}/input"),
-        Some(json!({
-            "data": "nohup sleep 60 >/dev/null 2>&1 & echo CHILD:$!\r"
-        })),
-    )
-    .await;
-    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
 
     let request = request_builder("GET", &format!("/api/sessions/{id}/output?after=0"))
         .body(Body::empty())
@@ -3678,7 +3676,7 @@ async fn codex_sessions_get_a_private_home_with_every_skill() {
         vec![
             "/bin/sh".to_owned(),
             "-c".to_owned(),
-            "printf '%s' \"$CODEX_HOME\" > codex-home.txt; sleep 30".to_owned(),
+            "printf '%s' \"$CODEX_HOME\" > codex-home.txt.tmp.$$ && mv codex-home.txt.tmp.$$ codex-home.txt; sleep 30".to_owned(),
         ],
         data_dir.path.clone(),
     ));
@@ -5949,12 +5947,23 @@ async fn moving_a_closed_session_keeps_its_log() {
 
 #[tokio::test]
 async fn reopen_restarts_a_closed_shell() {
-    let app = router(AppState::ephemeral());
+    let app = router(AppState::with_test_command(vec![
+        "/bin/sh".to_owned(),
+        "-i".to_owned(),
+    ]));
     let folder = TempDirectory::new("reopen-shell");
     let session = create_terminal(&app, &folder.path).await;
     let id = session["id"].as_str().expect("session id").to_owned();
 
-    tokio::time::sleep(Duration::from_millis(250)).await;
+    // The shell prints its prompt once it can read input. Waiting for that
+    // output removes the race between typed input and shell startup.
+    let request = request_builder("GET", &format!("/api/sessions/{id}/output?after=0"))
+        .body(Body::empty())
+        .expect("build output request");
+    let response = app.clone().oneshot(request).await.expect("open output");
+    assert_eq!(response.status(), StatusCode::OK);
+    read_sse_until(response.into_body(), |text| text.contains("data:")).await;
+
     let (status, body) = call(
         &app,
         "POST",
@@ -6342,15 +6351,109 @@ async fn active_session_resumes_on_startup() {
 }
 
 #[tokio::test]
+async fn a_restarted_session_output_stream_delivers_later_output() {
+    let data_dir = TempDirectory::new("restart-stream-data");
+    let folder = TempDirectory::new("restart-stream-folder");
+    let command = vec!["/bin/sh".to_owned(), "-c".to_owned(), "cat".to_owned()];
+    let app = router(AppState::with_test_command_and_data_dir(
+        command.clone(),
+        data_dir.path.clone(),
+    ));
+    let session = create_terminal(&app, &folder.path).await;
+    let id = session["id"].as_str().expect("session id").to_owned();
+
+    // A state save keeps the active session for the restart.
+    let (status, renamed) = call(
+        &app,
+        "PATCH",
+        &format!("/api/sessions/{id}"),
+        Some(json!({ "name": "Restarted stream" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{renamed}");
+    drop(app);
+
+    let restarted = router(AppState::with_test_command_and_data_dir(
+        command,
+        data_dir.path.clone(),
+    ));
+    wait_for_session(&restarted, &id, |session| session["workState"] == "working").await;
+
+    // The restarted process prints nothing by itself. The stream must stay
+    // open past its connection marker and carry output that arrives later.
+    let mut body = open_output_stream(&restarted, &id).await;
+    read_connection_marker(&mut body).await;
+    let (status, input) = call(
+        &restarted,
+        "POST",
+        &format!("/api/sessions/{id}/input"),
+        Some(json!({ "data": "alive\n" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{input}");
+    let text = read_sse_until(body, |text| sse_data_text(text).contains("alive")).await;
+    assert!(sse_data_text(&text).contains("alive"));
+
+    // The same holds for a stream opened after a reopen.
+    let (status, closed) = close_session(&restarted, &id).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+    let (status, reopened) = call(
+        &restarted,
+        "POST",
+        &format!("/api/sessions/{id}/reopen"),
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{reopened}");
+
+    let mut body = open_output_stream(&restarted, &id).await;
+    read_connection_marker(&mut body).await;
+    let (status, input) = call(
+        &restarted,
+        "POST",
+        &format!("/api/sessions/{id}/input"),
+        Some(json!({ "data": "again\n" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{input}");
+    let text = read_sse_until(body, |text| sse_data_text(text).contains("again")).await;
+    assert!(sse_data_text(&text).contains("again"));
+
+    let (status, _) = close_session(&restarted, &id).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+async fn open_output_stream(app: &Router, id: &str) -> Body {
+    let request = request_builder("GET", &format!("/api/sessions/{id}/output?after=0"))
+        .body(Body::empty())
+        .expect("build output request");
+    let response = app.clone().oneshot(request).await.expect("open output");
+    assert_eq!(response.status(), StatusCode::OK);
+    response.into_body()
+}
+
+/// Reads the connection comment that opens every stream, which proves the
+/// stream started without consuming any output event.
+async fn read_connection_marker(body: &mut Body) {
+    let frame = tokio::time::timeout(TIMEOUT, body.frame())
+        .await
+        .expect("the first stream frame timed out")
+        .expect("the stream ended before its connection marker")
+        .expect("stream frame failed");
+    let data = frame.into_data().expect("the marker carries data");
+    assert!(
+        String::from_utf8_lossy(&data).contains("connected"),
+        "the first frame is not the connection marker"
+    );
+}
+
+#[tokio::test]
 async fn restart_keeps_a_codex_preset_model_and_config() {
     let data_dir = TempDirectory::new("recover-codex-config-data");
     let repo = TempDirectory::new("recover-codex-config-repo");
     init_git_repo(&repo.path);
     let args_file = data_dir.path.join("args.txt");
-    let script = format!(
-        "printf '%s\\n' \"$@\" > {}; sleep 30",
-        args_file.to_string_lossy()
-    );
+    let script = format!("{}; sleep 30", record_arguments(&args_file));
     let command = vec![
         "/bin/sh".to_owned(),
         "-c".to_owned(),
@@ -6414,6 +6517,16 @@ async fn restart_keeps_a_codex_preset_model_and_config() {
     );
 
     let _ = close_session(&restarted, &id).await;
+}
+
+/// Writes the process arguments to a temporary file and renames it into place.
+///
+/// The rename makes the finished file appear in one step, so a reader that
+/// waits for the file never sees the empty or partial file that plain
+/// redirection exposes while the arguments are still being written.
+fn record_arguments(path: &Path) -> String {
+    let path = path.to_string_lossy();
+    format!("printf '%s\\n' \"$@\" > '{path}.tmp.'$$ && mv '{path}.tmp.'$$ '{path}'")
 }
 
 async fn wait_for_args_file(path: &Path) {
@@ -7209,7 +7322,10 @@ async fn slow_git_times_out_and_keeps_the_worktree() {
         vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
         data_dir.path.clone(),
     )
-    .with_test_git_timeout(Duration::from_millis(500), Duration::from_millis(500));
+    // The launch and the close share this timeout. It must outlast a normal
+    // Git run on a loaded machine while staying below the hook's sleep, so the
+    // close still reports a timeout.
+    .with_test_git_timeout(Duration::from_secs(2), Duration::from_secs(2));
     let app = router(state);
     ensure_test_project(&app, &repo.path).await;
 
@@ -12715,10 +12831,7 @@ async fn model_effort_and_extra_arguments_reach_each_client() {
     let repo = TempDirectory::new("launch-flags-repo");
     init_git_repo(&repo.path);
     let args_file = data_dir.path.join("args.txt");
-    let script = format!(
-        "printf '%s\\n' \"$@\" > {}; sleep 30",
-        args_file.to_string_lossy()
-    );
+    let script = format!("{}; sleep 30", record_arguments(&args_file));
     let app = router(AppState::with_test_command_and_data_dir(
         vec![
             "/bin/sh".to_owned(),

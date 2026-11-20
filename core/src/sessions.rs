@@ -699,7 +699,7 @@ impl SessionEntry {
 
         self.remove_session_files();
         self.stop_reader();
-        let _ = self.close_tx.send(true);
+        self.set_close_signal(true);
         session
     }
 
@@ -786,7 +786,7 @@ impl SessionEntry {
         };
 
         self.reader_stopped.store(false, Ordering::SeqCst);
-        let _ = self.close_tx.send(false);
+        self.set_close_signal(false);
         session
     }
 
@@ -1094,7 +1094,7 @@ impl SessionEntry {
         }
 
         self.reader_stopped.store(false, Ordering::SeqCst);
-        let _ = self.close_tx.send(false);
+        self.set_close_signal(false);
         Ok(())
     }
 
@@ -1120,7 +1120,7 @@ impl SessionEntry {
         };
 
         self.reader_stopped.store(true, Ordering::SeqCst);
-        let _ = self.close_tx.send(true);
+        self.set_close_signal(true);
         drop(writer);
         drop(master);
         drop(runtime);
@@ -1410,6 +1410,15 @@ impl SessionEntry {
 
     pub fn subscribe_close(&self) -> watch::Receiver<bool> {
         self.close_tx.subscribe()
+    }
+
+    /// Records whether the session is closed for current and later subscribers.
+    ///
+    /// A watch sender drops a value sent with no receiver, so a stream that
+    /// subscribes after the change would otherwise read an old state. The
+    /// replace form keeps the value for the next subscriber.
+    fn set_close_signal(&self, closed: bool) {
+        self.close_tx.send_replace(closed);
     }
 
     pub fn output_snapshot(&self, after: u64) -> Result<OutputSnapshot, SnapshotFailure> {
@@ -1906,7 +1915,7 @@ pub fn close_entry(
 
     entry.remove_session_files();
     entry.stop_reader();
-    let _ = entry.close_tx.send(true);
+    entry.set_close_signal(true);
     let writer = {
         let mut writer = lock(&entry.writer);
         writer.take()
