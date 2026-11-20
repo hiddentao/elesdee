@@ -590,6 +590,7 @@ The phone app has no lock of its own. The phone's screen lock is enough.
 - The phone shows notifications and questions from sessions only while the elesdee app is open. There are no push notifications when the app is closed.
 - When I open the app, it shows what I missed. The desktop does not send a desktop notification when the focused window already shows it: the card for a waiting session, the done status for that session, or the message toast.
 - The app asks for the system notification permission on first use.
+- The phone does not notify for a waiting session or a done status while that session is on its screen and the app is in front. A refused permission shows in the shell, and the session list keeps working.
 
 **What triggers a notification**
 

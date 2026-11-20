@@ -200,5 +200,16 @@
   "changes.truncated": "De wijzigingenlijst is groot. Sommige bestanden of diffs worden niet getoond.",
   "changes.open": "Diff van {path} openen",
   "changes.binary": "Een binair bestand heeft geen tekst-diff.",
-  "changes.diffTruncated": "Deze diff is te groot om volledig te tonen."
+  "changes.diffTruncated": "Deze diff is te groot om volledig te tonen.",
+  "notifications.waitingTitle": "{name} heeft je nodig",
+  "notifications.permissionBody": "Keur een verzoek goed of wijs het af.",
+  "notifications.questionBody": "Beantwoord een vraag.",
+  "notifications.inputBody": "De sessie wacht op invoer.",
+  "notifications.requestTitle": "Verzoek voor een nieuwe sessie",
+  "notifications.requestBody": "{name} wil een sessie starten.",
+  "notifications.doneTitle": "{name} is klaar",
+  "notifications.doneBody": "De taak is voltooid.",
+  "notifications.messageTitle": "{name} zegt",
+  "notifications.denied": "Meldingen staan uit. Sta meldingen van elesdee toe in de instellingen van de telefoon.",
+  "notifications.unavailable": "Meldingen zijn niet beschikbaar op deze telefoon."
 }

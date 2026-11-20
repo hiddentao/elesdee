@@ -200,5 +200,16 @@
   "changes.truncated": "Ändringslistan är stor. En del filer eller diffar visas inte.",
   "changes.open": "Öppna diffen för {path}",
   "changes.binary": "En binär fil har ingen textdiff.",
-  "changes.diffTruncated": "Den här diffen är för stor att visa i sin helhet."
+  "changes.diffTruncated": "Den här diffen är för stor att visa i sin helhet.",
+  "notifications.waitingTitle": "{name} behöver dig",
+  "notifications.permissionBody": "Godkänn eller avvisa en begäran.",
+  "notifications.questionBody": "Svara på en fråga.",
+  "notifications.inputBody": "Sessionen väntar på inmatning.",
+  "notifications.requestTitle": "Begäran om en ny session",
+  "notifications.requestBody": "{name} vill starta en session.",
+  "notifications.doneTitle": "{name} är klar",
+  "notifications.doneBody": "Uppgiften är klar.",
+  "notifications.messageTitle": "{name} säger",
+  "notifications.denied": "Aviseringar är avstängda. Tillåt elesdee-aviseringar i telefonens inställningar.",
+  "notifications.unavailable": "Aviseringar är inte tillgängliga på den här telefonen."
 }

@@ -200,5 +200,16 @@
   "changes.truncated": "La lista de cambios es grande. Algunos archivos o diffs no se muestran.",
   "changes.open": "Abrir el diff de {path}",
   "changes.binary": "Un archivo binario no tiene diff de texto.",
-  "changes.diffTruncated": "Este diff es demasiado grande para mostrarlo entero."
+  "changes.diffTruncated": "Este diff es demasiado grande para mostrarlo entero.",
+  "notifications.waitingTitle": "{name} te necesita",
+  "notifications.permissionBody": "Aprueba o deniega una solicitud.",
+  "notifications.questionBody": "Responde a una pregunta.",
+  "notifications.inputBody": "La sesión espera una entrada.",
+  "notifications.requestTitle": "Solicitud de sesión nueva",
+  "notifications.requestBody": "{name} quiere iniciar una sesión.",
+  "notifications.doneTitle": "{name} ha terminado",
+  "notifications.doneBody": "La tarea está terminada.",
+  "notifications.messageTitle": "{name} dice",
+  "notifications.denied": "Las notificaciones están desactivadas. Permite las notificaciones de elesdee en los ajustes del teléfono.",
+  "notifications.unavailable": "Las notificaciones no están disponibles en este teléfono."
 }

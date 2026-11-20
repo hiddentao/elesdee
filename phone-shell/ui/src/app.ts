@@ -1,5 +1,6 @@
 import {
   onConnection,
+  onNotificationClick,
   openAddress,
   openSubscription,
   phone,
@@ -66,6 +67,11 @@ import {
 } from '../../../app/src/phone/sessionActions';
 import { combo } from './combo';
 import {
+  noticeForEvent,
+  type NotificationRequest,
+  type PhoneScreenState,
+} from './notifications';
+import {
   changeTotals,
   changesEmpty,
   diffLineKind,
@@ -84,6 +90,9 @@ import type {
   FileEntry,
   FileList,
   ForwardAddress,
+  Notification as SessionNotification,
+  NotificationState,
+  NotificationTarget,
   PairConfirm,
   PhoneInfo,
   Project,
@@ -312,6 +321,8 @@ export class ShellApp {
   private stopEvents: (() => Promise<void>) | null = null;
   private stopOutput: (() => Promise<void>) | null = null;
   private stopHistory: (() => Promise<void>) | null = null;
+  private activeComputerId: string | null = null;
+  private notificationPermission: NotificationState = 'prompt';
   private readonly expandedTools = new Set<string>();
   private readonly connectionStates = new Map<string, ConnectionState>();
   private readonly forwards = new Map<number, ForwardView>();
@@ -376,7 +387,11 @@ export class ShellApp {
     await onConnection((state) => {
       void this.handleConnection(state);
     });
+    await onNotificationClick((target) => {
+      void this.openNotificationTarget(target);
+    });
     await this.loadComputers();
+    void this.ensureNotifications();
   }
 
   private async loadComputers(notice?: Notice): Promise<void> {
@@ -596,6 +611,10 @@ export class ShellApp {
     if (notice) {
       main.append(this.noticeEl(notice));
     }
+    const notificationNotice = this.notificationNotice();
+    if (notificationNotice) {
+      main.append(this.noticeEl(notificationNotice));
+    }
     if (this.computers.length === 0) {
       main.append(
         el('p', { class: 'phone-empty', text: this.t('computers.empty') }),
@@ -798,6 +817,10 @@ export class ShellApp {
       : null;
     if (connectionNotice) {
       main.append(this.noticeEl(connectionNotice));
+    }
+    const notificationNotice = this.notificationNotice();
+    if (notificationNotice) {
+      main.append(this.noticeEl(notificationNotice));
     }
     const waiting = visible.filter((session) => session.waitingFor !== null);
     const rest = visible.filter((session) => session.waitingFor === null);
@@ -3416,6 +3439,7 @@ export class ShellApp {
     token: number,
   ): Promise<void> {
     const id = this.nextId('events');
+    this.activeComputerId = computer.id;
     try {
       const stop = await openSubscription(computer.id, id, 'events', {}, {
         onEvent: (value) => this.applyLiveEvent(value),
@@ -3423,6 +3447,9 @@ export class ShellApp {
       });
       if (token !== this.sessionsToken) {
         await stop();
+        if (this.activeComputerId === computer.id) {
+          this.activeComputerId = null;
+        }
         return;
       }
       this.stopEvents = stop;
@@ -3432,9 +3459,15 @@ export class ShellApp {
   }
 
   private applyLiveEvent(value: unknown): void {
+    const screen = this.notificationScreenState();
     const session = sessionFromEvent(value);
     if (session) {
+      const previous =
+        this.sessionCache.find((entry) => entry.id === session.id) ?? null;
       this.applySessionEvent(session);
+      this.raiseNotification(
+        noticeForEvent({ type: 'session', session, previous }, screen),
+      );
       return;
     }
     if (typeof value !== 'object' || value === null) {
@@ -3444,6 +3477,7 @@ export class ShellApp {
       type?: unknown;
       question?: Question;
       request?: SessionRequest;
+      notification?: SessionNotification;
       provider?: Provider;
     };
     if (event.type === 'question.updated' && event.question) {
@@ -3451,13 +3485,23 @@ export class ShellApp {
       const others = this.questions.filter((entry) => entry.id !== question.id);
       this.questions =
         question.status === 'pending' ? [...others, question] : others;
+      this.raiseNotification(
+        noticeForEvent({ type: 'question', question }, screen),
+      );
       this.scheduleRender();
     } else if (event.type === 'request.updated' && event.request) {
       const request = event.request;
       const others = this.requests.filter((entry) => entry.id !== request.id);
       this.requests =
         request.status === 'pending' ? [...others, request] : others;
+      this.raiseNotification(
+        noticeForEvent({ type: 'request', request }, screen),
+      );
       this.scheduleRender();
+    } else if (event.type === 'notification' && event.notification) {
+      this.raiseNotification(
+        noticeForEvent({ type: 'notification', notification: event.notification }, screen),
+      );
     } else if (event.type === 'provider.updated' && event.provider) {
       const provider = event.provider;
       this.providers = this.providers.map((entry) =>
@@ -3604,6 +3648,7 @@ export class ShellApp {
   }
 
   private closeEvents(): void {
+    this.activeComputerId = null;
     const stop = this.stopEvents;
     this.stopEvents = null;
     if (stop) {
@@ -3665,6 +3710,136 @@ export class ShellApp {
       node.append(el('p', { class: 'notice-detail', text: notice.detail }));
     }
     return node;
+  }
+
+  private notificationNotice(): Notice | null {
+    if (this.notificationPermission === 'denied') {
+      return { key: 'notifications.denied', tone: 'neutral' };
+    }
+    if (this.notificationPermission === 'unavailable') {
+      return { key: 'notifications.unavailable', tone: 'neutral' };
+    }
+    return null;
+  }
+
+  private async ensureNotifications(): Promise<void> {
+    try {
+      let state = await phone.notificationState();
+      if (state === 'prompt' || state === 'promptWithRationale') {
+        state = await phone.requestNotificationPermission();
+      }
+      this.notificationPermission = state;
+    } catch {
+      this.notificationPermission = 'unavailable';
+    }
+    this.scheduleRender();
+  }
+
+  private async refreshNotifications(): Promise<void> {
+    try {
+      this.notificationPermission = await phone.notificationState();
+    } catch {
+      this.notificationPermission = 'unavailable';
+    }
+    this.scheduleRender();
+  }
+
+  private notificationScreenState(): PhoneScreenState {
+    const screen = this.screen;
+    return {
+      sessionId: screen.name === 'session' ? screen.session.id : null,
+      appVisible:
+        typeof document === 'undefined' ||
+        document.visibilityState !== 'hidden',
+    };
+  }
+
+  private raiseNotification(request: NotificationRequest | null): void {
+    const computerId = this.activeComputerId;
+    if (!request || !computerId) {
+      return;
+    }
+    const { title, body } = this.notificationText(request);
+    void phone
+      .showNotification(computerId, request.sessionId, title, body)
+      .catch(() => {
+        // A refused or failed notification never blocks the event stream.
+      });
+  }
+
+  private notificationText(request: NotificationRequest): {
+    title: string;
+    body: string;
+  } {
+    if (request.kind === 'done') {
+      return {
+        title: this.t('notifications.doneTitle', { name: request.sessionName }),
+        body: this.t('notifications.doneBody'),
+      };
+    }
+    if (request.kind === 'message') {
+      return {
+        title: this.t('notifications.messageTitle', {
+          name: request.sessionName,
+        }),
+        body: request.message ?? '',
+      };
+    }
+    const title = this.t('notifications.waitingTitle', {
+      name: request.sessionName,
+    });
+    switch (request.waitingFor) {
+      case 'permission':
+        return { title, body: this.t('notifications.permissionBody') };
+      case 'question':
+        return { title, body: this.t('notifications.questionBody') };
+      case 'start':
+        return {
+          title: this.t('notifications.requestTitle'),
+          body: this.t('notifications.requestBody', {
+            name: request.sessionName,
+          }),
+        };
+      default:
+        return { title, body: this.t('notifications.inputBody') };
+    }
+  }
+
+  private async openNotificationTarget(
+    target: NotificationTarget,
+  ): Promise<void> {
+    const computer = this.computers.find(
+      (view) => view.computer.id === target.computerId,
+    )?.computer;
+    if (!computer) {
+      return;
+    }
+    const screen = this.screen;
+    const sameComputer =
+      (screen.name === 'sessions' ||
+        screen.name === 'session' ||
+        screen.name === 'newSession') &&
+      screen.computer.id === computer.id;
+    if (!sameComputer) {
+      await this.openSessions(computer);
+    }
+    let session =
+      this.sessionCache.find((entry) => entry.id === target.sessionId) ?? null;
+    if (!session) {
+      await this.refreshBootstrap(computer);
+      session =
+        this.sessionCache.find((entry) => entry.id === target.sessionId) ??
+        null;
+    }
+    if (!session) {
+      return;
+    }
+    const current = this.screen;
+    const sessions =
+      current.name === 'sessions' || current.name === 'session'
+        ? current.sessions
+        : this.sessionCache;
+    await this.openSession(computer, session, sessions);
   }
 
   private async startPair(ticket: string): Promise<void> {
@@ -3752,7 +3927,8 @@ export class ShellApp {
     this.sessionsToken += 1;
     this.closeHistory();
     this.closeOutput();
-    this.closeEvents();
+    // The event stream stays open, so a session that needs the user still
+    // raises a notification while the computer list is on the screen.
     this.screen = { name: 'computers' };
     this.render();
     void this.loadComputers();
@@ -3795,6 +3971,7 @@ export class ShellApp {
       connection: this.connectionStates.get(computer.id),
     };
     this.render();
+    void this.refreshNotifications();
     try {
       await phone.connect(computer.id);
       const data = (await phone.request(

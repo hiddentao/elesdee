@@ -85,6 +85,15 @@ export interface SessionRequest {
   createdAt: string;
 }
 
+export interface Notification {
+  id: string;
+  sessionId: string;
+  sessionName: string;
+  message: string;
+  kind: 'message' | 'done';
+  createdAt: string;
+}
+
 export type DemoServerState = 'active' | 'stopped';
 
 export interface DemoServer {
@@ -204,6 +213,20 @@ export interface SubscriptionValue {
 
 export interface SubscriptionOpened {
   id: string;
+}
+
+/** The phone's answer to the system notification permission. */
+export type NotificationState =
+  | 'granted'
+  | 'denied'
+  | 'prompt'
+  | 'promptWithRationale'
+  | 'unavailable';
+
+/** The session that a notification tap opens. */
+export interface NotificationTarget {
+  computerId: string;
+  sessionId: string;
 }
 
 export interface UploadedFile {

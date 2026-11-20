@@ -200,5 +200,16 @@
   "changes.truncated": "The change list is large. Some files or diffs are not shown.",
   "changes.open": "Open the diff for {path}",
   "changes.binary": "A binary file has no text diff.",
-  "changes.diffTruncated": "This diff is too large to show in full."
+  "changes.diffTruncated": "This diff is too large to show in full.",
+  "notifications.waitingTitle": "{name} needs you",
+  "notifications.permissionBody": "Approve or deny a request.",
+  "notifications.questionBody": "Answer a question.",
+  "notifications.inputBody": "The session is waiting for input.",
+  "notifications.requestTitle": "New session request",
+  "notifications.requestBody": "{name} wants to start a session.",
+  "notifications.doneTitle": "{name} is done",
+  "notifications.doneBody": "The task is complete.",
+  "notifications.messageTitle": "{name} says",
+  "notifications.denied": "Notifications are off. Allow elesdee notifications in the phone settings.",
+  "notifications.unavailable": "Notifications are not available on this phone."
 }

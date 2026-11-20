@@ -539,6 +539,21 @@ interface Transport {
 - `client.ts` and `events.ts` call the transport. Components do not change.
 - Method names map to existing routes where possible.
 
+### 5.8 Notifications
+
+The shell raises local notifications for the events in `.dev/SPEC.md` while the app process runs. There is no push service and no notification when the app is closed.
+
+- The shell asks for the system notification permission on start and checks it again when the session list opens. A refusal is a state, not an error: the computer list and the session list show that notifications are off, and every request and subscription keeps working.
+- The event stream is the only source. The shell posts a notification from the parsed event, so it opens no second connection and takes no shell state lock across a network wait. A refused or failed notification is caught in the screen and never blocks the stream.
+- A notification comes from a new waiting state (permission, input or question), a pending session request, a done report or a Notify me message. The session update that precedes a question stays quiet, so one question makes one notification. Other events make none.
+- A notification for a waiting session or a done report stays off while that session is open on the phone screen and the app is in front. A message has no card or toast in the shell, so it is not on the screen and always sends. When the app is behind another app, the phone screen is not visible, so the notification sends.
+- A tap opens the session's message view. If the computer is not on the session screen, the shell connects, loads the bootstrap, starts the event stream and opens the session. The tap never starts a second connection.
+- The event stream stays open when the user returns to the computer list, so notifications continue while the app is open. Starting a different computer, forgetting a computer or closing the shell ends the stream.
+- The browser phone layout raises no native notification and uses no web Notification API. Its permission, question and request cards and its action notices are the in-app path.
+- Android needs the `POST_NOTIFICATIONS` permission in the generated manifest. The generated projects are not in the repository.
+
+Commands: `phone_notification_state`, `phone_notification_request` and `phone_notification_show`. A tap is emitted as `phone:notification-click` with `{computerId, sessionId}`. The shell keeps a small table from the notification id to its session. Android also carries both ids in the notification's extra data, which is the first route there; iOS returns no extra data with a tap, so the table is the route on iOS. The notification path holds no connection lock.
+
 ## 6. Security boundaries
 
 ### 6.1 Trust model
@@ -817,6 +832,24 @@ Checks run on macOS with no Android or iOS SDK:
 - The screens render in Chromium at 390 width in both themes with a stubbed native bridge. This checks layout only.
 
 Not run: an Android or iOS build, an emulator, a real device, the camera, the platform keychain, the system browser handoff, and background or lock-screen behavior. The Open action uses the official opener plugin; its permission scope is `http://127.0.0.1:*` and needs a device check.
+
+### Notification files and checks
+
+| Path | Contents |
+| --- | --- |
+| `phone-shell/src-tauri/src/notifications.rs` | Permission check and request, the granted-only show path, the bounded notification-id route table, the plugin host and the tests for refusal and routing. |
+| `phone-shell/src-tauri/src/lib.rs`, `Cargo.toml`, `capabilities/default.json` | The notification plugin, the three commands and the grant to the main window. |
+| `phone-shell/ui/src/notifications.ts` | The event decision, the waiting transition rule and the suppression rule for a session already on the screen. |
+| `phone-shell/ui/src/app.ts`, `bridge.ts`, `types.ts` | Permission state and its notice, notification text from the catalogs, fire-and-forget sends, the click listener and the session route. |
+| `phone-shell/test/notifications.test.mjs` | Which event raises a notice, the one-notice rule for a question, and suppression while the session is open and in front. |
+| `phone-shell/ui/src/i18n/*.json` | The notification titles, bodies and permission states in all 12 catalogs. |
+
+Checks run on macOS with no Android or iOS SDK:
+
+- `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings` and `cargo test` in `phone-shell/src-tauri/`: 17 tests pass, including the refused permission, the click route and the bounded route table.
+- `npm --prefix phone-shell run test`: 101 tests pass, including the 16 notification decision tests. `typecheck` and `build` pass.
+
+Not run: a device or emulator. Playwright and the shell UI tests cannot see a system notification. The permission prompt, the delivery of a notification, its appearance in the notification center and a tap that brings the app forward need a real phone. Android also needs the `POST_NOTIFICATIONS` permission in the generated manifest.
 
 ### Test harness
 
