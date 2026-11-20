@@ -13,6 +13,7 @@ use tower::ServiceExt;
 
 use elesdee_core::api::router;
 use elesdee_core::files::MAX_FILE_BYTES;
+use elesdee_core::state::{Account, Auth, Client};
 use elesdee_core::{AppState, MemorySecretStore, SecretStore};
 
 const TEST_HOST: &str = "127.0.0.1:4319";
@@ -1419,8 +1420,82 @@ async fn wait_for_session(app: &Router, id: &str, ready: impl Fn(&Value) -> bool
     }
 }
 
+const SESSION_SKILLS: [&str; 5] = [
+    "elesdee",
+    "ask-and-notify",
+    "coordinate-sessions",
+    "handoff",
+    "frontend-design",
+];
+
+fn skill_kit(data_dir: &Path, id: &str) -> PathBuf {
+    data_dir.join("skills").join(id)
+}
+
+fn assert_skill_set(skills_root: &Path) {
+    for name in SESSION_SKILLS {
+        let path = skills_root.join(name).join("SKILL.md");
+        assert!(
+            path.is_file(),
+            "the {name} skill was not written at {}",
+            path.display()
+        );
+        let body = fs::read_to_string(&path).expect("read skill");
+        assert!(body.starts_with("---\nname: "), "{name} has no frontmatter");
+        assert!(body.contains("description:"), "{name} has no description");
+    }
+}
+
+fn assert_clean_repository(repo: &Path) {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(repo)
+        .args(["status", "--porcelain"])
+        .output()
+        .expect("run git status");
+    assert!(output.status.success(), "git status failed");
+    let status = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        status.trim().is_empty(),
+        "the session wrote into the repository: {status}"
+    );
+}
+
+async fn wait_for_file(path: &Path) -> String {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        if let Ok(text) = fs::read_to_string(path) {
+            return text;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "file was not written: {}",
+            path.display()
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+async fn create_agent_session(app: &Router, repo: &Path, account_id: &str, name: &str) -> String {
+    let (status, session) = call(
+        app,
+        "POST",
+        "/api/sessions",
+        Some(json!({
+            "projectId": "web",
+            "kind": "agent",
+            "accountId": account_id,
+            "name": name,
+            "folder": repo.to_string_lossy()
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    session["id"].as_str().expect("session id").to_owned()
+}
+
 #[tokio::test]
-async fn claude_sessions_get_and_clean_up_their_mcp_config() {
+async fn claude_sessions_get_and_clean_up_their_skill_pack() {
     let data_dir = TempDirectory::new("mcp-config-data");
     let repo = TempDirectory::new("mcp-config-repo");
     init_git_repo(&repo.path);
@@ -1429,21 +1504,8 @@ async fn claude_sessions_get_and_clean_up_their_mcp_config() {
         data_dir.path.clone(),
     ));
     ensure_test_project(&app, &repo.path).await;
-    let (status, session) = call(
-        &app,
-        "POST",
-        "/api/sessions",
-        Some(json!({
-            "projectId": "web",
-            "kind": "agent",
-            "accountId": "max",
-            "name": "MCP config",
-            "folder": repo.path.to_string_lossy()
-        })),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK, "{session}");
-    let id = session["id"].as_str().expect("session id");
+    let id = create_agent_session(&app, &repo.path, "max", "MCP config").await;
+
     let config_path = data_dir.path.join("mcp").join(format!("{id}.json"));
     assert!(config_path.is_file(), "the MCP config was not written");
     let config: Value = serde_json::from_slice(&fs::read(&config_path).expect("read MCP config"))
@@ -1452,22 +1514,121 @@ async fn claude_sessions_get_and_clean_up_their_mcp_config() {
         .as_str()
         .expect("MCP URL");
     assert_eq!(url, format!("http://127.0.0.1:4319/internal/mcp/{id}"));
-    let skill = data_dir
-        .path
-        .join("plugin")
-        .join("skills")
-        .join("elesdee")
-        .join("SKILL.md");
-    assert!(skill.is_file(), "the elesdee skill was not written");
+
+    let kit = skill_kit(&data_dir.path, &id);
     assert!(
-        fs::read_to_string(&skill)
+        kit.join(".claude-plugin").join("plugin.json").is_file(),
+        "the Claude plugin manifest was not written"
+    );
+    assert_skill_set(&kit.join("skills"));
+    assert!(
+        fs::read_to_string(kit.join("skills/elesdee/SKILL.md"))
             .expect("read skill")
             .contains("ask_me")
     );
 
-    let (status, _) = close_session(&app, id).await;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let file_mode = fs::metadata(kit.join("skills/elesdee/SKILL.md"))
+            .expect("skill metadata")
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(file_mode, 0o600);
+        let directory_mode = fs::metadata(kit.join("skills/elesdee"))
+            .expect("skill directory metadata")
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(directory_mode, 0o700);
+    }
+
+    assert_clean_repository(&repo.path);
+
+    let (status, _) = close_session(&app, &id).await;
     assert_eq!(status, StatusCode::OK);
     assert!(!config_path.exists(), "the MCP config was not removed");
+    assert!(!kit.exists(), "the skill pack was not removed");
+}
+
+#[tokio::test]
+async fn codex_sessions_get_a_private_home_with_every_skill() {
+    let data_dir = TempDirectory::new("codex-skill-data");
+    let repo = TempDirectory::new("codex-skill-repo");
+    init_git_repo(&repo.path);
+    let app = router(AppState::with_test_command_and_data_dir(
+        vec![
+            "/bin/sh".to_owned(),
+            "-c".to_owned(),
+            "printf '%s' \"$CODEX_HOME\" > codex-home.txt; sleep 30".to_owned(),
+        ],
+        data_dir.path.clone(),
+    ));
+    ensure_test_project(&app, &repo.path).await;
+    let id = create_agent_session(&app, &repo.path, "codex", "Codex skills").await;
+
+    let session = wait_for_session(&app, &id, |session| session["branch"].is_string()).await;
+    let folder = PathBuf::from(session["folder"].as_str().expect("session folder"));
+    let recorded = wait_for_file(&folder.join("codex-home.txt")).await;
+    let kit = skill_kit(&data_dir.path, &id);
+    assert_eq!(PathBuf::from(recorded), kit.join("codex"));
+    assert_skill_set(&kit.join("codex").join("skills"));
+    assert_clean_repository(&repo.path);
+
+    let (status, _) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!kit.exists(), "the Codex skill home was not removed");
+}
+
+#[tokio::test]
+async fn opencode_sessions_get_the_full_skill_set() {
+    let data_dir = TempDirectory::new("opencode-skill-data");
+    let repo = TempDirectory::new("opencode-skill-repo");
+    init_git_repo(&repo.path);
+    let state = AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    );
+    let account = state.add_account(Account {
+        id: String::new(),
+        name: "OpenCode test".to_owned(),
+        plan: "team".to_owned(),
+        client: Client::OpenCode2,
+        provider: "openrouter".to_owned(),
+        auth: Auth::Subscription,
+        sample: false,
+        rows: Vec::new(),
+        foot: String::new(),
+        server: None,
+        model: None,
+        api_style: None,
+    });
+    let app = router(state);
+    ensure_test_project(&app, &repo.path).await;
+    let id = create_agent_session(&app, &repo.path, &account.id, "OpenCode skills").await;
+
+    let kit = skill_kit(&data_dir.path, &id);
+    assert_skill_set(&kit.join("skills"));
+    let config_path = data_dir
+        .path
+        .join("mcp")
+        .join(format!("opencode-{id}.json"));
+    let config: Value = serde_json::from_slice(&fs::read(&config_path).expect("read config"))
+        .expect("parse config");
+    assert_eq!(config["mcp"]["elesdee"]["type"], "remote");
+    let skills = config["skills"].as_array().expect("skills");
+    assert_eq!(skills.len(), 1);
+    assert_eq!(
+        PathBuf::from(skills[0].as_str().expect("skills path")),
+        kit.join("skills")
+    );
+    assert_clean_repository(&repo.path);
+
+    let (status, _) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!config_path.exists(), "the OpenCode config was not removed");
+    assert!(!kit.exists(), "the skill pack was not removed");
 }
 
 #[tokio::test]
