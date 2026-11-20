@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import type { Account, Project, Session } from '../api/types';
+import type { Project, Provider, Session } from '../api/types';
 import { useLanguage } from '../i18n/LanguageProvider';
 import type { Translate } from '../i18n';
 import {
@@ -8,7 +8,7 @@ import {
   statusTone,
   tabStateLabel,
 } from '../state/sessionStatus';
-import { accountUsage } from '../state/usage';
+import { providerUsage } from '../state/usage';
 import {
   AgentIcon,
   AlertIcon,
@@ -28,7 +28,7 @@ type Filter = 'active' | 'closed';
 interface SidebarProps {
   projects: Project[];
   sessions: Session[];
-  accounts: Account[];
+  providers: Provider[];
   activeProjectId: string | null;
   activeSessionId: string | null;
   onSelectProject: (project: Project) => void;
@@ -142,7 +142,7 @@ function groupSessions(sessions: Session[]): Map<string, Session[]> {
 export function Sidebar({
   projects,
   sessions,
-  accounts,
+  providers,
   activeProjectId,
   activeSessionId,
   onSelectProject,
@@ -578,19 +578,19 @@ export function Sidebar({
                 </span>
               </span>
 
-              {accounts.length === 0 ? (
+              {providers.length === 0 ? (
                 <span className="usage-summary-value">{t('usage.none')}</span>
               ) : (
-                accounts.slice(0, 3).map((account) => {
-                  const usage = accountUsage(account, language);
+                providers.slice(0, 3).map((provider) => {
+                  const usage = providerUsage(provider, language);
                   return (
                     <span
                       className="usage-summary-row"
-                      key={account.id}
-                      title={account.name}
+                      key={provider.id}
+                      title={provider.name}
                     >
                       <span className="usage-summary-label">
-                        {account.name}
+                        {provider.name}
                       </span>
                       {usage.remaining !== null ? (
                         <span
@@ -624,7 +624,7 @@ export function Sidebar({
 
             {usageOpen ? (
               <UsagePopover
-                accounts={accounts}
+                providers={providers}
                 trigger={usageButtonRef.current}
                 onClose={() => setUsageOpen(false)}
               />

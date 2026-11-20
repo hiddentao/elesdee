@@ -46,8 +46,9 @@ export interface Session {
   status: SessionState;
   workState: WorkState | null;
   client: Client | null;
-  accountId: string | null;
-  allowedAccountIds?: string[];
+  configId: string | null;
+  allowedConfigIds?: string[];
+  providerId: string | null;
   branch: string | null;
   handoffNote?: string | null;
   contextLeft?: number | null;
@@ -59,8 +60,9 @@ export interface Session {
   parentSessionId?: string | null;
   parentSessionName?: string | null;
   envOverrides?: EnvOverride[];
-  presetId?: string | null;
   model?: string | null;
+  effort?: string | null;
+  args?: string[];
   config?: Record<string, string>;
   demoServers?: DemoServer[];
   startedAt: string;
@@ -76,12 +78,12 @@ export interface Project {
   id: string;
   name: string;
   folder: string;
-  defaultAccountId?: string | null;
+  defaultConfigId?: string | null;
   defaultSourceBranch?: string | null;
 }
 
 export interface UpdateProjectDefaultsInput {
-  defaultAccountId?: string | null;
+  defaultConfigId?: string | null;
   defaultSourceBranch?: string | null;
 }
 
@@ -97,38 +99,22 @@ export interface UsageRow {
 
 export type UsageStatus = 'fresh' | 'stale' | 'unknown';
 
-export interface Account {
+export interface Provider {
   id: string;
   name: string;
-  plan: string;
-  client: Client;
-  provider: string;
+  vendor: string;
   auth: 'subscription' | 'key' | 'local';
+  server: string | null;
+  apiStyle?: string | null;
   sample: boolean;
+  plan: string;
   rows: UsageRow[];
   foot: string;
   usageReadAt?: string | null;
   usageCheckedAt?: string | null;
   usageStatus?: UsageStatus | null;
   usageSource?: string | null;
-  server: string | null;
-  model: string | null;
-  apiStyle?: string | null;
-}
-
-export interface SwitchOptions {
-  accounts: Account[];
-  allowedAccountIds: string[];
-  nextAccountId: string | null;
-}
-
-export interface ProviderInfo {
-  id: string;
-  label: string;
-  client: Client;
-  auth: Array<'subscription' | 'key' | 'local'>;
-  defaultModel: string | null;
-  custom: boolean;
+  supportedClients: Client[];
 }
 
 export interface AgentCheck {
@@ -137,49 +123,91 @@ export interface AgentCheck {
   version: string | null;
 }
 
-export interface Preset {
+export interface ProviderOption {
+  id: string;
+  label: string;
+  auth: Array<'subscription' | 'key' | 'local'>;
+  supportedClients: Client[];
+  efforts: Record<string, string[]>;
+  defaultModel: string | null;
+  custom: boolean;
+}
+
+export interface ModelChoice {
+  id: string;
+  label: string;
+}
+
+export interface ModelList {
+  models: ModelChoice[];
+  source: 'provider' | 'cache' | 'known' | string;
+  fallback: boolean;
+}
+
+export interface AiConfig {
   id: string;
   name: string;
-  accountId: string;
+  providerId: string;
+  client: Client;
   model: string | null;
+  effort: string | null;
+  args: string[];
   env: EnvOverride[];
   config: Record<string, string>;
   createdAt: string;
   updatedAt: string;
 }
 
-export interface LaunchPreset {
-  id: string;
-  name: string;
-  accountId: string;
-  model: string | null;
-  env: EnvOverride[];
-  config: Record<string, string>;
-  stored: boolean;
-  createdAt: string | null;
-  updatedAt: string | null;
+export interface SwitchOptions {
+  configs: AiConfig[];
+  allowedConfigIds: string[];
+  nextConfigId: string | null;
 }
 
-export interface CreatePresetInput {
+export interface CreateProviderInput {
   name?: string;
-  accountId: string;
+  vendor: string;
+  auth: 'subscription' | 'key' | 'local';
+  key?: string;
+  server?: string;
+  apiStyle?: 'openai' | 'anthropic';
+}
+
+export interface UpdateProviderInput {
+  name?: string;
+  vendor?: string;
+  auth?: 'subscription' | 'key' | 'local';
+  key?: string;
+  server?: string | null;
+  apiStyle?: 'openai' | 'anthropic' | null;
+}
+
+export interface CreateConfigInput {
+  name?: string;
+  providerId: string;
+  client: Client;
   model?: string | null;
+  effort?: string | null;
+  args?: string[];
   env?: EnvOverride[];
   config?: Record<string, string>;
 }
 
-export interface UpdatePresetInput {
+export interface UpdateConfigInput {
   name?: string;
-  accountId?: string;
+  providerId?: string;
+  client?: Client;
   model?: string | null;
+  effort?: string | null;
+  args?: string[];
   env?: EnvOverride[];
   config?: Record<string, string>;
 }
 
 export interface BootstrapResponse {
   projects: Project[];
-  accounts: Account[];
-  presets?: Preset[];
+  providers: Provider[];
+  configs: AiConfig[];
   sessions: Session[];
   questions?: Question[];
   sessionRequests?: SessionRequest[];
@@ -195,7 +223,8 @@ export interface SessionRequest {
   folder: string;
   sourceBranch: string | null;
   firstPrompt: string | null;
-  accountId: string;
+  configId: string;
+  providerId: string;
   client: Client;
   status: 'pending' | 'approved' | 'denied';
   childSessionId: string | null;
@@ -232,7 +261,7 @@ export type AuxEvent =
   | { type: 'request.updated'; request: SessionRequest }
   | { type: 'sharedfile.created'; file: SharedFile }
   | { type: 'notification'; notification: Notification }
-  | { type: 'account.updated'; account: Account };
+  | { type: 'provider.updated'; provider: Provider };
 
 export interface HealthResponse {
   ok: boolean;
@@ -306,9 +335,8 @@ export interface SessionChanges {
 export interface CreateSessionInput {
   projectId: string;
   kind: SessionKind;
-  accountId?: string;
-  allowedAccountIds?: string[];
-  presetId?: string;
+  configId?: string;
+  allowedConfigIds?: string[];
   name?: string;
   folder?: string;
   sourceBranch?: string;
@@ -325,22 +353,6 @@ export interface GitStatus {
 export interface CreateProjectInput {
   name: string;
   folder: string;
-}
-
-export interface CreateAccountInput {
-  name: string;
-  providerId: string;
-  client?: Client;
-  auth: 'subscription' | 'key' | 'local';
-  key?: string;
-  server?: string;
-  model?: string;
-  apiStyle?: 'openai' | 'anthropic';
-}
-
-export interface RemoveAccountResult {
-  clearedProjectDefaults: string[];
-  removedPresets: number;
 }
 
 export interface ApiErrorPayload {

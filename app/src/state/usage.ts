@@ -1,4 +1,4 @@
-import type { Account, UsageRow } from '../api/types';
+import type { Provider, UsageRow } from '../api/types';
 import {
   formatNumber,
   translate,
@@ -37,23 +37,23 @@ export function formatUsageTime(
 }
 
 export function usageStatusText(
-  account: Account,
+  provider: Provider,
   language: Language,
   t: Translate,
 ): string | null {
-  if (account.usageStatus === 'fresh') {
-    const time = formatUsageTime(account.usageReadAt, language);
+  if (provider.usageStatus === 'fresh') {
+    const time = formatUsageTime(provider.usageReadAt, language);
     return time ? t('usage.readAt', { time }) : null;
   }
-  if (account.usageStatus === 'stale') {
+  if (provider.usageStatus === 'stale') {
     const time = formatUsageTime(
-      account.usageReadAt ?? account.usageCheckedAt,
+      provider.usageReadAt ?? provider.usageCheckedAt,
       language,
     );
     return time ? t('usage.stale', { time }) : null;
   }
-  if (account.usageStatus === 'unknown') {
-    const time = formatUsageTime(account.usageCheckedAt, language);
+  if (provider.usageStatus === 'unknown') {
+    const time = formatUsageTime(provider.usageCheckedAt, language);
     return time ? t('usage.checked', { time }) : null;
   }
   return null;
@@ -99,7 +99,7 @@ export function rowWarn(row: UsageRow): boolean {
   return balanceBelowMin(row);
 }
 
-export interface AccountUsage {
+export interface ProviderUsage {
   kind: 'percent' | 'balance' | 'none';
   summary: string;
   remaining: number | null;
@@ -108,11 +108,11 @@ export interface AccountUsage {
   tightestRow: UsageRow | null;
 }
 
-export function accountUsage(
-  account: Account,
+export function providerUsage(
+  provider: Provider,
   language: Language = 'en',
-): AccountUsage {
-  const limits = account.rows.filter((row) => rowRemaining(row) !== null);
+): ProviderUsage {
+  const limits = provider.rows.filter((row) => rowRemaining(row) !== null);
 
   if (limits.length > 0) {
     let tightest = limits[0];
@@ -138,7 +138,7 @@ export function accountUsage(
     };
   }
 
-  const balances = account.rows.filter(
+  const balances = provider.rows.filter(
     (row) => typeof row.used !== 'number' && Boolean(row.value),
   );
 
@@ -164,15 +164,15 @@ export function accountUsage(
   };
 }
 
-export function tightestAccount(accounts: Account[]): Account | null {
-  let tightest: Account | null = null;
+export function tightestProvider(providers: Provider[]): Provider | null {
+  let tightest: Provider | null = null;
   let lowest = Infinity;
 
-  for (const account of accounts) {
-    const usage = accountUsage(account);
+  for (const provider of providers) {
+    const usage = providerUsage(provider);
     if (usage.remaining !== null && usage.remaining < lowest) {
       lowest = usage.remaining;
-      tightest = account;
+      tightest = provider;
     }
   }
 
@@ -180,5 +180,5 @@ export function tightestAccount(accounts: Account[]): Account | null {
     return tightest;
   }
 
-  return accounts.find((account) => account.rows.length > 0) ?? accounts[0] ?? null;
+  return providers.find((provider) => provider.rows.length > 0) ?? providers[0] ?? null;
 }

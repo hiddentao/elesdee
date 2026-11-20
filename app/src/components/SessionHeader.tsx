@@ -1,6 +1,6 @@
-import type { Account, Session } from '../api/types';
+import type { Provider, Session } from '../api/types';
 import { useLanguage } from '../i18n/LanguageProvider';
-import { accountFor } from '../state/sessionStatus';
+import { providerFor } from '../state/sessionStatus';
 import {
   AgentIcon,
   BranchIcon,
@@ -14,7 +14,7 @@ import { UsagePill } from './UsagePill';
 
 interface SessionHeaderProps {
   session: Session;
-  accounts: Account[];
+  providers: Provider[];
   actionsOpen: boolean;
   onOpenMenu: (trigger: HTMLElement) => void;
   branchOpen: boolean;
@@ -26,7 +26,7 @@ interface SessionHeaderProps {
 
 export function SessionHeader({
   session,
-  accounts,
+  providers,
   actionsOpen,
   onOpenMenu,
   branchOpen,
@@ -36,7 +36,7 @@ export function SessionHeader({
   onOpenSwitch,
 }: SessionHeaderProps) {
   const { t } = useLanguage();
-  const account = accountFor(accounts, session.accountId);
+  const provider = providerFor(providers, session.providerId);
 
   return (
     <header className="session-head">
@@ -47,10 +47,10 @@ export function SessionHeader({
         </div>
 
         <div className="session-meta-line">
-          {session.kind === 'agent' && account ? (
+          {session.kind === 'agent' && provider ? (
             <UsagePill
               session={session}
-              account={account}
+              provider={provider}
               canSwitch={session.status === 'active'}
               onOpenSwitch={onOpenSwitch}
             />

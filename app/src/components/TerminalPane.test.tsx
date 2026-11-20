@@ -88,7 +88,8 @@ const activeSession = makeSession({
   short: 'terminal-check',
   kind: 'terminal',
   client: null,
-  accountId: null,
+  configId: null,
+        providerId: null,
 });
 
 function term(): FakeTerm {

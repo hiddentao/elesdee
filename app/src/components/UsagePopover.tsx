@@ -1,12 +1,12 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
-import type { Account } from '../api/types';
+import type { Provider } from '../api/types';
 import { useLanguage } from '../i18n/LanguageProvider';
 import { usageStatusText } from '../state/usage';
 import { UsageLimitRow } from './UsageLimitRow';
 import { CloseIcon } from './icons';
 
 interface UsagePopoverProps {
-  accounts: Account[];
+  providers: Provider[];
   trigger: HTMLElement | null;
   onClose: () => void;
 }
@@ -19,7 +19,7 @@ function focusableElements(container: HTMLElement): HTMLElement[] {
 }
 
 export function UsagePopover({
-  accounts,
+  providers,
   trigger,
   onClose,
 }: UsagePopoverProps) {
@@ -115,35 +115,35 @@ export function UsagePopover({
       </div>
 
       <div className="usage-popover-body usage-panel">
-        {accounts.length === 0 ? (
+        {providers.length === 0 ? (
           <p className="usage-empty">{t('usage.none')}</p>
         ) : (
-          accounts.map((account) => {
+          providers.map((provider) => {
             const status =
-              usageStatusText(account, language, t) ?? account.foot;
+              usageStatusText(provider, language, t) ?? provider.foot;
             return (
               <section
                 className="usage-card"
-                key={account.id}
-                aria-label={account.name}
+                key={provider.id}
+                aria-label={provider.name}
               >
                 <div className="usage-card-head">
                   <div className="usage-card-main">
-                    <span className="usage-name">{account.name}</span>
-                    {account.sample ? (
+                    <span className="usage-name">{provider.name}</span>
+                    {provider.sample ? (
                       <span className="sample-tag">{t('common.sample')}</span>
                     ) : null}
                     <span className="usage-plan">
-                      {account.plan} · {account.client}
+                      {provider.plan} · {provider.vendor}
                     </span>
                   </div>
                 </div>
 
-                {account.rows.length === 0 ? (
+                {provider.rows.length === 0 ? (
                   <p className="usage-empty">{t('usage.none')}</p>
                 ) : (
                   <div className="usage-card-rows">
-                    {account.rows.map((row, index) => (
+                    {provider.rows.map((row, index) => (
                       <UsageLimitRow key={`${row.label}-${index}`} row={row} />
                     ))}
                   </div>

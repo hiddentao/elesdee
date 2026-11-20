@@ -1,35 +1,23 @@
 import { useCallback, useState, type FormEvent } from 'react';
-import { ApiError, listAccounts, listBranches } from '../api/client';
+import { ApiError, listBranches, listConfigs } from '../api/client';
 import type {
-  Account,
+  AiConfig,
   Project,
+  Provider,
   UpdateProjectDefaultsInput,
 } from '../api/types';
-import { type Language } from '../i18n';
 import { useLanguage } from '../i18n/LanguageProvider';
-import { accountUsage } from '../state/usage';
+import { configOption } from './configOption';
 import { Combobox, type ComboboxLoader, type ComboboxOption } from './Combobox';
 import { Dialog } from './Dialog';
 import { AlertIcon } from './icons';
 
 interface ProjectSettingsDialogProps {
   project: Project;
-  accounts: Account[];
+  configs: AiConfig[];
+  providers: Provider[];
   onSave: (input: UpdateProjectDefaultsInput) => Promise<void>;
   onClose: () => void;
-}
-
-function accountOption(
-  account: Account,
-  language: Language,
-  sampleLabel: string,
-): ComboboxOption {
-  return {
-    id: account.id,
-    label: account.name,
-    meta: `${account.client} · ${accountUsage(account, language).summary}`,
-    tag: account.sample ? sampleLabel : undefined,
-  };
 }
 
 function branchOption(
@@ -45,16 +33,17 @@ function branchOption(
 
 export function ProjectSettingsDialog({
   project,
-  accounts,
+  configs,
+  providers,
   onSave,
   onClose,
 }: ProjectSettingsDialogProps) {
   const { t, language } = useLanguage();
-  const initialAccount = project.defaultAccountId
-    ? accounts.find((account) => account.id === project.defaultAccountId) ?? null
+  const initialConfig = project.defaultConfigId
+    ? configs.find((config) => config.id === project.defaultConfigId) ?? null
     : null;
-  const [accountId, setAccountId] = useState<string | null>(
-    initialAccount?.id ?? null,
+  const [configId, setConfigId] = useState<string | null>(
+    initialConfig?.id ?? null,
   );
   const [branch, setBranch] = useState<string | null>(
     project.defaultSourceBranch ?? null,
@@ -62,18 +51,23 @@ export function ProjectSettingsDialog({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const selectedAccount = accountId
-    ? accounts.find((account) => account.id === accountId) ?? null
+  const selectedConfig = configId
+    ? configs.find((config) => config.id === configId) ?? null
     : null;
 
-  const loadAccountOptions = useCallback<ComboboxLoader>(
+  const loadConfigOptions = useCallback<ComboboxLoader>(
     async (query, signal) => {
-      const list = await listAccounts(query, signal);
-      return list.map((account) =>
-        accountOption(account, language, t('common.sample')),
-      );
+      const list = await listConfigs(query, signal);
+      return list.map((config) => {
+        const provider =
+          providers.find((item) => item.id === config.providerId) ?? null;
+        return {
+          ...configOption(config, providers, language),
+          tag: provider?.sample ? t('common.sample') : undefined,
+        };
+      });
     },
-    [language, t],
+    [providers, language, t],
   );
 
   const loadBranchOptions = useCallback<ComboboxLoader>(
@@ -93,7 +87,7 @@ export function ProjectSettingsDialog({
     setError(null);
     try {
       await onSave({
-        defaultAccountId: accountId,
+        defaultConfigId: configId,
         defaultSourceBranch: branch,
       });
       onClose();
@@ -127,31 +121,34 @@ export function ProjectSettingsDialog({
       <form className="dialog-form" onSubmit={handleSubmit} noValidate>
         <div className="dialog-body">
           <Combobox
-            id="project-default-account"
-            label={t('projectSettings.defaultAccount')}
-            value={accountId}
-            loadOptions={loadAccountOptions}
+            id="project-default-config"
+            label={t('projectSettings.defaultConfig')}
+            value={configId}
+            loadOptions={loadConfigOptions}
             selectedOption={
-              selectedAccount
-                ? accountOption(
-                    selectedAccount,
-                    language,
-                    t('common.sample'),
-                  )
+              selectedConfig
+                ? {
+                    ...configOption(selectedConfig, providers, language),
+                    tag: providers.find(
+                      (provider) => provider.id === selectedConfig.providerId,
+                    )?.sample
+                      ? t('common.sample')
+                      : undefined,
+                  }
                 : null
             }
-            onChange={setAccountId}
-            placeholder={t('projectSettings.noDefaultAccount')}
-            hint={t('projectSettings.accountHint')}
+            onChange={setConfigId}
+            placeholder={t('projectSettings.noDefaultConfig')}
+            hint={t('projectSettings.configHint')}
             autoFocus
           />
-          {accountId ? (
+          {configId ? (
             <button
               type="button"
               className="link-button project-default-clear"
-              onClick={() => setAccountId(null)}
+              onClick={() => setConfigId(null)}
             >
-              {t('projectSettings.clearAccount')}
+              {t('projectSettings.clearConfig')}
             </button>
           ) : null}
 

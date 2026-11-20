@@ -1,24 +1,20 @@
-import { useCallback, useEffect, useState } from 'react';
-import {
-  ApiError,
-  createPreset,
-  deletePreset,
-  listPresets,
-  updatePreset,
-} from '../api/client';
+import { useState } from 'react';
+import { ApiError } from '../api/client';
 import type {
-  Account,
-  CreateAccountInput,
-  CreatePresetInput,
-  LaunchPreset,
-  RemoveAccountResult,
+  AiConfig,
+  CreateConfigInput,
+  CreateProviderInput,
+  Provider,
+  ProviderOption,
+  UpdateConfigInput,
+  UpdateProviderInput,
 } from '../api/types';
 import { LANGUAGES, type Language } from '../i18n';
 import { useLanguage } from '../i18n/LanguageProvider';
-import { accountUsage } from '../state/usage';
-import { AccountDialog } from './AccountDialog';
+import { providerUsage } from '../state/usage';
+import { AiConfigDialog } from './AiConfigDialog';
 import { Dialog } from './Dialog';
-import { PresetDialog } from './PresetDialog';
+import { ProviderDialog } from './ProviderDialog';
 import {
   CloseIcon,
   GlobeIcon,
@@ -30,108 +26,110 @@ import {
   TrashIcon,
 } from './icons';
 
-type SettingsSection = 'providers' | 'presets' | 'languages' | 'about';
+type SettingsSection = 'providers' | 'configs' | 'languages' | 'about';
 
 interface SettingsDialogProps {
-  accounts: Account[];
+  providers: Provider[];
+  configs: AiConfig[];
+  options: ProviderOption[];
   version: string | null;
-  onCreateAccount: (input: CreateAccountInput) => Promise<Account>;
-  onAccountCreated: (account: Account) => void;
-  onUpdateAccount: (
+  onCreateProvider: (input: CreateProviderInput) => Promise<Provider>;
+  onUpdateProvider: (
     id: string,
-    input: CreateAccountInput,
-  ) => Promise<Account>;
-  onRemoveAccount: (id: string) => Promise<RemoveAccountResult>;
+    input: UpdateProviderInput,
+  ) => Promise<Provider>;
+  onRemoveProvider: (id: string) => Promise<void>;
+  onCreateConfig: (input: CreateConfigInput) => Promise<AiConfig>;
+  onUpdateConfig: (
+    id: string,
+    input: UpdateConfigInput,
+  ) => Promise<AiConfig>;
+  onDeleteConfig: (id: string) => Promise<void>;
+  onProviderSaved: (provider: Provider) => void;
+  onConfigSaved: (config: AiConfig) => void;
   onClose: () => void;
 }
 
 export function SettingsDialog({
-  accounts,
+  providers,
+  configs,
+  options,
   version,
-  onCreateAccount,
-  onAccountCreated,
-  onUpdateAccount,
-  onRemoveAccount,
+  onCreateProvider,
+  onUpdateProvider,
+  onRemoveProvider,
+  onCreateConfig,
+  onUpdateConfig,
+  onDeleteConfig,
+  onProviderSaved,
+  onConfigSaved,
   onClose,
 }: SettingsDialogProps) {
   const { t, language, setLanguage } = useLanguage();
   const [section, setSection] = useState<SettingsSection>('providers');
-  const [addOpen, setAddOpen] = useState(false);
-  const [presets, setPresets] = useState<LaunchPreset[]>([]);
-  const [presetsLoading, setPresetsLoading] = useState(true);
-  const [presetsError, setPresetsError] = useState<string | null>(null);
-  const [presetEditor, setPresetEditor] = useState<
-    LaunchPreset | null | undefined
-  >(undefined);
-  const [deleteTarget, setDeleteTarget] = useState<LaunchPreset | null>(null);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
-  const [deleting, setDeleting] = useState(false);
-  const [editTarget, setEditTarget] = useState<Account | null>(null);
-  const [removeTarget, setRemoveTarget] = useState<Account | null>(null);
-  const [removeError, setRemoveError] = useState<string | null>(null);
-  const [removing, setRemoving] = useState(false);
+  const [addProviderOpen, setAddProviderOpen] = useState(false);
+  const [editProvider, setEditProvider] = useState<Provider | null>(null);
+  const [removeProviderTarget, setRemoveProviderTarget] =
+    useState<Provider | null>(null);
+  const [removeProviderError, setRemoveProviderError] = useState<string | null>(
+    null,
+  );
+  const [removingProvider, setRemovingProvider] = useState(false);
+  const [configEditor, setConfigEditor] = useState<AiConfig | null | undefined>(
+    undefined,
+  );
+  const [deleteConfigTarget, setDeleteConfigTarget] =
+    useState<AiConfig | null>(null);
+  const [deleteConfigError, setDeleteConfigError] = useState<string | null>(
+    null,
+  );
+  const [deletingConfig, setDeletingConfig] = useState(false);
+  const [configProviderId, setConfigProviderId] = useState<string | null>(null);
 
-  const refreshPresets = useCallback(async () => {
-    setPresetsLoading(true);
-    try {
-      setPresets(await listPresets(''));
-      setPresetsError(null);
-    } catch {
-      setPresetsError(t('presets.errorLoad'));
-    } finally {
-      setPresetsLoading(false);
-    }
-  }, [t]);
-
-  useEffect(() => {
-    void refreshPresets();
-  }, [refreshPresets]);
-
-  async function savePreset(id: string | null, input: CreatePresetInput) {
-    return id ? updatePreset(id, input) : createPreset(input);
-  }
-
-  async function confirmDelete() {
-    if (!deleteTarget) {
+  async function confirmRemoveProvider() {
+    if (!removeProviderTarget) {
       return;
     }
-    setDeleting(true);
-    setDeleteError(null);
+    setRemovingProvider(true);
+    setRemoveProviderError(null);
     try {
-      await deletePreset(deleteTarget.id);
-      setDeleteTarget(null);
-      await refreshPresets();
+      await onRemoveProvider(removeProviderTarget.id);
+      setRemoveProviderTarget(null);
     } catch (error) {
-      setDeleteError(
-        error instanceof ApiError
-          ? error.message
-          : t('presets.errorDelete'),
-      );
-    } finally {
-      setDeleting(false);
-    }
-  }
-
-  async function confirmRemove() {
-    if (!removeTarget) {
-      return;
-    }
-    setRemoving(true);
-    setRemoveError(null);
-    try {
-      await onRemoveAccount(removeTarget.id);
-      setRemoveTarget(null);
-      await refreshPresets();
-    } catch (error) {
-      setRemoveError(
+      setRemoveProviderError(
         error instanceof ApiError
           ? error.message
           : t('removeAccount.error'),
       );
     } finally {
-      setRemoving(false);
+      setRemovingProvider(false);
     }
   }
+
+  async function confirmDeleteConfig() {
+    if (!deleteConfigTarget) {
+      return;
+    }
+    setDeletingConfig(true);
+    setDeleteConfigError(null);
+    try {
+      await onDeleteConfig(deleteConfigTarget.id);
+      setDeleteConfigTarget(null);
+    } catch (error) {
+      setDeleteConfigError(
+        error instanceof ApiError ? error.message : t('presets.errorDelete'),
+      );
+    } finally {
+      setDeletingConfig(false);
+    }
+  }
+
+  const busy =
+    addProviderOpen ||
+    editProvider !== null ||
+    removeProviderTarget !== null ||
+    configEditor !== undefined ||
+    deleteConfigTarget !== null;
 
   return (
     <>
@@ -140,13 +138,7 @@ export function SettingsDialog({
         descriptionId="settings-description"
         className="settings-dialog"
         onClose={onClose}
-        inert={
-          addOpen ||
-          editTarget !== null ||
-          removeTarget !== null ||
-          presetEditor !== undefined ||
-          deleteTarget !== null
-        }
+        inert={busy}
       >
         <div className="settings-head">
           <div>
@@ -169,10 +161,7 @@ export function SettingsDialog({
         </div>
 
         <div className="settings-page-body">
-          <nav
-            className="settings-nav"
-            aria-label={t('settings.sections')}
-          >
+          <nav className="settings-nav" aria-label={t('settings.sections')}>
             <button
               type="button"
               className={
@@ -189,15 +178,15 @@ export function SettingsDialog({
             <button
               type="button"
               className={
-                section === 'presets'
+                section === 'configs'
                   ? 'settings-nav-item is-on'
                   : 'settings-nav-item'
               }
-              aria-current={section === 'presets' ? 'page' : undefined}
-              onClick={() => setSection('presets')}
+              aria-current={section === 'configs' ? 'page' : undefined}
+              onClick={() => setSection('configs')}
             >
               <PresetIcon />
-              <span>{t('settings.presets')}</span>
+              <span>{t('settings.configs')}</span>
             </button>
             <button
               type="button"
@@ -253,34 +242,41 @@ export function SettingsDialog({
                   <button
                     type="button"
                     className="btn btn-ghost"
-                    onClick={() => setAddOpen(true)}
+                    onClick={() => setAddProviderOpen(true)}
                   >
                     <PlusIcon />
-                    {t('settings.addAccount')}
+                    {t('providers.add')}
                   </button>
                 </div>
 
-                {accounts.length === 0 ? (
-                  <p className="settings-empty">{t('settings.noAccounts')}</p>
+                {providers.length === 0 ? (
+                  <p className="settings-empty">{t('providers.none')}</p>
                 ) : (
                   <ul className="settings-accounts">
-                    {accounts.map((account) => {
-                      const usage = accountUsage(account, language);
+                    {providers.map((provider) => {
+                      const usage = providerUsage(provider, language);
+                      const used = configs.filter(
+                        (config) => config.providerId === provider.id,
+                      ).length;
                       return (
-                        <li key={account.id} className="settings-account">
+                        <li key={provider.id} className="settings-account">
                           <div className="settings-account-main">
                             <div className="settings-account-title">
                               <span className="settings-account-name">
-                                {account.name}
+                                {provider.name}
                               </span>
-                              {account.sample ? (
+                              {provider.sample ? (
                                 <span className="sample-tag">
                                   {t('common.sample')}
                                 </span>
                               ) : null}
                             </div>
                             <span className="settings-account-sub">
-                              {account.client} · {account.plan}
+                              {provider.supportedClients.join(' · ')} ·{' '}
+                              {provider.plan}
+                            </span>
+                            <span className="settings-account-sub">
+                              {t('providers.usedBy', { count: used })}
                             </span>
                           </div>
                           <span
@@ -297,9 +293,9 @@ export function SettingsDialog({
                               type="button"
                               className="btn btn-ghost"
                               aria-label={t('settings.editAccount', {
-                                name: account.name,
+                                name: provider.name,
                               })}
-                              onClick={() => setEditTarget(account)}
+                              onClick={() => setEditProvider(provider)}
                             >
                               <PencilIcon />
                             </button>
@@ -307,11 +303,11 @@ export function SettingsDialog({
                               type="button"
                               className="btn btn-ghost"
                               aria-label={t('settings.removeAccount', {
-                                name: account.name,
+                                name: provider.name,
                               })}
                               onClick={() => {
-                                setRemoveError(null);
-                                setRemoveTarget(account);
+                                setRemoveProviderError(null);
+                                setRemoveProviderTarget(provider);
                               }}
                             >
                               <TrashIcon />
@@ -323,84 +319,79 @@ export function SettingsDialog({
                   </ul>
                 )}
               </section>
-            ) : section === 'presets' ? (
+            ) : section === 'configs' ? (
               <section
                 className="settings-section"
-                aria-labelledby="settings-presets-title"
+                aria-labelledby="settings-configs-title"
               >
                 <div className="settings-section-head">
                   <div>
                     <h3
                       className="settings-section-title"
-                      id="settings-presets-title"
+                      id="settings-configs-title"
                     >
-                      {t('settings.presets')}
+                      {t('settings.configs')}
                     </h3>
                     <p className="settings-section-note">
-                      {t('settings.presetsNote')}
+                      {t('settings.configsNote')}
                     </p>
                   </div>
                   <button
                     type="button"
                     className="btn btn-ghost"
-                    onClick={() => setPresetEditor(null)}
+                    onClick={() => {
+                      setConfigProviderId(null);
+                      setConfigEditor(null);
+                    }}
                   >
                     <PlusIcon />
-                    {t('settings.addPreset')}
+                    {t('configs.add')}
                   </button>
                 </div>
 
-                {presetsError ? (
-                  <p className="form-error" role="alert">
-                    {presetsError}
-                  </p>
-                ) : presetsLoading && presets.length === 0 ? (
-                  <p className="settings-empty">{t('presets.loading')}</p>
-                ) : presets.length === 0 ? (
-                  <p className="settings-empty">{t('settings.noPresets')}</p>
+                {configs.length === 0 ? (
+                  <p className="settings-empty">{t('configs.none')}</p>
                 ) : (
                   <ul className="settings-accounts">
-                    {presets.map((preset) => {
-                      const account =
-                        accounts.find(
-                          (candidate) => candidate.id === preset.accountId,
+                    {configs.map((config) => {
+                      const provider =
+                        providers.find(
+                          (item) => item.id === config.providerId,
                         ) ?? null;
-                      const configCount = Object.keys(preset.config).length;
+                      const envCount = config.env.length;
+                      const configCount = Object.keys(config.config).length;
                       return (
-                        <li key={preset.id} className="settings-account">
+                        <li key={config.id} className="settings-account">
                           <div className="settings-account-main">
                             <div className="settings-account-title">
                               <span className="settings-account-name">
-                                {preset.name}
+                                {config.name}
                               </span>
-                              {!preset.stored ? (
-                                <span className="sample-tag">
-                                  {t('presets.fromAccount')}
-                                </span>
-                              ) : null}
                             </div>
                             <span className="settings-account-sub">
-                              {account
-                                ? `${account.name} · ${account.client}`
-                                : preset.accountId}
-                              {preset.model
+                              {provider?.name ?? config.providerId} ·{' '}
+                              {config.client}
+                              {config.model
                                 ? ` · ${t('newSession.modelWith', {
-                                    model: preset.model,
+                                    model: config.model,
+                                  })}`
+                                : ''}
+                              {config.effort
+                                ? ` · ${t('configs.effortLabel', {
+                                    effort: config.effort,
                                   })}`
                                 : ''}
                             </span>
                             <span className="settings-account-sub">
-                              {preset.env.length > 0
+                              {envCount > 0
                                 ? t(
-                                    preset.env.length === 1
+                                    envCount === 1
                                       ? 'newSession.envOverrideOne'
                                       : 'newSession.envOverrideMany',
-                                    { count: preset.env.length },
+                                    { count: envCount },
                                   )
                                 : ''}
-                              {preset.env.length > 0 && configCount > 0
-                                ? ' · '
-                                : ''}
+                              {envCount > 0 && configCount > 0 ? ' · ' : ''}
                               {configCount > 0
                                 ? t(
                                     configCount === 1
@@ -409,7 +400,7 @@ export function SettingsDialog({
                                     { count: configCount },
                                   )
                                 : ''}
-                              {preset.env.length === 0 && configCount === 0
+                              {envCount === 0 && configCount === 0
                                 ? t('newSession.overridesNone')
                                 : ''}
                             </span>
@@ -419,27 +410,28 @@ export function SettingsDialog({
                               type="button"
                               className="btn btn-ghost"
                               aria-label={t('presets.edit', {
-                                name: preset.name,
+                                name: config.name,
                               })}
-                              onClick={() => setPresetEditor(preset)}
+                              onClick={() => {
+                                setConfigProviderId(null);
+                                setConfigEditor(config);
+                              }}
                             >
                               <PencilIcon />
                             </button>
-                            {preset.stored ? (
-                              <button
-                                type="button"
-                                className="btn btn-ghost"
-                                aria-label={t('presets.delete', {
-                                  name: preset.name,
-                                })}
-                                onClick={() => {
-                                  setDeleteError(null);
-                                  setDeleteTarget(preset);
-                                }}
-                              >
-                                <TrashIcon />
-                              </button>
-                            ) : null}
+                            <button
+                              type="button"
+                              className="btn btn-ghost"
+                              aria-label={t('presets.delete', {
+                                name: config.name,
+                              })}
+                              onClick={() => {
+                                setDeleteConfigError(null);
+                                setDeleteConfigTarget(config);
+                              }}
+                            >
+                              <TrashIcon />
+                            </button>
                           </div>
                         </li>
                       );
@@ -504,50 +496,53 @@ export function SettingsDialog({
         </div>
       </Dialog>
 
-      {addOpen ? (
-        <AccountDialog
-          onSubmit={onCreateAccount}
-          onSaved={(account) => {
-            onAccountCreated(account);
-            setAddOpen(false);
-            void refreshPresets();
+      {addProviderOpen ? (
+        <ProviderDialog
+          options={options}
+          onSubmit={onCreateProvider}
+          onSaved={(provider) => {
+            onProviderSaved(provider);
+            setAddProviderOpen(false);
           }}
-          onClose={() => setAddOpen(false)}
+          onClose={() => setAddProviderOpen(false)}
         />
       ) : null}
 
-      {editTarget ? (
-        <AccountDialog
-          account={editTarget}
-          onSubmit={(input) => onUpdateAccount(editTarget.id, input)}
-          onSaved={() => {
-            setEditTarget(null);
-            void refreshPresets();
+      {editProvider ? (
+        <ProviderDialog
+          provider={editProvider}
+          options={options}
+          onSubmit={(input) =>
+            onUpdateProvider(editProvider.id, input as UpdateProviderInput)
+          }
+          onSaved={(provider) => {
+            onProviderSaved(provider);
+            setEditProvider(null);
           }}
-          onClose={() => setEditTarget(null)}
+          onClose={() => setEditProvider(null)}
         />
       ) : null}
 
-      {removeTarget ? (
+      {removeProviderTarget ? (
         <Dialog
           titleId="remove-account-title"
           descriptionId="remove-account-description"
           busyLabel={t('removeAccount.removing')}
-          onClose={() => setRemoveTarget(null)}
-          busy={removing}
+          onClose={() => setRemoveProviderTarget(null)}
+          busy={removingProvider}
         >
           <div className="dialog-head">
             <h2 className="dialog-title" id="remove-account-title">
               {t('removeAccount.title')}
             </h2>
             <p className="dialog-sub" id="remove-account-description">
-              {t('removeAccount.text', { name: removeTarget.name })}
+              {t('removeAccount.text', { name: removeProviderTarget.name })}
             </p>
           </div>
           <div className="dialog-body">
-            {removeError ? (
+            {removeProviderError ? (
               <p className="form-error" role="alert">
-                {removeError}
+                {removeProviderError}
               </p>
             ) : null}
           </div>
@@ -555,18 +550,18 @@ export function SettingsDialog({
             <button
               type="button"
               className="btn btn-ghost"
-              onClick={() => setRemoveTarget(null)}
-              disabled={removing}
+              onClick={() => setRemoveProviderTarget(null)}
+              disabled={removingProvider}
             >
               {t('common.cancel')}
             </button>
             <button
               type="button"
               className="btn btn-primary"
-              onClick={() => void confirmRemove()}
-              disabled={removing}
+              onClick={() => void confirmRemoveProvider()}
+              disabled={removingProvider}
             >
-              {removing
+              {removingProvider
                 ? t('removeAccount.removing')
                 : t('removeAccount.confirm')}
             </button>
@@ -574,39 +569,47 @@ export function SettingsDialog({
         </Dialog>
       ) : null}
 
-      {presetEditor !== undefined ? (
-        <PresetDialog
-          accounts={accounts}
-          preset={presetEditor}
-          onSubmit={savePreset}
-          onSaved={() => {
-            setPresetEditor(undefined);
-            void refreshPresets();
+      {configEditor !== undefined ? (
+        <AiConfigDialog
+          config={configEditor}
+          providers={providers}
+          options={options}
+          initialProviderId={configProviderId}
+          onSaveConfig={(id, input) =>
+            id
+              ? onUpdateConfig(id, input as UpdateConfigInput)
+              : onCreateConfig(input as CreateConfigInput)
+          }
+          onCreateProvider={onCreateProvider}
+          onProviderSaved={onProviderSaved}
+          onSaved={(config) => {
+            onConfigSaved(config);
+            setConfigEditor(undefined);
           }}
-          onClose={() => setPresetEditor(undefined)}
+          onClose={() => setConfigEditor(undefined)}
         />
       ) : null}
 
-      {deleteTarget ? (
+      {deleteConfigTarget ? (
         <Dialog
           titleId="delete-preset-title"
           descriptionId="delete-preset-description"
           busyLabel={t('presets.deleting')}
-          onClose={() => setDeleteTarget(null)}
-          busy={deleting}
+          onClose={() => setDeleteConfigTarget(null)}
+          busy={deletingConfig}
         >
           <div className="dialog-head">
             <h2 className="dialog-title" id="delete-preset-title">
               {t('presets.deleteTitle')}
             </h2>
             <p className="dialog-sub" id="delete-preset-description">
-              {t('presets.deleteText', { name: deleteTarget.name })}
+              {t('presets.deleteText', { name: deleteConfigTarget.name })}
             </p>
           </div>
           <div className="dialog-body">
-            {deleteError ? (
+            {deleteConfigError ? (
               <p className="form-error" role="alert">
-                {deleteError}
+                {deleteConfigError}
               </p>
             ) : null}
           </div>
@@ -614,18 +617,18 @@ export function SettingsDialog({
             <button
               type="button"
               className="btn btn-ghost"
-              onClick={() => setDeleteTarget(null)}
-              disabled={deleting}
+              onClick={() => setDeleteConfigTarget(null)}
+              disabled={deletingConfig}
             >
               {t('common.cancel')}
             </button>
             <button
               type="button"
               className="btn btn-primary"
-              onClick={() => void confirmDelete()}
-              disabled={deleting}
+              onClick={() => void confirmDeleteConfig()}
+              disabled={deletingConfig}
             >
-              {deleting
+              {deletingConfig
                 ? t('presets.deleting')
                 : t('presets.deleteConfirm')}
             </button>

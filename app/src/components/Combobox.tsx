@@ -38,6 +38,8 @@ interface ComboboxProps {
   required?: boolean;
   autoFocus?: boolean;
   disabled?: boolean;
+  /** Accepts a typed value that is not in the loaded list. */
+  allowCustom?: boolean;
 }
 
 const LOAD_DELAY_MS = 220;
@@ -56,6 +58,7 @@ export function Combobox({
   required = false,
   autoFocus = false,
   disabled = false,
+  allowCustom = false,
 }: ComboboxProps) {
   const { t } = useLanguage();
   const [asyncOptions, setAsyncOptions] = useState<ComboboxOption[]>([]);
@@ -69,7 +72,7 @@ export function Combobox({
     options.find((option) => option.id === value) ??
     asyncOptions.find((option) => option.id === value) ??
     null;
-  const selectedLabel = selected?.label ?? '';
+  const selectedLabel = selected?.label ?? (allowCustom ? (value ?? '') : '');
   const closedLabel = selected?.closedLabel ?? selectedLabel;
   const [query, setQuery] = useState(closedLabel);
   const [open, setOpen] = useState(false);
@@ -279,6 +282,14 @@ export function Combobox({
 
   function handleBlur() {
     setOpen(false);
+    if (allowCustom) {
+      const next = query.trim();
+      if (next !== closedLabel) {
+        onChange(next === '' ? null : next);
+      }
+      setQuery(next);
+      return;
+    }
     if (closedLabel) {
       setQuery(closedLabel);
     }
@@ -330,6 +341,11 @@ export function Combobox({
       const option = filtered[activeIndex];
       if (option) {
         select(option);
+      } else if (allowCustom) {
+        const next = query.trim();
+        onChange(next === '' ? null : next);
+        setQuery(next);
+        setOpen(false);
       }
       return;
     }

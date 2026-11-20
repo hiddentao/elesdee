@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Account } from '../api/types';
+import type { Provider } from '../api/types';
 import { SettingsDialog } from '../components/SettingsDialog';
 import {
   DESKTOP_LANGUAGE_KEY,
@@ -22,18 +22,17 @@ function Probe() {
   );
 }
 
-const account: Account = {
+const provider: Provider = {
   id: 'a1',
   name: 'Work',
-  plan: 'Max',
-  client: 'Claude Code',
-  provider: 'anthropic',
+  vendor: 'anthropic',
   auth: 'subscription',
   sample: true,
+  plan: 'Max',
   rows: [{ label: '5-hour', used: 58 }],
   foot: '',
   server: null,
-  model: null,
+  supportedClients: ['Claude Code', 'OpenCode 2'],
 };
 
 beforeEach(() => {
@@ -137,12 +136,18 @@ describe('LanguageProvider', () => {
     render(
       <LanguageProvider>
         <SettingsDialog
-          accounts={[account]}
+          providers={[provider]}
+          configs={[]}
+          options={[]}
           version="0.1.0"
-          onCreateAccount={vi.fn()}
-          onAccountCreated={vi.fn()}
-          onUpdateAccount={vi.fn()}
-          onRemoveAccount={vi.fn()}
+          onCreateProvider={vi.fn()}
+          onUpdateProvider={vi.fn()}
+          onRemoveProvider={vi.fn()}
+          onCreateConfig={vi.fn()}
+          onUpdateConfig={vi.fn()}
+          onDeleteConfig={vi.fn()}
+          onProviderSaved={vi.fn()}
+          onConfigSaved={vi.fn()}
           onClose={vi.fn()}
         />
       </LanguageProvider>,

@@ -14,21 +14,25 @@ import {
   approveSessionRequest,
   bootstrap,
   closeSession,
-  createAccount,
+  createConfig,
   createProject,
+  createProvider,
   createSession,
+  deleteConfig,
   deleteSession,
   denySessionRequest,
   health,
-  removeAccount,
+  listProviderOptions,
+  removeProvider,
   renameSession,
   reopenSession,
   respondPermission,
   resumeSession,
-  switchSessionAccount,
-  updateAccount,
+  switchSessionConfig,
+  updateConfig,
   updateProjectDefaults,
-  updateSessionAllowedAccounts,
+  updateProvider,
+  updateSessionAllowedConfigs,
 } from './api/client';
 import { subscribeAux, subscribeEvents } from './api/events';
 import {
@@ -38,15 +42,18 @@ import {
 } from './api/notifications';
 import { isTauri, openFolder, openTerminal } from './api/shell';
 import type {
-  Account,
   AgentCheck,
-  CreateAccountInput,
+  AiConfig,
   PermissionDecision,
   Project,
+  Provider,
+  ProviderOption,
   Question,
   Session,
   SessionRequest,
+  UpdateConfigInput,
   UpdateProjectDefaultsInput,
+  UpdateProviderInput,
 } from './api/types';
 import { AddProjectDialog } from './components/AddProjectDialog';
 import {
@@ -74,7 +81,7 @@ import {
 import { SessionView } from './components/SessionView';
 import { SettingsDialog } from './components/SettingsDialog';
 import { Sidebar } from './components/Sidebar';
-import { SwitchAccountDialog } from './components/SwitchAccountDialog';
+import { SwitchConfigDialog } from './components/SwitchConfigDialog';
 import { TabStrip } from './components/TabStrip';
 import { PlusIcon, SparkIcon, TerminalIcon } from './components/icons';
 import { useLanguage } from './i18n/LanguageProvider';
@@ -118,7 +125,9 @@ export default function App() {
   const [loadState, setLoadState] = useState<LoadState>('loading');
   const [loadError, setLoadError] = useState('');
   const [projects, setProjects] = useState<Project[]>([]);
-  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [providers, setProviders] = useState<Provider[]>([]);
+  const [configs, setConfigs] = useState<AiConfig[]>([]);
+  const [providerOptions, setProviderOptions] = useState<ProviderOption[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [questions, setQuestions] = useState<Question[]>([]);
   const [questionsOpen, setQuestionsOpen] = useState(false);
@@ -199,12 +208,15 @@ export default function App() {
     setLoadState('loading');
     setLoadError('');
     try {
-      const [data, report] = await Promise.all([
+      const [data, report, options] = await Promise.all([
         bootstrap(),
         health().catch(() => null),
+        listProviderOptions().catch(() => []),
       ]);
+      setProviderOptions(options);
       setProjects(data.projects);
-      setAccounts(data.accounts);
+      setProviders(data.providers);
+      setConfigs(data.configs);
       setSessions(data.sessions);
       setQuestions(data.questions ?? []);
       setSessionRequests(data.sessionRequests ?? []);
@@ -225,7 +237,8 @@ export default function App() {
     try {
       const data = await bootstrap();
       setProjects(data.projects);
-      setAccounts(data.accounts);
+      setProviders(data.providers);
+      setConfigs(data.configs);
       setSessions(data.sessions);
       setQuestions(data.questions ?? []);
       setSessionRequests(data.sessionRequests ?? []);
@@ -405,16 +418,16 @@ export default function App() {
         setSharedVersion((value) => value + 1);
         return;
       }
-      if (event.type === 'account.updated') {
-        setAccounts((current) => {
+      if (event.type === 'provider.updated') {
+        setProviders((current) => {
           const index = current.findIndex(
-            (account) => account.id === event.account.id,
+            (provider) => provider.id === event.provider.id,
           );
           if (index === -1) {
-            return [...current, event.account];
+            return [...current, event.provider];
           }
           const next = current.slice();
-          next[index] = event.account;
+          next[index] = event.provider;
           return next;
         });
         return;
@@ -598,27 +611,38 @@ export default function App() {
     openSession(session);
   }
 
-  function handleAccountCreated(account: Account) {
-    setAccounts((current) =>
-      current.some((item) => item.id === account.id)
-        ? current
-        : [...current, account],
-    );
+  function handleProviderSaved(provider: Provider) {
+    setProviders((current) => {
+      const index = current.findIndex((item) => item.id === provider.id);
+      if (index === -1) {
+        return [...current, provider];
+      }
+      const next = current.slice();
+      next[index] = provider;
+      return next;
+    });
   }
 
-  async function handleAccountUpdated(id: string, input: CreateAccountInput) {
-    const account = await updateAccount(id, input);
-    setAccounts((current) =>
-      current.map((item) => (item.id === account.id ? account : item)),
-    );
-    return account;
+  function handleConfigSaved(config: AiConfig) {
+    setConfigs((current) => {
+      const index = current.findIndex((item) => item.id === config.id);
+      if (index === -1) {
+        return [...current, config];
+      }
+      const next = current.slice();
+      next[index] = config;
+      return next;
+    });
   }
 
-  async function handleAccountRemoved(id: string) {
-    const result = await removeAccount(id);
-    // Removal can clear project defaults and delete presets.
+  async function handleProviderRemoved(id: string) {
+    await removeProvider(id);
     await refresh();
-    return result;
+  }
+
+  async function handleConfigDeleted(id: string) {
+    await deleteConfig(id);
+    await refresh();
   }
 
   function handleProjectCreated(project: Project) {
@@ -829,26 +853,26 @@ export default function App() {
     );
   }
 
-  async function performSwitch(accountId: string) {
+  async function performSwitch(configId: string) {
     if (!switchTarget) {
       return;
     }
 
-    const updated = await switchSessionAccount(switchTarget.id, accountId);
+    const updated = await switchSessionConfig(switchTarget.id, configId);
     setSessions((current) =>
       current.map((item) => (item.id === updated.id ? updated : item)),
     );
-    setToast({ message: t('app.accountSwitched'), error: false });
+    setToast({ message: t('app.configSwitched'), error: false });
   }
 
-  async function performAllowedChange(accountIds: string[]) {
+  async function performAllowedChange(configIds: string[]) {
     if (!switchTarget) {
       return;
     }
 
-    const updated = await updateSessionAllowedAccounts(
+    const updated = await updateSessionAllowedConfigs(
       switchTarget.id,
-      accountIds,
+      configIds,
     );
     setSessions((current) =>
       current.map((item) => (item.id === updated.id ? updated : item)),
@@ -1024,7 +1048,7 @@ export default function App() {
           <Sidebar
             projects={projects}
             sessions={sessions}
-            accounts={accounts}
+            providers={providers}
             activeProjectId={activeProjectId}
             activeSessionId={activeSessionId}
             onSelectProject={openProject}
@@ -1072,7 +1096,7 @@ export default function App() {
               >
                 <SessionHeader
                   session={activeSession}
-                  accounts={accounts}
+                  providers={providers}
                   actionsOpen={
                     sessionMenu?.fromHeader === true &&
                     sessionMenu.sessionId === activeSession.id
@@ -1156,7 +1180,8 @@ export default function App() {
       {dialogOpen ? (
         <NewSessionDialog
           projects={projects}
-          accounts={accounts}
+          providers={providers}
+          configs={configs}
           initialProjectId={dialogProjectId ?? activeProjectId}
           onCreate={createSession}
           onCreated={handleCreated}
@@ -1175,7 +1200,8 @@ export default function App() {
       {projectSettingsTarget ? (
         <ProjectSettingsDialog
           project={projectSettingsTarget}
-          accounts={accounts}
+          configs={configs}
+          providers={providers}
           onSave={saveProjectDefaults}
           onClose={() => setProjectSettingsId(null)}
         />
@@ -1206,8 +1232,9 @@ export default function App() {
       ) : null}
 
       {switchTarget ? (
-        <SwitchAccountDialog
+        <SwitchConfigDialog
           session={switchTarget}
+          providers={providers}
           onSwitch={performSwitch}
           onAllowedChange={performAllowedChange}
           onClose={() => setSwitchSessionId(null)}
@@ -1216,12 +1243,22 @@ export default function App() {
 
       {settingsOpen ? (
         <SettingsDialog
-          accounts={accounts}
+          providers={providers}
+          configs={configs}
+          options={providerOptions}
           version={version}
-          onCreateAccount={createAccount}
-          onAccountCreated={handleAccountCreated}
-          onUpdateAccount={handleAccountUpdated}
-          onRemoveAccount={handleAccountRemoved}
+          onCreateProvider={createProvider}
+          onUpdateProvider={(id: string, input: UpdateProviderInput) =>
+            updateProvider(id, input)
+          }
+          onRemoveProvider={handleProviderRemoved}
+          onCreateConfig={createConfig}
+          onUpdateConfig={(id: string, input: UpdateConfigInput) =>
+            updateConfig(id, input)
+          }
+          onDeleteConfig={handleConfigDeleted}
+          onProviderSaved={handleProviderSaved}
+          onConfigSaved={handleConfigSaved}
           onClose={() => setSettingsOpen(false)}
         />
       ) : null}
