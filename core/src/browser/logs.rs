@@ -66,7 +66,7 @@ impl BrowserLogs {
     /// Adds a console message. The oldest message leaves when the buffer is
     /// full.
     pub fn push_console(&mut self, level: &str, text: &str) {
-        let text = cap(clean(text), MAX_LOG_TEXT_CHARS);
+        let text = cap(redact_text_urls(text), MAX_LOG_TEXT_CHARS);
         self.console.push_back(ConsoleEntry {
             level: clean(level).to_lowercase(),
             text,
@@ -187,6 +187,21 @@ pub fn redact_url(value: &str) -> String {
     cap(output, MAX_NETWORK_URL_CHARS)
 }
 
+/// Redacts every address inside a free-text console message.
+fn redact_text_urls(value: &str) -> String {
+    clean(value)
+        .split_whitespace()
+        .map(|token| {
+            if token.contains("://") {
+                redact_url(token)
+            } else {
+                token.to_owned()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 fn redact_userinfo(value: &str) -> String {
     let Some((scheme, rest)) = value.split_once("://") else {
         return value.to_owned();
@@ -253,6 +268,20 @@ mod tests {
             "https://example.com/callback?key=[redacted]&value=ok"
         );
         assert_eq!(redact_url("data:text/plain,hello"), "data:text/plain,hello");
+    }
+
+    #[test]
+    fn hides_login_details_inside_console_text() {
+        let mut logs = BrowserLogs::default();
+        logs.push_console(
+            "error",
+            "failed https://user:pass@example.com/path?token=abc&page=2 for the user",
+        );
+
+        let text = logs.console_text(10);
+        assert!(!text.contains("user:pass"), "{text}");
+        assert!(!text.contains("token=abc"), "{text}");
+        assert!(text.contains("https://[redacted]@example.com/path?token=[redacted]&page=2"));
     }
 
     #[test]
