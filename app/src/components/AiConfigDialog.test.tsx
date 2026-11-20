@@ -1,8 +1,11 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type {
+  AgentCheck,
   AiConfig,
+  Client,
+  ClientInstall,
   CreateConfigInput,
   Provider,
   ProviderOption,
@@ -52,17 +55,49 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+const agents: AgentCheck[] = [
+  { name: 'Claude Code', installed: false, version: null, path: null },
+  {
+    name: 'Codex',
+    installed: true,
+    version: '0.9.0 (codex)',
+    path: '/usr/local/bin/codex',
+  },
+  {
+    name: 'OpenCode 2',
+    installed: true,
+    version: '1.0.0',
+    path: '/usr/local/bin/opencode',
+  },
+];
+
+interface InstallCallbacks {
+  onInstallClient: (client: Client) => Promise<ClientInstall>;
+  onGetClientInstall: (id: string) => Promise<ClientInstall>;
+  onClientInstalled: (agent: AgentCheck) => void;
+}
+
 function renderDialog(
   onSaveConfig: (
     id: string | null,
     input: CreateConfigInput | UpdateConfigInput,
   ) => Promise<AiConfig>,
+  installCallbacks: InstallCallbacks = {
+    onInstallClient: vi.fn(),
+    onGetClientInstall: vi.fn(),
+    onClientInstalled: vi.fn(),
+  },
 ) {
   render(
     <LanguageProvider>
       <AiConfigDialog
         providers={[provider]}
         options={[option]}
+        agents={agents}
+        agentsChecked
+        onInstallClient={installCallbacks.onInstallClient}
+        onGetClientInstall={installCallbacks.onGetClientInstall}
+        onClientInstalled={installCallbacks.onClientInstalled}
         onSaveConfig={onSaveConfig}
         onCreateProvider={vi.fn()}
         onStartProviderSignIn={vi.fn()}
@@ -76,6 +111,21 @@ function renderDialog(
     </LanguageProvider>,
   );
   return onSaveConfig;
+}
+
+function installJob(overrides: Partial<ClientInstall> = {}): ClientInstall {
+  return {
+    id: 'install-1',
+    client: 'Claude Code',
+    state: 'running',
+    stage: 'installing',
+    step: 3,
+    total: 5,
+    version: null,
+    path: null,
+    error: null,
+    ...overrides,
+  };
 }
 
 describe('AiConfigDialog', () => {
@@ -179,5 +229,105 @@ describe('AiConfigDialog', () => {
       model: 'my-custom-model',
       client: 'Codex',
     });
+  });
+
+  it('shows one install action for each missing client', () => {
+    renderDialog(vi.fn());
+
+    expect(screen.getByText('Not installed')).toBeInTheDocument();
+    expect(screen.getByText('Installed · 0.9.0')).toBeInTheDocument();
+    expect(screen.getByText('Installed · 1.0.0')).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Install Claude Code' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Install Codex' }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Install OpenCode 2' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('installs a missing client after confirmation and shows progress', async () => {
+    const onInstallClient = vi.fn(async () => installJob());
+    const onGetClientInstall = vi
+      .fn<(id: string) => Promise<ClientInstall>>()
+      .mockResolvedValueOnce(installJob({ stage: 'verifying', step: 4 }))
+      .mockResolvedValue(
+        installJob({
+          state: 'done',
+          stage: 'finishing',
+          step: 5,
+          version: '3.0.0',
+          path: '/data/clients/claude-code/bin/claude',
+        }),
+      );
+    const onClientInstalled = vi.fn();
+    renderDialog(vi.fn(), {
+      onInstallClient,
+      onGetClientInstall,
+      onClientInstalled,
+    });
+    const user = userEvent.setup();
+
+    await user.click(
+      screen.getByRole('button', { name: 'Install Claude Code' }),
+    );
+    const dialog = screen.getByRole('dialog', { name: 'Install Claude Code' });
+    expect(
+      within(dialog).getByText(/download Claude Code from its vendor/),
+    ).toBeInTheDocument();
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Install Claude Code' }),
+    );
+
+    expect(onInstallClient).toHaveBeenCalledWith('Claude Code');
+    await waitFor(() => expect(onGetClientInstall).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(
+        screen.getByText('Installed · 3.0.0'),
+      ).toBeInTheDocument(),
+    );
+    expect(onClientInstalled).toHaveBeenCalledWith({
+      name: 'Claude Code',
+      installed: true,
+      version: '3.0.0',
+      path: '/data/clients/claude-code/bin/claude',
+    });
+    expect(
+      screen.queryByRole('button', { name: 'Install Claude Code' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('reports a failed install and keeps the install action', async () => {
+    const onInstallClient = vi.fn(async () =>
+      installJob({
+        state: 'failed',
+        error: 'The download failed.',
+      }),
+    );
+    const onGetClientInstall = vi.fn();
+    renderDialog(vi.fn(), {
+      onInstallClient,
+      onGetClientInstall,
+      onClientInstalled: vi.fn(),
+    });
+    const user = userEvent.setup();
+
+    await user.click(
+      screen.getByRole('button', { name: 'Install Claude Code' }),
+    );
+    const dialog = screen.getByRole('dialog', { name: 'Install Claude Code' });
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Install Claude Code' }),
+    );
+
+    expect(
+      await screen.findByText('Could not install Claude Code. The download failed.'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Install Claude Code' }),
+    ).toBeInTheDocument();
+    expect(onGetClientInstall).not.toHaveBeenCalled();
   });
 });

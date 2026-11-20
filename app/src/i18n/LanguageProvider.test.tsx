@@ -141,6 +141,11 @@ describe('LanguageProvider', () => {
           configs={[]}
           options={[]}
           version="0.1.0"
+          agents={[]}
+          agentsChecked
+          onInstallClient={vi.fn()}
+          onGetClientInstall={vi.fn()}
+          onClientInstalled={vi.fn()}
           settings={{ startAtLogin: false, keepAwake: false }}
           startAtLoginActual={null}
           startAtLoginError={null}

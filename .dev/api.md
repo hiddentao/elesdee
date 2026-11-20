@@ -43,6 +43,14 @@ The service binds `127.0.0.1` only. It accepts requests only for loopback hostna
 - Deleting requires a closed session and removes the session and its log. An agent branch is kept. If a failed close left a worktree, delete attempts to remove it.
 - The client version check is cached for 10 seconds.
 
+## Client discovery and install
+
+- `GET /api/health` returns one `AgentCheck` for each of the four clients. `path` is the executable that the check runs. The client search checks `PATH`, the user install folders, the Antigravity folders, Homebrew, the app bundle and the app's own copy in its data folder, and it never runs a login shell. A relative `PATH` entry is ignored.
+- `POST /api/clients/{client}/install` accepts the slugs `claude-code`, `codex`, `opencode-2` and `antigravity`, starts an install in the background, and returns `202` with a `ClientInstall`. An unknown slug returns 404. A second install for the same client while one runs returns 409. A service with no data directory returns 422.
+- The core uses the vendor's install script and keeps the copy in a private folder under `<data dir>/clients/<client>`. It runs the installed copy's `--version` before it accepts the copy. A successful install replaces an older app copy. A failure removes the staged copy, keeps the older copy and sets `error`.
+- `GET /api/clients/install/{id}` returns the current view. `state` is `running`, `done` or `failed`; `stage` and `step` follow the install. `path` and `version` are set when the install is done. An unknown id returns 404.
+- The install runs only when a caller sends the request. The health check never installs a client.
+
 ## List endpoints
 
 - `GET /api/projects?q=`, `GET /api/providers?q=` and `GET /api/configs?q=` return a plain array for the pickers.
@@ -517,6 +525,24 @@ interface AgentCheck {
   name: Client;
   installed: boolean;
   version: string | null;
+  path: string | null;    // the executable the check runs
+}
+
+interface ClientInstall {
+  id: string;
+  client: Client;
+  state: "running" | "done" | "failed";
+  stage:
+    | "preparing"
+    | "downloading"
+    | "installing"
+    | "verifying"
+    | "finishing";
+  step: number;           // 1–5
+  total: number;          // 5
+  version: string | null;
+  path: string | null;
+  error: string | null;
 }
 
 interface OutputGap {
@@ -537,6 +563,8 @@ interface OutputEvent {
 | Method | Path | Body | Result |
 | --- | --- | --- | --- |
 | GET | `/api/health` | | `{ ok, version, agents: AgentCheck[] }` |
+| POST | `/api/clients/{client}/install` | `{}` | `202` `ClientInstall` |
+| GET | `/api/clients/install/{id}` | | `ClientInstall` |
 | GET | `/api/bootstrap` | | `{ projects, providers, configs, sessions, questions, sessionRequests, settings }` |
 | GET | `/api/projects?q={text}` | | `Project[]` |
 | POST | `/api/projects` | `{ name, folder }` | `Project` |

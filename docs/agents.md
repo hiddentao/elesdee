@@ -15,11 +15,21 @@ elesdee runs four coding agents:
 | OpenCode 2 | OpenRouter, and custom providers |
 | Antigravity | Google Gemini |
 
-The app uses the copy of each agent that is already installed on your computer. It does not bundle the agents.
+The app uses a copy of each agent that is already installed on your computer. It finds copies on `PATH`, in Homebrew, in npm global folders, in `~/.local/bin` and in its own data folder. It does not bundle the agents.
 
 ## Agent check
 
-The welcome screen and the app check for all four agents and show their versions. If an agent is missing, install it and open the app again. A session with a missing agent does not start.
+The welcome screen and the AI config form check for all four agents and show their versions. A session with a missing agent does not start.
+
+**Install a missing agent**
+
+The client list in the AI config form shows which clients are installed and which are missing. Choose **Install** next to a missing client.
+
+1. The confirmation says that the app downloads the client from its vendor and needs an internet connection.
+2. Choose **Install** to continue. The row shows each stage and its progress.
+3. The app checks the new copy's version. When the check passes, the row shows the version.
+
+The copy goes in a private folder in the app's data folder. A failed install keeps any older copy and leaves nothing partial behind. The error stays on the row, and you can try again. The app uses its own copy only when it finds no copy in the earlier places.
 
 ## Providers
 

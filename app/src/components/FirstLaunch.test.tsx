@@ -5,9 +5,14 @@ import type { AgentCheck } from '../api/types';
 import { FirstLaunch } from './FirstLaunch';
 
 const agents: AgentCheck[] = [
-  { name: 'Claude Code', installed: true, version: '2.1.328 (Claude Code)' },
-  { name: 'Codex', installed: false, version: null },
-  { name: 'OpenCode 2', installed: false, version: null },
+  {
+    name: 'Claude Code',
+    installed: true,
+    version: '2.1.328 (Claude Code)',
+    path: '/usr/local/bin/claude',
+  },
+  { name: 'Codex', installed: false, version: null, path: null },
+  { name: 'OpenCode 2', installed: false, version: null, path: null },
 ];
 
 describe('FirstLaunch', () => {

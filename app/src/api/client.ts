@@ -8,6 +8,7 @@ import type {
   Branch,
   BrowserState,
   Client,
+  ClientInstall,
   CreateConfigInput,
   CreateProjectInput,
   CreateProviderInput,
@@ -85,6 +86,26 @@ export function bootstrap(): Promise<BootstrapResponse> {
 
 export function health(): Promise<HealthResponse> {
   return request<HealthResponse>('/api/health');
+}
+
+const CLIENT_SLUGS: Record<Client, string> = {
+  'Claude Code': 'claude-code',
+  Codex: 'codex',
+  'OpenCode 2': 'opencode-2',
+  Antigravity: 'antigravity',
+};
+
+export function installClient(client: Client): Promise<ClientInstall> {
+  return request<ClientInstall>(
+    `/api/clients/${CLIENT_SLUGS[client]}/install`,
+    post({}),
+  );
+}
+
+export function getClientInstall(id: string): Promise<ClientInstall> {
+  return request<ClientInstall>(
+    `/api/clients/install/${encodeURIComponent(id)}`,
+  );
 }
 
 export function listProviderOptions(): Promise<ProviderOption[]> {

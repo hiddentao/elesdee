@@ -73,8 +73,8 @@ feature is absent. P2 means completion, operations or polish.
 | P2 | Settings has no Devices page: paired phones and Remove are absent | Settings; After pairing | `app/src/components/SettingsDialog.tsx`, core device store and routes, phone shell | M — 3–5 days |
 | P2 | No local log file and no Export diagnostics action | Privacy; Settings | `core/src/main.rs`, new diagnostics module, `api.rs`, `SettingsDialog.tsx`, `src-tauri` | M — 3–5 days |
 | P2 | No desktop updater: no check, download, signature check or install flow | Update checks; Update while sessions run | `src-tauri/Cargo.toml`, `tauri.conf.json`, `src-tauri/src/main.rs`, update UI, release workflow | L — 2–3 weeks |
-| P2 | A missing agent is not installed; the app only reports it | Agent support | `core/src/clients.rs`, new installer, setup UI | L — 2–4 weeks |
-| P2 | Claude, Codex and OpenCode are found only on PATH; a packaged app may miss Homebrew, npm or `~/.local/bin` installs | Agent support | `core/src/clients.rs`, `src-tauri/src/main.rs` | S — 2–3 days |
+| — | Built: a missing agent is installed from the AI config form after confirmation, with progress and a version check | Agent support | `core/src/clients.rs`, `core/src/api.rs`, `app/src/components/AiConfigDialog.tsx` | Done |
+| — | Built: clients are found on PATH, in user npm/Node folders, in Homebrew on both architectures, in the app bundle and in the app's own data folder | Agent support | `core/src/clients.rs`, `core/src/state.rs` | Done |
 | P2 | A session cannot be dragged from one project to another | Projects | `app/src/components/Sidebar.tsx`, `app/src/App.tsx`, `core/src/api.rs`, `app/src/state/tabs.ts` | M — 3–5 days |
 | P2 | Antigravity gets no MCP server and no skills; the spec's introduction says every agent session gets them | Built-in tools and skills | `core/src/api.rs`, `mcp.rs`, `antigravity.rs` | S — 2–4 days after checking `agy` MCP support |
 | P2 | GitHub is not connected; there is no repository search or recent-repository picker | Sources; Git access | new `core/src/github.rs`, `api.rs`, `secrets.rs`, `app/src/components/NewSessionDialog.tsx` | L — 2–3 weeks |
@@ -250,14 +250,19 @@ waits for input, a permission answer or a new-session approval, an agent that re
 Notify me tool raise a desktop notification. A notification click opens that session. See
 "What triggers a notification" in the spec.
 
-**22. Missing agent install.** Spec: Agent support. The app detects agents and versions, but does
-not install a copy when one is missing. Files: `core/src/clients.rs`, new installer, setup UI.
-Size: L.
+**22. Missing agent install. Built.** Spec: Agent support. The AI config form lists the clients
+from the health check and shows one Install action for each missing client. After a confirmation,
+the core runs the vendor's install script into a private staging folder under the data directory,
+checks the installed copy's version, rewrites absolute links and replaces any older app copy. A
+failed install removes the staging copy, keeps the older copy and returns the error. The install
+route reports its stage and progress. Files: `core/src/clients.rs`, `core/src/api.rs`,
+`app/src/components/AiConfigDialog.tsx`, `app/src/api/client.ts`.
 
-**23. Packaged agent discovery.** Spec: Agent support. `find_client` checks PATH and, for
-Antigravity only, common install paths (`core/src/clients.rs`). A Finder-launched app can
-miss Claude, Codex or OpenCode installed under Homebrew, npm or `~/.local/bin`. Files:
-`core/src/clients.rs`, `src-tauri/src/main.rs`. Size: S.
+**23. Packaged agent discovery. Built.** Spec: Agent support. `find_client` checks each `PATH`
+folder, the user npm, Node and `~/.local/bin` folders, the Antigravity folders, Homebrew on Apple
+Silicon and Intel, the app bundle and the app's own data copy. Relative `PATH` folders are ignored
+and no login shell runs. The health check returns the path and version. Files:
+`core/src/clients.rs`, `core/src/state.rs`.
 
 **24. Session drag between projects.** Spec: Projects. There are no drag handlers or drop targets
 in the sidebar or session list. Moving a session needs a route that changes its project and a tab

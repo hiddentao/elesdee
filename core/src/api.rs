@@ -517,6 +517,8 @@ pub fn router(state: AppState) -> Router {
 
     let regular = Router::new()
         .route("/api/health", get(health))
+        .route("/api/clients/{client}/install", post(start_client_install))
+        .route("/api/clients/install/{id}", get(client_install))
         .route("/api/bootstrap", get(bootstrap))
         .route("/api/projects", get(list_projects).post(create_project))
         .route("/api/projects/{id}", patch(update_project))
@@ -789,6 +791,39 @@ async fn health(State(state): State<AppState>) -> Json<HealthResponse> {
         version: env!("CARGO_PKG_VERSION").to_owned(),
         agents,
     })
+}
+
+#[derive(Deserialize)]
+struct InstallRequest {}
+
+async fn start_client_install(
+    State(state): State<AppState>,
+    UrlPath(client): UrlPath<String>,
+    Json(_request): Json<InstallRequest>,
+) -> Result<(StatusCode, Json<clients::ClientInstall>), ApiError> {
+    let client =
+        Client::from_slug(&client).ok_or_else(|| ApiError::not_found("Unknown client."))?;
+    let data_dir = state
+        .data_dir()
+        .ok_or_else(|| ApiError::unprocessable("Client installation needs a data directory."))?
+        .to_path_buf();
+    match clients::start_install(client, data_dir) {
+        Ok(install) => Ok((StatusCode::ACCEPTED, Json(install))),
+        Err(clients::InstallStartError::Busy) => Err(ApiError::conflict(
+            "An install is already running for this client.",
+        )),
+        Err(clients::InstallStartError::NoDataDirectory) => Err(ApiError::unprocessable(
+            "Client installation needs a data directory.",
+        )),
+    }
+}
+
+async fn client_install(
+    UrlPath(id): UrlPath<String>,
+) -> Result<Json<clients::ClientInstall>, ApiError> {
+    clients::install_status(&id)
+        .map(Json)
+        .ok_or_else(|| ApiError::not_found("Unknown install."))
 }
 
 async fn bootstrap(State(state): State<AppState>) -> Json<Bootstrap> {

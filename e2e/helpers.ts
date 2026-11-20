@@ -52,7 +52,12 @@ interface Bootstrap {
 }
 
 interface Health {
-  agents: { name: string; installed: boolean; version: string | null }[];
+  agents: {
+    name: string;
+    installed: boolean;
+    version: string | null;
+    path: string | null;
+  }[];
 }
 
 export function uniqueName(prefix: string): string {

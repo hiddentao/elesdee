@@ -97,12 +97,16 @@ pub(crate) struct StateStore {
     state_path: PathBuf,
 }
 
+pub(crate) fn data_directory_from_environment() -> Option<PathBuf> {
+    env::var_os("ELESDEE_DATA_DIR")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| seed::home_dir().map(|home| home.join(".elesdee")))
+}
+
 impl StateStore {
     pub fn from_environment() -> Option<Self> {
-        let directory = env::var_os("ELESDEE_DATA_DIR")
-            .filter(|value| !value.is_empty())
-            .map(PathBuf::from)
-            .or_else(|| seed::home_dir().map(|home| home.join(".elesdee")))?;
+        let directory = data_directory_from_environment()?;
 
         match Self::new(directory) {
             Ok(store) => Some(store),

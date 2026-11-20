@@ -64,7 +64,7 @@ pub enum SessionKind {
     Terminal,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum Client {
     #[serde(rename = "Claude Code")]
     ClaudeCode,
@@ -646,6 +646,7 @@ pub struct AgentCheck {
     pub name: Client,
     pub installed: bool,
     pub version: Option<String>,
+    pub path: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -733,6 +734,7 @@ struct InitialRecords {
 struct CachedHealth {
     checked_at: Instant,
     agents: Vec<AgentCheck>,
+    generation: u64,
 }
 
 #[derive(Clone, Default)]
@@ -2227,16 +2229,19 @@ impl AppState {
         let mut cache = self.inner.health.lock().await;
         if let Some(cached) = cache.as_ref()
             && cached.checked_at.elapsed() < HEALTH_CACHE_TTL
+            && cached.generation == clients::discovery_generation()
         {
             return cached.agents.clone();
         }
 
-        let agents = tokio::task::spawn_blocking(clients::check_all)
+        let data_dir = self.data_dir().map(Path::to_path_buf);
+        let agents = tokio::task::spawn_blocking(move || clients::check_all(data_dir.as_deref()))
             .await
             .unwrap_or_else(|_| clients::missing_checks());
         *cache = Some(CachedHealth {
             checked_at: Instant::now(),
             agents: agents.clone(),
+            generation: clients::discovery_generation(),
         });
         agents
     }
