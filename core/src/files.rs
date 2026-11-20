@@ -2,13 +2,19 @@ use std::fs;
 use std::io::{self, Read, Write};
 use std::path::{Component, Path, PathBuf};
 
+use elesdee_link::{MAX_IMAGE_BYTES, MAX_UPLOAD_BYTES};
 use serde::Serialize;
+
+use crate::private_fs;
 
 /// The largest text file the API reads or writes, in bytes.
 pub const MAX_FILE_BYTES: u64 = 1024 * 1024;
+/// The longest upload file name kept, in characters.
+pub const MAX_UPLOAD_NAME_CHARS: usize = 120;
 /// The most entries one folder listing returns.
 pub const MAX_TREE_ENTRIES: usize = 2000;
 const SNIFF_BYTES: usize = 8192;
+const MAX_UPLOAD_NAME_ATTEMPTS: u32 = 1000;
 
 #[derive(Debug)]
 pub enum FileError {
@@ -19,6 +25,7 @@ pub enum FileError {
     NotADirectory,
     TooLarge(u64),
     Binary,
+    NotAnImage,
     Protected,
     Linked,
     Io(io::Error),
@@ -57,6 +64,22 @@ pub struct FileList {
 pub struct FileContent {
     pub path: String,
     pub content: String,
+    pub size: u64,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImageContent {
+    pub path: String,
+    pub content_type: String,
+    pub size: u64,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UploadedFile {
+    pub name: String,
+    pub path: String,
     pub size: u64,
 }
 
@@ -223,6 +246,181 @@ pub fn write(root: &Path, relative: &str, content: &str) -> Result<FileContent, 
         size: bytes.len() as u64,
         content: content.to_owned(),
     })
+}
+
+/// Reads an image below the session root.
+///
+/// The content type comes from the file signature, never from the name, so a
+/// text file with an image extension is refused instead of shown broken.
+pub fn read_image(root: &Path, relative: &str) -> Result<(ImageContent, Vec<u8>), FileError> {
+    let target = root.join(valid_relative(relative)?);
+    let resolved = fs::canonicalize(&target)?;
+    if !resolved.starts_with(root) {
+        return Err(FileError::OutsideRoot);
+    }
+
+    let file = open_readonly(&resolved)?;
+    let metadata = file.metadata()?;
+    if !metadata.is_file() {
+        return Err(FileError::NotAFile);
+    }
+    if metadata.len() > MAX_IMAGE_BYTES {
+        return Err(FileError::TooLarge(metadata.len()));
+    }
+    reject_hard_link(&metadata)?;
+
+    let mut bytes = Vec::new();
+    file.take(MAX_IMAGE_BYTES + 1).read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > MAX_IMAGE_BYTES {
+        return Err(FileError::TooLarge(bytes.len() as u64));
+    }
+    let content_type = image_content_type(&bytes).ok_or(FileError::NotAnImage)?;
+    let size = bytes.len() as u64;
+    Ok((
+        ImageContent {
+            path: relative.to_owned(),
+            content_type: content_type.to_owned(),
+            size,
+        },
+        bytes,
+    ))
+}
+
+/// Returns the content type of a supported image, from its signature.
+pub fn image_content_type(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.starts_with(&[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a]) {
+        Some("image/png")
+    } else if bytes.starts_with(&[0xff, 0xd8, 0xff]) {
+        Some("image/jpeg")
+    } else if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        Some("image/gif")
+    } else if bytes.len() >= 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        Some("image/webp")
+    } else if bytes.len() >= 12
+        && &bytes[4..8] == b"ftyp"
+        && matches!(&bytes[8..12], b"avif" | b"avis")
+    {
+        Some("image/avif")
+    } else if bytes.starts_with(b"BM") && bytes.len() > 14 {
+        Some("image/bmp")
+    } else {
+        None
+    }
+}
+
+/// Stores one uploaded file in the session's upload folder.
+///
+/// The name is cleaned to one path component and never replaces an existing
+/// file. The folder and the file use private permissions.
+pub fn store_upload(
+    data_dir: &Path,
+    session_id: &str,
+    name: &str,
+    bytes: &[u8],
+) -> Result<UploadedFile, FileError> {
+    if bytes.len() as u64 > MAX_UPLOAD_BYTES as u64 {
+        return Err(FileError::TooLarge(bytes.len() as u64));
+    }
+    let target_dir = upload_dir(data_dir, session_id)?;
+    private_fs::create_private_dir_all(&target_dir)?;
+    let clean = clean_upload_name(name);
+
+    for index in 0..MAX_UPLOAD_NAME_ATTEMPTS {
+        let candidate = numbered_upload_name(&clean, index);
+        let path = target_dir.join(&candidate);
+        match private_fs::write_private_file_create_new(&path, bytes) {
+            Ok(()) => {
+                return Ok(UploadedFile {
+                    name: candidate,
+                    path: path.to_string_lossy().into_owned(),
+                    size: bytes.len() as u64,
+                });
+            }
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error.into()),
+        }
+    }
+
+    let candidate = format!("{}-{}", uuid::Uuid::new_v4(), clean);
+    let path = target_dir.join(&candidate);
+    private_fs::write_private_file_create_new(&path, bytes)?;
+    Ok(UploadedFile {
+        name: candidate,
+        path: path.to_string_lossy().into_owned(),
+        size: bytes.len() as u64,
+    })
+}
+
+/// Reduces a supplied upload name to one safe path component.
+pub fn clean_upload_name(name: &str) -> String {
+    let base = name.rsplit(['/', '\\']).next().unwrap_or_default();
+    let filtered = base
+        .chars()
+        .filter(|character| !character.is_control() && !is_invisible(*character))
+        .collect::<String>();
+    let trimmed = filtered.trim();
+    if trimmed.is_empty() || trimmed == "." || trimmed == ".." {
+        return "file".to_owned();
+    }
+    truncate_name(trimmed)
+}
+
+fn truncate_name(name: &str) -> String {
+    if name.chars().count() <= MAX_UPLOAD_NAME_CHARS {
+        return name.to_owned();
+    }
+    let extension = Path::new(name)
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .filter(|extension| !extension.is_empty());
+    let suffix = extension.map(|extension| format!(".{extension}"));
+    let suffix_len = suffix.as_ref().map_or(0, |suffix| suffix.chars().count());
+    if suffix_len + 1 < MAX_UPLOAD_NAME_CHARS {
+        let stem = name
+            .chars()
+            .take(MAX_UPLOAD_NAME_CHARS - suffix_len)
+            .collect::<String>();
+        return format!("{stem}{}", suffix.unwrap_or_default());
+    }
+    name.chars().take(MAX_UPLOAD_NAME_CHARS).collect()
+}
+
+fn numbered_upload_name(name: &str, index: u32) -> String {
+    if index == 0 {
+        return name.to_owned();
+    }
+    let path = Path::new(name);
+    let stem = path
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or(name);
+    match path.extension().and_then(|extension| extension.to_str()) {
+        Some(extension) if !extension.is_empty() => format!("{stem}-{index}.{extension}"),
+        _ => format!("{stem}-{index}"),
+    }
+}
+
+fn upload_dir(data_dir: &Path, session_id: &str) -> Result<PathBuf, FileError> {
+    if session_id.is_empty()
+        || session_id.len() > 128
+        || !session_id
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))
+    {
+        return Err(FileError::InvalidPath);
+    }
+    Ok(data_dir.join("uploads").join(session_id))
+}
+
+fn is_invisible(character: char) -> bool {
+    matches!(
+        character,
+        '\u{00ad}'
+            | '\u{200b}'..='\u{200f}'
+            | '\u{202a}'..='\u{202e}'
+            | '\u{2060}'..='\u{2069}'
+            | '\u{feff}'
+    )
 }
 
 pub(crate) fn valid_relative(relative: &str) -> Result<PathBuf, FileError> {
@@ -484,5 +682,151 @@ mod tests {
         assert!(nested.entries.is_empty());
         assert_eq!(nested.path, "src");
         let _ = fs::remove_dir_all(root);
+    }
+
+    const PNG_SIGNATURE: [u8; 8] = [0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a];
+
+    #[test]
+    fn cleans_an_upload_name_to_one_component() {
+        assert_eq!(clean_upload_name("../../etc/passwd"), "passwd");
+        assert_eq!(clean_upload_name("C:\\Users\\me\\shot.png"), "shot.png");
+        assert_eq!(
+            clean_upload_name("a\u{0}b\u{202e}c\u{200b}d.png"),
+            "abcd.png"
+        );
+        assert_eq!(clean_upload_name("  note.txt  "), "note.txt");
+        assert_eq!(clean_upload_name("."), "file");
+        assert_eq!(clean_upload_name(".."), "file");
+        assert_eq!(clean_upload_name(""), "file");
+        assert_eq!(clean_upload_name("/"), "file");
+        let long = format!("{}.png", "a".repeat(300));
+        let cleaned = clean_upload_name(&long);
+        assert_eq!(cleaned.chars().count(), MAX_UPLOAD_NAME_CHARS);
+        assert!(cleaned.ends_with(".png"));
+    }
+
+    #[test]
+    fn an_upload_never_overwrites_and_uses_private_modes() {
+        let data = temp("upload");
+        let first =
+            store_upload(&data, "session-1", "shot.png", &PNG_SIGNATURE).expect("first upload");
+        let second =
+            store_upload(&data, "session-1", "shot.png", &PNG_SIGNATURE).expect("second upload");
+
+        assert_eq!(first.name, "shot.png");
+        assert_eq!(second.name, "shot-1.png");
+        assert_ne!(first.path, second.path);
+        assert_eq!(fs::read(&first.path).unwrap(), PNG_SIGNATURE);
+        assert!(Path::new(&first.path).starts_with(data.join("uploads").join("session-1")));
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let file_mode = fs::metadata(&first.path).unwrap().permissions().mode() & 0o777;
+            assert_eq!(file_mode, 0o600);
+            let directory_mode = fs::metadata(data.join("uploads").join("session-1"))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777;
+            assert_eq!(directory_mode, 0o700);
+        }
+        let _ = fs::remove_dir_all(data);
+    }
+
+    #[test]
+    fn an_upload_over_the_cap_is_refused() {
+        let data = temp("upload-large");
+        let bytes = vec![0u8; MAX_UPLOAD_BYTES + 1];
+        assert!(matches!(
+            store_upload(&data, "session-1", "big.bin", &bytes),
+            Err(FileError::TooLarge(size)) if size == (MAX_UPLOAD_BYTES + 1) as u64
+        ));
+        let _ = fs::remove_dir_all(data);
+    }
+
+    #[test]
+    fn an_unsafe_session_id_is_refused() {
+        let data = temp("upload-session");
+        for id in ["", "../escape", "a/b", "session 1"] {
+            assert!(
+                matches!(
+                    store_upload(&data, id, "note.txt", b"hello"),
+                    Err(FileError::InvalidPath)
+                ),
+                "{id} must be refused"
+            );
+        }
+        let _ = fs::remove_dir_all(data);
+    }
+
+    #[test]
+    fn reads_an_image_with_its_signature_type() {
+        let root = temp("image");
+        let mut png = PNG_SIGNATURE.to_vec();
+        png.extend_from_slice(b"rest of the image");
+        fs::write(root.join("shot.png"), &png).unwrap();
+
+        let (image, bytes) = read_image(&root, "shot.png").expect("read image");
+        assert_eq!(image.content_type, "image/png");
+        assert_eq!(image.size, png.len() as u64);
+        assert_eq!(bytes, png);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_file_that_is_not_an_image_is_refused() {
+        let root = temp("image-text");
+        fs::write(root.join("shot.png"), "not an image\n").unwrap();
+        assert!(matches!(
+            read_image(&root, "shot.png"),
+            Err(FileError::NotAnImage)
+        ));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn an_image_over_the_cap_is_refused() {
+        let root = temp("image-large");
+        let mut large = PNG_SIGNATURE.to_vec();
+        large.resize(MAX_IMAGE_BYTES as usize + 1, 0);
+        fs::write(root.join("large.png"), &large).unwrap();
+        assert!(matches!(
+            read_image(&root, "large.png"),
+            Err(FileError::TooLarge(_))
+        ));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn an_image_path_must_stay_in_the_root() {
+        let root = temp("image-traversal");
+        assert!(matches!(
+            read_image(&root, "../shot.png"),
+            Err(FileError::InvalidPath)
+        ));
+        assert!(matches!(
+            read_image(&root, ".git/config"),
+            Err(FileError::Protected)
+        ));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_image_symlink_that_escapes_the_root_is_refused() {
+        let root = temp("image-symlink");
+        let outside = temp("image-symlink-outside");
+        let mut png = PNG_SIGNATURE.to_vec();
+        png.extend_from_slice(b"outside");
+        fs::write(outside.join("shot.png"), &png).unwrap();
+        std::os::unix::fs::symlink(outside.join("shot.png"), root.join("link.png")).unwrap();
+
+        assert!(matches!(
+            read_image(&root, "link.png"),
+            Err(FileError::OutsideRoot)
+        ));
+        let _ = fs::remove_dir_all(root);
+        let _ = fs::remove_dir_all(outside);
     }
 }

@@ -404,6 +404,12 @@ export interface FileContent {
   size: number;
 }
 
+export interface UploadedFile {
+  name: string;
+  path: string;
+  size: number;
+}
+
 export interface SharedFile {
   id: string;
   sessionId: string;

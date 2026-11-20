@@ -65,6 +65,14 @@ import {
   usageSummary,
 } from '../../../app/src/phone/sessionActions';
 import { combo } from './combo';
+import {
+  changeTotals,
+  changesEmpty,
+  diffLineKind,
+  isImageName,
+  parentFilePath,
+} from '../../../app/src/phone/files';
+import { diffRows, imageDataUrl, uploadNoticeFor } from './files';
 import type {
   AiConfig,
   BootstrapResponse,
@@ -73,6 +81,8 @@ import type {
   ComputerView,
   ConnectionState,
   DemoServer,
+  FileEntry,
+  FileList,
   ForwardAddress,
   PairConfirm,
   PhoneInfo,
@@ -80,6 +90,7 @@ import type {
   Provider,
   Question,
   Session,
+  SessionChanges,
   SessionRequest,
   WorkState,
 } from './types';
@@ -331,6 +342,21 @@ export class ShellApp {
     modifiers: [],
   };
   private switchFilter = '';
+  private filePanel: 'files' | 'changes' | null = null;
+  private filesPath = '';
+  private filesList: FileList | null = null;
+  private filesLoading = false;
+  private filesError: Notice | null = null;
+  private filePreview:
+    | { kind: 'image'; name: string; src: string }
+    | { kind: 'text'; name: string; content: string }
+    | null = null;
+  private changes: SessionChanges | null = null;
+  private changesLoading = false;
+  private changesError: Notice | null = null;
+  private openDiff: string | null = null;
+  private uploadBusy = false;
+  private uploadNotice: Notice | null = null;
 
   constructor(root: HTMLElement) {
     this.root = root;
@@ -929,7 +955,12 @@ export class ShellApp {
       main.append(card);
     }
 
+    main.append(this.renderSessionTools());
     main.append(this.renderContextStrip(screen));
+    const filePanel = this.renderSessionFilePanel(screen);
+    if (filePanel) {
+      main.append(filePanel);
+    }
     if (screen.view === 'messages' && screen.historyStructured) {
       main.append(this.renderMessages(screen));
     } else {
@@ -1239,6 +1270,518 @@ export class ShellApp {
       );
     }
     return actions;
+  }
+
+  private renderSessionTools(): HTMLElement {
+    const tools = el('div', {
+      class: 'session-tools',
+      attrs: { role: 'group', 'aria-label': this.t('session.tools') },
+    });
+    const add = (panel: 'files' | 'changes', label: MessageKey): void => {
+      const selected = this.filePanel === panel;
+      tools.append(
+        el('button', {
+          class: selected ? 'btn btn-secondary is-on' : 'btn btn-secondary',
+          text: this.t(label),
+          attrs: {
+            type: 'button',
+            'aria-pressed': selected ? 'true' : 'false',
+          },
+          on: {
+            click: () => {
+              this.filePanel = selected ? null : panel;
+              this.scheduleRender();
+              const screen = this.screen;
+              if (screen.name !== 'session') {
+                return;
+              }
+              if (
+                this.filePanel === 'files' &&
+                this.filesList === null &&
+                !this.filesLoading
+              ) {
+                void this.loadFiles(screen.computer, screen.session.id, '');
+              }
+              if (
+                this.filePanel === 'changes' &&
+                this.changes === null &&
+                !this.changesLoading
+              ) {
+                void this.loadChanges(screen.computer, screen.session.id);
+              }
+            },
+          },
+        }),
+      );
+    };
+    add('files', 'session.files');
+    add('changes', 'session.changes');
+    return tools;
+  }
+
+  private renderSessionFilePanel(
+    screen: Extract<Screen, { name: 'session' }>,
+  ): HTMLElement | null {
+    if (this.filePanel === 'files') {
+      return this.renderFilesPanel(screen);
+    }
+    if (this.filePanel === 'changes') {
+      return this.renderChangesPanel(screen);
+    }
+    return null;
+  }
+
+  private renderFilesPanel(
+    screen: Extract<Screen, { name: 'session' }>,
+  ): HTMLElement {
+    const panel = el('section', {
+      class: 'session-files',
+      attrs: { 'aria-label': this.t('session.files') },
+    });
+    const head = el('div', { class: 'panel-head' });
+    head.append(
+      el('h2', { class: 'phone-section-title', text: this.t('files.title') }),
+    );
+    const upload = el('button', {
+      class: 'btn btn-secondary',
+      text: this.uploadBusy
+        ? this.t('files.uploading')
+        : this.t('files.upload'),
+      attrs: { type: 'button' },
+      on: { click: () => void this.pickUpload(screen) },
+    });
+    if (this.uploadBusy || screen.session.status === 'closed') {
+      upload.disabled = true;
+    }
+    head.append(upload);
+    panel.append(head);
+    if (this.uploadNotice) {
+      panel.append(this.noticeEl(this.uploadNotice));
+    }
+
+    const pathRow = el('div', { class: 'file-path' });
+    pathRow.append(
+      el('span', { text: this.filesPath ? `/${this.filesPath}` : '/' }),
+    );
+    const actions = el('div', { class: 'file-actions' });
+    if (this.filesPath) {
+      actions.append(
+        el('button', {
+          class: 'btn btn-ghost',
+          text: this.t('files.folderUp'),
+          attrs: { type: 'button' },
+          on: {
+            click: () =>
+              void this.loadFiles(
+                screen.computer,
+                screen.session.id,
+                parentFilePath(this.filesPath),
+              ),
+          },
+        }),
+      );
+    }
+    actions.append(
+      el('button', {
+        class: 'btn btn-ghost',
+        text: this.t('files.refresh'),
+        attrs: { type: 'button' },
+        on: {
+          click: () =>
+            void this.loadFiles(
+              screen.computer,
+              screen.session.id,
+              this.filesPath,
+            ),
+        },
+      }),
+    );
+    pathRow.append(actions);
+    panel.append(pathRow);
+
+    if (this.filesLoading) {
+      panel.append(
+        el('p', {
+          class: 'session-note',
+          text: this.t('files.loading'),
+          attrs: { role: 'status', 'aria-busy': 'true' },
+        }),
+      );
+    } else if (this.filesError) {
+      panel.append(this.noticeEl(this.filesError));
+    } else if (!this.filesList || this.filesList.entries.length === 0) {
+      panel.append(
+        el('p', { class: 'session-note', text: this.t('files.empty') }),
+      );
+    } else {
+      const list = el('ul', { class: 'file-list' });
+      for (const entry of this.filesList.entries) {
+        const row = el('button', {
+          class: 'file-row',
+          attrs: { type: 'button' },
+          on: { click: () => void this.openFile(screen, entry) },
+        });
+        row.append(el('span', { class: 'file-name', text: entry.name }));
+        if (entry.directory) {
+          row.append(
+            el('span', { class: 'file-kind', text: this.t('files.folder') }),
+          );
+        } else if (isImageName(entry.name)) {
+          row.append(
+            el('span', { class: 'file-kind', text: this.t('files.image') }),
+          );
+        }
+        list.append(el('li', {}, [row]));
+      }
+      panel.append(list);
+    }
+    if (this.filesList?.truncated) {
+      panel.append(
+        el('p', { class: 'session-note', text: this.t('files.truncated') }),
+      );
+    }
+
+    if (this.filePreview) {
+      const preview = el('div', { class: 'file-preview' });
+      const previewHead = el('div', { class: 'panel-head' });
+      previewHead.append(
+        el('span', {
+          class: 'file-preview-name',
+          text: this.filePreview.name,
+        }),
+        el('button', {
+          class: 'btn btn-ghost',
+          text: this.t('common.close'),
+          attrs: { type: 'button' },
+          on: {
+            click: () => {
+              this.filePreview = null;
+              this.scheduleRender();
+            },
+          },
+        }),
+      );
+      preview.append(previewHead);
+      if (this.filePreview.kind === 'image') {
+        preview.append(
+          el('img', {
+            class: 'file-image',
+            attrs: {
+              src: this.filePreview.src,
+              alt: this.t('files.imageAlt', { name: this.filePreview.name }),
+            },
+          }),
+        );
+      } else {
+        preview.append(
+          el('pre', {
+            class: 'file-text',
+            text: this.filePreview.content,
+          }),
+        );
+      }
+      panel.append(preview);
+    }
+    return panel;
+  }
+
+  private renderChangesPanel(
+    screen: Extract<Screen, { name: 'session' }>,
+  ): HTMLElement {
+    const panel = el('section', {
+      class: 'session-files',
+      attrs: { 'aria-label': this.t('session.changes') },
+    });
+    const head = el('div', { class: 'panel-head' });
+    head.append(
+      el('h2', { class: 'phone-section-title', text: this.t('changes.title') }),
+    );
+    head.append(
+      el('button', {
+        class: 'btn btn-ghost',
+        text: this.t('files.refresh'),
+        attrs: { type: 'button' },
+        on: {
+          click: () =>
+            void this.loadChanges(screen.computer, screen.session.id),
+        },
+      }),
+    );
+    panel.append(head);
+
+    if (this.changesLoading) {
+      panel.append(
+        el('p', {
+          class: 'session-note',
+          text: this.t('changes.loading'),
+          attrs: { role: 'status', 'aria-busy': 'true' },
+        }),
+      );
+      return panel;
+    }
+    if (this.changesError) {
+      panel.append(this.noticeEl(this.changesError));
+      return panel;
+    }
+    if (!this.changes) {
+      return panel;
+    }
+    const changes = this.changes;
+    if (!changes.git) {
+      panel.append(
+        el('p', { class: 'session-note', text: this.t('changes.notGit') }),
+      );
+      return panel;
+    }
+
+    const totals = changeTotals(changes);
+    panel.append(
+      el('p', {
+        class: 'change-summary',
+        text: this.t('changes.summary', {
+          files: totals.files,
+          additions: totals.additions,
+          deletions: totals.deletions,
+        }),
+      }),
+    );
+    if (changes.error) {
+      panel.append(
+        this.noticeEl({
+          key: 'changes.failed',
+          tone: 'error',
+          detail: changes.error,
+        }),
+      );
+    }
+    if (changesEmpty(changes)) {
+      panel.append(
+        el('p', { class: 'session-note', text: this.t('changes.empty') }),
+      );
+    } else {
+      const list = el('ul', { class: 'change-list' });
+      for (const file of changes.files) {
+        const expanded = this.openDiff === file.path;
+        const row = el('button', {
+          class: 'change-row',
+          attrs: {
+            type: 'button',
+            'aria-expanded': expanded ? 'true' : 'false',
+            'aria-label': this.t('changes.open', { path: file.path }),
+          },
+          on: {
+            click: () => {
+              this.openDiff = expanded ? null : file.path;
+              this.scheduleRender();
+            },
+          },
+        });
+        row.append(
+          el('span', { class: 'change-path', text: file.path }),
+          el('span', { class: 'change-stat' }, [
+            el('b', { text: `+${file.additions}` }),
+            el('i', { text: `−${file.deletions}` }),
+          ]),
+        );
+        const item = el('li', {}, [row]);
+        if (expanded) {
+          if (file.binary) {
+            item.append(
+              el('p', {
+                class: 'session-note',
+                text: this.t('changes.binary'),
+              }),
+            );
+          } else {
+            item.append(
+              el(
+                'pre',
+                { class: 'diff' },
+                diffRows(file.diff, diffLineKind).map((row) =>
+                  el('span', {
+                    class: `diff-line is-${row.kind}`,
+                    text: row.text,
+                  }),
+                ),
+              ),
+            );
+          }
+          if (file.diffTruncated) {
+            item.append(
+              el('p', {
+                class: 'session-note',
+                text: this.t('changes.diffTruncated'),
+              }),
+            );
+          }
+        }
+        list.append(item);
+      }
+      panel.append(list);
+    }
+    if (changes.truncated) {
+      panel.append(
+        el('p', { class: 'session-note', text: this.t('changes.truncated') }),
+      );
+    }
+    return panel;
+  }
+
+  private async loadFiles(
+    computer: ComputerRecord,
+    sessionId: string,
+    path: string,
+  ): Promise<void> {
+    this.filesLoading = true;
+    this.filesError = null;
+    this.scheduleRender();
+    try {
+      const list = (await phone.request(computer.id, 'files.list', {
+        sessionId,
+        path,
+      })) as FileList;
+      if (
+        this.screen.name !== 'session' ||
+        this.screen.session.id !== sessionId
+      ) {
+        return;
+      }
+      this.filesList = list;
+      this.filesPath = list.path;
+      this.filePreview = null;
+    } catch {
+      this.filesError = { key: 'files.failed', tone: 'error' };
+    } finally {
+      if (
+        this.screen.name === 'session' &&
+        this.screen.session.id === sessionId
+      ) {
+        this.filesLoading = false;
+      }
+      this.scheduleRender();
+    }
+  }
+
+  private async openFile(
+    screen: Extract<Screen, { name: 'session' }>,
+    entry: FileEntry,
+  ): Promise<void> {
+    if (entry.directory) {
+      await this.loadFiles(screen.computer, screen.session.id, entry.path);
+      return;
+    }
+    this.filesError = null;
+    this.filePreview = null;
+    this.scheduleRender();
+    try {
+      if (isImageName(entry.name)) {
+        const image = await phone.readImage(
+          screen.computer.id,
+          screen.session.id,
+          entry.path,
+        );
+        if (
+          this.screen.name !== 'session' ||
+          this.screen.session.id !== screen.session.id
+        ) {
+          return;
+        }
+        this.filePreview = {
+          kind: 'image',
+          name: entry.path,
+          src: imageDataUrl(image.contentType, image.data),
+        };
+      } else {
+        const file = (await phone.request(screen.computer.id, 'files.read', {
+          sessionId: screen.session.id,
+          path: entry.path,
+        })) as { content: string };
+        if (
+          this.screen.name !== 'session' ||
+          this.screen.session.id !== screen.session.id
+        ) {
+          return;
+        }
+        this.filePreview = {
+          kind: 'text',
+          name: entry.path,
+          content: file.content,
+        };
+      }
+    } catch {
+      if (
+        this.screen.name !== 'session' ||
+        this.screen.session.id !== screen.session.id
+      ) {
+        return;
+      }
+      this.filesError = {
+        key: isImageName(entry.name) ? 'files.notImage' : 'files.notText',
+        tone: 'error',
+      };
+    }
+    this.scheduleRender();
+  }
+
+  private async loadChanges(
+    computer: ComputerRecord,
+    sessionId: string,
+  ): Promise<void> {
+    this.changesLoading = true;
+    this.changesError = null;
+    this.scheduleRender();
+    try {
+      const changes = (await phone.request(computer.id, 'diff.read', {
+        sessionId,
+      })) as SessionChanges;
+      if (
+        this.screen.name !== 'session' ||
+        this.screen.session.id !== sessionId
+      ) {
+        return;
+      }
+      this.changes = changes;
+    } catch {
+      this.changesError = { key: 'changes.failed', tone: 'error' };
+    } finally {
+      if (
+        this.screen.name === 'session' &&
+        this.screen.session.id === sessionId
+      ) {
+        this.changesLoading = false;
+      }
+      this.scheduleRender();
+    }
+  }
+
+  private async pickUpload(
+    screen: Extract<Screen, { name: 'session' }>,
+  ): Promise<void> {
+    if (this.uploadBusy) {
+      return;
+    }
+    this.uploadBusy = true;
+    this.uploadNotice = null;
+    this.scheduleRender();
+    try {
+      const uploaded = await phone.pickUpload(
+        screen.computer.id,
+        screen.session.id,
+      );
+      this.uploadNotice = {
+        key: 'files.uploadDone',
+        values: { name: uploaded.name },
+        tone: 'ok',
+      };
+    } catch (error) {
+      const key = uploadNoticeFor(asError(error).code);
+      if (key !== null) {
+        this.uploadNotice = { key, tone: 'error' };
+      }
+    } finally {
+      this.uploadBusy = false;
+      this.scheduleRender();
+    }
   }
 
   private renderSessionCard(session: Session): HTMLElement | null {
@@ -3289,6 +3832,21 @@ export class ShellApp {
     }
   }
 
+  private resetSessionFiles(): void {
+    this.filePanel = null;
+    this.filesPath = '';
+    this.filesList = null;
+    this.filesLoading = false;
+    this.filesError = null;
+    this.filePreview = null;
+    this.changes = null;
+    this.changesLoading = false;
+    this.changesError = null;
+    this.openDiff = null;
+    this.uploadBusy = false;
+    this.uploadNotice = null;
+  }
+
   private async openSession(
     computer: ComputerRecord,
     session: Session,
@@ -3298,6 +3856,7 @@ export class ShellApp {
     this.closeOutput();
     this.overlay = null;
     this.expandedTools.clear();
+    this.resetSessionFiles();
     this.sessionCache = mergeSession(this.sessionCache, session);
     const demoServers = sessionDemoServers(
       session.demoServers ?? [],

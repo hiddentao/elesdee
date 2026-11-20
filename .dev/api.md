@@ -11,7 +11,7 @@ The service binds `127.0.0.1` only. It accepts requests only for loopback hostna
 - The service trusts the local user. Any program running as the same user can call the API, including the permission answer route. The Origin check stops web pages, not local programs. The permission card is a convenience, not a security boundary against local code.
 - An allowed `Origin` is echoed in `Access-Control-Allow-Origin`, with `Vary: Origin`.
 - An `OPTIONS` preflight returns 204 with `Access-Control-Allow-Methods: GET, POST, PATCH, DELETE, OPTIONS`, `Access-Control-Allow-Headers: content-type` and `Access-Control-Max-Age: 600`. A disallowed origin still returns 403.
-- Every POST and PATCH request must send `Content-Type: application/json`. The media type may carry parameters such as `charset`. A missing or different content type returns 415.
+- Every POST and PATCH request must send `Content-Type: application/json`. The media type may carry parameters such as `charset`. A missing or different content type returns 415. The one exception is the session upload route, which takes `application/octet-stream` and refuses JSON.
 - A project name must not be empty. Its folder must exist and be a directory. The folder is canonicalized, and two projects cannot use the same canonical folder.
 - A project id is a unique slug of its name. A repeated name gets a numeric suffix.
 - A project stores an optional default AI config and an optional default source branch. `PATCH /api/projects/{id}` sets a field by sending its value and clears it by sending `null`; an absent field keeps its current value. The default config must exist. A default branch must be a safe branch name and must exist as a local or remote branch in the project folder's Git repository; tags, other revisions and reflog expressions are rejected.
@@ -279,12 +279,14 @@ Every later stream carries one request with the shared four-byte JSON length fra
 | `sessions.account` | `POST /api/sessions/{id}/account` |
 | `sessions.config` | `POST /api/sessions/{id}/config` |
 | `sessions.resume` | `POST /api/sessions/{id}/resume` |
+| `sessions.upload` | `POST /api/sessions/{id}/upload`, with the binary body and its file name |
 | `questions.list` | `GET /api/questions` |
 | `questions.answer` | `POST /api/questions/{id}/answer` |
 | `sessionRequests.approve` | `POST /api/session-requests/{id}/approve` |
 | `sessionRequests.deny` | `POST /api/session-requests/{id}/deny` |
 | `files.list` | `GET /api/sessions/{id}/files?path=` |
 | `files.read` | `GET /api/sessions/{id}/file?path=` |
+| `files.image` | `GET /api/sessions/{id}/image?path=`, with the image bytes |
 | `diff.read` | `GET /api/sessions/{id}/changes` |
 | `events.subscribe` | `GET /api/events`, streamed |
 | `output.subscribe` | `GET /api/sessions/{id}/output?after=`, streamed |
@@ -292,7 +294,7 @@ Every later stream carries one request with the shared four-byte JSON length fra
 
 - The result is the local route's JSON, or the local error message with the matching link code. A method outside the allowlist returns `forbidden` before a handler runs.
 - `sessions.config` switches to one exact AI config and needs `{ sessionId, configId }`. It replaces the provider alias for the phone. `sessions.account` stays for an older client and maps a provider id to that provider's config for the session's client.
-- `sessions.upload`, `files.image`, `ui.manifest` and `ui.download` are allowlisted but return `unsupported` until their steps. `demoServers.list` returns the active registered entries.
+- `sessions.upload` takes `{ sessionId, filename }` and one binary body. The computer cleans the file name, stores the file outside the repository and sends its absolute path to the session input. `files.image` takes `{ sessionId, path }` and returns the image bytes with a small JSON result that names the content type and the size. `ui.manifest` and `ui.download` are allowlisted but return `unsupported` until their steps. `demoServers.list` returns the active registered entries.
 - `events.subscribe` has no parameters. It forwards `session.updated` from the event stream and the question, request, notification, shared-file and provider events from the auxiliary stream. A phone that falls behind loses the stream and reconnects; the bootstrap snapshot shows the current state.
 - `output.subscribe` takes `{ sessionId, after }`. It sends a stream start, replays the retained output with a higher sequence than `after`, and keeps the stream open. A replayed event may carry `gap`. The stream ends when the session closes. A slow reader gets a fresh snapshot from its last sequence, which fills the gap.
 - `history.subscribe` takes `{ sessionId, after }`. It sends a stream start, then a `history.state` event, then the retained conversation items with a higher sequence than `after`. It keeps the stream open and ends when the session closes. An update to an item is a new version with a higher sequence and the same `id`.
@@ -546,6 +548,12 @@ interface FileContent {
   size: number;       // bytes
 }
 
+interface UploadedFile {
+  name: string;   // the cleaned name, with a numeric suffix when it already exists
+  path: string;   // absolute path in the desktop data folder
+  size: number;   // bytes
+}
+
 type ChangeStatus =
   | "added"
   | "modified"
@@ -715,6 +723,8 @@ interface HistoryEvent {
 | GET | `/api/sessions/{id}/files?path={folder}` | | `FileList` |
 | GET | `/api/sessions/{id}/file?path={file}` | | `FileContent` |
 | POST | `/api/sessions/{id}/file` | `{ path, content }` | `FileContent` |
+| GET | `/api/sessions/{id}/image?path={file}` | | image bytes; `Content-Type` from the signature |
+| POST | `/api/sessions/{id}/upload` | file bytes, with `X-El-Esdee-Filename` | `UploadedFile` |
 | GET | `/api/sessions/{id}/changes` | | `Changes` |
 | GET | `/api/sessions/{id}/shared` | | `SharedFile[]` |
 | GET | `/api/sessions/{id}/shared/{fileId}` | | file bytes; `Content-Type` from the file |
@@ -745,6 +755,8 @@ Errors use `{ "error": "message" }`. Pairing returns 503 when the link endpoint 
 - A shared file is copied from the session folder, never linked to the source. The store holds at most 10 MiB per file. The list is newest first. The read route returns 404 for an unknown id, 413 above the cap and 500 when the store is unavailable. Images are served inline; other files are served as attachments with a sanitized name. The response is not cached.
 - A browser profile belongs to one session and is reused across starts. Two sessions never share cookies, storage or logins. The process is stopped on close, pause and shutdown, and the profile folder is not removed on delete yet.
 - One folder listing returns at most 2000 entries and sets `truncated` when more exist. A file read or write is UTF-8 text of at most 1 MiB. A larger file or request body returns 413. Binary content, meaning a NUL byte in the first 8 KiB, returns 422.
+- The image route resolves its path under the session folder and applies the same traversal, symlink, hard-link, special-file and `.git` rules as the text read. It returns PNG, JPEG, GIF, WebP, AVIF or BMP detected from the file signature, with a 10 MiB cap. A file that is not one of those types returns 415, a larger file returns 413 and an unknown file returns 404. The response is inline, uses the detected media type and is not cached.
+- The upload route takes one file of at most 25 MiB. The browser or phone sends the name in `X-El-Esdee-Filename` as percent-encoded UTF-8. The core reduces the name to one path component, removes control, bidi and zero-width characters, and refuses `.` and `..`. An empty result becomes `file`. A name that already exists gets a numeric suffix; an existing file is never replaced. The file goes in `<data dir>/uploads/<session id>/` with mode 0600, and the folder has mode 0700. The core then sends one line with the absolute path to the session input. An upload to a closed or stopped session returns 409 and stores nothing. A name longer than 120 characters is shortened and keeps its extension. A missing name returns 400.
 - `POST /api/sessions/{id}/file` creates the file or replaces its content. The parent folder must exist. The write is not limited to existing files. A write goes to a temporary file in the same folder and is renamed into place, so a failure cannot leave a half-written file. An existing file keeps its permission bits.
 - Changes for an agent session compare the worktree, including uncommitted work, against the merge base with the repository's current branch. Changes for a terminal session compare the working tree against `HEAD`. Untracked files are included.
 - The change route caps the list at 500 files and the combined diffs at 512 KiB. It sets `truncated` when either cap is reached. A folder outside Git returns `git: false` with no files and no error.

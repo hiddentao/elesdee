@@ -1,17 +1,19 @@
 use std::collections::BTreeMap;
 use std::convert::Infallible;
 use std::ffi::OsString;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
+use axum::body::Bytes;
 use axum::extract::rejection::{JsonRejection, QueryRejection};
-use axum::extract::{Path as UrlPath, Query, Request, State};
+use axum::extract::{DefaultBodyLimit, Path as UrlPath, Query, Request, State};
 use axum::http::header::{
     ACCESS_CONTROL_ALLOW_HEADERS, ACCESS_CONTROL_ALLOW_METHODS, ACCESS_CONTROL_ALLOW_ORIGIN,
     ACCESS_CONTROL_MAX_AGE, CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_TYPE, HOST, ORIGIN, VARY,
 };
-use axum::http::{HeaderName, HeaderValue, Method, StatusCode};
+use axum::http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::sse::{Event, Sse};
 use axum::response::{IntoResponse, Response};
@@ -46,6 +48,7 @@ use crate::state::{
     Provider, ProviderView, Question, QuestionFailure, Session, SessionEvent, SessionKind,
     SessionState, SettingsPatch, WorkState,
 };
+use elesdee_link::MAX_UPLOAD_BYTES;
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const SSE_HEARTBEAT: Duration = Duration::from_secs(15);
@@ -59,6 +62,8 @@ const ALLOWED_ORIGINS: [&str; 5] = [
     "https://tauri.localhost",
 ];
 const NOSNIFF: HeaderName = HeaderName::from_static("x-content-type-options");
+const UPLOAD_NAME_HEADER: HeaderName = HeaderName::from_static("x-el-esdee-filename");
+const UPLOAD_CONTENT_TYPE: &str = "application/octet-stream";
 
 #[derive(Debug)]
 pub struct ApiError {
@@ -607,6 +612,11 @@ pub fn router(state: AppState) -> Router {
             "/api/sessions/{id}/file",
             get(read_session_file).post(write_session_file),
         )
+        .route("/api/sessions/{id}/image", get(read_session_image))
+        .route(
+            "/api/sessions/{id}/upload",
+            post(upload_session_file).layer(DefaultBodyLimit::max(MAX_UPLOAD_BYTES)),
+        )
         .route("/api/sessions/{id}/changes", get(session_changes))
         .route("/api/sessions/{id}/shared", get(list_shared_files))
         .route("/api/sessions/{id}/shared/{file_id}", get(read_shared_file))
@@ -699,20 +709,31 @@ fn validate_host_and_origin(request: &Request) -> Result<Option<String>, ApiErro
 }
 
 fn validate_content_type(request: &Request) -> Result<(), ApiError> {
+    let upload = is_upload_path(request.uri().path());
+    let expected = if upload {
+        UPLOAD_CONTENT_TYPE
+    } else {
+        "application/json"
+    };
     let content_type = request
         .headers()
         .get(CONTENT_TYPE)
         .and_then(|value| value.to_str().ok())
         .ok_or_else(|| {
-            ApiError::unsupported_media_type("Content-Type must be application/json.")
+            ApiError::unsupported_media_type(format!("Content-Type must be {expected}."))
         })?;
     let media_type = content_type.split(';').next().unwrap_or_default().trim();
-    if !media_type.eq_ignore_ascii_case("application/json") {
-        return Err(ApiError::unsupported_media_type(
-            "Content-Type must be application/json.",
-        ));
+    if !media_type.eq_ignore_ascii_case(expected) {
+        return Err(ApiError::unsupported_media_type(format!(
+            "Content-Type must be {expected}."
+        )));
     }
     Ok(())
+}
+
+/// Returns true for the one route that takes a raw binary body.
+fn is_upload_path(path: &str) -> bool {
+    path.starts_with("/api/sessions/") && path.ends_with("/upload")
 }
 
 fn apply_cors(response: &mut Response, origin: Option<&str>, preflight: bool) {
@@ -734,7 +755,7 @@ fn apply_cors(response: &mut Response, origin: Option<&str>, preflight: bool) {
         );
         response.headers_mut().insert(
             ACCESS_CONTROL_ALLOW_HEADERS,
-            HeaderValue::from_static("content-type"),
+            HeaderValue::from_static("content-type, x-el-esdee-filename"),
         );
         response
             .headers_mut()
@@ -3760,6 +3781,85 @@ async fn write_session_file(
     Ok(Json(written))
 }
 
+async fn read_session_image(
+    State(state): State<AppState>,
+    UrlPath(id): UrlPath<String>,
+    query: Result<Query<FileQuery>, QueryRejection>,
+) -> Result<Response, ApiError> {
+    let Query(query) = query.map_err(|_| ApiError::bad_request("Invalid image query."))?;
+    let path = query
+        .path
+        .filter(|path| !path.trim().is_empty())
+        .ok_or_else(|| ApiError::bad_request("An image path is required."))?;
+    let root = session_folder(&state, &id)?;
+    let (image, bytes) = tokio::task::spawn_blocking(move || files::read_image(&root, &path))
+        .await
+        .map_err(|_| ApiError::internal("The image read failed."))?
+        .map_err(image_error)?;
+
+    let name = Path::new(&image.path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("image");
+    let mut response = Response::new(axum::body::Body::from(bytes));
+    let headers = response.headers_mut();
+    headers.insert(
+        CONTENT_TYPE,
+        HeaderValue::from_str(&image.content_type)
+            .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")),
+    );
+    headers.insert(
+        CONTENT_DISPOSITION,
+        HeaderValue::from_str(&content_disposition(name, true))
+            .unwrap_or_else(|_| HeaderValue::from_static("inline")),
+    );
+    headers.insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    headers.insert(NOSNIFF, HeaderValue::from_static("nosniff"));
+    Ok(response)
+}
+
+async fn upload_session_file(
+    State(state): State<AppState>,
+    UrlPath(id): UrlPath<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<(StatusCode, Json<files::UploadedFile>), ApiError> {
+    let entry = active_session(&state, &id)?;
+    let name = headers
+        .get(&UPLOAD_NAME_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .map(decode_percent)
+        .map(|name| name.trim().to_owned())
+        .filter(|name| !name.is_empty())
+        .ok_or_else(|| ApiError::bad_request("A file name is required."))?;
+    let data_dir = state
+        .data_dir()
+        .map(Path::to_path_buf)
+        .ok_or_else(|| ApiError::internal("The upload folder is not available."))?;
+
+    let bytes = body.to_vec();
+    let session_id = id.clone();
+    let uploaded = tokio::task::spawn_blocking(move || {
+        files::store_upload(&data_dir, &session_id, &name, &bytes)
+    })
+    .await
+    .map_err(|_| ApiError::internal("The upload failed."))?
+    .map_err(upload_error)?;
+
+    let line = format!("Uploaded file: {}\n", uploaded.path);
+    if let Err(failure) = entry.write_input(line.into_bytes()).await {
+        let stored = PathBuf::from(&uploaded.path);
+        let _ = tokio::task::spawn_blocking(move || fs::remove_file(stored)).await;
+        return Err(match failure {
+            InputFailure::Closed => ApiError::conflict("Session is closed."),
+            InputFailure::Closing => ApiError::conflict("Session is closing."),
+            InputFailure::NotRunning => ApiError::conflict("Session is not running."),
+        });
+    }
+
+    Ok((StatusCode::CREATED, Json(uploaded)))
+}
+
 async fn list_shared_files(
     State(state): State<AppState>,
     UrlPath(id): UrlPath<String>,
@@ -4071,12 +4171,71 @@ fn file_error(error: files::FileError) -> ApiError {
             files::MAX_FILE_BYTES
         )),
         files::FileError::Binary => ApiError::unprocessable("The file is not UTF-8 text."),
+        files::FileError::NotAnImage => {
+            ApiError::unsupported_media_type("The file is not a supported image.")
+        }
         files::FileError::Protected => ApiError::unprocessable("The path is not available."),
         files::FileError::Linked => ApiError::unprocessable("Hard-linked files are not supported."),
         files::FileError::Io(error) => {
             tracing::error!(%error, "file operation failed");
             ApiError::internal("The file operation failed.")
         }
+    }
+}
+
+/// Decodes the percent-encoded UTF-8 file name that the upload header carries.
+fn decode_percent(value: &str) -> String {
+    let bytes = value.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%'
+            && let Some(high) = bytes.get(index + 1).and_then(|byte| hex_value(*byte))
+            && let Some(low) = bytes.get(index + 2).and_then(|byte| hex_value(*byte))
+        {
+            decoded.push(high * 16 + low);
+            index += 3;
+            continue;
+        }
+        decoded.push(bytes[index]);
+        index += 1;
+    }
+    String::from_utf8_lossy(&decoded).into_owned()
+}
+
+fn hex_value(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
+}
+
+fn image_error(error: files::FileError) -> ApiError {
+    match error {
+        files::FileError::TooLarge(size) => ApiError::payload_too_large(format!(
+            "The image is too large. The limit is {} bytes; this file is {size} bytes.",
+            elesdee_link::MAX_IMAGE_BYTES
+        )),
+        files::FileError::NotAnImage => {
+            ApiError::unsupported_media_type("The file is not a supported image.")
+        }
+        other => file_error(other),
+    }
+}
+
+fn upload_error(error: files::FileError) -> ApiError {
+    match error {
+        files::FileError::TooLarge(size) => ApiError::payload_too_large(format!(
+            "The file is too large. The limit is {MAX_UPLOAD_BYTES} bytes; this file is {size} bytes."
+        )),
+        files::FileError::InvalidPath => ApiError::bad_request("The file name is not valid."),
+        files::FileError::Io(error) => {
+            tracing::error!(%error, "upload failed");
+            ApiError::internal("The upload failed.")
+        }
+        _ => ApiError::internal("The upload failed."),
     }
 }
 

@@ -277,9 +277,20 @@ async fn app_request(phone: &Endpoint, addr: &EndpointAddr, request: Request) ->
 }
 
 fn raw_request_frame(method: &str, params: Option<Value>) -> Vec<u8> {
+    raw_request_frame_with_bytes(method, params, None)
+}
+
+fn raw_request_frame_with_bytes(
+    method: &str,
+    params: Option<Value>,
+    bytes: Option<u64>,
+) -> Vec<u8> {
     let mut header = json!({"v": 1, "method": method});
     if let Some(params) = params {
         header["params"] = params;
+    }
+    if let Some(bytes) = bytes {
+        header["bytes"] = json!(bytes);
     }
     let encoded = serde_json::to_vec(&header).expect("raw header encodes");
     let mut frame = (encoded.len() as u32).to_be_bytes().to_vec();
@@ -731,6 +742,163 @@ async fn a_phone_says_hello_and_calls_the_allowed_methods() {
     })
     .await
     .expect("hello test timed out");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_phone_uploads_a_file_and_reads_an_image() {
+    const PNG: [u8; 8] = [0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a];
+    tokio::time::timeout(TIMEOUT, async {
+        let directory = TempDirectory::new("upload");
+        let state = test_state(&directory.path);
+        let app = router(state.clone());
+        let session = create_terminal(&app, &directory.path).await;
+        let session_id = session["id"].as_str().expect("session id").to_owned();
+        let folder = PathBuf::from(session["folder"].as_str().expect("session folder"));
+        let mut image = PNG.to_vec();
+        image.extend_from_slice(b"image body");
+        fs::write(folder.join("shot.png"), &image).expect("write image");
+        fs::write(folder.join("notes.txt"), "plain text\n").expect("write text");
+        let git = |args: &[&str]| {
+            let status = std::process::Command::new("git")
+                .arg("-C")
+                .arg(&folder)
+                .args(args)
+                .status()
+                .expect("run git");
+            assert!(status.success(), "git {args:?} failed");
+        };
+        git(&["init", "-q", "-b", "main"]);
+        git(&["config", "user.email", "e2e@example.com"]);
+        git(&["config", "user.name", "E2E"]);
+        git(&["add", "."]);
+        git(&["commit", "-qm", "base"]);
+        fs::write(folder.join("notes.txt"), "plain text\nchanged\n").expect("change text");
+
+        let service = LinkService::start_with_endpoint(state.clone(), loopback_endpoint().await);
+        let addr = service.addr();
+        let ticket = PairTicket::decode_string(
+            &state
+                .link()
+                .create_ticket_at(elesdee_core::link::now_unix() + 120, false)
+                .expect("ticket")
+                .ticket,
+        )
+        .expect("decode ticket");
+        let phone = loopback_endpoint().await;
+        let (pair_connection, _device) = approve_and_read(&app, &phone, &ticket).await;
+        pair_connection.close(0u32.into(), b"done");
+
+        let (connection, _welcome) = app_connect(&phone, &addr).await;
+
+        let upload = Request::new(
+            Method::SessionsUpload,
+            Some(json!({"sessionId": session_id, "filename": "../../shot.png"})),
+        )
+        .with_body(b"from the phone".to_vec());
+        let response = request_on(&connection, upload).await;
+        let uploaded = response.result().expect("upload result");
+        assert_eq!(uploaded["name"], "shot.png");
+        assert_eq!(uploaded["size"], 14);
+        let first_path = uploaded["path"].as_str().expect("upload path");
+        assert!(
+            first_path.contains(&format!("/uploads/{session_id}/")),
+            "the upload is outside the session upload folder: {first_path}"
+        );
+        assert_eq!(
+            fs::read(first_path).expect("stored upload"),
+            b"from the phone"
+        );
+
+        let upload = Request::new(
+            Method::SessionsUpload,
+            Some(json!({"sessionId": session_id, "filename": "shot.png"})),
+        )
+        .with_body(b"again".to_vec());
+        let response = request_on(&connection, upload).await;
+        let second = response.result().expect("second upload");
+        assert_eq!(second["name"], "shot-1.png");
+        assert_ne!(second["path"], uploaded["path"]);
+
+        let oversized = raw_request_frame_with_bytes(
+            "sessions.upload",
+            Some(json!({"sessionId": session_id, "filename": "big.bin"})),
+            Some((MAX_UPLOAD_BYTES + 1) as u64),
+        );
+        let response = raw_request_on(&connection, oversized).await;
+        assert_eq!(
+            response.error_body().expect("too large error").code(),
+            ErrorCode::TooLarge,
+            "a declared length over the cap was not refused"
+        );
+
+        let response = request_on(
+            &connection,
+            Request::new(
+                Method::FilesImage,
+                Some(json!({"sessionId": session_id, "path": "shot.png"})),
+            ),
+        )
+        .await;
+        assert_eq!(response.body(), image);
+        let result = response.result().expect("image result");
+        assert_eq!(result["contentType"], "image/png");
+        assert_eq!(result["size"], image.len());
+
+        let response = request_on(
+            &connection,
+            Request::new(
+                Method::FilesImage,
+                Some(json!({"sessionId": session_id, "path": "notes.txt"})),
+            ),
+        )
+        .await;
+        assert_eq!(
+            response.error_body().expect("image error").code(),
+            ErrorCode::Unsupported
+        );
+
+        let response = request_on(
+            &connection,
+            Request::new(
+                Method::FilesImage,
+                Some(json!({"sessionId": session_id, "path": "../shot.png"})),
+            ),
+        )
+        .await;
+        assert_eq!(
+            response.error_body().expect("path error").code(),
+            ErrorCode::BadRequest
+        );
+
+        let response = request_on(
+            &connection,
+            Request::new(Method::DiffRead, Some(json!({"sessionId": session_id}))),
+        )
+        .await;
+        let changes = response.result().expect("changes result");
+        assert_eq!(changes["git"], true);
+        let files = changes["files"].as_array().expect("changed files");
+        let notes = files
+            .iter()
+            .find(|file| file["path"] == "notes.txt")
+            .expect("the changed note is missing");
+        assert_eq!(notes["additions"], 1);
+        assert_eq!(notes["deletions"], 0);
+        assert!(
+            notes["diff"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("changed"),
+            "the diff is missing its added line: {notes}"
+        );
+
+        connection.close(0u32.into(), b"done");
+        phone.close().await;
+        service.shutdown().await;
+        assert!(state.shutdown_all());
+    })
+    .await
+    .expect("upload test timed out");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

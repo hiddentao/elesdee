@@ -9,8 +9,9 @@ use std::sync::Arc;
 
 use axum::Router;
 use axum::body::{Body, to_bytes};
+use axum::http::HeaderValue;
 use axum::http::header::{CONTENT_TYPE, HOST};
-use axum::http::{Method as HttpMethod, Request as HttpRequest, StatusCode};
+use axum::http::{HeaderMap, Method as HttpMethod, Request as HttpRequest, StatusCode};
 use elesdee_link::{
     AppHello, CLOSE_NOT_PAIRED, CLOSE_REVOKED, ErrorCode, HELLO_TIMEOUT, MAX_APP_FRAME_BYTES,
     MAX_HEADER_BYTES, MAX_STREAMS_PER_CONNECTION, MAX_UI_PACKAGE_BYTES, MAX_UPLOAD_BYTES, Method,
@@ -288,6 +289,11 @@ pub fn link_params(method: Method, params: Option<&Value>) -> Option<Value> {
 }
 
 async fn dispatch(router: &mut Router, request: &Request) -> Response {
+    match request.method() {
+        Method::SessionsUpload => return dispatch_upload(router, request).await,
+        Method::FilesImage => return dispatch_image(router, request).await,
+        _ => {}
+    }
     if !request.body().is_empty() {
         return Response::error(ErrorCode::BadRequest, "This method takes no binary body.");
     }
@@ -296,10 +302,11 @@ async fn dispatch(router: &mut Router, request: &Request) -> Response {
         Err(response) => return response,
     };
     match call_router(router, route).await {
-        Ok((status, value, _)) if status.is_success() => Response::ok(value),
-        Ok((status, _, message)) => Response::error(
-            code_for_status(status),
-            message.unwrap_or_else(|| "The computer rejected the request.".to_owned()),
+        Ok(reply) if reply.status.is_success() => Response::ok(json_value(&reply.body)),
+        Ok(reply) => Response::error(
+            code_for_status(reply.status),
+            error_message(&reply.body)
+                .unwrap_or_else(|| "The computer rejected the request.".to_owned()),
         ),
         Err(()) => Response::error(
             ErrorCode::Internal,
@@ -308,11 +315,102 @@ async fn dispatch(router: &mut Router, request: &Request) -> Response {
     }
 }
 
+/// Sends one uploaded file with its body to the local upload route.
+async fn dispatch_upload(router: &mut Router, request: &Request) -> Response {
+    let object = match request.params().and_then(Value::as_object) {
+        Some(object) => object,
+        None => return bad_request("The method parameters must be an object."),
+    };
+    let session_id = match session_id(object) {
+        Ok(session_id) => session_id,
+        Err(response) => return response,
+    };
+    let filename = match required(object, "filename") {
+        Ok(filename) => filename,
+        Err(response) => return response,
+    };
+    let route = Route {
+        method: HttpMethod::POST,
+        path: format!("/api/sessions/{session_id}/upload"),
+        body: None,
+        binary: Some(request.body().to_vec()),
+        headers: vec![
+            (
+                CONTENT_TYPE,
+                HeaderValue::from_static("application/octet-stream"),
+            ),
+            (
+                UPLOAD_NAME_HEADER,
+                HeaderValue::from_str(&encode_query(&filename))
+                    .unwrap_or_else(|_| HeaderValue::from_static("file")),
+            ),
+        ],
+    };
+    match call_router(router, route).await {
+        Ok(reply) if reply.status.is_success() => Response::ok(json_value(&reply.body)),
+        Ok(reply) => Response::error(
+            code_for_status(reply.status),
+            error_message(&reply.body)
+                .unwrap_or_else(|| "The computer rejected the upload.".to_owned()),
+        ),
+        Err(()) => Response::error(ErrorCode::Internal, "The upload could not be stored."),
+    }
+}
+
+/// Returns one image and its content type from the local image route.
+async fn dispatch_image(router: &mut Router, request: &Request) -> Response {
+    if !request.body().is_empty() {
+        return Response::error(ErrorCode::BadRequest, "This method takes no binary body.");
+    }
+    let object = match request.params().and_then(Value::as_object) {
+        Some(object) => object,
+        None => return bad_request("The method parameters must be an object."),
+    };
+    let session_id = match session_id(object) {
+        Ok(session_id) => session_id,
+        Err(response) => return response,
+    };
+    let path = match required(object, "path") {
+        Ok(path) => path,
+        Err(response) => return response,
+    };
+    let route = get(&query_path(
+        &format!("/api/sessions/{session_id}/image"),
+        [("path", Some(path))],
+    ));
+    match call_router(router, route).await {
+        Ok(reply) if reply.status.is_success() => {
+            let content_type = reply
+                .headers
+                .get(CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or("application/octet-stream")
+                .to_owned();
+            let size = reply.body.len();
+            Response::ok_with_body(
+                json!({"contentType": content_type, "size": size}),
+                reply.body,
+            )
+        }
+        Ok(reply) => Response::error(
+            code_for_status(reply.status),
+            error_message(&reply.body)
+                .unwrap_or_else(|| "The computer rejected the image request.".to_owned()),
+        ),
+        Err(()) => Response::error(ErrorCode::Internal, "The image could not be read."),
+    }
+}
+
 struct Route {
     method: HttpMethod,
     path: String,
     body: Option<Value>,
+    binary: Option<Vec<u8>>,
+    headers: Vec<(axum::http::HeaderName, HeaderValue)>,
 }
+
+const UPLOAD_NAME_HEADER: axum::http::HeaderName =
+    axum::http::HeaderName::from_static("x-el-esdee-filename");
 
 fn route_for(method: Method, params: Option<&Value>) -> Result<Route, Response> {
     let params = link_params(method, params);
@@ -402,7 +500,12 @@ fn route_for(method: Method, params: Option<&Value>) -> Result<Route, Response> 
             [("path", Some(required(object, "path")?))],
         )),
         Method::DiffRead => get(&format!("/api/sessions/{}/changes", session_id(object)?)),
-        Method::SessionsUpload | Method::FilesImage | Method::UiManifest | Method::UiDownload => {
+        Method::SessionsUpload | Method::FilesImage => {
+            return Err(bad_request(
+                "This method is handled with a body or an image, not a plain route.",
+            ));
+        }
+        Method::UiManifest | Method::UiDownload => {
             return Err(Response::error(
                 ErrorCode::Unsupported,
                 "This method is not available in this build.",
@@ -423,6 +526,8 @@ fn get(path: &str) -> Route {
         method: HttpMethod::GET,
         path: path.to_owned(),
         body: None,
+        binary: None,
+        headers: Vec::new(),
     }
 }
 
@@ -431,6 +536,8 @@ fn post(path: &str, body: Value) -> Route {
         method: HttpMethod::POST,
         path: path.to_owned(),
         body: Some(body),
+        binary: None,
+        headers: Vec::new(),
     }
 }
 
@@ -497,37 +604,55 @@ fn encode_query(value: &str) -> String {
     encoded
 }
 
-async fn call_router(
-    router: &mut Router,
-    route: Route,
-) -> Result<(StatusCode, Value, Option<String>), ()> {
+struct RouterReply {
+    status: StatusCode,
+    headers: HeaderMap,
+    body: Vec<u8>,
+}
+
+async fn call_router(router: &mut Router, route: Route) -> Result<RouterReply, ()> {
     let mut builder = HttpRequest::builder()
         .method(route.method)
         .uri(route.path)
         .header(HOST, "127.0.0.1");
-    let body = match route.body {
-        Some(value) => {
-            builder = builder.header(CONTENT_TYPE, "application/json");
-            Body::from(value.to_string())
-        }
-        None => Body::empty(),
+    for (name, value) in route.headers {
+        builder = builder.header(name, value);
+    }
+    let body = if let Some(bytes) = route.binary {
+        Body::from(bytes)
+    } else if let Some(value) = route.body {
+        builder = builder.header(CONTENT_TYPE, "application/json");
+        Body::from(value.to_string())
+    } else {
+        Body::empty()
     };
     let request = builder.body(body).map_err(|_| ())?;
     let response = router.clone().oneshot(request).await.map_err(|_| ())?;
     let status = response.status();
+    let headers = response.headers().clone();
     let bytes = to_bytes(response.into_body(), MAX_DISPATCH_BYTES)
         .await
         .map_err(|_| ())?;
-    let value = if bytes.is_empty() {
+    Ok(RouterReply {
+        status,
+        headers,
+        body: bytes.to_vec(),
+    })
+}
+
+fn json_value(bytes: &[u8]) -> Value {
+    if bytes.is_empty() {
         Value::Null
     } else {
-        serde_json::from_slice(&bytes).unwrap_or(Value::Null)
-    };
-    let message = value
+        serde_json::from_slice(bytes).unwrap_or(Value::Null)
+    }
+}
+
+fn error_message(bytes: &[u8]) -> Option<String> {
+    json_value(bytes)
         .get("error")
         .and_then(Value::as_str)
-        .map(str::to_owned);
-    Ok((status, value, message))
+        .map(str::to_owned)
 }
 
 fn code_for_status(status: StatusCode) -> ErrorCode {
@@ -931,7 +1056,7 @@ mod tests {
 
     #[test]
     fn an_unbuilt_method_is_unsupported() {
-        let error = match route_for(Method::SessionsUpload, None) {
+        let error = match route_for(Method::UiManifest, None) {
             Ok(_) => panic!("the route was accepted"),
             Err(error) => error,
         };
@@ -939,5 +1064,29 @@ mod tests {
             error.error_body().expect("error body").code(),
             ErrorCode::Unsupported
         );
+    }
+
+    #[test]
+    fn the_upload_and_image_methods_need_their_own_dispatch() {
+        for method in [Method::SessionsUpload, Method::FilesImage] {
+            let error = match route_for(method, None) {
+                Ok(_) => panic!("{method} produced a plain route"),
+                Err(error) => error,
+            };
+            assert_eq!(
+                error.error_body().expect("error body").code(),
+                ErrorCode::BadRequest
+            );
+        }
+    }
+
+    #[test]
+    fn a_file_name_is_escaped_before_it_becomes_a_header() {
+        assert_eq!(encode_query("shot one.png"), "shot%20one.png");
+        assert_eq!(
+            encode_query("\u{0444}\u{043e}\u{0442}\u{043e}.png"),
+            "%D1%84%D0%BE%D1%82%D0%BE.png"
+        );
+        assert_eq!(encode_query("..%2Fevil.png"), "..%252Fevil.png");
     }
 }

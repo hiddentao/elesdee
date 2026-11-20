@@ -1,6 +1,6 @@
 # Phone shell, pairing and remote connection
 
-Status: design. Steps 1 to 4, step 7's terminal input, session actions, permission and question cards, AI config switch and structured message view on both phone surfaces, and step 8's demo-server forwarding on both the computer and the phone are implemented in part. The native shell shows the message view with prompts, replies, tool rows, the context strip, the composer and the key rail, with one button to the read-only terminal. The desktop pairing dialog in Settings > Devices shows the QR image, the phone name and the six-digit code, and the approve, deny and cancel actions. Upload, file and image reads and diffs remain. The shell has not run on a device or an emulator, and the Android and iOS projects are not generated.
+Status: design. Steps 1 to 4, step 7's terminal input, session actions, permission and question cards, AI config switch, structured message view, upload, file and image reads and diffs on both phone surfaces, and step 8's demo-server forwarding on both the computer and the phone are implemented in part. The native shell shows the message view with prompts, replies, tool rows, the context strip, the composer and the key rail, with one button to the read-only terminal. It also lists the session's files, previews images and text, shows the changes since the branch point, and uploads one file with the native picker. The desktop pairing dialog in Settings > Devices shows the QR image, the phone name and the six-digit code, and the approve, deny and cancel actions. The shell has not run on a device or an emulator, and the Android and iOS projects are not generated.
 
 Read this with `.dev/SPEC.md` (Mobile companion app, Connection technology), `.dev/api.md` and `docs/phone.md`.
 
@@ -512,6 +512,8 @@ Step 3 implements the shell side of the bridge as these commands in `phone-shell
 | `phone_connect` | Open the app connection to one computer. |
 | `phone_disconnect` | Close the app connection. |
 | `phone_request` | Parse the method name against `Method::parse`, then send the request. |
+| `phone_pick_upload` | Open the native file picker, check the size and send one file to a session. |
+| `phone_read_image` | Send `files.image` and return the image type and base64 bytes. |
 
 `phone_request` is the only path that sends a method. It rejects a name outside the allowlist before it touches a connection, so the screens cannot reach a method that the link crate does not list. No command holds the shell state lock across a network wait: pairing, connect and request take what they need, drop the lock, then write the result back. A pairing call has its own gate, so two pairings cannot overlap while other commands still run. One timeout covers the whole request, including the send, so a computer that stops reading cannot hold a caller forever. The package bridge (`phone_rpc`, subscriptions and upload) comes with steps 4 and 5.
 
@@ -593,23 +595,34 @@ The phone cannot call:
 
 The link server rejects an unknown method with `forbidden`. A test compares the allowlist table with the local router, so a new route does not become reachable by accident.
 
-Step 4 dispatches every allowlisted method that has a local route: `bootstrap`, `health`, the project, branch, provider and account lists, session create, close, input, permission, account, config and resume, question list and answer, session request approve and deny, the file list and text read, the diff read, `demoServers.list`, and the event, output and history subscriptions. `sessions.create` drops a phone-supplied folder. `sessions.upload`, `files.image` and the UI package methods return `unsupported` until their steps. A method outside the allowlist is rejected while the request frame decodes, so it returns `forbidden`.
+Step 4 dispatches every allowlisted method that has a local route: `bootstrap`, `health`, the project, branch, provider and account lists, session create, close, input, permission, account, config and resume, question list and answer, session request approve and deny, the file list and text read, the diff read, `demoServers.list`, and the event, output and history subscriptions. `sessions.create` drops a phone-supplied folder. `sessions.upload` forwards its binary body and file name to the upload route, and `files.image` forwards its path to the image route and returns the bytes. The UI package methods return `unsupported` until their step. A method outside the allowlist is rejected while the request frame decodes, so it returns `forbidden`.
 
 A phone never chooses a job folder. When remote session creation is added, it starts in the project folder, and the link drops any `folder` parameter from a `sessions.create` request before a handler sees it.
 
 Account keys never cross the link. The existing account response omits them.
 
-### 6.3 Uploads
+### 6.3 Uploads, files and images
 
 - `sessions.upload` writes to `<data dir>/uploads/<session id>/<name>`, outside the repository.
-- The route is a new local route. It accepts `application/octet-stream` with an `X-El-Esdee-Filename` header. The request guard gets an explicit exception for this path; every other POST and PATCH keeps the JSON rule.
-- The core reduces the name to a single path component and removes control, bidi and zero-width characters. It rejects `.` and `..`.
-- The core does not overwrite an existing file. A repeated name gets a numeric suffix.
-- Mode is 0600. The size cap is 25 MiB per file.
-- The core writes the file, then sends one line to the session input with the absolute path. The file name is cleaned first, so the line cannot carry terminal control sequences.
-- The phone cannot read arbitrary files. `files.read` and `files.image` resolve a relative path under the session worktree or the session upload folder. Symlinks are not followed. A session created from a paired device always uses its project folder, so the readable root is chosen by the desktop, never by the phone.
+- The route is `POST /api/sessions/{id}/upload`. It accepts `application/octet-stream` with an `X-El-Esdee-Filename` header that carries the percent-encoded UTF-8 name. The request guard has an explicit exception for this path; every other POST and PATCH keeps the JSON rule. The body limit is 25 MiB.
+- The core reduces the name to a single path component and removes control, bidi and zero-width characters. It rejects `.` and `..`, and an empty result becomes `file`. A name over 120 characters is shortened and keeps its extension.
+- The core does not overwrite an existing file. A repeated name gets a numeric suffix. A file is created with `create_new`, so a lost race never replaces a file.
+- Mode is 0600 and the folder is 0700. The size cap is 25 MiB per file.
+- The core writes the file, then sends one line to the session input with the absolute path. The file name is cleaned first, so the line cannot carry terminal control sequences. A closed or stopped session returns 409 and stores nothing.
+- The phone cannot read arbitrary files. `files.read` and `files.image` resolve a relative path under the session folder: the worktree for an agent, the chosen folder for a terminal. Symlinks are not followed, and a hard link, a special file and a `.git` path are refused. A session created from a paired device always uses its project folder, so the readable root is chosen by the desktop, never by the phone.
+- `files.image` returns PNG, JPEG, GIF, WebP, AVIF or BMP detected from the file signature, never from the name. The cap is 10 MiB. A text file or any other type returns `unsupported` (415), a larger file returns `too_large` (413), and the phone shows a clear message instead of a broken image.
+- The phone never sends a path for an upload. It sends one file name, and the desktop chooses the folder.
 
-### 6.4 Demo-server forwarding
+### 6.4 Phone files, images and changes
+
+Both phone surfaces put **Files** and **Changes** beside the session actions.
+
+- **Files** lists the session folder one folder at a time. A folder row opens that folder and an Up action returns. An image row opens a preview through `files.image`; the native shell receives the bytes as base64 over the bridge and shows a data URL, and the browser layout uses an object URL. A text row opens the text from `files.read`. An unsupported image, a binary file and a file over a cap each show a clear message.
+- **Upload** opens the native file picker in the shell and a hidden file input in the browser layout. The picker checks the size before it reads the file. A completed upload shows the stored name; a cancelled picker shows nothing.
+- **Changes** lists every file changed since the branch point, with the added and removed line counts. A tap opens that file's unified diff, with added and removed lines marked. A binary file says it has no text diff. A folder outside Git says so, and the truncated flag and a Git error are shown.
+- The shell bridge has `phone_pick_upload`, which picks and reads one file and sends `sessions.upload`, and `phone_read_image`, which sends `files.image` and returns `{ contentType, data }` with base64 data. The screens never pass a path to the bridge for an upload.
+
+### 6.5 Demo-server forwarding
 
 - The phone sends a port from the registered demo-server list. The desktop checks the active list; any other port is refused. The forward handler checks the paired device list like the app handler.
 - The handshake is two big-endian port bytes from the phone, then one status byte from the computer: `0` open, `1` refused, `2` approved but nothing listens. The bytes are defined in `link/src/forward.rs` and the statuses are shared.
@@ -640,7 +653,7 @@ Account keys never cross the link. The existing account response omits them.
 | `phone-shell/ui/src/demo.ts` | Session server selection and the listener state of each row. |
 | `phone-shell/ui/src/app.ts` | The demo-server list on the session screen, with the local and tailnet addresses, state and Open action. |
 
-### 6.5 Logging and storage
+### 6.6 Logging and storage
 
 Never log:
 
@@ -669,7 +682,7 @@ Each step ends with an end-to-end test.
 | 4. App connection and session RPC | **Implemented.** `hello` and `welcome`, unary dispatch through the local router, event, output and history streams with sequence replay, phone link client, shell connection manager and live session screens. Files: `link/src/app.rs`, `link/src/reconnect.rs`, `link/src/client.rs`, `core/src/link/app.rs`, `phone-shell/src-tauri/src/commands.rs`, `phone-shell/ui/src/app.ts`, `live.ts`, `bridge.ts`, `messages.ts`. | **Implemented.** Rust integration with two real loopback endpoints: welcome, a unary call, a denied method, an event, output replay and live output, history replay and live versions, live revocation with close code 3, and reconnect delays on a fake clock. The link client test opens a history stream, reads the status, the streamed version and the final version. The phone shell has UI tests for the live list, output merge, history merge, replay after reconnect, item parsing and tool row expansion, and Rust tests for channels and terminal errors. The browser phone layout still runs against the core; Playwright cannot drive the native bridge without a device. |
 | 5. UI package build and delivery | Vite phone config, packaging script, manifest, download, hash check, safe unzip, custom protocol serving, version gates. Files: `app/vite.phone.config.ts`, `scripts/package-phone-ui.mjs`, `core/src/link/ui.rs`, `phone-shell/src/`. | Node test: deterministic zip and matching hash. Rust test: hash mismatch rejected, traversal zip rejected, oversize rejected, atomic swap. Android: first download, desktop upgrade then phone update on connect, offline restart uses the stored build. |
 | 6. Reconnect and revocation | **Implemented in part.** Backoff, output resume and the revocation close code exist. Network change and foreground reconnect controls remain. Files: `link/src/reconnect.rs`, `phone-shell/src-tauri/src/commands.rs`. | **Implemented in part.** Rust tests cover the backoff sequence on a fake clock, output replay from a requested sequence and close code 3. The shell subscription stores the last sequence and reopens from it after a reconnect. A full reconnect test on a device remains. |
-| 7. Mobile actions | **Implemented in part:** terminal input with the key rail, latches, held-key repeat and saved keys; start, close, AI config switch and usage panel; permission, question and session-request cards; the one-line input in the browser phone layout; and the structured message view with the history stream on both phone surfaces. **Remaining:** upload, files, images and diffs. Files: `core/src/link/`, `link/src/method.rs`, `app/src/phone/`, `phone-shell/ui/`. | **Run:** link tests for the allowlist and the config route, a core loopback test for input and config switch, a core loopback test for history replay and live versions, phone shell UI tests for key encoding, latches, saved keys, action rules, history merge, replay after reconnect and tool row expansion, app tests for the message view states, and a Playwright test for the browser phone layout with recorded hook events. **Not run:** a device or emulator. Upload, file and image tests remain. |
+| 7. Mobile actions | **Implemented:** terminal input with the key rail, latches, held-key repeat and saved keys; start, close, AI config switch and usage panel; permission, question and session-request cards; the one-line input in the browser phone layout; the structured message view with the history stream on both phone surfaces; and upload, the file list, text and image previews and the diff view on both phone surfaces. Files: `core/src/link/`, `core/src/files.rs`, `core/src/api.rs`, `link/src/method.rs`, `app/src/phone/`, `phone-shell/ui/`, `phone-shell/src-tauri/src/commands.rs`. | **Run:** link tests for the allowlist and the framed upload and image bodies; core tests for upload limits, name cleaning, no overwrite, private modes, a refused oversized frame, image confinement and content type and diff data; a core loopback test for upload and image; phone shell tests for key encoding, latches, saved keys, action rules, history merge, replay after reconnect, upload state, image view and diff rows; app tests for the message view states and the shared file helpers; and a Playwright test for the browser phone layout with files, an image, an upload and the diff. **Not run:** a device or emulator. The native picker, QR scan and on-device image render need a device. |
 | 8. Demo forwarding | **Implemented on the computer and the phone shell.** Forward ALPN, registered-port check, loopback connect, one tunnel per port, teardown. On the phone: loopback listener, same-or-free port choice, 8-tunnel registry, socket bridge, session list with local address, state and Open. Files: `link/src/forward.rs`, `link/src/client.rs`, `core/src/link/forward.rs`, `core/src/link/hub.rs`, `core/src/api.rs`, `core/src/demo.rs`, `core/src/mcp.rs`, `phone-shell/src-tauri/src/forward.rs`, `phone-shell/src-tauri/src/commands.rs`, `phone-shell/ui/src/demo.ts`, `phone-shell/ui/src/app.ts`, `phone-shell/ui/src/bridge.ts`. | **Run:** the link-crate forward tests, the core loopback test that registers a port, fetches a local HTTP server through the tunnel, refuses an unregistered port and refuses an unpaired phone, and the phone shell tests for port choice, refusal and a bridged socket. **Not run:** a device or emulator build, the phone's browser handoff, and any background behavior. |
 | 9. CI and release | Android job with JDK, SDK, NDK and Rust targets. Shell version and APK artifact. Signing secrets. Path filters. | CI builds the APK on a phone-shell change, runs the Rust and JS tests, and uploads the artifact. Install the artifact on a device and check the version screen. |
 
@@ -732,16 +745,26 @@ Checks run on macOS with no Android or iOS SDK:
 | `phone-shell/ui/src/combo.ts` | A filterable asynchronous combo box with keyboard and screen-reader support. |
 | `phone-shell/test/keys.test.mjs` | Key encoding, agent merge, latches, repeat rules and saved keys. |
 | `phone-shell/test/actions.test.mjs` | Switch choices, start request, usage text and pending cards. |
-| `e2e/26-phone-actions.spec.ts` | The browser phone layout: input, rail toggle, latches, usage, switch, start and close. |
+| `core/src/files.rs` | Upload name cleaning, no-overwrite storage with private modes, the image read and the signature check, with unit tests. |
+| `core/src/api.rs` | The upload and image routes, the content-type exception, the percent-decoded name and the error mapping. |
+| `core/tests/api.rs` | Upload cleaning, no overwrite, private modes, the input line, the closed-session refusal, the size cap, and image confinement, type and traversal. |
+| `core/tests/link.rs` | A paired phone uploads twice, reads the image bytes and type, and is refused an oversized frame, a text image and a traversal path. |
+| `link/src/framing.rs`, `link/src/limits.rs` | Binary request and response body round trips, and the shared image cap. |
+| `app/src/phone/files.ts`, `files.test.ts` | Image name test, path helpers, diff line kinds, change totals and size text, shared by both phone surfaces. |
+| `app/src/phone/SessionFiles.tsx` | The browser layout's Files and Changes panels, upload input, image and text preview, and the diff rows. |
+| `phone-shell/ui/src/files.ts`, `phone-shell/test/files.test.mjs` | Upload failure keys, image data URLs and diff rows for the shell. |
+| `phone-shell/src-tauri/src/commands.rs` | `phone_pick_upload` and `phone_read_image`, the picked-file size check and its tests. |
+| `e2e/30-phone-files.spec.ts` | The browser phone layout: file list, image preview, text preview, upload notice and diff rows. |
 
 Checks run on macOS with no Android or iOS SDK:
 
-- `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings` and `cargo test` in `link/`: 79 tests pass.
-- The same three in `core/`: all tests pass, including the phone input and config checks in `core/tests/link.rs`.
-- The same three in `phone-shell/src-tauri/`: 7 Rust tests pass.
-- `npm --prefix phone-shell run test`: 69 tests pass. `typecheck` and `build` pass.
+- `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings` and `cargo test` in `link/`: 82 tests pass, including the framed upload and image body tests.
+- The same three in `core/`: 386 tests pass (164 unit, 201 API, 8 GitHub, 13 link), including the phone input and config checks, the upload limits, names and no-overwrite rule, the image confinement and type checks and the diff data.
+- The same three in `phone-shell/src-tauri/`: 10 Rust tests pass, including the picked-file size and folder checks.
+- `npm --prefix app run test`: 235 tests pass, including the shared phone file helpers.
+- `npm --prefix phone-shell run test`: 85 tests pass, including the upload state, image data URL and diff row tests. `typecheck` and `build` pass.
 - `npm test`, `npm run typecheck` and `npm run build` at the root pass.
-- Playwright runs the browser phone layout at 390 width.
+- Playwright runs the browser phone layout at 390 width, including the file list, image and text previews, the upload notice and the diff rows.
 
 **Message view.** The core publishes a bounded structured history for each agent session. Claude Code items come from its hooks (`UserPromptSubmit`, `MessageDisplay`, `PreToolUse`, `PostToolUse`, `Stop`), Codex items from the app-server `item/*` notifications (`turn/completed` ends a streamed reply), and OpenCode 2 items from the local server's message records, polled with the permission poll. Antigravity has no structured source and stays terminal-only. An item update is a new version with a higher sequence and the same opaque id. The log holds at most 400 versions and 128 KiB per session, persisted in `state.json`, with session secrets removed. The link method `history.subscribe` replays from `after` and follows live versions.
 

@@ -38,6 +38,16 @@ pub(crate) fn create_private_file(path: &Path) -> io::Result<File> {
     Ok(file)
 }
 
+pub(crate) fn write_private_file_create_new(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    set_file_mode(&mut options);
+    let mut file = options.open(path)?;
+    set_file_permissions(&file)?;
+    file.write_all(bytes)?;
+    file.sync_all()
+}
+
 pub(crate) fn write_private_file_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let parent = path
         .parent()

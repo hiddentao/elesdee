@@ -184,7 +184,7 @@ The agents write their conversation to files on disk, and each keeps its own int
 - Browser shows a live view of the session's browser. Each session has its own browser context: separate tabs, cookies, storage and logins. The tab strip lists the session's own tabs. One address field opens a page, with Back, Forward, Reload and New tab controls. The view shows the latest screenshot and the panel shows a loading state while a page opens. While the browser binary downloads, the panel shows the step and the progress; a failed install shows the reason and a Retry action. Clicking or typing in the live view is not built yet.
 - Usage is not in this panel. Usage belongs to the computer and opens from the sidebar summary.
 - Not a main feature: the editor supports quick edits, not full IDE work.
-- Mac only for now. The phone does not have the file viewer and editor yet.
+- The phone has a read-only Files list with text and image previews, and the Changes view with file counts and diffs. Editing files and the browser stay on the Mac.
 
 ## Agent support, providers and AI configs
 
