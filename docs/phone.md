@@ -22,6 +22,8 @@ Tap a session to open it.
 
 The tab bar shows one session at a time. Scroll it sideways to move to the next session. The number button opens a sheet with every open session, grouped by **Waiting for you** and **Everything else**. The open session is marked.
 
+Swipe a row left to reveal **Close**. No matter how far you swipe, it stops at the button and does not close the tab. Tap **Close** to hide the tab. The session keeps running and appears again in the session list.
+
 ## Session view
 
 - The terminal is read-only on the phone.

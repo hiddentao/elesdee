@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from 'react';
 import {
   answerQuestion,
   approveSessionRequest,
@@ -45,6 +52,7 @@ export default function PhoneApp() {
   );
   const [filter, setFilter] = useState<Filter>('all');
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [dismissedTabs, setDismissedTabs] = useState<Set<string>>(new Set());
   const [languageSheetOpen, setLanguageSheetOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -113,8 +121,12 @@ export default function PhoneApp() {
   );
 
   const openSessions = useMemo(
-    () => sessions.filter((session) => session.status === 'active'),
-    [sessions],
+    () =>
+      sessions.filter(
+        (session) =>
+          session.status === 'active' && !dismissedTabs.has(session.id),
+      ),
+    [sessions, dismissedTabs],
   );
   const active = openSessions.find((session) => session.id === activeId) ?? null;
   const activeIndex = active
@@ -191,10 +203,39 @@ export default function PhoneApp() {
   }
 
   function selectSession(id: string) {
+    setDismissedTabs((current) => {
+      if (!current.has(id)) {
+        return current;
+      }
+      const next = new Set(current);
+      next.delete(id);
+      return next;
+    });
     setActiveId(id);
     setScreen('session');
     setSheetOpen(false);
     window.history.replaceState(null, '', `#session=${encodeURIComponent(id)}`);
+  }
+
+  function closeTab(id: string) {
+    setDismissedTabs((current) => new Set(current).add(id));
+    setSheetOpen(false);
+    if (id !== activeId) {
+      return;
+    }
+    const next = openSessions.find((session) => session.id !== id);
+    if (next) {
+      setActiveId(next.id);
+      window.history.replaceState(
+        null,
+        '',
+        `#session=${encodeURIComponent(next.id)}`,
+      );
+      return;
+    }
+    setActiveId(null);
+    setScreen('list');
+    window.history.replaceState(null, '', window.location.pathname);
   }
 
   function showList() {
@@ -443,6 +484,7 @@ export default function PhoneApp() {
                         session={session}
                         active={session.id === activeId}
                         onSelect={selectSession}
+                        onClose={closeTab}
                         t={t}
                       />
                     ))}
@@ -459,6 +501,7 @@ export default function PhoneApp() {
                       session={session}
                       active={session.id === activeId}
                       onSelect={selectSession}
+                      onClose={closeTab}
                       t={t}
                     />
                   ))}
@@ -620,31 +663,131 @@ function SessionRow({
   );
 }
 
+const SWIPE_ACTION_WIDTH = 92;
+
 function SheetRow({
   session,
   active,
   onSelect,
+  onClose,
   t,
 }: {
   session: Session;
   active: boolean;
   onSelect: (id: string) => void;
+  onClose: (id: string) => void;
   t: Translate;
 }) {
+  const [offset, setOffset] = useState(0);
+  const gesture = useRef<{
+    startX: number;
+    startY: number;
+    startOffset: number;
+    horizontal: boolean;
+  } | null>(null);
+  const suppressClick = useRef(false);
+
+  function handlePointerDown(event: ReactPointerEvent<HTMLButtonElement>) {
+    if (event.pointerType === 'mouse' && event.button !== 0) {
+      return;
+    }
+    gesture.current = {
+      startX: event.clientX,
+      startY: event.clientY,
+      startOffset: offset,
+      horizontal: false,
+    };
+  }
+
+  function handlePointerMove(event: ReactPointerEvent<HTMLButtonElement>) {
+    const current = gesture.current;
+    if (!current) {
+      return;
+    }
+    const dx = event.clientX - current.startX;
+    const dy = event.clientY - current.startY;
+    if (!current.horizontal) {
+      if (Math.abs(dx) < 8) {
+        return;
+      }
+      if (Math.abs(dx) <= Math.abs(dy)) {
+        gesture.current = null;
+        return;
+      }
+      current.horizontal = true;
+      event.currentTarget.setPointerCapture(event.pointerId);
+    }
+    setOffset(
+      Math.min(
+        0,
+        Math.max(-SWIPE_ACTION_WIDTH, current.startOffset + dx),
+      ),
+    );
+  }
+
+  function handlePointerEnd(event: ReactPointerEvent<HTMLButtonElement>) {
+    const current = gesture.current;
+    gesture.current = null;
+    if (!current?.horizontal) {
+      return;
+    }
+    suppressClick.current = true;
+    const dx = event.clientX - current.startX;
+    const final = Math.min(
+      0,
+      Math.max(-SWIPE_ACTION_WIDTH, current.startOffset + dx),
+    );
+    setOffset(final <= -SWIPE_ACTION_WIDTH / 2 ? -SWIPE_ACTION_WIDTH : 0);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  }
+
+  function handleClick() {
+    if (suppressClick.current) {
+      suppressClick.current = false;
+      return;
+    }
+    if (offset < 0) {
+      setOffset(0);
+      return;
+    }
+    onSelect(session.id);
+  }
+
   return (
-    <button
-      type="button"
-      className={active ? 'phone-sheet-row is-on' : 'phone-sheet-row'}
-      onClick={() => onSelect(session.id)}
-    >
-      <span className="phone-sheet-row-name">{session.name}</span>
-      <span className="phone-sheet-row-meta">
-        {active
-          ? t('phone.open')
-          : isWaiting(session)
-            ? t('status.waiting')
-            : workLabel(session, t) ?? t('status.active')}
-      </span>
-    </button>
+    <div className="phone-swipe-row">
+      <button
+        type="button"
+        className="phone-swipe-close"
+        onFocus={() => setOffset(-SWIPE_ACTION_WIDTH)}
+        onClick={() => onClose(session.id)}
+        aria-label={t('phone.closeTabLabel', { name: session.name })}
+      >
+        <span className="phone-swipe-x" aria-hidden="true">
+          ×
+        </span>
+        <span>{t('common.close')}</span>
+      </button>
+      <button
+        type="button"
+        className={active ? 'phone-sheet-row is-on' : 'phone-sheet-row'}
+        style={{ transform: `translateX(${offset}px)` }}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerEnd}
+        onPointerCancel={handlePointerEnd}
+        onClick={handleClick}
+      >
+        <span className="phone-sheet-row-name">{session.name}</span>
+        <span className="phone-sheet-row-meta">
+          {active
+            ? t('phone.open')
+            : isWaiting(session)
+              ? t('status.waiting')
+              : workLabel(session, t) ?? t('status.active')}
+        </span>
+      </button>
+    </div>
   );
 }

@@ -475,6 +475,7 @@ export const pl = {
   'phone.noSessions': 'Brak sesji.',
   'phone.allTabsLabel': 'Wszystkie karty, {count}',
   'phone.closeTabs': 'Zamknij karty',
+  'phone.closeTabLabel': 'Zamknij kartę, {name}',
   'phone.sheetAllTabs': 'Wszystkie karty',
   'phone.sheetTitleOne': 'Karta: {count}',
   'phone.sheetTitleMany': 'Karty: {count}',

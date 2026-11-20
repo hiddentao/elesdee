@@ -285,7 +285,42 @@ body {
   line-height: 1.45;
 }
 
+.phone-swipe-row {
+  position: relative;
+  overflow: hidden;
+  border-bottom: 1px solid var(--border);
+}
+
+.phone-swipe-close {
+  position: absolute;
+  inset: 0 0 0 auto;
+  display: flex;
+  width: 92px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  border: 0;
+  background: #d93a3a;
+  color: #fff;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.phone-swipe-close:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: -4px;
+}
+
+.phone-swipe-x {
+  font-size: 20px;
+  line-height: 1;
+}
+
 .phone-sheet-row {
+  position: relative;
+  z-index: 1;
   display: flex;
   width: 100%;
   align-items: center;
@@ -293,9 +328,10 @@ body {
   gap: 12px;
   padding: 11px 8px;
   border: 0;
-  border-bottom: 1px solid var(--border);
-  background: transparent;
+  background: var(--surface-2);
   text-align: left;
+  touch-action: pan-y;
+  transition: transform 160ms ease;
 }
 
 .phone-sheet-row.is-on {

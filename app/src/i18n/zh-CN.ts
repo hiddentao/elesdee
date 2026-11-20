@@ -437,6 +437,7 @@ export const zhCN = {
   'phone.noSessions': '暂无会话。',
   'phone.allTabsLabel': '所有标签页，{count}',
   'phone.closeTabs': '关闭标签页',
+  'phone.closeTabLabel': '关闭标签页，{name}',
   'phone.sheetAllTabs': '所有标签页',
   'phone.sheetTitleOne': '{count} 个标签页',
   'phone.sheetTitleMany': '{count} 个标签页',

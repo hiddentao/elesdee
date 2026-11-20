@@ -471,6 +471,7 @@ export const ja = {
   'phone.noSessions': 'セッションはまだありません。',
   'phone.allTabsLabel': 'すべてのタブ、{count}',
   'phone.closeTabs': 'タブを閉じる',
+  'phone.closeTabLabel': 'タブを閉じる、{name}',
   'phone.sheetAllTabs': 'すべてのタブ',
   'phone.sheetTitleOne': '{count} 個のタブ',
   'phone.sheetTitleMany': '{count} 個のタブ',

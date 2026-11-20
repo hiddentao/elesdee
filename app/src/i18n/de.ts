@@ -470,6 +470,7 @@ export const de = {
   'phone.noSessions': 'Noch keine Sitzungen.',
   'phone.allTabsLabel': 'Alle Tabs, {count}',
   'phone.closeTabs': 'Tabs schließen',
+  'phone.closeTabLabel': 'Tab schließen, {name}',
   'phone.sheetAllTabs': 'Alle Tabs',
   'phone.sheetTitleOne': '{count} Tab',
   'phone.sheetTitleMany': '{count} Tabs',

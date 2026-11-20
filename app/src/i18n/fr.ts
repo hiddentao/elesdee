@@ -475,6 +475,7 @@ export const fr = {
   'phone.noSessions': 'Aucune session pour l’instant.',
   'phone.allTabsLabel': 'Tous les onglets, {count}',
   'phone.closeTabs': 'Fermer les onglets',
+  'phone.closeTabLabel': 'Fermer l’onglet, {name}',
   'phone.sheetAllTabs': 'Tous les onglets',
   'phone.sheetTitleOne': '{count} onglet',
   'phone.sheetTitleMany': '{count} onglets',

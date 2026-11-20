@@ -450,6 +450,7 @@ export const en = {
   'phone.noSessions': 'No sessions yet.',
   'phone.allTabsLabel': 'All tabs, {count}',
   'phone.closeTabs': 'Close tabs',
+  'phone.closeTabLabel': 'Close tab, {name}',
   'phone.sheetAllTabs': 'All tabs',
   'phone.sheetTitleOne': '{count} tab',
   'phone.sheetTitleMany': '{count} tabs',

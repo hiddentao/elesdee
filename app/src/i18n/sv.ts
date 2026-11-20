@@ -474,6 +474,7 @@ export const sv = {
   'phone.noSessions': 'Inga sessioner ännu.',
   'phone.allTabsLabel': 'Alla flikar, {count}',
   'phone.closeTabs': 'Stäng flikar',
+  'phone.closeTabLabel': 'Stäng fliken, {name}',
   'phone.sheetAllTabs': 'Alla flikar',
   'phone.sheetTitleOne': '{count} flik',
   'phone.sheetTitleMany': '{count} flikar',

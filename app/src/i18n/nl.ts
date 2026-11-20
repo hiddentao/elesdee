@@ -472,6 +472,7 @@ export const nl = {
   'phone.noSessions': 'Nog geen sessies.',
   'phone.allTabsLabel': 'Alle tabbladen, {count}',
   'phone.closeTabs': 'Tabbladen sluiten',
+  'phone.closeTabLabel': 'Tab sluiten, {name}',
   'phone.sheetAllTabs': 'Alle tabbladen',
   'phone.sheetTitleOne': '{count} tabblad',
   'phone.sheetTitleMany': '{count} tabbladen',

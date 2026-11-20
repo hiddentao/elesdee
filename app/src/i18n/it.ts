@@ -475,6 +475,7 @@ export const it = {
   'phone.noSessions': 'Nessuna sessione per ora.',
   'phone.allTabsLabel': 'Tutte le schede, {count}',
   'phone.closeTabs': 'Chiudi schede',
+  'phone.closeTabLabel': 'Chiudi scheda, {name}',
   'phone.sheetAllTabs': 'Tutte le schede',
   'phone.sheetTitleOne': '{count} scheda',
   'phone.sheetTitleMany': '{count} schede',

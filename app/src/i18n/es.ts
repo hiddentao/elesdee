@@ -475,6 +475,7 @@ export const es = {
   'phone.noSessions': 'Aún no hay sesiones.',
   'phone.allTabsLabel': 'Todas las pestañas, {count}',
   'phone.closeTabs': 'Cerrar pestañas',
+  'phone.closeTabLabel': 'Cerrar pestaña, {name}',
   'phone.sheetAllTabs': 'Todas las pestañas',
   'phone.sheetTitleOne': '{count} pestaña',
   'phone.sheetTitleMany': '{count} pestañas',

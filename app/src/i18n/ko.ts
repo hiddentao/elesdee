@@ -476,6 +476,7 @@ export const ko = {
   'phone.noSessions': '아직 세션이 없습니다.',
   'phone.allTabsLabel': '모든 탭, {count}',
   'phone.closeTabs': '탭 닫기',
+  'phone.closeTabLabel': '탭 닫기, {name}',
   'phone.sheetAllTabs': '모든 탭',
   'phone.sheetTitleOne': '탭 {count}개',
   'phone.sheetTitleMany': '탭 {count}개',

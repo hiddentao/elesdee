@@ -479,6 +479,7 @@ export const ptBR = {
   'phone.noSessions': 'Nenhuma sessão ainda.',
   'phone.allTabsLabel': 'Todas as abas, {count}',
   'phone.closeTabs': 'Fechar abas',
+  'phone.closeTabLabel': 'Fechar aba, {name}',
   'phone.sheetAllTabs': 'Todas as abas',
   'phone.sheetTitleOne': '{count} aba',
   'phone.sheetTitleMany': '{count} abas',
