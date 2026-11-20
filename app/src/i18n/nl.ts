@@ -139,6 +139,57 @@ export const nl = {
   'settings.languageLabel': 'Interfacetaal',
   'settings.languageNote':
     'De taal van de app. Datums en getallen volgen die ook.',
+  'settings.general': 'Algemeen',
+  'settings.devices': 'Apparaten',
+  'settings.diagnostics': 'Diagnostiek',
+  'settings.generalNote': 'Deze opties gelden voor deze computer.',
+
+  'general.startAtLogin': 'elesdee starten bij het opstarten van het systeem',
+  'general.startAtLoginNote':
+    'elesdee start op de achtergrond en hervat sessies. Het venster opent wanneer je op de app klikt.',
+  'general.keepAwake':
+    'De computer wakker houden terwijl agents werken',
+  'general.keepAwakeNote':
+    'Zolang een agentsessie loopt, gaat de computer niet slapen, zodat de telefoon verbonden blijft.',
+  'general.startAtLoginRefused':
+    'Deze computer heeft de wijziging niet geaccepteerd: {message}',
+  'general.startAtLoginMismatch':
+    'Deze computer meldt een andere status voor starten bij het opstarten van het systeem.',
+  'general.keepAwakeRefused': 'De computer bleef niet wakker: {message}',
+  'general.keepAwakeIdle':
+    'De computer blijft wakker zolang een agentsessie loopt.',
+  'general.keepAwakeActive':
+    'De computer blijft wakker terwijl agents werken.',
+  'general.saveError': 'De instelling kon niet worden opgeslagen.',
+
+  'devices.note':
+    'Telefoons die met deze computer zijn gekoppeld. Verwijder een telefoon om de toegang meteen in te trekken.',
+  'devices.empty': 'Er is geen telefoon gekoppeld.',
+  'devices.emptyHint':
+    'Open de telefoonapp en scan de koppelcode die de desktopapp toont. De telefoon verschijnt dan hier.',
+  'devices.loading': 'Telefoons laden…',
+  'devices.loadError': 'De gekoppelde telefoons konden niet worden geladen.',
+  'devices.connected': 'Verbonden',
+  'devices.disconnected': 'Niet verbonden',
+  'devices.lastSeen': 'Laatst gezien {time}',
+  'devices.neverSeen': 'Nooit verbonden',
+  'devices.remove': '{name} verwijderen',
+  'devices.removeTitle': 'Telefoon verwijderen',
+  'devices.removeText':
+    '{name} verwijderen? De telefoon verliest meteen toegang tot deze computer.',
+  'devices.removeConfirm': 'Telefoon verwijderen',
+  'devices.removing': 'Verwijderen…',
+  'devices.removeError': 'De telefoon kon niet worden verwijderd.',
+
+  'diagnostics.note':
+    'Het pakket bevat de app-versie, systeemgegevens van deze computer en de recente logregels.',
+  'diagnostics.redaction':
+    'Sleutels, koppelgeheimen, tickets, inloggegevens van agents en sessie-inhoud worden verwijderd.',
+  'diagnostics.export': 'Diagnostiek exporteren',
+  'diagnostics.exporting': 'Exporteren…',
+  'diagnostics.exported': 'Opgeslagen in {path}',
+  'diagnostics.exportError':
+    'De diagnostiek kon niet worden geëxporteerd.',
 
   'addAccount.title': 'Account toevoegen',
   'addAccount.subtitle':

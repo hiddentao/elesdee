@@ -32,3 +32,21 @@ export async function pickFolder(): Promise<string | null> {
   const result = await open({ directory: true, multiple: false });
   return typeof result === 'string' ? result : null;
 }
+
+export interface StartAtLoginState {
+  enabled: boolean;
+}
+
+export function getStartAtLogin(): Promise<StartAtLoginState> {
+  return invoke<StartAtLoginState>('get_start_at_login');
+}
+
+export function setStartAtLogin(
+  enabled: boolean,
+): Promise<StartAtLoginState> {
+  return invoke<StartAtLoginState>('set_start_at_login', { enabled });
+}
+
+export function setKeepAwake(enabled: boolean): Promise<boolean> {
+  return invoke<boolean>('set_keep_awake', { enabled });
+}

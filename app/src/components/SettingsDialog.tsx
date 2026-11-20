@@ -1,17 +1,20 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ApiError } from '../api/client';
 import type {
   AiConfig,
+  AppSettings,
   CreateConfigInput,
   CreateProviderInput,
+  PairedDevice,
   Provider,
   ProviderOption,
   ProviderSignIn,
+  SettingsPatch,
   StartProviderSignInInput,
   UpdateConfigInput,
   UpdateProviderInput,
 } from '../api/types';
-import { LANGUAGES, type Language } from '../i18n';
+import { formatDateTime, LANGUAGES, type Language } from '../i18n';
 import { useLanguage } from '../i18n/LanguageProvider';
 import { providerUsage } from '../state/usage';
 import { AiConfigDialog } from './AiConfigDialog';
@@ -19,22 +22,37 @@ import { Dialog } from './Dialog';
 import { ProviderDialog } from './ProviderDialog';
 import {
   CloseIcon,
+  DeviceIcon,
   GlobeIcon,
   LayersIcon,
   PencilIcon,
   PlusIcon,
+  PowerIcon,
   PresetIcon,
   SparkIcon,
   TrashIcon,
+  WrenchIcon,
 } from './icons';
 
-type SettingsSection = 'providers' | 'configs' | 'languages' | 'about';
+type SettingsSection =
+  | 'general'
+  | 'providers'
+  | 'configs'
+  | 'languages'
+  | 'devices'
+  | 'diagnostics'
+  | 'about';
 
 interface SettingsDialogProps {
   providers: Provider[];
   configs: AiConfig[];
   options: ProviderOption[];
   version: string | null;
+  settings: AppSettings;
+  startAtLoginActual: boolean | null;
+  startAtLoginError: string | null;
+  keepAwakeActive: boolean | null;
+  keepAwakeError: string | null;
   onCreateProvider: (input: CreateProviderInput) => Promise<Provider>;
   onUpdateProvider: (
     id: string,
@@ -58,6 +76,10 @@ interface SettingsDialogProps {
   onDeleteConfig: (id: string) => Promise<void>;
   onProviderSaved: (provider: Provider) => void;
   onConfigSaved: (config: AiConfig) => void;
+  onChangeSettings: (patch: SettingsPatch) => Promise<void>;
+  onLoadDevices: () => Promise<PairedDevice[]>;
+  onRemoveDevice: (endpointId: string) => Promise<void>;
+  onExportDiagnostics: () => Promise<string | null>;
   onClose: () => void;
 }
 
@@ -66,6 +88,11 @@ export function SettingsDialog({
   configs,
   options,
   version,
+  settings,
+  startAtLoginActual,
+  startAtLoginError,
+  keepAwakeActive,
+  keepAwakeError,
   onCreateProvider,
   onUpdateProvider,
   onRemoveProvider,
@@ -78,10 +105,30 @@ export function SettingsDialog({
   onDeleteConfig,
   onProviderSaved,
   onConfigSaved,
+  onChangeSettings,
+  onLoadDevices,
+  onRemoveDevice,
+  onExportDiagnostics,
   onClose,
 }: SettingsDialogProps) {
   const { t, language, setLanguage } = useLanguage();
   const [section, setSection] = useState<SettingsSection>('providers');
+  const [savingSettings, setSavingSettings] = useState(false);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
+  const [devices, setDevices] = useState<PairedDevice[]>([]);
+  const [devicesState, setDevicesState] = useState<
+    'idle' | 'loading' | 'ready' | 'error'
+  >('idle');
+  const [deviceAttempt, setDeviceAttempt] = useState(0);
+  const [removeDeviceTarget, setRemoveDeviceTarget] =
+    useState<PairedDevice | null>(null);
+  const [removingDevice, setRemovingDevice] = useState(false);
+  const [removeDeviceError, setRemoveDeviceError] = useState<string | null>(
+    null,
+  );
+  const [exporting, setExporting] = useState(false);
+  const [exportPath, setExportPath] = useState<string | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
   const [addProviderOpen, setAddProviderOpen] = useState(false);
   const [editProvider, setEditProvider] = useState<Provider | null>(null);
   const [removeProviderTarget, setRemoveProviderTarget] =
@@ -121,6 +168,92 @@ export function SettingsDialog({
     }
   }
 
+  useEffect(() => {
+    if (section !== 'devices') {
+      return;
+    }
+    let cancelled = false;
+    const refresh = async (initial: boolean) => {
+      if (initial) {
+        setDevicesState('loading');
+      }
+      try {
+        const list = await onLoadDevices();
+        if (!cancelled) {
+          setDevices(list);
+          setDevicesState('ready');
+        }
+      } catch {
+        if (!cancelled && initial) {
+          setDevicesState('error');
+        }
+      }
+    };
+    void refresh(true);
+    const timer = window.setInterval(() => void refresh(false), 2000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [section, onLoadDevices, deviceAttempt]);
+
+  async function changeSetting(patch: SettingsPatch) {
+    setSavingSettings(true);
+    setSettingsError(null);
+    try {
+      await onChangeSettings(patch);
+    } catch (error) {
+      setSettingsError(
+        error instanceof ApiError ? error.message : t('general.saveError'),
+      );
+    } finally {
+      setSavingSettings(false);
+    }
+  }
+
+  async function confirmRemoveDevice() {
+    if (!removeDeviceTarget) {
+      return;
+    }
+    setRemovingDevice(true);
+    setRemoveDeviceError(null);
+    try {
+      await onRemoveDevice(removeDeviceTarget.endpointId);
+      setDevices((current) =>
+        current.filter(
+          (device) => device.endpointId !== removeDeviceTarget.endpointId,
+        ),
+      );
+      setRemoveDeviceTarget(null);
+    } catch (error) {
+      setRemoveDeviceError(
+        error instanceof ApiError ? error.message : t('devices.removeError'),
+      );
+    } finally {
+      setRemovingDevice(false);
+    }
+  }
+
+  async function runExport() {
+    setExporting(true);
+    setExportError(null);
+    setExportPath(null);
+    try {
+      const path = await onExportDiagnostics();
+      if (path) {
+        setExportPath(path);
+      }
+    } catch (error) {
+      setExportError(
+        error instanceof ApiError
+          ? error.message
+          : t('diagnostics.exportError'),
+      );
+    } finally {
+      setExporting(false);
+    }
+  }
+
   async function confirmDeleteConfig() {
     if (!deleteConfigTarget) {
       return;
@@ -144,7 +277,8 @@ export function SettingsDialog({
     editProvider !== null ||
     removeProviderTarget !== null ||
     configEditor !== undefined ||
-    deleteConfigTarget !== null;
+    deleteConfigTarget !== null ||
+    removeDeviceTarget !== null;
 
   return (
     <>
@@ -177,6 +311,19 @@ export function SettingsDialog({
 
         <div className="settings-page-body">
           <nav className="settings-nav" aria-label={t('settings.sections')}>
+            <button
+              type="button"
+              className={
+                section === 'general'
+                  ? 'settings-nav-item is-on'
+                  : 'settings-nav-item'
+              }
+              aria-current={section === 'general' ? 'page' : undefined}
+              onClick={() => setSection('general')}
+            >
+              <PowerIcon />
+              <span>{t('settings.general')}</span>
+            </button>
             <button
               type="button"
               className={
@@ -219,6 +366,32 @@ export function SettingsDialog({
             <button
               type="button"
               className={
+                section === 'devices'
+                  ? 'settings-nav-item is-on'
+                  : 'settings-nav-item'
+              }
+              aria-current={section === 'devices' ? 'page' : undefined}
+              onClick={() => setSection('devices')}
+            >
+              <DeviceIcon />
+              <span>{t('settings.devices')}</span>
+            </button>
+            <button
+              type="button"
+              className={
+                section === 'diagnostics'
+                  ? 'settings-nav-item is-on'
+                  : 'settings-nav-item'
+              }
+              aria-current={section === 'diagnostics' ? 'page' : undefined}
+              onClick={() => setSection('diagnostics')}
+            >
+              <WrenchIcon />
+              <span>{t('settings.diagnostics')}</span>
+            </button>
+            <button
+              type="button"
+              className={
                 section === 'about'
                   ? 'settings-nav-item is-on'
                   : 'settings-nav-item'
@@ -237,7 +410,124 @@ export function SettingsDialog({
           </nav>
 
           <div className="settings-content">
-            {section === 'providers' ? (
+            {section === 'general' ? (
+              <section
+                className="settings-section"
+                aria-labelledby="settings-general-title"
+              >
+                <h3
+                  className="settings-section-title"
+                  id="settings-general-title"
+                >
+                  {t('settings.general')}
+                </h3>
+                <p className="settings-section-note">
+                  {t('settings.generalNote')}
+                </p>
+
+                <div className="settings-toggle-row">
+                  <div className="settings-toggle-text">
+                    <span
+                      className="settings-toggle-label"
+                      id="general-start-label"
+                    >
+                      {t('general.startAtLogin')}
+                    </span>
+                    <p
+                      className="settings-toggle-note"
+                      id="general-start-note"
+                    >
+                      {t('general.startAtLoginNote')}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    className={
+                      settings.startAtLogin
+                        ? 'settings-switch is-on'
+                        : 'settings-switch'
+                    }
+                    aria-checked={settings.startAtLogin}
+                    aria-labelledby="general-start-label"
+                    aria-describedby="general-start-note"
+                    disabled={savingSettings}
+                    onClick={() =>
+                      void changeSetting({
+                        startAtLogin: !settings.startAtLogin,
+                      })
+                    }
+                  >
+                    <span className="settings-switch-thumb" />
+                  </button>
+                </div>
+                {startAtLoginError ? (
+                  <p className="form-error" role="alert">
+                    {t('general.startAtLoginRefused', {
+                      message: startAtLoginError,
+                    })}
+                  </p>
+                ) : startAtLoginActual !== null &&
+                  startAtLoginActual !== settings.startAtLogin ? (
+                  <p className="settings-status is-warn" role="status">
+                    {t('general.startAtLoginMismatch')}
+                  </p>
+                ) : null}
+
+                <div className="settings-toggle-row">
+                  <div className="settings-toggle-text">
+                    <span
+                      className="settings-toggle-label"
+                      id="general-awake-label"
+                    >
+                      {t('general.keepAwake')}
+                    </span>
+                    <p
+                      className="settings-toggle-note"
+                      id="general-awake-note"
+                    >
+                      {t('general.keepAwakeNote')}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    className={
+                      settings.keepAwake
+                        ? 'settings-switch is-on'
+                        : 'settings-switch'
+                    }
+                    aria-checked={settings.keepAwake}
+                    aria-labelledby="general-awake-label"
+                    aria-describedby="general-awake-note"
+                    disabled={savingSettings}
+                    onClick={() =>
+                      void changeSetting({ keepAwake: !settings.keepAwake })
+                    }
+                  >
+                    <span className="settings-switch-thumb" />
+                  </button>
+                </div>
+                {keepAwakeError ? (
+                  <p className="form-error" role="alert">
+                    {t('general.keepAwakeRefused', {
+                      message: keepAwakeError,
+                    })}
+                  </p>
+                ) : settings.keepAwake ? (
+                  <p className="settings-status" role="status">
+                    {keepAwakeActive
+                      ? t('general.keepAwakeActive')
+                      : t('general.keepAwakeIdle')}
+                  </p>
+                ) : null}
+                {settingsError ? (
+                  <p className="form-error" role="alert">
+                    {settingsError}
+                  </p>
+                ) : null}
+              </section>
+            ) : section === 'providers' ? (
               <section
                 className="settings-section"
                 aria-labelledby="settings-providers-title"
@@ -500,6 +790,132 @@ export function SettingsDialog({
                   <p className="field-hint">{t('settings.languageNote')}</p>
                 </div>
               </section>
+            ) : section === 'devices' ? (
+              <section
+                className="settings-section"
+                aria-labelledby="settings-devices-title"
+              >
+                <h3
+                  className="settings-section-title"
+                  id="settings-devices-title"
+                >
+                  {t('settings.devices')}
+                </h3>
+                <p className="settings-section-note">{t('devices.note')}</p>
+
+                {devicesState === 'loading' ? (
+                  <p className="settings-empty">{t('devices.loading')}</p>
+                ) : devicesState === 'error' ? (
+                  <div className="settings-empty">
+                    <p className="form-error" role="alert">
+                      {t('devices.loadError')}
+                    </p>
+                    <button
+                      type="button"
+                      className="btn btn-ghost"
+                      onClick={() => setDeviceAttempt((count) => count + 1)}
+                    >
+                      {t('common.retry')}
+                    </button>
+                  </div>
+                ) : devices.length === 0 ? (
+                  <div className="settings-empty">
+                    <p>{t('devices.empty')}</p>
+                    <p className="settings-empty-hint">
+                      {t('devices.emptyHint')}
+                    </p>
+                  </div>
+                ) : (
+                  <ul className="settings-accounts">
+                    {devices.map((device) => {
+                      const seen = formatDateTime(language, device.lastSeen);
+                      return (
+                        <li key={device.endpointId} className="settings-account">
+                          <div className="settings-account-main">
+                            <div className="settings-account-title">
+                              <span className="settings-account-name">
+                                {device.name}
+                              </span>
+                              <span
+                                className={
+                                  device.connected
+                                    ? 'device-state is-on'
+                                    : 'device-state'
+                                }
+                              >
+                                {device.connected
+                                  ? t('devices.connected')
+                                  : t('devices.disconnected')}
+                              </span>
+                            </div>
+                            <span className="settings-account-sub">
+                              {device.platform} ·{' '}
+                              {seen
+                                ? t('devices.lastSeen', { time: seen })
+                                : t('devices.neverSeen')}
+                            </span>
+                          </div>
+                          <div className="settings-account-actions">
+                            <button
+                              type="button"
+                              className="btn btn-ghost"
+                              aria-label={t('devices.remove', {
+                                name: device.name,
+                              })}
+                              onClick={() => {
+                                setRemoveDeviceError(null);
+                                setRemoveDeviceTarget(device);
+                              }}
+                            >
+                              <TrashIcon />
+                            </button>
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </section>
+            ) : section === 'diagnostics' ? (
+              <section
+                className="settings-section"
+                aria-labelledby="settings-diagnostics-title"
+              >
+                <h3
+                  className="settings-section-title"
+                  id="settings-diagnostics-title"
+                >
+                  {t('settings.diagnostics')}
+                </h3>
+                <p className="settings-section-note">
+                  {t('diagnostics.note')}
+                </p>
+                <p className="settings-section-note">
+                  {t('diagnostics.redaction')}
+                </p>
+                <div className="settings-actions">
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={() => void runExport()}
+                    disabled={exporting}
+                  >
+                    {exporting
+                      ? t('diagnostics.exporting')
+                      : t('diagnostics.export')}
+                  </button>
+                </div>
+                {exportPath ? (
+                  <p className="settings-status" role="status">
+                    {t('diagnostics.exported', { path: exportPath })}
+                  </p>
+                ) : null}
+                {exportError ? (
+                  <p className="form-error" role="alert">
+                    {exportError}
+                  </p>
+                ) : null}
+              </section>
             ) : (
               <section
                 className="settings-section"
@@ -601,6 +1017,52 @@ export function SettingsDialog({
               {removingProvider
                 ? t('removeAccount.removing')
                 : t('removeAccount.confirm')}
+            </button>
+          </div>
+        </Dialog>
+      ) : null}
+
+      {removeDeviceTarget ? (
+        <Dialog
+          titleId="remove-device-title"
+          descriptionId="remove-device-description"
+          busyLabel={t('devices.removing')}
+          onClose={() => setRemoveDeviceTarget(null)}
+          busy={removingDevice}
+        >
+          <div className="dialog-head">
+            <h2 className="dialog-title" id="remove-device-title">
+              {t('devices.removeTitle')}
+            </h2>
+            <p className="dialog-sub" id="remove-device-description">
+              {t('devices.removeText', { name: removeDeviceTarget.name })}
+            </p>
+          </div>
+          <div className="dialog-body">
+            {removeDeviceError ? (
+              <p className="form-error" role="alert">
+                {removeDeviceError}
+              </p>
+            ) : null}
+          </div>
+          <div className="dialog-foot">
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={() => setRemoveDeviceTarget(null)}
+              disabled={removingDevice}
+            >
+              {t('common.cancel')}
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => void confirmRemoveDevice()}
+              disabled={removingDevice}
+            >
+              {removingDevice
+                ? t('devices.removing')
+                : t('devices.removeConfirm')}
             </button>
           </div>
         </Dialog>

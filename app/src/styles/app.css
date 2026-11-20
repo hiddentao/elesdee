@@ -2431,6 +2431,114 @@ button:disabled {
   font-size: var(--fs-small);
 }
 
+.settings-empty-hint {
+  margin: 4px 0 0;
+  max-width: 60ch;
+  color: var(--text-3);
+  font-size: var(--fs-small);
+  line-height: 1.5;
+}
+
+.settings-toggle-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+.settings-toggle-text {
+  min-width: 0;
+}
+
+.settings-toggle-label {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.settings-toggle-note {
+  margin: 3px 0 0;
+  max-width: 52ch;
+  color: var(--text-3);
+  font-size: var(--fs-small);
+  line-height: 1.5;
+}
+
+.settings-switch {
+  position: relative;
+  flex: 0 0 auto;
+  width: 36px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  cursor: pointer;
+}
+
+.settings-switch.is-on {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.settings-switch:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.settings-switch:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.settings-switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--text-3);
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+
+.settings-switch.is-on .settings-switch-thumb {
+  transform: translateX(16px);
+  background: var(--surface);
+}
+
+.settings-status {
+  margin: 0;
+  color: var(--text-3);
+  font-size: var(--fs-small);
+}
+
+.settings-status.is-warn {
+  color: var(--waiting);
+}
+
+.settings-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.device-state {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-3);
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.device-state.is-on {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
 .settings-about-card {
   display: flex;
   flex-direction: column;

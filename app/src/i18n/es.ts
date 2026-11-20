@@ -139,6 +139,56 @@ export const es = {
   'settings.languageLabel': 'Idioma de la interfaz',
   'settings.languageNote':
     'El idioma de la aplicación. Las fechas y los números también lo siguen.',
+  'settings.general': 'General',
+  'settings.devices': 'Dispositivos',
+  'settings.diagnostics': 'Diagnóstico',
+  'settings.generalNote': 'Estas opciones se aplican a este equipo.',
+
+  'general.startAtLogin': 'Iniciar elesdee al iniciar el sistema',
+  'general.startAtLoginNote':
+    'elesdee se inicia en segundo plano y reanuda las sesiones. La ventana se abre al hacer clic en la aplicación.',
+  'general.keepAwake':
+    'Mantener el equipo despierto mientras los agentes trabajan',
+  'general.keepAwakeNote':
+    'Mientras se ejecuta una sesión de agente, el equipo no se suspende, así que el teléfono sigue conectado.',
+  'general.startAtLoginRefused':
+    'Este equipo no aceptó el cambio: {message}',
+  'general.startAtLoginMismatch':
+    'Este equipo informa de otro estado para el inicio al iniciar el sistema.',
+  'general.keepAwakeRefused': 'El equipo no permaneció despierto: {message}',
+  'general.keepAwakeIdle':
+    'El equipo permanece despierto mientras se ejecuta una sesión de agente.',
+  'general.keepAwakeActive':
+    'El equipo permanece despierto mientras los agentes trabajan.',
+  'general.saveError': 'No se pudo guardar la opción.',
+
+  'devices.note':
+    'Teléfonos emparejados con este equipo. Quita un teléfono para revocar su acceso de inmediato.',
+  'devices.empty': 'No hay ningún teléfono emparejado.',
+  'devices.emptyHint':
+    'Abre la aplicación del teléfono y escanea el código de emparejamiento que muestra la aplicación de escritorio. El teléfono aparecerá aquí.',
+  'devices.loading': 'Cargando teléfonos…',
+  'devices.loadError': 'No se pudieron cargar los teléfonos emparejados.',
+  'devices.connected': 'Conectado',
+  'devices.disconnected': 'No conectado',
+  'devices.lastSeen': 'Visto por última vez {time}',
+  'devices.neverSeen': 'Nunca conectado',
+  'devices.remove': 'Quitar {name}',
+  'devices.removeTitle': 'Quitar teléfono',
+  'devices.removeText':
+    '¿Quitar {name}? El teléfono pierde el acceso a este equipo de inmediato.',
+  'devices.removeConfirm': 'Quitar teléfono',
+  'devices.removing': 'Quitando…',
+  'devices.removeError': 'No se pudo quitar el teléfono.',
+
+  'diagnostics.note':
+    'El paquete contiene la versión de la aplicación, los detalles del sistema de este equipo y las últimas líneas del registro.',
+  'diagnostics.redaction':
+    'Se eliminan las claves, los secretos de emparejamiento, los tickets, las credenciales de los agentes y el contenido de las sesiones.',
+  'diagnostics.export': 'Exportar diagnóstico',
+  'diagnostics.exporting': 'Exportando…',
+  'diagnostics.exported': 'Guardado en {path}',
+  'diagnostics.exportError': 'No se pudo exportar el diagnóstico.',
 
   'addAccount.title': 'Añadir cuenta',
   'addAccount.subtitle':

@@ -571,6 +571,13 @@ impl LinkHub {
         self.lock_revoked().contains(endpoint_id)
     }
 
+    /// Returns true while a phone holds at least one live connection.
+    pub fn is_connected(&self, endpoint_id: &str) -> bool {
+        self.lock_live()
+            .get(endpoint_id)
+            .is_some_and(|connections| !connections.is_empty())
+    }
+
     /// Closes every live connection for a removed phone.
     pub fn revoke_connections(&self, endpoint_id: &str) {
         let connections = self.lock_live().remove(endpoint_id).unwrap_or_default();

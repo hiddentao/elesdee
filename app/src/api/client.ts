@@ -2,6 +2,7 @@ import { API_BASE } from './base';
 import type {
   AiConfig,
   ApiErrorPayload,
+  AppSettings,
   ApproveSessionResult,
   BootstrapResponse,
   Branch,
@@ -11,11 +12,13 @@ import type {
   CreateProjectInput,
   CreateProviderInput,
   CreateSessionInput,
+  DiagnosticsExport,
   FileContent,
   FileList,
   GitStatus,
   HealthResponse,
   ModelList,
+  PairedDevice,
   PermissionDecision,
   Project,
   Provider,
@@ -25,6 +28,7 @@ import type {
   Session,
   SessionChanges,
   SessionRequest,
+  SettingsPatch,
   SharedFile,
   StartProviderSignInInput,
   SwitchOptions,
@@ -529,4 +533,27 @@ export function browserScreenshotUrl(
 ): string {
   const params = new URLSearchParams({ tab: tabId, v: String(seq) });
   return `${API_BASE}/api/sessions/${encodeURIComponent(id)}/browser/screenshot?${params.toString()}`;
+}
+
+export function updateSettings(input: SettingsPatch): Promise<AppSettings> {
+  return request<AppSettings>('/api/settings', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+}
+
+export function listDevices(): Promise<PairedDevice[]> {
+  return request<PairedDevice[]>('/api/devices');
+}
+
+export function removeDevice(endpointId: string): Promise<void> {
+  return request<void>(
+    `/api/devices/${encodeURIComponent(endpointId)}`,
+    { method: 'DELETE' },
+  );
+}
+
+export function exportDiagnostics(folder: string): Promise<DiagnosticsExport> {
+  return request<DiagnosticsExport>('/api/diagnostics/export', post({ folder }));
 }

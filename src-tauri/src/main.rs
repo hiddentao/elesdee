@@ -6,15 +6,100 @@ use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
+use serde::Serialize;
 use tauri::{Emitter, Manager};
+use tauri_plugin_autostart::ManagerExt as AutostartExt;
+use tauri_plugin_keepawake::{KeepAwakeConfig, TauriPluginKeepawakeExt};
 
 mod notifications;
+
+const AUTOSTART_ARG: &str = "--autostart";
 
 struct CoreProcess(Mutex<Option<Child>>);
 
 #[derive(Default)]
 struct QuitState {
     confirmed: AtomicBool,
+}
+
+#[derive(Default)]
+struct AwakeState(AtomicBool);
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StartAtLoginState {
+    enabled: bool,
+}
+
+#[tauri::command]
+fn get_start_at_login(app: tauri::AppHandle) -> Result<StartAtLoginState, String> {
+    let enabled = app
+        .autolaunch()
+        .is_enabled()
+        .map_err(|error| error.to_string())?;
+    Ok(StartAtLoginState { enabled })
+}
+
+#[tauri::command]
+fn set_start_at_login(app: tauri::AppHandle, enabled: bool) -> Result<StartAtLoginState, String> {
+    if enabled {
+        app.autolaunch()
+            .enable()
+            .map_err(|error| error.to_string())?;
+    } else {
+        app.autolaunch()
+            .disable()
+            .map_err(|error| error.to_string())?;
+    }
+    let actual = app
+        .autolaunch()
+        .is_enabled()
+        .map_err(|error| error.to_string())?;
+    Ok(StartAtLoginState { enabled: actual })
+}
+
+#[tauri::command]
+fn set_keep_awake(app: tauri::AppHandle, enabled: bool) -> Result<bool, String> {
+    let state = app.state::<AwakeState>();
+    if enabled {
+        if !state.0.load(Ordering::SeqCst) {
+            // Clear a stale registration before adding the new one.
+            let _ = app.tauri_plugin_keepawake().stop(&app);
+            app.tauri_plugin_keepawake()
+                .start(
+                    &app,
+                    Some(KeepAwakeConfig {
+                        display: false,
+                        idle: true,
+                        sleep: true,
+                    }),
+                )
+                .map_err(|error| error.to_string())?;
+            state.0.store(true, Ordering::SeqCst);
+        }
+    } else if state.0.swap(false, Ordering::SeqCst) {
+        app.tauri_plugin_keepawake()
+            .stop(&app)
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(state.0.load(Ordering::SeqCst))
+}
+
+fn launched_at_login<I, S>(arguments: I) -> bool
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    arguments
+        .into_iter()
+        .any(|argument| argument.as_ref() == AUTOSTART_ARG)
+}
+
+fn show_main_window(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
 }
 
 #[tauri::command]
@@ -177,22 +262,35 @@ fn opener(terminal: bool) -> Command {
 }
 
 fn main() {
+    let at_login = launched_at_login(std::env::args().skip(1));
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec![AUTOSTART_ARG]),
+        ))
+        .plugin(tauri_plugin_keepawake::init())
         .manage(QuitState::default())
+        .manage(AwakeState::default())
         .invoke_handler(tauri::generate_handler![
             open_folder,
             open_terminal,
             open_url,
             quit_app,
+            get_start_at_login,
+            set_start_at_login,
+            set_keep_awake,
             notifications::notification_permission_state,
             notifications::request_notification_permission,
             notifications::show_notification
         ])
-        .setup(|app| {
+        .setup(move |app| {
             notifications::register_click_handler(app.handle());
             app.manage(CoreProcess(Mutex::new(start_core())));
+            if !at_login {
+                show_main_window(app.handle());
+            }
             Ok(())
         })
         .build(tauri::generate_context!())
@@ -206,6 +304,15 @@ fn main() {
                 let _ = app_handle.emit("elesdee://quit-requested", ());
             }
         }
+        #[cfg(target_os = "macos")]
+        tauri::RunEvent::Reopen {
+            has_visible_windows,
+            ..
+        } => {
+            if !has_visible_windows {
+                show_main_window(app_handle);
+            }
+        }
         tauri::RunEvent::Exit => {
             let child = {
                 let state = app_handle.state::<CoreProcess>();
@@ -217,4 +324,17 @@ fn main() {
         }
         _ => {}
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn recognizes_the_autostart_argument() {
+        assert!(launched_at_login([AUTOSTART_ARG]));
+        assert!(launched_at_login(["--other", AUTOSTART_ARG]));
+        assert!(!launched_at_login(["--other"]));
+        assert!(!launched_at_login(std::iter::empty::<&str>()));
+    }
 }

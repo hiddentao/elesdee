@@ -155,6 +155,27 @@ export function formatNumber(language: Language, value: number): string {
   }
 }
 
+export function formatDateTime(
+  language: Language,
+  value: string | null | undefined,
+): string | null {
+  if (!value) {
+    return null;
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+  try {
+    return new Intl.DateTimeFormat(htmlLang(language), {
+      dateStyle: 'short',
+      timeStyle: 'short',
+    }).format(date);
+  } catch {
+    return null;
+  }
+}
+
 export const englishT: Translate = (key, values) =>
   translate('en', key, values);
 

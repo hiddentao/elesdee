@@ -133,6 +133,49 @@ export const zhCN = {
   'settings.aboutVersion': '版本 {version}',
   'settings.languageLabel': '界面语言',
   'settings.languageNote': '应用的语言。日期和数字也遵循该语言。',
+  'settings.general': '常规',
+  'settings.devices': '设备',
+  'settings.diagnostics': '诊断',
+  'settings.generalNote': '这些选项应用于此计算机。',
+
+  'general.startAtLogin': '系统启动时启动 elesdee',
+  'general.startAtLoginNote':
+    'elesdee 在后台启动并恢复会话。点击应用时窗口才会打开。',
+  'general.keepAwake': '代理工作期间保持计算机唤醒',
+  'general.keepAwakeNote':
+    '代理会话运行期间计算机不会休眠，因此手机保持连接。',
+  'general.startAtLoginRefused': '此计算机未接受该更改：{message}',
+  'general.startAtLoginMismatch': '此计算机报告的系统启动状态不同。',
+  'general.keepAwakeRefused': '计算机未能保持唤醒：{message}',
+  'general.keepAwakeIdle': '代理会话运行期间计算机保持唤醒。',
+  'general.keepAwakeActive': '代理工作期间计算机保持唤醒。',
+  'general.saveError': '无法保存该设置。',
+
+  'devices.note': '与此计算机配对的手机。移除手机可立即撤销其访问权限。',
+  'devices.empty': '尚未配对任何手机。',
+  'devices.emptyHint':
+    '打开手机应用，扫描桌面应用显示的配对码，手机会显示在这里。',
+  'devices.loading': '正在加载手机…',
+  'devices.loadError': '无法加载已配对的手机。',
+  'devices.connected': '已连接',
+  'devices.disconnected': '未连接',
+  'devices.lastSeen': '上次看到 {time}',
+  'devices.neverSeen': '从未连接',
+  'devices.remove': '移除 {name}',
+  'devices.removeTitle': '移除手机',
+  'devices.removeText': '移除 {name}？该手机将立即失去对此计算机的访问权限。',
+  'devices.removeConfirm': '移除手机',
+  'devices.removing': '正在移除…',
+  'devices.removeError': '无法移除该手机。',
+
+  'diagnostics.note':
+    '该包包含应用版本、此计算机的系统详细信息和最近的日志行。',
+  'diagnostics.redaction':
+    '密钥、配对密钥、票据、代理凭据和会话内容都会被移除。',
+  'diagnostics.export': '导出诊断',
+  'diagnostics.exporting': '正在导出…',
+  'diagnostics.exported': '已保存到 {path}',
+  'diagnostics.exportError': '无法导出诊断。',
 
   'addAccount.title': '添加账户',
   'addAccount.subtitle': '将提供商账户连接到受支持的客户端之一。',

@@ -655,6 +655,24 @@ pub struct HealthResponse {
     pub agents: Vec<AgentCheck>,
 }
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppSettings {
+    #[serde(default)]
+    pub start_at_login: bool,
+    #[serde(default)]
+    pub keep_awake: bool,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SettingsPatch {
+    #[serde(default)]
+    pub start_at_login: Option<bool>,
+    #[serde(default)]
+    pub keep_awake: Option<bool>,
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Bootstrap {
@@ -664,6 +682,7 @@ pub struct Bootstrap {
     pub sessions: Vec<Session>,
     pub questions: Vec<Question>,
     pub session_requests: Vec<SessionRequest>,
+    pub settings: AppSettings,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -777,6 +796,7 @@ struct Inner {
     questions: Mutex<Vec<Question>>,
     session_requests: Mutex<Vec<SessionRequest>>,
     paired_devices: Mutex<Vec<PairedDevice>>,
+    settings: Mutex<AppSettings>,
     aux_events: broadcast::Sender<AuxEvent>,
     command_override: Option<Vec<String>>,
     agent_bin: Option<PathBuf>,
@@ -1007,6 +1027,7 @@ impl AppState {
             questions,
             session_requests,
             paired_devices,
+            settings,
         ) = match store.as_ref().map(|store| store.load()) {
             Some(LoadResult::Loaded(state)) => {
                 let (providers, configs, migration) = match (state.providers, state.configs) {
@@ -1032,6 +1053,7 @@ impl AppState {
                     state.questions.unwrap_or_default(),
                     state.session_requests.unwrap_or_default(),
                     state.paired_devices,
+                    state.settings,
                 )
             }
             Some(LoadResult::Missing | LoadResult::Corrupt) | None => (
@@ -1043,6 +1065,7 @@ impl AppState {
                 Vec::new(),
                 Vec::new(),
                 Vec::new(),
+                AppSettings::default(),
             ),
         };
         let state = Self::from_parts(
@@ -1097,6 +1120,7 @@ impl AppState {
             .collect();
         *lock(&state.inner.session_requests) = pending_requests;
         *lock(&state.inner.paired_devices) = paired_devices;
+        *lock(&state.inner.settings) = settings;
         if let Some(directory) = state.data_dir() {
             crate::claude::sweep(directory);
             crate::mcp::sweep(directory);
@@ -1134,6 +1158,7 @@ impl AppState {
                 questions: Mutex::new(Vec::new()),
                 session_requests: Mutex::new(Vec::new()),
                 paired_devices: Mutex::new(Vec::new()),
+                settings: Mutex::new(AppSettings::default()),
                 aux_events,
                 command_override,
                 agent_bin: None,
@@ -1184,6 +1209,26 @@ impl AppState {
     /// Stops every session browser at shutdown.
     pub async fn stop_all_browsers(&self) {
         self.inner.browser.stop_all().await;
+    }
+
+    pub fn settings(&self) -> AppSettings {
+        *lock(&self.inner.settings)
+    }
+
+    /// Applies the given fields and saves the state file.
+    pub fn update_settings(&self, patch: SettingsPatch) -> AppSettings {
+        let settings = {
+            let mut current = lock(&self.inner.settings);
+            if let Some(value) = patch.start_at_login {
+                current.start_at_login = value;
+            }
+            if let Some(value) = patch.keep_awake {
+                current.keep_awake = value;
+            }
+            *current
+        };
+        self.save();
+        settings
     }
 
     pub fn paired_devices(&self) -> Vec<PairedDevice> {
@@ -2010,6 +2055,7 @@ impl AppState {
             sessions,
             questions: self.pending_questions(),
             session_requests: self.pending_session_requests(),
+            settings: self.settings(),
         }
     }
 
@@ -2114,7 +2160,7 @@ impl AppState {
                 }
             })
             .collect();
-        let state = PersistedState::new(
+        let mut state = PersistedState::new(
             projects,
             Some(self.providers()),
             Some(self.configs()),
@@ -2123,6 +2169,7 @@ impl AppState {
             self.paired_devices(),
             sessions,
         );
+        state.settings = self.settings();
         store.save(&state)
     }
 

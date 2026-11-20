@@ -138,6 +138,56 @@ export const ko = {
   'settings.languageLabel': '인터페이스 언어',
   'settings.languageNote':
     '앱의 언어입니다. 날짜와 숫자도 이 언어를 따릅니다.',
+  'settings.general': '일반',
+  'settings.devices': '기기',
+  'settings.diagnostics': '진단',
+  'settings.generalNote': '이 옵션은 이 컴퓨터에 적용됩니다.',
+
+  'general.startAtLogin': '시스템 시작 시 elesdee 시작',
+  'general.startAtLoginNote':
+    'elesdee는 백그라운드에서 시작하고 세션을 다시 엽니다. 앱을 클릭하면 창이 열립니다.',
+  'general.keepAwake':
+    '에이전트가 작업하는 동안 컴퓨터를 깨어 있게 유지',
+  'general.keepAwakeNote':
+    '에이전트 세션이 실행되는 동안 컴퓨터가 잠들지 않아 휴대폰 연결이 유지됩니다.',
+  'general.startAtLoginRefused':
+    '이 컴퓨터가 변경을 받아들이지 않았습니다: {message}',
+  'general.startAtLoginMismatch':
+    '이 컴퓨터는 시스템 시작 시 시작 상태가 다르다고 보고합니다.',
+  'general.keepAwakeRefused': '컴퓨터가 깨어 있지 않았습니다: {message}',
+  'general.keepAwakeIdle':
+    '에이전트 세션이 실행되는 동안 컴퓨터가 깨어 있습니다.',
+  'general.keepAwakeActive':
+    '에이전트가 작업하는 동안 컴퓨터가 깨어 있습니다.',
+  'general.saveError': '설정을 저장하지 못했습니다.',
+
+  'devices.note':
+    '이 컴퓨터와 페어링된 휴대폰입니다. 휴대폰을 제거하면 액세스가 즉시 취소됩니다.',
+  'devices.empty': '페어링된 휴대폰이 없습니다.',
+  'devices.emptyHint':
+    '휴대폰 앱을 열고 데스크톱 앱에 표시되는 페어링 코드를 스캔하면 휴대폰이 여기에 나타납니다.',
+  'devices.loading': '휴대폰을 불러오는 중…',
+  'devices.loadError': '페어링된 휴대폰을 불러오지 못했습니다.',
+  'devices.connected': '연결됨',
+  'devices.disconnected': '연결되지 않음',
+  'devices.lastSeen': '마지막 확인 {time}',
+  'devices.neverSeen': '연결된 적 없음',
+  'devices.remove': '{name} 제거',
+  'devices.removeTitle': '휴대폰 제거',
+  'devices.removeText':
+    '{name}을(를) 제거하시겠습니까? 휴대폰은 이 컴퓨터에 대한 액세스를 즉시 잃습니다.',
+  'devices.removeConfirm': '휴대폰 제거',
+  'devices.removing': '제거 중…',
+  'devices.removeError': '휴대폰을 제거하지 못했습니다.',
+
+  'diagnostics.note':
+    '패키지에는 앱 버전, 이 컴퓨터의 시스템 세부 정보 및 최근 로그 줄이 포함됩니다.',
+  'diagnostics.redaction':
+    '키, 페어링 비밀, 티켓, 에이전트 자격 증명 및 세션 내용은 제거됩니다.',
+  'diagnostics.export': '진단 내보내기',
+  'diagnostics.exporting': '내보내는 중…',
+  'diagnostics.exported': '{path}에 저장됨',
+  'diagnostics.exportError': '진단을 내보내지 못했습니다.',
 
   'addAccount.title': '계정 추가',
   'addAccount.subtitle':

@@ -40,9 +40,10 @@ use crate::shared;
 use crate::shortcuts;
 use crate::slug::slugify;
 use crate::state::{
-    AiConfig, AppState, Auth, Bootstrap, Client, DeleteSessionFailure, EnvOverride, HealthResponse,
-    PairedDevice, PendingPermission, PermissionDecision, Project, Provider, ProviderView, Question,
-    QuestionFailure, Session, SessionEvent, SessionKind, SessionState, WorkState,
+    AiConfig, AppSettings, AppState, Auth, Bootstrap, Client, DeleteSessionFailure, EnvOverride,
+    HealthResponse, PairedDevice, PendingPermission, PermissionDecision, Project, Provider,
+    ProviderView, Question, QuestionFailure, Session, SessionEvent, SessionKind, SessionState,
+    SettingsPatch, WorkState,
 };
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
@@ -571,6 +572,8 @@ pub fn router(state: AppState) -> Router {
         .route("/api/pairing/deny", post(deny_pairing))
         .route("/api/devices", get(list_devices))
         .route("/api/devices/{id}", delete(remove_device))
+        .route("/api/settings", patch(update_settings))
+        .route("/api/diagnostics/export", post(export_diagnostics))
         .route("/api/demo-servers", get(list_demo_servers))
         .route(
             "/api/sessions/{id}/demo-servers/{server_id}/stop",
@@ -860,8 +863,26 @@ async fn cancel_pairing(State(state): State<AppState>) -> StatusCode {
     StatusCode::NO_CONTENT
 }
 
-async fn list_devices(State(state): State<AppState>) -> Json<Vec<PairedDevice>> {
-    Json(state.paired_devices())
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DeviceView {
+    #[serde(flatten)]
+    device: PairedDevice,
+    connected: bool,
+}
+
+async fn list_devices(State(state): State<AppState>) -> Json<Vec<DeviceView>> {
+    let link = state.link();
+    Json(
+        state
+            .paired_devices()
+            .into_iter()
+            .map(|device| DeviceView {
+                connected: link.is_connected(&device.endpoint_id),
+                device,
+            })
+            .collect(),
+    )
 }
 
 async fn remove_device(
@@ -875,6 +896,52 @@ async fn remove_device(
     state.link().mark_revoked(&id);
     state.link().revoke_connections(&id);
     Ok(StatusCode::NO_CONTENT)
+}
+
+async fn update_settings(
+    State(state): State<AppState>,
+    body: Result<Json<SettingsPatch>, JsonRejection>,
+) -> Result<Json<AppSettings>, ApiError> {
+    let Json(patch) = body.map_err(invalid_json)?;
+    Ok(Json(state.update_settings(patch)))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ExportDiagnosticsRequest {
+    folder: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ExportDiagnosticsResponse {
+    path: String,
+}
+
+async fn export_diagnostics(
+    State(state): State<AppState>,
+    body: Result<Json<ExportDiagnosticsRequest>, JsonRejection>,
+) -> Result<Json<ExportDiagnosticsResponse>, ApiError> {
+    let Json(request) = body.map_err(invalid_json)?;
+    let folder = PathBuf::from(request.folder.trim());
+    if !folder.is_absolute() {
+        return Err(ApiError::bad_request("The folder path must be absolute."));
+    }
+    if !folder.is_dir() {
+        return Err(ApiError::unprocessable("The folder does not exist."));
+    }
+    let report = crate::diagnostics::DiagnosticsReport::collect(&state);
+    let path =
+        tokio::task::spawn_blocking(move || crate::diagnostics::write_bundle(&folder, &report))
+            .await
+            .map_err(|_| ApiError::internal("The diagnostics export failed."))?
+            .map_err(|error| {
+                tracing::error!(%error, "diagnostics export failed");
+                ApiError::internal("The diagnostics export failed.")
+            })?;
+    Ok(Json(ExportDiagnosticsResponse {
+        path: path.display().to_string(),
+    }))
 }
 
 #[derive(Serialize)]

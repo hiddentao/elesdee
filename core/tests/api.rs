@@ -11219,3 +11219,113 @@ async fn a_signed_in_provider_receives_status_line_usage() {
     let (status, _) = close_session(&app, session_id).await;
     assert_eq!(status, StatusCode::OK);
 }
+
+#[tokio::test]
+async fn settings_default_off_and_survive_a_reload() {
+    let data_dir = TempDirectory::new("settings-persist");
+    let app = router(AppState::with_data_dir(data_dir.path.clone()));
+
+    let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    assert_eq!(bootstrap["settings"]["startAtLogin"], false);
+    assert_eq!(bootstrap["settings"]["keepAwake"], false);
+
+    let (status, settings) = call(
+        &app,
+        "PATCH",
+        "/api/settings",
+        Some(json!({ "startAtLogin": true, "keepAwake": true })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{settings}");
+    assert_eq!(settings["startAtLogin"], true);
+    assert_eq!(settings["keepAwake"], true);
+
+    drop(app);
+    let reloaded = router(AppState::with_data_dir(data_dir.path.clone()));
+    let (_, bootstrap) = call(&reloaded, "GET", "/api/bootstrap", None).await;
+    assert_eq!(bootstrap["settings"]["startAtLogin"], true);
+    assert_eq!(bootstrap["settings"]["keepAwake"], true);
+
+    let state = fs::read_to_string(data_dir.path.join("state.json")).expect("state file");
+    assert!(state.contains("\"startAtLogin\": true"));
+    assert!(state.contains("\"keepAwake\": true"));
+}
+
+#[tokio::test]
+async fn devices_are_empty_and_report_connection_state() {
+    let data_dir = TempDirectory::new("devices-empty");
+    let app = router(AppState::with_data_dir(data_dir.path.clone()));
+
+    let (status, devices) = call(&app, "GET", "/api/devices", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(devices.as_array().expect("devices array").is_empty());
+
+    let (status, _) = call(&app, "DELETE", "/api/devices/unknown", None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn a_paired_device_lists_its_connection_state() {
+    let data_dir = TempDirectory::new("devices-paired");
+    let state = json!({
+        "version": 2,
+        "projects": [],
+        "providers": [],
+        "configs": [],
+        "questions": [],
+        "sessionRequests": [],
+        "pairedDevices": [{
+            "endpointId": "phone-1",
+            "name": "Pixel",
+            "platform": "Android",
+            "pairedAt": "2026-11-19T10:00:00Z",
+            "lastSeen": "2026-11-19T10:05:00Z"
+        }],
+        "sessions": []
+    });
+    fs::write(
+        data_dir.path.join("state.json"),
+        serde_json::to_vec_pretty(&state).expect("state json"),
+    )
+    .expect("write state");
+
+    let app = router(AppState::with_data_dir(data_dir.path.clone()));
+    let (status, devices) = call(&app, "GET", "/api/devices", None).await;
+    assert_eq!(status, StatusCode::OK);
+    let devices = devices.as_array().expect("devices array");
+    assert_eq!(devices.len(), 1);
+    assert_eq!(devices[0]["name"], "Pixel");
+    assert_eq!(devices[0]["platform"], "Android");
+    assert_eq!(devices[0]["lastSeen"], "2026-11-19T10:05:00Z");
+    assert_eq!(devices[0]["connected"], false);
+}
+
+#[tokio::test]
+async fn diagnostics_export_writes_a_redacted_bundle() {
+    let data_dir = TempDirectory::new("diagnostics-export");
+    let out_dir = TempDirectory::new("diagnostics-output");
+    let app = router(AppState::with_data_dir(data_dir.path.clone()));
+
+    let (status, body) = call(
+        &app,
+        "POST",
+        "/api/diagnostics/export",
+        Some(json!({ "folder": out_dir.path.to_string_lossy() })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let path = body["path"].as_str().expect("bundle path");
+    let text = fs::read_to_string(path).expect("read bundle");
+    assert!(text.contains("\"app\""));
+    assert!(text.contains("\"counts\""));
+    assert!(!text.contains("sk-"));
+
+    let (status, _) = call(
+        &app,
+        "POST",
+        "/api/diagnostics/export",
+        Some(json!({ "folder": "relative/path" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}
