@@ -80,11 +80,22 @@ pub fn client_needs_prompt_input(_client: Client) -> bool {
     false
 }
 
-pub fn resume_arguments(client: Client) -> &'static [&'static str] {
+pub fn resume_arguments(client: Client, session_id: Option<&str>) -> Vec<String> {
+    let session_id = session_id.map(str::trim).filter(|id| !id.is_empty());
     match client {
-        Client::ClaudeCode | Client::Antigravity => &["--continue"],
-        Client::Codex => &["resume", "--last"],
-        Client::OpenCode2 => &["--continue"],
+        Client::ClaudeCode => match session_id {
+            Some(id) => vec!["--resume".to_owned(), id.to_owned()],
+            None => vec!["--continue".to_owned()],
+        },
+        Client::Antigravity => vec!["--continue".to_owned()],
+        Client::Codex => match session_id {
+            Some(id) => vec!["resume".to_owned(), id.to_owned()],
+            None => vec!["resume".to_owned(), "--last".to_owned()],
+        },
+        Client::OpenCode2 => match session_id {
+            Some(id) => vec!["--session".to_owned(), id.to_owned()],
+            None => vec!["--continue".to_owned()],
+        },
     }
 }
 
@@ -415,6 +426,15 @@ impl SessionEntry {
         lock(&self.data).session.clone()
     }
 
+    pub fn note_agent_session_id(&self, id: &str) -> Option<Session> {
+        let mut state = lock(&self.data);
+        if state.session.agent_session_id.as_deref() == Some(id) {
+            return None;
+        }
+        state.session.agent_session_id = Some(id.to_owned());
+        Some(state.session.clone())
+    }
+
     pub fn short(&self) -> String {
         lock(&self.data).session.short.clone()
     }
@@ -577,6 +597,7 @@ impl SessionEntry {
         account_id: String,
         client: Client,
         shortcuts: Vec<Shortcut>,
+        agent_session_id: Option<String>,
     ) -> Session {
         let mut state = lock(&self.data);
         state.closing = false;
@@ -587,6 +608,7 @@ impl SessionEntry {
         state.session.pending_permission = None;
         state.session.account_id = Some(account_id);
         state.session.client = Some(client);
+        state.session.agent_session_id = agent_session_id;
         state.session.shortcuts = shortcuts;
         state.session.preview = format!("Switched to {client}.");
         state.preview_tail.clear();
@@ -617,6 +639,27 @@ impl SessionEntry {
         state.preview_tail.clear();
         state.last_preview_at = None;
         state.session.clone()
+    }
+
+    pub fn begin_recovery(&self, preview: &str) -> Session {
+        let session = {
+            let mut state = lock(&self.data);
+            resolve_pending(&mut state, "The app restarted.");
+            state.closing = false;
+            state.process_exited = false;
+            state.session.status = SessionState::Active;
+            state.session.work_state = Some(WorkState::Working);
+            state.session.waiting_for = None;
+            state.session.pending_permission = None;
+            state.session.preview = preview.to_owned();
+            state.preview_tail.clear();
+            state.last_preview_at = None;
+            state.session.clone()
+        };
+
+        self.reader_stopped.store(false, Ordering::SeqCst);
+        let _ = self.close_tx.send(false);
+        session
     }
 
     pub fn pause(&self, reason: &str) -> Session {
@@ -1779,6 +1822,7 @@ mod tests {
             preset_id: None,
             model: None,
             config: BTreeMap::new(),
+            agent_session_id: None,
             started_at: "2026-01-01T00:00:00Z".to_owned(),
             shortcuts: Vec::new(),
         };
@@ -1820,6 +1864,7 @@ mod tests {
             preset_id: None,
             model: None,
             config: BTreeMap::new(),
+            agent_session_id: None,
             started_at: "2026-01-01T00:00:00Z".to_owned(),
             shortcuts: Vec::new(),
         };
@@ -1859,9 +1904,29 @@ mod tests {
         );
         assert!(!client_needs_prompt_input(Client::OpenCode2));
 
-        assert_eq!(resume_arguments(Client::ClaudeCode), ["--continue"]);
-        assert_eq!(resume_arguments(Client::Antigravity), ["--continue"]);
-        assert_eq!(resume_arguments(Client::Codex), ["resume", "--last"]);
-        assert_eq!(resume_arguments(Client::OpenCode2), ["--continue"]);
+        assert_eq!(resume_arguments(Client::ClaudeCode, None), ["--continue"]);
+        assert_eq!(
+            resume_arguments(Client::ClaudeCode, Some("conversation-1")),
+            ["--resume", "conversation-1"]
+        );
+        assert_eq!(resume_arguments(Client::Antigravity, None), ["--continue"]);
+        assert_eq!(
+            resume_arguments(Client::Antigravity, Some("conversation-1")),
+            ["--continue"]
+        );
+        assert_eq!(resume_arguments(Client::Codex, None), ["resume", "--last"]);
+        assert_eq!(
+            resume_arguments(Client::Codex, Some("conversation-1")),
+            ["resume", "conversation-1"]
+        );
+        assert_eq!(resume_arguments(Client::OpenCode2, None), ["--continue"]);
+        assert_eq!(
+            resume_arguments(Client::OpenCode2, Some("conversation-1")),
+            ["--session", "conversation-1"]
+        );
+        assert_eq!(
+            resume_arguments(Client::ClaudeCode, Some("  ")),
+            ["--continue"]
+        );
     }
 }

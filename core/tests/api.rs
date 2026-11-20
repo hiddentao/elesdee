@@ -3278,10 +3278,14 @@ async fn persistence_keeps_projects_sessions_and_logs() {
 }
 
 #[tokio::test]
-async fn active_session_restores_closed_with_the_restart_note() {
+async fn active_session_resumes_on_startup() {
     let data_dir = TempDirectory::new("persist-active-data");
     let folder = TempDirectory::new("persist-active-folder");
-    let command = vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()];
+    let command = vec![
+        "/bin/sh".to_owned(),
+        "-c".to_owned(),
+        "printf first; sleep 30".to_owned(),
+    ];
     let app = router(AppState::with_test_command_and_data_dir(
         command.clone(),
         data_dir.path.clone(),
@@ -3289,43 +3293,216 @@ async fn active_session_restores_closed_with_the_restart_note() {
     let session = create_terminal(&app, &folder.path).await;
     let id = session["id"].as_str().expect("session id").to_owned();
     assert_eq!(session["status"], "active");
+
+    let request = request_builder("GET", &format!("/api/sessions/{id}/output?after=0"))
+        .body(Body::empty())
+        .expect("build output request");
+    let response = app.clone().oneshot(request).await.expect("open output");
+    read_sse_until(response.into_body(), |text| text.contains("first")).await;
+    // A state save keeps the output log and its next sequence number.
+    let (status, renamed) = call(
+        &app,
+        "PATCH",
+        &format!("/api/sessions/{id}"),
+        Some(json!({ "name": "Recovered" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{renamed}");
     drop(app);
 
     let restarted = router(AppState::with_test_command_and_data_dir(
         command,
         data_dir.path.clone(),
     ));
-    let (status, bootstrap) = call(&restarted, "GET", "/api/bootstrap", None).await;
+    let restored =
+        wait_for_session(&restarted, &id, |session| session["workState"] == "working").await;
+
+    assert_eq!(restored["status"], "active");
+    assert!(restored["waitingFor"].is_null());
+    assert_ne!(
+        restored["preview"],
+        "Paused. The app restarted. Resume to continue."
+    );
+
+    // The restarted process continues the same output log from the next sequence.
+    let request = request_builder("GET", &format!("/api/sessions/{id}/output?after=1"))
+        .body(Body::empty())
+        .expect("build output request");
+    let response = restarted
+        .clone()
+        .oneshot(request)
+        .await
+        .expect("open output");
+    assert_eq!(response.status(), StatusCode::OK);
+    let text = read_sse_until(response.into_body(), |text| text.contains("\"seq\":2")).await;
+    assert!(
+        sse_values(&text)
+            .iter()
+            .any(|event| event["seq"] == 2 && event["data"] == "first")
+    );
+
+    let (status, _) = close_session(&restarted, &id).await;
     assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn active_agent_session_keeps_its_conversation_id_across_restart() {
+    let data_dir = TempDirectory::new("persist-agent-data");
+    let repo = TempDirectory::new("persist-agent-repo");
+    init_git_repo(&repo.path);
+    let command = vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()];
+    let app = router(AppState::with_test_command_and_data_dir(
+        command.clone(),
+        data_dir.path.clone(),
+    ));
+    ensure_test_project(&app, &repo.path).await;
+
+    let (status, session) = call(
+        &app,
+        "POST",
+        "/api/sessions",
+        Some(json!({
+            "projectId": "web",
+            "kind": "agent",
+            "accountId": "max",
+            "name": "Recovered agent",
+            "folder": repo.path.to_string_lossy()
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let id = session["id"].as_str().expect("session id").to_owned();
+    let conversation = session["agentSessionId"]
+        .as_str()
+        .expect("conversation id")
+        .to_owned();
+    assert!(!conversation.is_empty());
+    drop(app);
+
+    let state_text = fs::read_to_string(data_dir.path.join("state.json")).expect("state file");
+    let state: Value = serde_json::from_str(&state_text).expect("state json");
+    let stored = state["sessions"]
+        .as_array()
+        .expect("sessions")
+        .iter()
+        .find(|stored| stored["session"]["id"] == id)
+        .expect("stored session");
+    assert_eq!(stored["session"]["agentSessionId"], conversation);
+
+    let restarted = router(AppState::with_test_command_and_data_dir(
+        command,
+        data_dir.path.clone(),
+    ));
+    let restored =
+        wait_for_session(&restarted, &id, |session| session["workState"] == "working").await;
+
+    assert_eq!(restored["status"], "active");
+    assert_eq!(restored["agentSessionId"], conversation);
+    assert_eq!(restored["preview"], "Resumed.");
+    assert!(
+        data_dir
+            .path
+            .join("mcp")
+            .join(format!("{id}.json"))
+            .exists()
+    );
+
+    let (status, _) = close_session(&restarted, &id).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn active_session_with_a_missing_folder_restores_as_paused() {
+    let data_dir = TempDirectory::new("persist-missing-folder-data");
+    let root = TempDirectory::new("persist-missing-folder-root");
+    let folder = root.path.join("session");
+    fs::create_dir_all(&folder).expect("create session folder");
+    let command = vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()];
+    let app = router(AppState::with_test_command_and_data_dir(
+        command.clone(),
+        data_dir.path.clone(),
+    ));
+    let session = create_terminal(&app, &folder).await;
+    let id = session["id"].as_str().expect("session id").to_owned();
+    drop(app);
+
+    fs::remove_dir_all(&folder).expect("remove session folder");
+
+    let restarted = router(AppState::with_test_command_and_data_dir(
+        command,
+        data_dir.path.clone(),
+    ));
+    let (status, bootstrap) = call(&restarted, "GET", "/api/bootstrap", None).await;
+    assert_eq!(status, StatusCode::OK, "{bootstrap}");
     let restored = bootstrap["sessions"]
         .as_array()
         .expect("sessions")
         .iter()
         .find(|session| session["id"] == id)
-        .cloned()
         .expect("restored session");
 
     assert_eq!(restored["status"], "active");
     assert_eq!(restored["workState"], "paused");
-    assert!(restored["waitingFor"].is_null());
-    assert_eq!(
-        restored["preview"],
-        "Paused. The app restarted. Resume to continue."
+    assert!(
+        restored["preview"]
+            .as_str()
+            .is_some_and(|preview| preview.contains("folder is missing")),
+        "{}",
+        restored["preview"]
     );
+}
 
-    let (status, resumed) = call(
-        &restarted,
+#[tokio::test]
+async fn active_session_with_a_missing_client_restores_as_paused() {
+    let data_dir = TempDirectory::new("persist-missing-client-data");
+    let repo = TempDirectory::new("persist-missing-client-repo");
+    init_git_repo(&repo.path);
+    let command = vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()];
+    let app = router(AppState::with_test_command_and_data_dir(
+        command,
+        data_dir.path.clone(),
+    ));
+    ensure_test_project(&app, &repo.path).await;
+
+    let (status, session) = call(
+        &app,
         "POST",
-        &format!("/api/sessions/{id}/resume"),
-        Some(json!({})),
+        "/api/sessions",
+        Some(json!({
+            "projectId": "web",
+            "kind": "agent",
+            "accountId": "max",
+            "name": "Missing client",
+            "folder": repo.path.to_string_lossy()
+        })),
     )
     .await;
-    assert_eq!(status, StatusCode::OK, "{resumed}");
-    assert_eq!(resumed["status"], "active");
-    assert_eq!(resumed["workState"], "working");
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let id = session["id"].as_str().expect("session id").to_owned();
+    drop(app);
 
-    let (status, _) = close_session(&restarted, &id).await;
-    assert_eq!(status, StatusCode::OK);
+    let restarted = router(AppState::with_test_agent_bin_and_data_dir(
+        data_dir.path.join("not-an-agent"),
+        data_dir.path.clone(),
+    ));
+    let (status, bootstrap) = call(&restarted, "GET", "/api/bootstrap", None).await;
+    assert_eq!(status, StatusCode::OK, "{bootstrap}");
+    let restored = bootstrap["sessions"]
+        .as_array()
+        .expect("sessions")
+        .iter()
+        .find(|session| session["id"] == id)
+        .expect("restored session");
+
+    assert_eq!(restored["status"], "active");
+    assert_eq!(restored["workState"], "paused");
+    assert!(
+        restored["preview"]
+            .as_str()
+            .is_some_and(|preview| preview.contains("is not installed")),
+        "{}",
+        restored["preview"]
+    );
 }
 
 #[tokio::test]
@@ -3433,7 +3610,7 @@ async fn rename_and_delete_persist_across_restarts() {
 }
 
 #[tokio::test]
-async fn graceful_shutdown_saves_the_restart_note_and_logs() {
+async fn graceful_shutdown_keeps_logs_and_resumes_sessions() {
     let data_dir = TempDirectory::new("persist-shutdown-data");
     let folder_a = TempDirectory::new("persist-shutdown-a");
     let folder_b = TempDirectory::new("persist-shutdown-b");
@@ -3485,8 +3662,8 @@ async fn graceful_shutdown_saves_the_restart_note_and_logs() {
     assert_eq!(restored_a["status"], "closed");
     assert_eq!(restored_a["preview"], "alpha");
     assert_eq!(restored_b["status"], "active");
-    assert_eq!(restored_b["workState"], "paused");
-    assert_eq!(
+    assert_eq!(restored_b["workState"], "working");
+    assert_ne!(
         restored_b["preview"],
         "Paused. The app restarted. Resume to continue."
     );

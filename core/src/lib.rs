@@ -12,6 +12,7 @@ mod overrides;
 mod persist;
 mod private_fs;
 mod providers;
+mod recovery;
 mod secrets;
 mod seed;
 mod sessions;

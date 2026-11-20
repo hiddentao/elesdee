@@ -175,6 +175,8 @@ pub struct Session {
     pub model: Option<String>,
     #[serde(default)]
     pub config: BTreeMap<String, String>,
+    #[serde(default)]
+    pub agent_session_id: Option<String>,
     pub started_at: String,
     pub shortcuts: Vec<Shortcut>,
 }
@@ -541,7 +543,7 @@ impl AppState {
                 .filter(|value| !value.is_empty())
                 .map(PathBuf::from);
         }
-        state
+        state.recover_after_load()
     }
 
     #[doc(hidden)]
@@ -573,6 +575,7 @@ impl AppState {
             MAX_ACTIVE_SESSIONS,
             false,
         )
+        .recover_after_load()
     }
 
     #[doc(hidden)]
@@ -607,6 +610,32 @@ impl AppState {
             MAX_ACTIVE_SESSIONS,
             false,
         )
+        .recover_after_load()
+    }
+
+    #[doc(hidden)]
+    pub fn with_test_agent_bin_and_data_dir(
+        binary: PathBuf,
+        directory: impl Into<PathBuf>,
+    ) -> Self {
+        let store = match StateStore::new(directory.into()) {
+            Ok(store) => Some(Arc::new(store)),
+            Err(error) => {
+                tracing::error!(%error, "could not prepare the test data directory");
+                None
+            }
+        };
+        let mut state = Self::from_store(
+            store,
+            Arc::new(MemorySecretStore::default()),
+            None,
+            MAX_ACTIVE_SESSIONS,
+            false,
+        );
+        if let Some(inner) = Arc::get_mut(&mut state.inner) {
+            inner.agent_bin = Some(binary);
+        }
+        state.recover_after_load()
     }
 
     #[doc(hidden)]
@@ -633,6 +662,13 @@ impl AppState {
             true,
             None,
         )
+    }
+
+    fn recover_after_load(self) -> Self {
+        if tokio::runtime::Handle::try_current().is_ok() {
+            crate::recovery::recover(&self);
+        }
+        self
     }
 
     fn from_store(

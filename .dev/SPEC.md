@@ -292,7 +292,9 @@ Every agent session gets the same app tools and skills, whatever the agent or pr
 After a crash or restart, the IDE reopens every session that was running and resumes each one where it stopped. After a restart of the Mac, this happens when elesdee next starts: at login if the start-at-login setting is on, or else when I open the app.
 
 - The IDE saves the state of each session while it runs: agent, preset, provider, repository, folder, branch, and the agent's own session ID.
-- On restart, the IDE relaunches each session with the same settings and resumes the agent's conversation.
+- On restart, the IDE relaunches each session with the same settings and resumes the agent's conversation by that ID.
+- If no saved ID exists (for example an older session, or a client that keeps no ID), the IDE continues the agent's most recent conversation and says so in the session preview.
+- If the folder, worktree, account or client is missing, that session stays paused with the reason. The other sessions still resume.
 - I do not need to do anything to restore my work.
 - Terminal sessions cannot resume the programs that ran in them. The IDE reopens each terminal in the same folder and shows its earlier output above a new prompt.
 

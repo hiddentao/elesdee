@@ -30,6 +30,29 @@ impl Permission {
     }
 }
 
+#[derive(Clone, Debug, Deserialize)]
+pub struct SessionSummary {
+    pub id: String,
+    #[serde(default)]
+    pub directory: Option<String>,
+    #[serde(default)]
+    pub time: SessionTime,
+}
+
+impl SessionSummary {
+    pub fn updated_at(&self) -> u64 {
+        self.time.updated.max(self.time.created)
+    }
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct SessionTime {
+    #[serde(default)]
+    pub created: u64,
+    #[serde(default)]
+    pub updated: u64,
+}
+
 pub fn free_port() -> Option<u16> {
     if let Ok(value) = std::env::var("ELESDEE_OPENCODE_PORT")
         && let Ok(port) = value.trim().parse::<u16>()
@@ -60,6 +83,18 @@ fn client() -> reqwest::Client {
 pub async fn permissions(base_url: &str) -> Result<Vec<Permission>, String> {
     let response = client()
         .get(format!("{base_url}/permission"))
+        .send()
+        .await
+        .map_err(|error| error.to_string())?;
+    if !response.status().is_success() {
+        return Err(format!("status {}", response.status()));
+    }
+    response.json().await.map_err(|error| error.to_string())
+}
+
+pub async fn sessions(base_url: &str) -> Result<Vec<SessionSummary>, String> {
+    let response = client()
+        .get(format!("{base_url}/session"))
         .send()
         .await
         .map_err(|error| error.to_string())?;
@@ -110,5 +145,23 @@ mod tests {
             ..command
         };
         assert_eq!(patterns.summary(), "*");
+    }
+
+    #[test]
+    fn session_summaries_parse_the_server_shape() {
+        let sessions: Vec<SessionSummary> = serde_json::from_value(serde_json::json!([
+            {
+                "id": "ses_1",
+                "directory": "/tmp/work",
+                "time": { "created": 10, "updated": 20 }
+            },
+            { "id": "ses_2" }
+        ]))
+        .expect("parse sessions");
+
+        assert_eq!(sessions[0].updated_at(), 20);
+        assert_eq!(sessions[0].directory.as_deref(), Some("/tmp/work"));
+        assert_eq!(sessions[1].updated_at(), 0);
+        assert!(sessions[1].directory.is_none());
     }
 }

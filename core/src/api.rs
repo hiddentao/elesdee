@@ -330,6 +330,8 @@ struct HookQuery {
 struct HookInput {
     hook_event_name: String,
     #[serde(default)]
+    session_id: Option<String>,
+    #[serde(default)]
     tool_name: Option<String>,
     #[serde(default)]
     tool_input: Option<serde_json::Value>,
@@ -1287,7 +1289,7 @@ async fn account_environment(
     Ok(crate::providers::environment(account, key.as_deref()))
 }
 
-fn secret_environment_values(environment: &[(String, String)]) -> Vec<String> {
+pub(crate) fn secret_environment_values(environment: &[(String, String)]) -> Vec<String> {
     environment
         .iter()
         .filter(|(name, _)| {
@@ -1543,7 +1545,7 @@ async fn create_session(
             return Err(error);
         }
         if client == Client::Codex
-            && let Err(error) = start_codex_runtime(&entry, &mut prepared.command)
+            && let Err(error) = start_codex_runtime(&state, &entry, &mut prepared.command)
         {
             rollback_created_session(&state, &entry, &session_id, worktree_cleanup).await;
             return Err(error);
@@ -1781,8 +1783,8 @@ async fn reopen_session(
     if suspended.kind == SessionKind::Agent
         && let Some(client) = suspended.client
     {
-        for argument in sessions::resume_arguments(client) {
-            command.arg(*argument);
+        for argument in sessions::resume_arguments(client, suspended.agent_session_id.as_deref()) {
+            command.arg(argument);
         }
         apply_launch_arguments(
             client,
@@ -1828,7 +1830,7 @@ async fn reopen_session(
     if let Some(client) = suspended.client {
         configure_session_tools(&state, &entry, &id, client, &mut command, &mut environment)?;
         if client == Client::Codex {
-            start_codex_runtime(&entry, &mut command)?;
+            start_codex_runtime(&state, &entry, &mut command)?;
         }
         if client == Client::OpenCode2
             && let Some(port) = crate::opencode::free_port()
@@ -1980,9 +1982,12 @@ async fn relaunch_with_account(
     }
 
     let mut command = session_command(state, SessionKind::Agent, Some(account.client))?;
+    let saved_agent_session_id = resume.then(|| session.agent_session_id.clone()).flatten();
     if resume {
-        for argument in sessions::resume_arguments(account.client) {
-            command.arg(*argument);
+        for argument in
+            sessions::resume_arguments(account.client, saved_agent_session_id.as_deref())
+        {
+            command.arg(argument);
         }
     }
     let mut environment = account_environment(state, account).await?;
@@ -2060,7 +2065,7 @@ async fn relaunch_with_account(
         return Err(error);
     }
     if account.client == Client::Codex
-        && let Err(error) = start_codex_runtime(entry, &mut command)
+        && let Err(error) = start_codex_runtime(state, entry, &mut command)
     {
         let failed = entry.mark_switch_failed("The account switch failed.");
         state.emit(SessionEvent::updated(failed));
@@ -2084,6 +2089,7 @@ async fn relaunch_with_account(
         account.id.clone(),
         account.client,
         shortcuts::for_client(account.client),
+        saved_agent_session_id,
     );
     let size = entry.stored_size();
     if let Err(error) = sessions::spawn(
@@ -2902,6 +2908,7 @@ async fn claude_hook(
     }
 
     let Json(input) = body.map_err(|_| ApiError::bad_request("Invalid hook input."))?;
+    record_claude_session_id(&state, &entry, input.session_id.as_deref());
 
     match input.hook_event_name.as_str() {
         "UserPromptSubmit" => {
@@ -3056,6 +3063,20 @@ fn publish_hook_event(state: &AppState, session: Option<Session>) {
     }
 }
 
+fn record_claude_session_id(state: &AppState, entry: &SessionEntry, value: Option<&str>) {
+    let Some(id) = value
+        .map(str::trim)
+        .filter(|id| !id.is_empty() && id.chars().count() <= 128)
+        .filter(|id| !id.chars().any(char::is_control))
+    else {
+        return;
+    };
+    if let Some(session) = entry.note_agent_session_id(id) {
+        state.emit(SessionEvent::updated(session));
+        state.save();
+    }
+}
+
 fn is_permission_notification(input: &HookInput) -> bool {
     if input.notification_type.as_deref() == Some("permission_prompt") {
         return true;
@@ -3201,6 +3222,7 @@ fn prepare_terminal(
         preset_id: None,
         model: None,
         config: BTreeMap::new(),
+        agent_session_id: None,
         started_at: timestamp(),
         shortcuts: Vec::new(),
     };
@@ -3248,7 +3270,15 @@ async fn prepare_agent(
         .or_else(|| first_prompt.as_deref().map(name_from_prompt))
         .unwrap_or_else(|| format!("{} session", account.client));
     let short = slugify(&name, "session");
+    let agent_session_id =
+        (account.client == Client::ClaudeCode).then(|| uuid::Uuid::new_v4().to_string());
     let mut command = command;
+    if let Some(id) = agent_session_id.as_deref()
+        && state.command_override().is_none()
+    {
+        command.arg("--session-id");
+        command.arg(id);
+    }
     let mut startup_input = None;
     if let Some(prompt) = first_prompt.as_deref() {
         if sessions::client_needs_prompt_input(account.client) {
@@ -3277,10 +3307,11 @@ async fn prepare_agent(
         first_prompt,
         parent_session_id: request.parent_session_id.clone(),
         parent_session_name: request.parent_session_name.clone(),
-        env_overrides: Vec::new(),
+        env_overrides: request.env.clone().unwrap_or_default(),
         preset_id: None,
         model: None,
         config: BTreeMap::new(),
+        agent_session_id,
         started_at: timestamp(),
         shortcuts: shortcuts::for_client(account.client),
     };
@@ -3306,7 +3337,7 @@ fn requested_folder(request: &CreateSessionRequest, project: &Project) -> PathBu
         .unwrap_or_else(|| PathBuf::from(&project.folder))
 }
 
-fn session_command(
+pub(crate) fn session_command(
     state: &AppState,
     kind: SessionKind,
     client: Option<Client>,
@@ -3336,7 +3367,7 @@ fn session_command(
     }
 }
 
-fn configure_session_tools(
+pub(crate) fn configure_session_tools(
     state: &AppState,
     entry: &SessionEntry,
     session_id: &str,
@@ -3401,7 +3432,7 @@ fn configure_session_tools(
     Ok(())
 }
 
-fn start_opencode_poller(state: AppState, entry: Arc<SessionEntry>, base_url: String) {
+pub(crate) fn start_opencode_poller(state: AppState, entry: Arc<SessionEntry>, base_url: String) {
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(2));
         interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
@@ -3439,11 +3470,49 @@ fn start_opencode_poller(state: AppState, entry: Arc<SessionEntry>, base_url: St
                     }
                 }
             }
+            if entry.session().agent_session_id.is_none()
+                && let Ok(sessions) = crate::opencode::sessions(&base_url).await
+            {
+                capture_opencode_session(&state, &entry, &sessions);
+            }
         }
     });
 }
 
-fn start_codex_runtime(
+fn capture_opencode_session(
+    state: &AppState,
+    entry: &SessionEntry,
+    sessions: &[crate::opencode::SessionSummary],
+) {
+    let folder = PathBuf::from(entry.session().folder);
+    let folder = folder.canonicalize().unwrap_or(folder);
+    let newest = sessions
+        .iter()
+        .filter(|session| {
+            session
+                .directory
+                .as_deref()
+                .is_some_and(|directory| same_directory(directory, &folder))
+        })
+        .max_by_key(|session| session.updated_at());
+    if let Some(newest) = newest
+        && let Some(updated) = entry.note_agent_session_id(&newest.id)
+    {
+        state.emit(SessionEvent::updated(updated));
+        state.save();
+    }
+}
+
+fn same_directory(directory: &str, folder: &Path) -> bool {
+    let directory = Path::new(directory);
+    directory == folder
+        || directory
+            .canonicalize()
+            .is_ok_and(|directory| directory == folder)
+}
+
+pub(crate) fn start_codex_runtime(
+    state: &AppState,
     entry: &Arc<SessionEntry>,
     command: &mut CommandBuilder,
 ) -> Result<(), ApiError> {
@@ -3465,11 +3534,16 @@ fn start_codex_runtime(
         sender,
         server,
     });
-    tokio::spawn(crate::codex::run(url, Arc::clone(entry), receiver));
+    tokio::spawn(crate::codex::run(
+        url,
+        Arc::clone(entry),
+        receiver,
+        state.clone(),
+    ));
     Ok(())
 }
 
-fn install_claude_settings(
+pub(crate) fn install_claude_settings(
     state: &AppState,
     entry: &SessionEntry,
     session_id: &str,
