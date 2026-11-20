@@ -15,7 +15,7 @@ This file carries the rules that bind every prompt. Detail and decisions live in
 | `.dev/mockups/round-1.html` | The clickable Mac and phone mockups. A is dark, B is light. The visual reference for the app. |
 | `.dev/research/` | Research notes behind the spec. |
 | `docs/` | Public product documentation. The website build starts from this folder at release. |
-| `core/` | The Rust core service: local HTTP API, sessions, event stream, remote link endpoint and pairing. |
+| `core/` | The Rust core service: local HTTP API, sessions, event stream, remote link endpoint and pairing. The embedded skill pack is in `core/assets/skills/`. |
 | `link/` | Shared Rust link crate: device identity, pairing ticket, framing, method allowlist and limits. The core uses it; the phone shell comes later. |
 | `app/` | The React and TypeScript desktop UI, built with Vite. |
 | `app/src/i18n/` | The interface language catalogs, resolver and provider. |
