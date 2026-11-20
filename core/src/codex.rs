@@ -150,6 +150,19 @@ pub async fn run(
                 for change in crate::history::codex_changes(method, value.get("params")) {
                     entry.record_history(change);
                 }
+                match turn_activity(method) {
+                    Some(TurnActivity::Working) if entry.session().pending_permission.is_none() => {
+                        if let Some(session) = entry.mark_working() {
+                            state.emit(SessionEvent::updated(session));
+                        }
+                    }
+                    Some(TurnActivity::Input) => {
+                        if let Some(session) = entry.mark_input() {
+                            state.emit(SessionEvent::updated(session));
+                        }
+                    }
+                    _ => {}
+                }
                 if method == "account/rateLimits/updated"
                     && let Some(provider_id) = provider_id.as_deref()
                 {
@@ -180,6 +193,21 @@ pub async fn run(
                 });
             }
         }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum TurnActivity {
+    Working,
+    Input,
+}
+
+/// Maps an app-server turn notification to the session's live work state.
+fn turn_activity(method: &str) -> Option<TurnActivity> {
+    match method {
+        "turn/started" => Some(TurnActivity::Working),
+        "turn/completed" => Some(TurnActivity::Input),
+        _ => None,
     }
 }
 
@@ -292,6 +320,13 @@ mod tests {
         .expect("response");
         assert_eq!(response["id"], 42);
         assert_eq!(response["result"]["decision"], "accept");
+    }
+
+    #[test]
+    fn turn_notifications_map_to_running_and_idle_states() {
+        assert_eq!(turn_activity("turn/started"), Some(TurnActivity::Working));
+        assert_eq!(turn_activity("turn/completed"), Some(TurnActivity::Input));
+        assert_eq!(turn_activity("item/started"), None);
     }
 
     #[test]

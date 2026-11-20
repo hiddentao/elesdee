@@ -826,6 +826,33 @@ impl SessionEntry {
         Some(state.session.clone())
     }
 
+    /// Marks the session as idle and waiting for the user's next prompt.
+    ///
+    /// A pending permission prompt or question keeps its own waiting state, so
+    /// an idle notice cannot hide a card that still needs an answer. The
+    /// failed-switch error state is separate: it marks the process as gone, and
+    /// this live signal is ignored there.
+    pub fn mark_input(&self) -> Option<Session> {
+        let mut state = lock(&self.data);
+        if state.session.status != SessionState::Active || state.closing || state.process_exited {
+            return None;
+        }
+        if matches!(
+            state.session.waiting_for,
+            Some(WaitingFor::Permission) | Some(WaitingFor::Question)
+        ) {
+            return None;
+        }
+        if state.session.waiting_for == Some(WaitingFor::Input)
+            && state.session.work_state == Some(WorkState::Waiting)
+        {
+            return None;
+        }
+        state.session.waiting_for = Some(WaitingFor::Input);
+        state.session.work_state = Some(WorkState::Waiting);
+        Some(state.session.clone())
+    }
+
     pub fn report_done(&self) -> Option<Session> {
         let mut state = lock(&self.data);
         if state.session.status != SessionState::Active {

@@ -4935,6 +4935,8 @@ async fn claude_hook(
         "Notification" => {
             if is_permission_notification(&input) {
                 publish_hook_event(&state, entry.mark_permission_note());
+            } else {
+                publish_hook_event(&state, entry.mark_input());
             }
             Ok(StatusCode::NO_CONTENT.into_response())
         }
@@ -5538,6 +5540,18 @@ pub(crate) fn start_opencode_poller(state: AppState, entry: Arc<SessionEntry>, b
             {
                 for change in crate::history::opencode_changes(&messages) {
                     entry.record_history(change);
+                }
+                let updated = match crate::opencode::activity(&messages) {
+                    Some(crate::opencode::Activity::Working)
+                        if entry.session().pending_permission.is_none() =>
+                    {
+                        entry.mark_working()
+                    }
+                    Some(crate::opencode::Activity::WaitingForInput) => entry.mark_input(),
+                    _ => None,
+                };
+                if let Some(updated) = updated {
+                    state.emit(SessionEvent::updated(updated));
                 }
             }
         }

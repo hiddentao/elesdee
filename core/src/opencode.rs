@@ -149,6 +149,39 @@ pub async fn reply(base_url: &str, request_id: &str, allow: bool) -> Result<(), 
     }
 }
 
+/// The work state that the newest message record implies.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Activity {
+    Working,
+    WaitingForInput,
+}
+
+/// Reads the newest message record to tell a running turn from a finished one.
+///
+/// An assistant record with a completion time means the turn ended and the
+/// agent now waits for the user's next prompt. A user record or a streaming
+/// assistant record means the turn is still running.
+pub fn activity(messages: &Value) -> Option<Activity> {
+    let last = messages.as_array()?.last()?;
+    let info = last.get("info").unwrap_or(last);
+    match info.get("role").and_then(Value::as_str)? {
+        "user" => Some(Activity::Working),
+        "assistant" => {
+            let finished = info
+                .get("time")
+                .and_then(|time| time.get("completed"))
+                .is_some_and(|value| !value.is_null());
+            let failed = info.get("error").is_some_and(|error| !error.is_null());
+            if finished || failed {
+                Some(Activity::WaitingForInput)
+            } else {
+                Some(Activity::Working)
+            }
+        }
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -174,6 +207,51 @@ mod tests {
             ..command
         };
         assert_eq!(patterns.summary(), "*");
+    }
+
+    #[test]
+    fn session_records_tell_a_running_turn_from_a_finished_one() {
+        let user = serde_json::json!([
+            { "info": { "id": "msg-1", "role": "user" }, "parts": [] }
+        ]);
+        assert_eq!(activity(&user), Some(Activity::Working));
+
+        let streaming = serde_json::json!([
+            { "info": { "id": "msg-1", "role": "user" }, "parts": [] },
+            {
+                "info": { "id": "msg-2", "role": "assistant", "time": { "created": 2 } },
+                "parts": []
+            }
+        ]);
+        assert_eq!(activity(&streaming), Some(Activity::Working));
+
+        let finished = serde_json::json!([
+            { "info": { "id": "msg-1", "role": "user" }, "parts": [] },
+            {
+                "info": {
+                    "id": "msg-2",
+                    "role": "assistant",
+                    "time": { "created": 2, "completed": 3 }
+                },
+                "parts": []
+            }
+        ]);
+        assert_eq!(activity(&finished), Some(Activity::WaitingForInput));
+
+        let failed = serde_json::json!([
+            {
+                "info": {
+                    "id": "msg-2",
+                    "role": "assistant",
+                    "error": { "message": "stopped" }
+                },
+                "parts": []
+            }
+        ]);
+        assert_eq!(activity(&failed), Some(Activity::WaitingForInput));
+
+        assert_eq!(activity(&serde_json::json!([])), None);
+        assert_eq!(activity(&serde_json::json!(null)), None);
     }
 
     #[test]

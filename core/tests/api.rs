@@ -8026,6 +8026,106 @@ async fn claude_notifications_messages_and_stop_update_session_state() {
 }
 
 #[tokio::test]
+async fn claude_idle_notifications_set_and_clear_the_input_waiting_state() {
+    let data_dir = TempDirectory::new("claude-idle-data");
+    let repo = TempDirectory::new("claude-idle-repo");
+    init_git_repo(&repo.path);
+    let app = router(AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    ));
+    let session = create_claude_agent(&app, &repo.path, "Idle State").await;
+    let id = session["id"].as_str().expect("session id").to_owned();
+    let (_, settings) = claude_settings(&data_dir.path, &id);
+    let token = settings_token(&settings);
+
+    let (status, body) = send_hook(
+        &app,
+        &id,
+        Some(&token),
+        json!({
+            "hook_event_name": "Notification",
+            "message": "Claude is waiting for your input"
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+    let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    let current = bootstrap_session(&bootstrap, &id);
+    assert_eq!(current["workState"], "waiting");
+    assert_eq!(current["waitingFor"], "input");
+
+    let (status, body) = send_hook(
+        &app,
+        &id,
+        Some(&token),
+        json!({"hook_event_name": "PostToolUse"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+    let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    let current = bootstrap_session(&bootstrap, &id);
+    assert_eq!(current["workState"], "working");
+    assert_eq!(current["waitingFor"], Value::Null);
+
+    let (status, body) = send_hook(
+        &app,
+        &id,
+        Some(&token),
+        json!({
+            "hook_event_name": "Notification",
+            "message": "Claude is waiting for your input"
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+    let (status, body) = send_hook(
+        &app,
+        &id,
+        Some(&token),
+        json!({"hook_event_name": "UserPromptSubmit"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+    let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    let current = bootstrap_session(&bootstrap, &id);
+    assert_eq!(current["workState"], "working");
+    assert_eq!(current["waitingFor"], Value::Null);
+
+    let (status, body) = send_hook(
+        &app,
+        &id,
+        Some(&token),
+        json!({
+            "hook_event_name": "Notification",
+            "message": "Claude needs your permission to use Bash"
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+    let (status, body) = send_hook(
+        &app,
+        &id,
+        Some(&token),
+        json!({
+            "hook_event_name": "Notification",
+            "message": "Claude is waiting for your input"
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+    let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    let current = bootstrap_session(&bootstrap, &id);
+    assert_eq!(
+        current["waitingFor"], "permission",
+        "an idle notice must not hide a permission card"
+    );
+
+    let (status, closed) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+}
+
+#[tokio::test]
 async fn dropped_hook_connection_clears_the_pending_permission() {
     let data_dir = TempDirectory::new("claude-cancel-data");
     let repo = TempDirectory::new("claude-cancel-repo");
