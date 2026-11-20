@@ -58,7 +58,7 @@ Sample accounts appear on a new install. They are marked **Sample** and have no 
 1. Choose **New session**.
 2. Choose a project.
 3. Choose **Agent** or **Terminal**.
-4. For an agent session, choose a client and an account.
+4. For an agent session, choose a client and a preset. Each connected account is a preset; a stored preset adds its model and overrides to the launch.
 5. Set the folder if you want a different one from the project folder.
 6. For an agent session, optionally choose a source branch.
 7. Optionally enter a first prompt. The app uses it to name the session when the name is empty.

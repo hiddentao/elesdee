@@ -130,6 +130,15 @@ export function MoreIcon({ className }: IconProps) {
   );
 }
 
+export function PresetIcon({ className }: IconProps) {
+  return (
+    <svg {...base} className={className}>
+      <path d="M3 3.5h10v9H3Z" />
+      <path d="M5 6h6M5 8.5h6M5 11h3.5" />
+    </svg>
+  );
+}
+
 export function LayersIcon({ className }: IconProps) {
   return (
     <svg {...base} className={className}>

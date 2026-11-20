@@ -1,19 +1,35 @@
-import { useState } from 'react';
-import type { Account, CreateAccountInput } from '../api/types';
+import { useCallback, useEffect, useState } from 'react';
+import {
+  ApiError,
+  createPreset,
+  deletePreset,
+  listPresets,
+  updatePreset,
+} from '../api/client';
+import type {
+  Account,
+  CreateAccountInput,
+  CreatePresetInput,
+  LaunchPreset,
+} from '../api/types';
 import { LANGUAGES, type Language } from '../i18n';
 import { useLanguage } from '../i18n/LanguageProvider';
 import { accountUsage } from '../state/usage';
 import { AddAccountDialog } from './AddAccountDialog';
 import { Dialog } from './Dialog';
+import { PresetDialog } from './PresetDialog';
 import {
   CloseIcon,
   GlobeIcon,
   LayersIcon,
+  PencilIcon,
   PlusIcon,
+  PresetIcon,
   SparkIcon,
+  TrashIcon,
 } from './icons';
 
-type SettingsSection = 'providers' | 'languages' | 'about';
+type SettingsSection = 'providers' | 'presets' | 'languages' | 'about';
 
 interface SettingsDialogProps {
   accounts: Account[];
@@ -33,6 +49,56 @@ export function SettingsDialog({
   const { t, language, setLanguage } = useLanguage();
   const [section, setSection] = useState<SettingsSection>('providers');
   const [addOpen, setAddOpen] = useState(false);
+  const [presets, setPresets] = useState<LaunchPreset[]>([]);
+  const [presetsLoading, setPresetsLoading] = useState(true);
+  const [presetsError, setPresetsError] = useState<string | null>(null);
+  const [presetEditor, setPresetEditor] = useState<
+    LaunchPreset | null | undefined
+  >(undefined);
+  const [deleteTarget, setDeleteTarget] = useState<LaunchPreset | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const refreshPresets = useCallback(async () => {
+    setPresetsLoading(true);
+    try {
+      setPresets(await listPresets(''));
+      setPresetsError(null);
+    } catch {
+      setPresetsError(t('presets.errorLoad'));
+    } finally {
+      setPresetsLoading(false);
+    }
+  }, [t]);
+
+  useEffect(() => {
+    void refreshPresets();
+  }, [refreshPresets]);
+
+  async function savePreset(id: string | null, input: CreatePresetInput) {
+    return id ? updatePreset(id, input) : createPreset(input);
+  }
+
+  async function confirmDelete() {
+    if (!deleteTarget) {
+      return;
+    }
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await deletePreset(deleteTarget.id);
+      setDeleteTarget(null);
+      await refreshPresets();
+    } catch (error) {
+      setDeleteError(
+        error instanceof ApiError
+          ? error.message
+          : t('presets.errorDelete'),
+      );
+    } finally {
+      setDeleting(false);
+    }
+  }
 
   return (
     <>
@@ -41,7 +107,9 @@ export function SettingsDialog({
         descriptionId="settings-description"
         className="settings-dialog"
         onClose={onClose}
-        inert={addOpen}
+        inert={
+          addOpen || presetEditor !== undefined || deleteTarget !== null
+        }
       >
         <div className="settings-head">
           <div>
@@ -80,6 +148,19 @@ export function SettingsDialog({
             >
               <LayersIcon />
               <span>{t('settings.providers')}</span>
+            </button>
+            <button
+              type="button"
+              className={
+                section === 'presets'
+                  ? 'settings-nav-item is-on'
+                  : 'settings-nav-item'
+              }
+              aria-current={section === 'presets' ? 'page' : undefined}
+              onClick={() => setSection('presets')}
+            >
+              <PresetIcon />
+              <span>{t('settings.presets')}</span>
             </button>
             <button
               type="button"
@@ -180,6 +261,130 @@ export function SettingsDialog({
                   </ul>
                 )}
               </section>
+            ) : section === 'presets' ? (
+              <section
+                className="settings-section"
+                aria-labelledby="settings-presets-title"
+              >
+                <div className="settings-section-head">
+                  <div>
+                    <h3
+                      className="settings-section-title"
+                      id="settings-presets-title"
+                    >
+                      {t('settings.presets')}
+                    </h3>
+                    <p className="settings-section-note">
+                      {t('settings.presetsNote')}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    onClick={() => setPresetEditor(null)}
+                  >
+                    <PlusIcon />
+                    {t('settings.addPreset')}
+                  </button>
+                </div>
+
+                {presetsError ? (
+                  <p className="form-error" role="alert">
+                    {presetsError}
+                  </p>
+                ) : presetsLoading && presets.length === 0 ? (
+                  <p className="settings-empty">{t('presets.loading')}</p>
+                ) : presets.length === 0 ? (
+                  <p className="settings-empty">{t('settings.noPresets')}</p>
+                ) : (
+                  <ul className="settings-accounts">
+                    {presets.map((preset) => {
+                      const account =
+                        accounts.find(
+                          (candidate) => candidate.id === preset.accountId,
+                        ) ?? null;
+                      const configCount = Object.keys(preset.config).length;
+                      return (
+                        <li key={preset.id} className="settings-account">
+                          <div className="settings-account-main">
+                            <div className="settings-account-title">
+                              <span className="settings-account-name">
+                                {preset.name}
+                              </span>
+                              {!preset.stored ? (
+                                <span className="sample-tag">
+                                  {t('presets.fromAccount')}
+                                </span>
+                              ) : null}
+                            </div>
+                            <span className="settings-account-sub">
+                              {account
+                                ? `${account.name} · ${account.client}`
+                                : preset.accountId}
+                              {preset.model
+                                ? ` · ${t('newSession.modelWith', {
+                                    model: preset.model,
+                                  })}`
+                                : ''}
+                            </span>
+                            <span className="settings-account-sub">
+                              {preset.env.length > 0
+                                ? t(
+                                    preset.env.length === 1
+                                      ? 'newSession.envOverrideOne'
+                                      : 'newSession.envOverrideMany',
+                                    { count: preset.env.length },
+                                  )
+                                : ''}
+                              {preset.env.length > 0 && configCount > 0
+                                ? ' · '
+                                : ''}
+                              {configCount > 0
+                                ? t(
+                                    configCount === 1
+                                      ? 'newSession.configOverrideOne'
+                                      : 'newSession.configOverrideMany',
+                                    { count: configCount },
+                                  )
+                                : ''}
+                              {preset.env.length === 0 && configCount === 0
+                                ? t('newSession.overridesNone')
+                                : ''}
+                            </span>
+                          </div>
+                          <div className="settings-account-actions">
+                            <button
+                              type="button"
+                              className="btn btn-ghost"
+                              aria-label={t('presets.edit', {
+                                name: preset.name,
+                              })}
+                              onClick={() => setPresetEditor(preset)}
+                            >
+                              <PencilIcon />
+                            </button>
+                            {preset.stored ? (
+                              <button
+                                type="button"
+                                className="btn btn-ghost"
+                                aria-label={t('presets.delete', {
+                                  name: preset.name,
+                                })}
+                                onClick={() => {
+                                  setDeleteError(null);
+                                  setDeleteTarget(preset);
+                                }}
+                              >
+                                <TrashIcon />
+                              </button>
+                            ) : null}
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </section>
             ) : section === 'languages' ? (
               <section
                 className="settings-section"
@@ -243,9 +448,69 @@ export function SettingsDialog({
           onCreated={(account) => {
             onAccountCreated(account);
             setAddOpen(false);
+            void refreshPresets();
           }}
           onClose={() => setAddOpen(false)}
         />
+      ) : null}
+
+      {presetEditor !== undefined ? (
+        <PresetDialog
+          accounts={accounts}
+          preset={presetEditor}
+          onSubmit={savePreset}
+          onSaved={() => {
+            setPresetEditor(undefined);
+            void refreshPresets();
+          }}
+          onClose={() => setPresetEditor(undefined)}
+        />
+      ) : null}
+
+      {deleteTarget ? (
+        <Dialog
+          titleId="delete-preset-title"
+          descriptionId="delete-preset-description"
+          busyLabel={t('presets.deleting')}
+          onClose={() => setDeleteTarget(null)}
+          busy={deleting}
+        >
+          <div className="dialog-head">
+            <h2 className="dialog-title" id="delete-preset-title">
+              {t('presets.deleteTitle')}
+            </h2>
+            <p className="dialog-sub" id="delete-preset-description">
+              {t('presets.deleteText', { name: deleteTarget.name })}
+            </p>
+          </div>
+          <div className="dialog-body">
+            {deleteError ? (
+              <p className="form-error" role="alert">
+                {deleteError}
+              </p>
+            ) : null}
+          </div>
+          <div className="dialog-foot">
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={() => setDeleteTarget(null)}
+              disabled={deleting}
+            >
+              {t('common.cancel')}
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => void confirmDelete()}
+              disabled={deleting}
+            >
+              {deleting
+                ? t('presets.deleting')
+                : t('presets.deleteConfirm')}
+            </button>
+          </div>
+        </Dialog>
       ) : null}
     </>
   );

@@ -44,6 +44,9 @@ export interface Session {
   parentSessionId?: string | null;
   parentSessionName?: string | null;
   envOverrides?: EnvOverride[];
+  presetId?: string | null;
+  model?: string | null;
+  config?: Record<string, string>;
   startedAt: string;
   shortcuts: Shortcut[];
 }
@@ -104,9 +107,49 @@ export interface AgentCheck {
   version: string | null;
 }
 
+export interface Preset {
+  id: string;
+  name: string;
+  accountId: string;
+  model: string | null;
+  env: EnvOverride[];
+  config: Record<string, string>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface LaunchPreset {
+  id: string;
+  name: string;
+  accountId: string;
+  model: string | null;
+  env: EnvOverride[];
+  config: Record<string, string>;
+  stored: boolean;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+export interface CreatePresetInput {
+  name?: string;
+  accountId: string;
+  model?: string | null;
+  env?: EnvOverride[];
+  config?: Record<string, string>;
+}
+
+export interface UpdatePresetInput {
+  name?: string;
+  accountId?: string;
+  model?: string | null;
+  env?: EnvOverride[];
+  config?: Record<string, string>;
+}
+
 export interface BootstrapResponse {
   projects: Project[];
   accounts: Account[];
+  presets?: Preset[];
   sessions: Session[];
   questions?: Question[];
   sessionRequests?: SessionRequest[];
@@ -218,6 +261,7 @@ export interface CreateSessionInput {
   projectId: string;
   kind: SessionKind;
   accountId?: string;
+  presetId?: string;
   name?: string;
   folder?: string;
   sourceBranch?: string;

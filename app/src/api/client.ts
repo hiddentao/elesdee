@@ -6,11 +6,13 @@ import type {
   BootstrapResponse,
   Branch,
   CreateAccountInput,
+  CreatePresetInput,
   CreateProjectInput,
   CreateSessionInput,
   FileContent,
   FileList,
   HealthResponse,
+  LaunchPreset,
   PermissionDecision,
   Project,
   ProviderInfo,
@@ -18,6 +20,7 @@ import type {
   Session,
   SessionChanges,
   SessionRequest,
+  UpdatePresetInput,
   UpdateProjectDefaultsInput,
 } from './types';
 
@@ -129,6 +132,38 @@ export function listAccounts(
     `/api/accounts?${params.toString()}`,
     signal ? { signal } : undefined,
   );
+}
+
+export function listPresets(
+  query: string,
+  signal?: AbortSignal,
+): Promise<LaunchPreset[]> {
+  const params = new URLSearchParams({ q: query });
+  return request<LaunchPreset[]>(
+    `/api/presets?${params.toString()}`,
+    signal ? { signal } : undefined,
+  );
+}
+
+export function createPreset(input: CreatePresetInput): Promise<LaunchPreset> {
+  return request<LaunchPreset>('/api/presets', post(input));
+}
+
+export function updatePreset(
+  id: string,
+  input: UpdatePresetInput,
+): Promise<LaunchPreset> {
+  return request<LaunchPreset>(`/api/presets/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+}
+
+export function deletePreset(id: string): Promise<void> {
+  return request<void>(`/api/presets/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
 }
 
 export function listBranches(

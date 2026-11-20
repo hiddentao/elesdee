@@ -112,15 +112,28 @@ function pickerResponse(input: RequestInfo | URL): Promise<Response> {
     );
   }
 
-  if (url.pathname === '/api/accounts') {
+  if (url.pathname === '/api/presets') {
     return Promise.resolve(
       jsonResponse(
-        accounts.filter(
-          (account) =>
-            matches(account.name, query) ||
-            matches(account.client, query) ||
-            matches(account.plan, query),
-        ),
+        accounts
+          .filter(
+            (account) =>
+              matches(account.name, query) ||
+              matches(account.client, query) ||
+              matches(account.plan, query) ||
+              matches(account.provider, query),
+          )
+          .map((account) => ({
+            id: `account:${account.id}`,
+            name: account.name,
+            accountId: account.id,
+            model: null,
+            env: [],
+            config: {},
+            stored: false,
+            createdAt: null,
+            updatedAt: null,
+          })),
       ),
     );
   }
@@ -188,7 +201,7 @@ describe('NewSessionDialog', () => {
     await chooseProject(user, 'core');
     await user.click(screen.getByRole('radio', { name: 'Claude Code' }));
 
-    const accountInput = screen.getByLabelText('Account');
+    const accountInput = screen.getByLabelText('Preset');
     await user.click(accountInput);
     expect(
       await screen.findByRole('option', { name: /42% left/ }),
@@ -218,7 +231,7 @@ describe('NewSessionDialog', () => {
 
     expect(screen.getByLabelText('Repository folder')).toHaveValue('/dev/core');
     expect(screen.getByRole('radio', { name: 'Claude Code' })).toBeChecked();
-    expect(screen.getByLabelText('Account')).toHaveValue('Work');
+    expect(screen.getByLabelText('Preset')).toHaveValue('Work · 42% left');
     expect(screen.getByLabelText('Source branch (optional)')).toHaveValue(
       'feature',
     );
@@ -238,7 +251,7 @@ describe('NewSessionDialog', () => {
   it('does not prefill a sample account when the project has no default', () => {
     renderDialog(vi.fn(), 'p1');
 
-    expect(screen.getByLabelText('Account')).toHaveValue('');
+    expect(screen.getByLabelText('Preset')).toHaveValue('');
     expect(
       screen.getByRole('radio', { name: 'Claude Code' }),
     ).not.toBeChecked();
@@ -251,7 +264,7 @@ describe('NewSessionDialog', () => {
     renderDialog(onCreate, 'p1', defaultProjects);
 
     await user.click(screen.getByRole('radio', { name: 'Codex' }));
-    const accountInput = screen.getByLabelText('Account');
+    const accountInput = screen.getByLabelText('Preset');
     await user.click(accountInput);
     await user.clear(accountInput);
     await user.type(accountInput, 'Personal');
@@ -286,7 +299,7 @@ describe('NewSessionDialog', () => {
     ).toBeInTheDocument();
 
     await user.click(screen.getByRole('radio', { name: 'Claude Code' }));
-    const accountInput = screen.getByLabelText('Account');
+    const accountInput = screen.getByLabelText('Preset');
     await user.click(accountInput);
     await user.click(await screen.findByRole('option', { name: /Work/ }));
 
@@ -323,7 +336,7 @@ describe('NewSessionDialog', () => {
 
     await user.click(screen.getByRole('radio', { name: 'Antigravity' }));
 
-    const accountInput = screen.getByLabelText('Account');
+    const accountInput = screen.getByLabelText('Preset');
     await user.click(accountInput);
 
     const option = await screen.findByRole('option', { name: /Google work/ });
@@ -497,7 +510,7 @@ describe('NewSessionDialog', () => {
     await user.click(screen.getByRole('radio', { name: 'Claude Code' }));
 
     expect(
-      screen.getByText('No account is set up for Claude Code yet.'),
+      screen.getByText('No preset or account is set up for Claude Code yet.'),
     ).toBeInTheDocument();
   });
 
@@ -505,13 +518,13 @@ describe('NewSessionDialog', () => {
     const user = userEvent.setup();
     renderDialog();
 
-    expect(screen.getByLabelText('Account')).toHaveAttribute(
+    expect(screen.getByLabelText('Preset')).toHaveAttribute(
       'placeholder',
       'Choose a client first',
     );
 
     await user.click(screen.getByRole('radio', { name: 'Claude Code' }));
-    await user.click(screen.getByLabelText('Account'));
+    await user.click(screen.getByLabelText('Preset'));
 
     expect(
       await screen.findByRole('option', { name: /Work/ }),
@@ -522,6 +535,6 @@ describe('NewSessionDialog', () => {
     expect(
       screen.queryByRole('option', { name: /Google work/ }),
     ).not.toBeInTheDocument();
-    expect(fetch).toHaveBeenCalledWith('/api/accounts?q=', expect.anything());
+    expect(fetch).toHaveBeenCalledWith('/api/presets?q=', expect.anything());
   });
 });

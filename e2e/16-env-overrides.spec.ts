@@ -23,7 +23,7 @@ test('passes launch environment overrides to the agent', async ({
   await projectCombo.fill(label);
   await page.getByRole('option', { name: new RegExp(label) }).click();
   await dialog.getByRole('radio', { name: 'Claude Code' }).click();
-  const accountCombo = dialog.getByRole('combobox', { name: 'Account' });
+  const accountCombo = dialog.getByRole('combobox', { name: 'Preset' });
   await accountCombo.click();
   await accountCombo.fill('Anthropic Max');
   await page.getByRole('option', { name: /Anthropic Max/ }).click();

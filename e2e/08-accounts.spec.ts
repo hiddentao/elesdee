@@ -48,7 +48,7 @@ test('adds an API-key provider and gives the session its environment', async ({
   await projectCombo.fill(label);
   await page.getByRole('option', { name: new RegExp(label) }).click();
   await dialog.getByRole('radio', { name: 'Claude Code' }).click();
-  const accountCombo = dialog.getByRole('combobox', { name: 'Account' });
+  const accountCombo = dialog.getByRole('combobox', { name: 'Preset' });
   await accountCombo.click();
   await accountCombo.fill('DeepSeek e2e');
   await page.getByRole('option', { name: /DeepSeek e2e/ }).click();

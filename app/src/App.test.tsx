@@ -13,6 +13,7 @@ import {
   health,
   listAccounts,
   listFiles,
+  listPresets,
   listProjects,
   listProviders,
   renameSession,
@@ -38,6 +39,7 @@ vi.mock('./api/client', async (importOriginal) => {
     health: vi.fn(),
     listAccounts: vi.fn(),
     listFiles: vi.fn(),
+    listPresets: vi.fn(),
     listProjects: vi.fn(),
     listProviders: vi.fn(),
     renameSession: vi.fn(),
@@ -108,6 +110,7 @@ beforeEach(() => {
     { id: 'p1', name: 'web', folder: '/dev/web' },
   ]);
   vi.mocked(listAccounts).mockResolvedValue([]);
+  vi.mocked(listPresets).mockResolvedValue([]);
   vi.mocked(listProviders).mockResolvedValue([
     {
       id: 'anthropic',
@@ -934,6 +937,19 @@ describe('settings', () => {
     };
     vi.mocked(createAccount).mockResolvedValue(google);
     vi.mocked(listAccounts).mockResolvedValue([google]);
+    vi.mocked(listPresets).mockResolvedValue([
+      {
+        id: 'account:google-1',
+        name: google.name,
+        accountId: google.id,
+        model: null,
+        env: [],
+        config: {},
+        stored: false,
+        createdAt: null,
+        updatedAt: null,
+      },
+    ]);
 
     const user = userEvent.setup();
     render(<App />);
@@ -1006,7 +1022,7 @@ describe('settings', () => {
     await user.click(
       within(sessionDialog).getByRole('radio', { name: 'Antigravity' }),
     );
-    await user.click(within(sessionDialog).getByLabelText('Account'));
+    await user.click(within(sessionDialog).getByLabelText('Preset'));
     await user.click(
       await screen.findByRole('option', { name: /Google work/ }),
     );
