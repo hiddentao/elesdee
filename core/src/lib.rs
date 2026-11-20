@@ -1,5 +1,6 @@
 mod antigravity;
 pub mod api;
+mod browser;
 mod claude;
 mod clients;
 mod codex;

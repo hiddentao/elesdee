@@ -454,6 +454,23 @@ struct WriteFileRequest {
     content: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BrowserOpenRequest {
+    url: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BrowserTabRequest {
+    url: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct BrowserScreenshotQuery {
+    tab: Option<String>,
+}
+
 pub fn router(state: AppState) -> Router {
     let streaming = Router::new()
         .route("/api/sessions/{id}/output", get(session_output))
@@ -528,6 +545,26 @@ pub fn router(state: AppState) -> Router {
         .route("/api/sessions/{id}/changes", get(session_changes))
         .route("/api/sessions/{id}/shared", get(list_shared_files))
         .route("/api/sessions/{id}/shared/{file_id}", get(read_shared_file))
+        .route("/api/sessions/{id}/browser", get(browser_state))
+        .route("/api/sessions/{id}/browser/start", post(browser_start))
+        .route("/api/sessions/{id}/browser/stop", post(browser_stop))
+        .route("/api/sessions/{id}/browser/open", post(browser_open))
+        .route("/api/sessions/{id}/browser/back", post(browser_back))
+        .route("/api/sessions/{id}/browser/forward", post(browser_forward))
+        .route("/api/sessions/{id}/browser/reload", post(browser_reload))
+        .route("/api/sessions/{id}/browser/tabs", post(browser_new_tab))
+        .route(
+            "/api/sessions/{id}/browser/tabs/{tab}/activate",
+            post(browser_activate),
+        )
+        .route(
+            "/api/sessions/{id}/browser/tabs/{tab}/close",
+            post(browser_close_tab),
+        )
+        .route(
+            "/api/sessions/{id}/browser/screenshot",
+            get(browser_screenshot),
+        )
         .route("/internal/mcp/{id}", post(mcp_request))
         .layer(middleware::from_fn(request_timeout));
 
@@ -1980,6 +2017,7 @@ async fn close_session(
         return Err(ApiError::conflict("Session is closing."));
     }
 
+    state.stop_browser(&id).await;
     let closing = entry.session();
     let should_wait = entry.begin_close().map_err(|failure| match failure {
         CloseFailure::AlreadyClosed => ApiError::conflict("Session is already closed."),
@@ -2775,6 +2813,7 @@ async fn pause_session(
     entry: &Arc<SessionEntry>,
     reason: &str,
 ) -> Result<Session, ()> {
+    state.stop_browser(&entry.id()).await;
     let should_wait = entry.begin_close().map_err(|_| ())?;
     if should_wait {
         let _ = wait_for_process_exit(entry, Duration::from_secs(2)).await;
@@ -2873,6 +2912,7 @@ async fn delete_session(
         return Err(ApiError::conflict("Close the session before deleting it."));
     }
 
+    state.stop_browser(&id).await;
     if session.kind == SessionKind::Agent
         && let Some(repo_root) = entry.repo_root()
     {
@@ -3041,13 +3081,171 @@ async fn read_shared_file(
     Ok(response)
 }
 
+fn active_session(state: &AppState, id: &str) -> Result<Arc<SessionEntry>, ApiError> {
+    let entry = state
+        .session(id)
+        .ok_or_else(|| ApiError::not_found("Unknown session."))?;
+    if entry.is_closed() {
+        return Err(ApiError::conflict("The session is closed."));
+    }
+    Ok(entry)
+}
+
+fn browser_error(error: crate::browser::BrowserError) -> ApiError {
+    use crate::browser::BrowserError;
+    match error {
+        BrowserError::InvalidUrl(_) => ApiError::bad_request(error.message()),
+        BrowserError::NoPage => ApiError::conflict(error.message()),
+        BrowserError::TabLimit => ApiError::conflict(error.message()),
+        BrowserError::Unavailable(_) => ApiError::service_unavailable(error.message()),
+        BrowserError::Engine(_) => ApiError::bad_gateway(error.message()),
+    }
+}
+
+async fn browser_state(
+    State(state): State<AppState>,
+    UrlPath(id): UrlPath<String>,
+) -> Result<Json<crate::browser::BrowserState>, ApiError> {
+    if state.session(&id).is_none() {
+        return Err(ApiError::not_found("Unknown session."));
+    }
+    Ok(Json(state.browser().state(&id)))
+}
+
+async fn browser_start(
+    State(state): State<AppState>,
+    UrlPath(id): UrlPath<String>,
+) -> Result<Json<crate::browser::BrowserState>, ApiError> {
+    active_session(&state, &id)?;
+    let state_value = state.browser().start(&id).await.map_err(browser_error)?;
+    Ok(Json(state_value))
+}
+
+async fn browser_stop(
+    State(state): State<AppState>,
+    UrlPath(id): UrlPath<String>,
+) -> Result<Json<crate::browser::BrowserState>, ApiError> {
+    if state.session(&id).is_none() {
+        return Err(ApiError::not_found("Unknown session."));
+    }
+    state.stop_browser(&id).await;
+    Ok(Json(state.browser().state(&id)))
+}
+
+async fn browser_open(
+    State(state): State<AppState>,
+    UrlPath(id): UrlPath<String>,
+    body: Result<Json<BrowserOpenRequest>, JsonRejection>,
+) -> Result<Json<crate::browser::BrowserState>, ApiError> {
+    let Json(request) = body.map_err(invalid_json)?;
+    active_session(&state, &id)?;
+    let state_value = state
+        .browser()
+        .open(&id, &request.url)
+        .await
+        .map_err(browser_error)?;
+    Ok(Json(state_value))
+}
+
+async fn browser_back(
+    State(state): State<AppState>,
+    UrlPath(id): UrlPath<String>,
+) -> Result<Json<crate::browser::BrowserState>, ApiError> {
+    active_session(&state, &id)?;
+    let state_value = state.browser().back(&id).await.map_err(browser_error)?;
+    Ok(Json(state_value))
+}
+
+async fn browser_forward(
+    State(state): State<AppState>,
+    UrlPath(id): UrlPath<String>,
+) -> Result<Json<crate::browser::BrowserState>, ApiError> {
+    active_session(&state, &id)?;
+    let state_value = state.browser().forward(&id).await.map_err(browser_error)?;
+    Ok(Json(state_value))
+}
+
+async fn browser_reload(
+    State(state): State<AppState>,
+    UrlPath(id): UrlPath<String>,
+) -> Result<Json<crate::browser::BrowserState>, ApiError> {
+    active_session(&state, &id)?;
+    let state_value = state.browser().reload(&id).await.map_err(browser_error)?;
+    Ok(Json(state_value))
+}
+
+async fn browser_new_tab(
+    State(state): State<AppState>,
+    UrlPath(id): UrlPath<String>,
+    body: Result<Json<BrowserTabRequest>, JsonRejection>,
+) -> Result<Json<crate::browser::BrowserState>, ApiError> {
+    let Json(request) = body.map_err(invalid_json)?;
+    active_session(&state, &id)?;
+    let state_value = state
+        .browser()
+        .new_tab(&id, request.url.as_deref())
+        .await
+        .map_err(browser_error)?;
+    Ok(Json(state_value))
+}
+
+async fn browser_activate(
+    State(state): State<AppState>,
+    UrlPath((id, tab)): UrlPath<(String, String)>,
+) -> Result<Json<crate::browser::BrowserState>, ApiError> {
+    active_session(&state, &id)?;
+    let state_value = state
+        .browser()
+        .activate(&id, &tab)
+        .await
+        .map_err(browser_error)?;
+    Ok(Json(state_value))
+}
+
+async fn browser_close_tab(
+    State(state): State<AppState>,
+    UrlPath((id, tab)): UrlPath<(String, String)>,
+) -> Result<Json<crate::browser::BrowserState>, ApiError> {
+    active_session(&state, &id)?;
+    let state_value = state
+        .browser()
+        .close_tab(&id, &tab)
+        .await
+        .map_err(browser_error)?;
+    Ok(Json(state_value))
+}
+
+async fn browser_screenshot(
+    State(state): State<AppState>,
+    UrlPath(id): UrlPath<String>,
+    Query(query): Query<BrowserScreenshotQuery>,
+) -> Result<Response, ApiError> {
+    if state.session(&id).is_none() {
+        return Err(ApiError::not_found("Unknown session."));
+    }
+    let tab = query
+        .tab
+        .or_else(|| state.browser().state(&id).active_tab_id);
+    let Some(tab) = tab else {
+        return Err(ApiError::not_found("No page is open."));
+    };
+    let Some(bytes) = state.browser().screenshot_bytes(&id, &tab) else {
+        return Err(ApiError::not_found("No screenshot is available."));
+    };
+    let mut response = Response::new(axum::body::Body::from(bytes));
+    let headers = response.headers_mut();
+    headers.insert(CONTENT_TYPE, HeaderValue::from_static("image/png"));
+    headers.insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    headers.insert(NOSNIFF, HeaderValue::from_static("nosniff"));
+    Ok(response)
+}
+
 fn shared_data_dir(state: &AppState) -> Result<PathBuf, ApiError> {
     state
         .data_dir()
         .map(Path::to_path_buf)
         .ok_or_else(|| ApiError::internal("The shared file store is not available."))
 }
-
 fn shared_error(error: shared::ShareError) -> ApiError {
     match error {
         shared::ShareError::InvalidPath | shared::ShareError::OutsideFolder => {

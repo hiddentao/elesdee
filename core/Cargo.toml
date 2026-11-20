@@ -17,6 +17,7 @@ path = "src/main.rs"
 async-stream = "0.3"
 axum = "0.8"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+chromiumoxide = { version = "0.9", default-features = false }
 data-encoding = "2"
 elesdee-link = { path = "../link" }
 futures = "0.3"

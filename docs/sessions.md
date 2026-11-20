@@ -44,7 +44,7 @@ The terminal is the real agent terminal. Type in it, scroll it and use its keybo
 
 Each agent has its own short key list in the session. The core service supplies those shortcuts, so they follow the selected agent.
 
-## Files and Changes
+## Files, Changes and the browser
 
 Each session has a side panel. It is closed by default and remembers its open state and tab for each session. Open it with the panel button in the session header. The terminal stays usable while the panel is open.
 
@@ -53,6 +53,12 @@ Each session has a side panel. It is closed by default and remembers its open st
 Files must be UTF-8 text up to 1 MiB. The app refuses binary files and larger files. Every path stays inside the session folder: paths that climb out, leave through a symlink, or name a folder where a file is expected are refused.
 
 **Changes** shows the files that differ from the branch point for an agent session, committed or not. A terminal session shows the changes in its working tree against the current commit. Each file shows added and removed line counts, and selecting it shows a diff. In a plain folder, the panel says the folder is not a Git repository.
+
+**Browser** is this session's own browser. It has its own tabs, cookies, storage and logins, separate from every other session and from your personal browser. Type an address and press Enter, or choose **Open**, to open a page. Use **Back**, **Forward** and **Reload** for the active tab, and the tab strip to switch, add or close tabs. The panel shows a loading state while a page opens, then the latest picture of the page.
+
+The browser starts only when the session needs it. Closing or pausing the session stops the browser and closes its tabs, but keeps the session's logins for the next start. A closed session cannot use its browser.
+
+An agent can also use the session browser through its tools: open a page, read the visible text, click, type, wait for something to appear, and share a screenshot with you. A screenshot appears with the session's shared files and on the phone. A session cannot see or control another session's tabs.
 
 ## Tabs and the sidebar
 

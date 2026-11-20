@@ -178,6 +178,67 @@ fn tools() -> Vec<Value> {
                 "required": ["path"]
             }
         }),
+        json!({
+            "name": "browser_open",
+            "description": "Open a page in this session's own browser and return its visible text. Each session has a separate browser with its own tabs, cookies and logins.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "url": { "type": "string", "description": "A full http or https address." }
+                },
+                "required": ["url"]
+            }
+        }),
+        json!({
+            "name": "browser_read",
+            "description": "Read the visible text of the page that is open in this session's browser.",
+            "inputSchema": { "type": "object", "properties": {} }
+        }),
+        json!({
+            "name": "browser_click",
+            "description": "Click an element on the open page by CSS selector.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "selector": { "type": "string", "description": "A CSS selector for the element." }
+                },
+                "required": ["selector"]
+            }
+        }),
+        json!({
+            "name": "browser_type",
+            "description": "Focus an element on the open page and type text into it.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "selector": { "type": "string", "description": "A CSS selector for the element." },
+                    "text": { "type": "string", "description": "The text to type." }
+                },
+                "required": ["selector", "text"]
+            }
+        }),
+        json!({
+            "name": "browser_wait",
+            "description": "Wait for a selector or text to appear on the open page, or for a short time. The call returns when the condition holds or the timeout ends.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "selector": { "type": "string", "description": "Wait until this CSS selector exists." },
+                    "text": { "type": "string", "description": "Wait until the visible text contains this text." },
+                    "timeoutSeconds": { "type": "integer", "minimum": 1, "maximum": 15 }
+                }
+            }
+        }),
+        json!({
+            "name": "browser_screenshot",
+            "description": "Take a screenshot of the open page and share it with the user. The image appears in the session's view on every device.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "caption": { "type": "string", "description": "An optional short label for the screenshot." }
+                }
+            }
+        }),
     ]
 }
 
@@ -201,6 +262,12 @@ pub async fn call_tool(
         "start_session" => start_session(state, session_id, arguments).await,
         "wait_for_session" => wait_for_session(state, session_id, arguments).await,
         "share_file" => share_file(state, session_id, arguments).await,
+        "browser_open" => browser_open(state, session_id, arguments).await,
+        "browser_read" => browser_read(state, session_id).await,
+        "browser_click" => browser_click(state, session_id, arguments).await,
+        "browser_type" => browser_type(state, session_id, arguments).await,
+        "browser_wait" => browser_wait(state, session_id, arguments).await,
+        "browser_screenshot" => browser_screenshot(state, session_id, arguments).await,
         other => (format!("Unknown tool: {other}"), true),
     }
 }
@@ -749,6 +816,193 @@ fn share_error_message(error: crate::shared::ShareError) -> String {
     }
 }
 
+fn browser_refusal(state: &AppState, session_id: &str) -> Option<(String, bool)> {
+    match state.session(session_id) {
+        None => Some(("Unknown session.".to_owned(), true)),
+        Some(entry) if entry.is_closed() => Some(("The session is closed.".to_owned(), true)),
+        Some(_) => None,
+    }
+}
+
+async fn browser_open(state: &AppState, session_id: &str, arguments: Value) -> (String, bool) {
+    if let Some(refusal) = browser_refusal(state, session_id) {
+        return refusal;
+    }
+    let Some(url) = arguments
+        .get("url")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|url| !url.is_empty())
+    else {
+        return ("The URL is required.".to_owned(), true);
+    };
+    match state.browser().open(session_id, url).await {
+        Ok(state_value) => {
+            let title = state_value
+                .active_tab_id
+                .as_ref()
+                .and_then(|id| state_value.tabs.iter().find(|tab| &tab.id == id))
+                .map(|tab| tab.title.clone())
+                .unwrap_or_default();
+            let text = state
+                .browser()
+                .read_text(session_id)
+                .await
+                .unwrap_or_default();
+            let text = text.chars().take(4000).collect::<String>();
+            (format!("Opened {title} at {url}.\n\n{text}"), false)
+        }
+        Err(error) => (error.message(), true),
+    }
+}
+
+async fn browser_read(state: &AppState, session_id: &str) -> (String, bool) {
+    if let Some(refusal) = browser_refusal(state, session_id) {
+        return refusal;
+    }
+    match state.browser().read_text(session_id).await {
+        Ok(text) if text.is_empty() => ("The page has no visible text.".to_owned(), false),
+        Ok(text) => (text, false),
+        Err(error) => (error.message(), true),
+    }
+}
+
+async fn browser_click(state: &AppState, session_id: &str, arguments: Value) -> (String, bool) {
+    if let Some(refusal) = browser_refusal(state, session_id) {
+        return refusal;
+    }
+    let Some(selector) = arguments
+        .get("selector")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|selector| !selector.is_empty())
+    else {
+        return ("The selector is required.".to_owned(), true);
+    };
+    match state.browser().click(session_id, selector).await {
+        Ok(state_value) => (
+            format!("Clicked {selector}. {}", page_summary(&state_value)),
+            false,
+        ),
+        Err(error) => (error.message(), true),
+    }
+}
+
+async fn browser_type(state: &AppState, session_id: &str, arguments: Value) -> (String, bool) {
+    if let Some(refusal) = browser_refusal(state, session_id) {
+        return refusal;
+    }
+    let Some(selector) = arguments
+        .get("selector")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|selector| !selector.is_empty())
+    else {
+        return ("The selector is required.".to_owned(), true);
+    };
+    let Some(text) = arguments.get("text").and_then(Value::as_str) else {
+        return ("The text is required.".to_owned(), true);
+    };
+    match state.browser().type_text(session_id, selector, text).await {
+        Ok(_) => (format!("Typed into {selector}."), false),
+        Err(error) => (error.message(), true),
+    }
+}
+
+async fn browser_wait(state: &AppState, session_id: &str, arguments: Value) -> (String, bool) {
+    if let Some(refusal) = browser_refusal(state, session_id) {
+        return refusal;
+    }
+    let selector = arguments
+        .get("selector")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|selector| !selector.is_empty());
+    let text = arguments
+        .get("text")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|text| !text.is_empty());
+    let timeout = arguments
+        .get("timeoutSeconds")
+        .and_then(Value::as_u64)
+        .unwrap_or(5)
+        .clamp(1, crate::browser::MAX_WAIT.as_secs());
+    match state
+        .browser()
+        .wait(
+            session_id,
+            selector,
+            text,
+            std::time::Duration::from_secs(timeout),
+        )
+        .await
+    {
+        Ok(state_value) => (
+            format!("Wait finished. {}", page_summary(&state_value)),
+            false,
+        ),
+        Err(error) => (error.message(), true),
+    }
+}
+
+async fn browser_screenshot(
+    state: &AppState,
+    session_id: &str,
+    arguments: Value,
+) -> (String, bool) {
+    if let Some(refusal) = browser_refusal(state, session_id) {
+        return refusal;
+    }
+    let Some(entry) = state.session(session_id) else {
+        return ("Unknown session.".to_owned(), true);
+    };
+    let session = entry.session();
+    let Some(data_dir) = state.data_dir().map(std::path::Path::to_path_buf) else {
+        return ("The shared file store is not available.".to_owned(), true);
+    };
+    let caption = arguments
+        .get("caption")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|caption| !caption.is_empty())
+        .map(|caption| caption.chars().take(200).collect::<String>());
+    let (bytes, _) = match state.browser().screenshot(session_id).await {
+        Ok(result) => result,
+        Err(error) => return (error.message(), true),
+    };
+    let name = format!("browser-{}.png", chrono::Utc::now().format("%Y%m%d-%H%M%S"));
+    match crate::shared::share_bytes(
+        &data_dir,
+        &session.id,
+        &session.name,
+        &name,
+        caption,
+        &bytes,
+    ) {
+        Ok(file) => {
+            let body = serde_json::to_string(&file).unwrap_or_else(|_| "{}".to_owned());
+            state.emit_shared_file(file);
+            (body, false)
+        }
+        Err(error) => (share_error_message(error), true),
+    }
+}
+
+fn page_summary(state: &crate::browser::BrowserState) -> String {
+    match state
+        .active_tab_id
+        .as_ref()
+        .and_then(|id| state.tabs.iter().find(|tab| &tab.id == id))
+    {
+        Some(tab) if !tab.title.is_empty() => {
+            format!("Now at {} ({}).", tab.title, tab.url)
+        }
+        Some(tab) if !tab.url.is_empty() => format!("Now at {}.", tab.url),
+        _ => "No page is open.".to_owned(),
+    }
+}
+
 fn check_usage(state: &AppState, session_id: &str, arguments: Value) -> (String, bool) {
     let account_id = arguments
         .get("accountId")
@@ -833,6 +1087,10 @@ const SKILLS: &[(&str, &str)] = &[
     (
         "frontend-design",
         include_str!("../assets/skills/frontend-design/SKILL.md"),
+    ),
+    (
+        "browser-checks",
+        include_str!("../assets/skills/browser-checks/SKILL.md"),
     ),
 ];
 

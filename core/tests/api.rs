@@ -2760,12 +2760,13 @@ async fn wait_for_session(app: &Router, id: &str, ready: impl Fn(&Value) -> bool
     }
 }
 
-const SESSION_SKILLS: [&str; 5] = [
+const SESSION_SKILLS: [&str; 6] = [
     "elesdee",
     "ask-and-notify",
     "coordinate-sessions",
     "handoff",
     "frontend-design",
+    "browser-checks",
 ];
 
 fn skill_kit(data_dir: &Path, id: &str) -> PathBuf {
@@ -9342,4 +9343,238 @@ async fn removing_an_account_used_by_an_active_session_is_refused() {
         call(&app, "DELETE", &format!("/api/accounts/{account_id}"), None).await;
     assert_eq!(status, StatusCode::OK, "{removed}");
     assert_eq!(secrets.get_key(&account_id).expect("read key"), None);
+}
+
+async fn start_browser_page_server() -> String {
+    async fn page_a() -> ([(header::HeaderName, &'static str); 1], &'static str) {
+        (
+            [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
+            "<html><head><title>Page A</title></head><body><h1>Alpha text</h1></body></html>",
+        )
+    }
+    async fn page_b() -> ([(header::HeaderName, &'static str); 1], &'static str) {
+        (
+            [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
+            "<html><head><title>Page B</title></head><body><h1>Beta text</h1></body></html>",
+        )
+    }
+    let app = Router::new()
+        .route("/a", get(page_a))
+        .route("/b", get(page_b));
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+        .await
+        .expect("bind page server");
+    let address = listener.local_addr().expect("page server address");
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    format!("http://{address}")
+}
+
+async fn mcp_tool(app: &Router, id: &str, name: &str, arguments: Value) -> Value {
+    let (status, body) = call(
+        app,
+        "POST",
+        &format!("/internal/mcp/{id}"),
+        Some(json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": { "name": name, "arguments": arguments }
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    body
+}
+
+fn tool_text(body: &Value) -> &str {
+    body["result"]["content"][0]["text"]
+        .as_str()
+        .expect("tool text")
+}
+
+#[tokio::test]
+async fn mcp_browser_tools_are_scoped_to_the_calling_session() {
+    let base = start_browser_page_server().await;
+    let folder = TempDirectory::new("browser-scope");
+    let app = router(AppState::ephemeral());
+    let first = create_terminal(&app, &folder.path).await;
+    let second = create_terminal(&app, &folder.path).await;
+    let first_id = first["id"].as_str().expect("first id");
+    let second_id = second["id"].as_str().expect("second id");
+
+    let refused = mcp_tool(&app, second_id, "browser_read", json!({})).await;
+    assert_eq!(refused["result"]["isError"], true);
+    assert_eq!(
+        tool_text(&refused),
+        "No page is open in this session's browser."
+    );
+
+    let opened = mcp_tool(
+        &app,
+        first_id,
+        "browser_open",
+        json!({ "url": format!("{base}/a") }),
+    )
+    .await;
+    assert_eq!(opened["result"]["isError"], false, "{opened}");
+    assert!(tool_text(&opened).contains("Page A"), "{opened}");
+    assert!(tool_text(&opened).contains("Alpha text"), "{opened}");
+
+    let read_first = mcp_tool(&app, first_id, "browser_read", json!({})).await;
+    assert!(tool_text(&read_first).contains("Alpha text"));
+    let read_second = mcp_tool(&app, second_id, "browser_read", json!({})).await;
+    assert_eq!(read_second["result"]["isError"], true);
+
+    let opened = mcp_tool(
+        &app,
+        second_id,
+        "browser_open",
+        json!({ "url": format!("{base}/b") }),
+    )
+    .await;
+    assert_eq!(opened["result"]["isError"], false, "{opened}");
+    assert!(tool_text(&opened).contains("Beta text"), "{opened}");
+    let read_first = mcp_tool(&app, first_id, "browser_read", json!({})).await;
+    assert!(tool_text(&read_first).contains("Alpha text"));
+    let read_second = mcp_tool(&app, second_id, "browser_read", json!({})).await;
+    assert!(tool_text(&read_second).contains("Beta text"));
+
+    let (status, first_state) = call(
+        &app,
+        "GET",
+        &format!("/api/sessions/{first_id}/browser"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{first_state}");
+    let (status, second_state) = call(
+        &app,
+        "GET",
+        &format!("/api/sessions/{second_id}/browser"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{second_state}");
+    assert_eq!(first_state["tabs"].as_array().expect("first tabs").len(), 1);
+    assert_eq!(
+        second_state["tabs"].as_array().expect("second tabs").len(),
+        1
+    );
+    assert_eq!(first_state["tabs"][0]["title"], "Page A");
+    assert_eq!(second_state["tabs"][0]["title"], "Page B");
+    let first_tab = first_state["tabs"][0]["id"].as_str().expect("first tab id");
+    assert_ne!(first_tab, second_state["tabs"][0]["id"]);
+
+    let (status, refused) = call(
+        &app,
+        "POST",
+        &format!("/api/sessions/{second_id}/browser/tabs/{first_tab}/activate"),
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{refused}");
+
+    let (status, closed) = close_session(&app, first_id).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+    let refused = mcp_tool(
+        &app,
+        first_id,
+        "browser_open",
+        json!({ "url": format!("{base}/a") }),
+    )
+    .await;
+    assert_eq!(refused["result"]["isError"], true);
+    assert_eq!(tool_text(&refused), "The session is closed.");
+    let (status, closed_state) = call(
+        &app,
+        "GET",
+        &format!("/api/sessions/{first_id}/browser"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{closed_state}");
+    assert_eq!(closed_state["started"], false);
+    assert!(
+        closed_state["tabs"]
+            .as_array()
+            .expect("closed tabs")
+            .is_empty()
+    );
+    let (status, body) = call(
+        &app,
+        "POST",
+        &format!("/api/sessions/{first_id}/browser/open"),
+        Some(json!({ "url": format!("{base}/a") })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+
+    let (status, _) = close_session(&app, second_id).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn mcp_browser_refuses_a_non_http_address_and_shares_a_screenshot() {
+    let base = start_browser_page_server().await;
+    let data_dir = TempDirectory::new("browser-share-data");
+    let folder = TempDirectory::new("browser-share-folder");
+    let app = router(AppState::with_data_dir(data_dir.path.clone()));
+    let session = create_terminal(&app, &folder.path).await;
+    let id = session["id"].as_str().expect("session id");
+
+    let refused = mcp_tool(
+        &app,
+        id,
+        "browser_open",
+        json!({ "url": "file:///etc/passwd" }),
+    )
+    .await;
+    assert_eq!(refused["result"]["isError"], true);
+    assert_eq!(
+        tool_text(&refused),
+        "Only http and https addresses can be opened."
+    );
+
+    let opened = mcp_tool(
+        &app,
+        id,
+        "browser_open",
+        json!({ "url": format!("{base}/a") }),
+    )
+    .await;
+    assert_eq!(opened["result"]["isError"], false, "{opened}");
+
+    let screenshot = mcp_tool(
+        &app,
+        id,
+        "browser_screenshot",
+        json!({ "caption": "The first page" }),
+    )
+    .await;
+    assert_eq!(screenshot["result"]["isError"], false, "{screenshot}");
+    let file: Value =
+        serde_json::from_str(tool_text(&screenshot)).expect("shared screenshot record");
+    assert_eq!(file["caption"], "The first page");
+    assert_eq!(file["image"], true);
+    assert_eq!(file["contentType"], "image/png");
+    assert!(file["name"].as_str().unwrap_or_default().ends_with(".png"));
+    let file_id = file["id"].as_str().expect("screenshot id");
+
+    let (status, files) = call(&app, "GET", &format!("/api/sessions/{id}/shared"), None).await;
+    assert_eq!(status, StatusCode::OK, "{files}");
+    assert_eq!(files.as_array().expect("shared files").len(), 1);
+
+    let (status, headers, body) =
+        get_raw(&app, &format!("/api/sessions/{id}/shared/{file_id}")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        headers.get(header::CONTENT_TYPE).expect("content type"),
+        "image/png"
+    );
+    assert!(body.starts_with(&[0x89, b'P', b'N', b'G']), "not a PNG");
+
+    let (status, _) = close_session(&app, id).await;
+    assert_eq!(status, StatusCode::OK);
 }

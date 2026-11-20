@@ -176,11 +176,11 @@ The agents write their conversation to files on disk, and each keeps its own int
 **Session side panel**
 
 - Each session has its own side panel, closed by default. Switching sessions switches its content and open state. The panel sits beside the terminal, which stays usable while the panel is open.
-- It has three tabs: Files, Changes and Browser. Browser comes later; the Files and Changes tabs are built.
+- It has three tabs: Files, Changes and Browser. All three tabs are built.
 - Files shows the file tree of the session's worktree or folder, one folder at a time. It opens a CodeMirror editor with full syntax highlighting, which works on touch screens. I can edit and save files with an explicit Save action. Unsaved edits are marked, and a failed read or save shows an error.
 - The file API handles UTF-8 text up to 1 MiB. It refuses binary files, larger files, traversal, symlink escapes and a folder where a file is expected.
 - Changes shows every change since the branch point, committed or not. A terminal session has no branch point, so it shows the working-tree changes against the current commit. Each changed file has added and removed line counts and a diff. A plain folder reports that it is not a Git repository.
-- Browser shows a live view of the session's browser. Each session has its own browser context: separate tabs, cookies, storage and logins.
+- Browser shows a live view of the session's browser. Each session has its own browser context: separate tabs, cookies, storage and logins. The tab strip lists the session's own tabs. One address field opens a page, with Back, Forward, Reload and New tab controls. The view shows the latest screenshot and the panel shows a loading state while a page opens. Clicking or typing in the live view is not built yet.
 - Usage is not in this panel. Usage belongs to the computer and opens from the sidebar summary.
 - Not a main feature: the editor supports quick edits, not full IDE work.
 - Mac only for now. The phone does not have the file viewer and editor yet.
@@ -233,13 +233,14 @@ Every agent session gets the same app tools and skills, whatever the agent or pr
 
 **Browser tools**
 
-- The core service runs its own browser (Chromium), separate from my personal browser. No browser extension is needed.
-- Chromium is not bundled in the app. The app downloads it the first time a session needs a browser. This keeps the app download and its updates small.
-- Each session gets its own browser context: its own tabs, cookies and storage. The session keeps its logins when I quit and relaunch the app, after a crash or a restart of the Mac, and when I close and reopen the session. Login data is stored encrypted on my Mac.
-- Tools: open a page, click, type, read the page, take screenshots, read console and network logs.
-- On the Mac, I can watch a session's browser live and click or type in it, for example to log in to a site for the agent.
+- The core service runs its own browser, separate from my personal browser. No browser extension is needed. The browser is Chromium, driven over the DevTools protocol.
+- Chromium is not bundled in the app. The app uses an installed Chrome or Chromium, found on the computer. The `CHROME` environment variable can point to a specific binary. Downloading Chromium on first use is not built yet.
+- Each session gets its own browser process and its own profile folder: its own tabs, cookies and storage. The session keeps its logins when I quit and relaunch the app, after a crash or a restart of the Mac, and when I close and reopen the session. The profile folder has private permissions. Encrypting the login data at rest is not built yet.
+- The browser stops and its tabs close at Close and at pause. A new action starts it again from the saved profile.
+- Tools: open a page, click, type, read the visible page text, wait for a selector or text, and take a screenshot that is shared with me. Reading console and network logs is not built yet.
+- On the Mac, I watch a session's browser through the live view in the Browser tab. Clicking or typing directly in the live view is not built yet; the agent's tools act on the page.
 - The phone has no live view of the browser. It gets the screenshots that agents share.
-- The elesdee server wraps Microsoft's Playwright MCP server, which already has 70+ browser tools ([Playwright](https://playwright.dev/mcp/introduction)). It runs Playwright MCP for each session and passes its tools through, so agents see one server. elesdee adds the per-session logins and the live view.
+- The elesdee server exposes these browser tools itself. Each call is scoped to the session that made it, so a session cannot open, read or control another session's tabs.
 
 **Session tools**
 
@@ -282,7 +283,7 @@ Every agent session gets the same app tools and skills, whatever the agent or pr
 | Coordinate sessions | Split a large task across helper sessions, write clear briefs, and track progress. The coordinating agent merges each helper's branch into its own session branch and resolves conflicts. |
 | Frontend design | Make deliberate visual choices for the subject. Avoid generic layouts and template defaults. Check for redundant controls before adding one. |
 
-Demo servers and Browser checks describe features that are not built yet. Their skills ship with their tools. Until then, every session gets the other five skills: elesdee, Ask and notify, Coordinate sessions, Handoff and Frontend design.
+Demo servers describe a feature that is not built yet; its skill arrives with its tools. Every session gets the other six skills: elesdee, Ask and notify, Coordinate sessions, Handoff, Browser checks and Frontend design.
 
 **Handoff note**
 
