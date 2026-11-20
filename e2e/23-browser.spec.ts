@@ -38,7 +38,18 @@ test.beforeAll(async () => {
         `<input id="name" aria-label="Name">` +
         `<button id="save" onclick="document.getElementById('out').textContent=document.getElementById('name').value">Save</button>` +
         `<p id="out"></p>` +
-        `<script>console.log('page ready', 1 + 1)</script>` +
+        `<script>` +
+        `console.log('page ready', 1 + 1);` +
+        `const input = document.getElementById('name');` +
+        `input.addEventListener('select', () => {` +
+        `document.getElementById('out').textContent = 'selected ' + input.value.slice(input.selectionStart, input.selectionEnd);` +
+        `});` +
+        `document.addEventListener('copy', (event) => {` +
+        `const selected = input.value.slice(input.selectionStart, input.selectionEnd);` +
+        `const copied = event.clipboardData ? event.clipboardData.getData('text/plain') : '';` +
+        `document.getElementById('out').textContent = 'copied ' + (copied || selected);` +
+        `});` +
+        `</script>` +
         `</body></html>`,
     );
   });
@@ -227,6 +238,59 @@ test('clicks and types in the live view', async ({ page, request }) => {
         { timeout: 5000 },
       )
       .toContain('Ada Lovelace');
+  } finally {
+    await closeSession(request, session.id);
+  }
+});
+
+test('uses select-all and copy in the live view', async ({ page, request }) => {
+  const label = uniqueName('browser-chords');
+  const folder = createProjectFolder(label);
+  const project = await createProject(request, label, folder);
+  const session = await createTerminalSession(request, {
+    projectId: project.id,
+    name: uniqueName('Chord browser'),
+    folder,
+  });
+  const command = process.platform === 'darwin' ? 'Meta' : 'Control';
+
+  try {
+    await openApp(page);
+    const address = await openBrowserPanel(page, session.name);
+    await address.fill(`${baseUrl}/one`);
+    await address.press('Enter');
+
+    const live = page.getByRole('application', {
+      name: 'Live browser page',
+    });
+    await expect(live).toBeVisible();
+    const box = await live.boundingBox();
+    expect(box).not.toBeNull();
+    const width = box?.width ?? 0;
+    const height = box?.height ?? 0;
+
+    await live.click({ position: { x: width * 0.5, y: height * 0.3 } });
+    await page.keyboard.type('Ada Lovelace', { delay: 20 });
+
+    await page.keyboard.press(`${command}+A`);
+    await expect
+      .poll(
+        async () =>
+          (await tool(request, session.id, 'browser_read', {})).result
+            .content[0].text,
+        { timeout: 5000 },
+      )
+      .toContain('selected Ada Lovelace');
+
+    await page.keyboard.press(`${command}+C`);
+    await expect
+      .poll(
+        async () =>
+          (await tool(request, session.id, 'browser_read', {})).result
+            .content[0].text,
+        { timeout: 5000 },
+      )
+      .toContain('copied Ada Lovelace');
   } finally {
     await closeSession(request, session.id);
   }

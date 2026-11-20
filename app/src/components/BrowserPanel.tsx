@@ -46,6 +46,42 @@ const LIVE_KEYS = new Set([
   'PageDown',
 ]);
 
+/// The DevTools modifier bits shared with the core input route.
+const MOD_ALT = 1;
+const MOD_CONTROL = 2;
+const MOD_META = 4;
+const MOD_SHIFT = 8;
+const COMMAND_MODIFIERS = MOD_ALT | MOD_CONTROL | MOD_META;
+
+/// The macOS command keys that the window and the app keep for themselves.
+const MAC_APP_KEYS = new Set(['q', 'w', 'm', 'h']);
+
+function isMacPlatform(): boolean {
+  return /mac/i.test(navigator.userAgent);
+}
+
+/// The chords that act on the app window rather than on the page. They are
+/// left to the app and never travel to the session browser.
+function isAppShortcut(event: KeyboardEvent<HTMLDivElement>): boolean {
+  if (event.altKey || event.shiftKey) {
+    return false;
+  }
+  const key = event.key.toLowerCase();
+  if (isMacPlatform()) {
+    return event.metaKey && !event.ctrlKey && MAC_APP_KEYS.has(key);
+  }
+  return event.ctrlKey && !event.metaKey && key === 'w';
+}
+
+function modifierMask(event: KeyboardEvent<HTMLDivElement>): number {
+  return (
+    (event.altKey ? MOD_ALT : 0) |
+    (event.ctrlKey ? MOD_CONTROL : 0) |
+    (event.metaKey ? MOD_META : 0) |
+    (event.shiftKey ? MOD_SHIFT : 0)
+  );
+}
+
 export function BrowserPanel({ session }: BrowserPanelProps) {
   const { t } = useLanguage();
   const [state, setState] = useState<BrowserState | null>(null);
@@ -198,18 +234,36 @@ export function BrowserPanel({ session }: BrowserPanelProps) {
   }
 
   function keyDownLive(event: KeyboardEvent<HTMLDivElement>) {
-    if (event.ctrlKey || event.metaKey || event.altKey) {
+    if (isAppShortcut(event)) {
       return;
     }
     const { key } = event;
+    const modifiers = modifierMask(event);
+    const command = (modifiers & COMMAND_MODIFIERS) !== 0;
+
+    // A plain character is typed. A letter or digit with Control, Meta or Alt
+    // is a page shortcut; another character with a command modifier is not
+    // defined, so it stays with the app.
     if (key.length === 1) {
-      event.preventDefault();
-      queueText(key);
+      if (!command) {
+        event.preventDefault();
+        queueText(key);
+        return;
+      }
+      if (/[a-z0-9]/i.test(key)) {
+        event.preventDefault();
+        pressKey(
+          event.shiftKey ? key.toUpperCase() : key.toLowerCase(),
+          modifiers,
+        );
+      }
       return;
     }
+
+    // Named keys keep their modifiers, so Control and Alt reach the page too.
     if (LIVE_KEYS.has(key)) {
       event.preventDefault();
-      pressKey(key, event.shiftKey ? 8 : 0);
+      pressKey(key, modifiers);
     }
   }
 

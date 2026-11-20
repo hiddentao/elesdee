@@ -925,6 +925,12 @@ fn checked_key(value: &str) -> Result<&str, BrowserError> {
     if KEYS.contains(&value) {
         return Ok(value);
     }
+    let mut characters = value.chars();
+    if let (Some(character), None) = (characters.next(), characters.next())
+        && character.is_ascii_alphanumeric()
+    {
+        return Ok(value);
+    }
     Err(BrowserError::InvalidInput(
         "The live view cannot press that key.".to_owned(),
     ))
@@ -1062,7 +1068,9 @@ impl Engine {
             (Engine::Chromium(chromium), Some(PageRef::Chromium(page))) => {
                 chromium.press_key(page, key, modifiers).await
             }
-            (Engine::Stub(stub), Some(PageRef::Stub(page))) => stub.press_key(page, key).await,
+            (Engine::Stub(stub), Some(PageRef::Stub(page))) => {
+                stub.press_key(page, key, modifiers).await
+            }
             _ => Err("No page is open.".to_owned()),
         }
     }

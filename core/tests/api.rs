@@ -10969,6 +10969,42 @@ async fn browser_live_input_and_logs_stay_inside_one_session() {
     let first_console = mcp_tool(&app, first_id, "browser_console", json!({})).await;
     assert!(tool_text(&first_console).contains("Live key Enter"));
 
+    // Each modifier bit reaches the session's own page with the key.
+    for modifiers in [1, 2, 4, 8] {
+        let (status, body) = call(
+            &app,
+            "POST",
+            &format!("/api/sessions/{first_id}/browser/input/key"),
+            Some(json!({ "key": "a", "modifiers": modifiers })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let console = mcp_tool(&app, first_id, "browser_console", json!({})).await;
+        assert!(
+            tool_text(&console).contains(&format!("Live key a with modifiers {modifiers}")),
+            "{console}"
+        );
+    }
+    let (status, body) = call(
+        &app,
+        "POST",
+        &format!("/api/sessions/{first_id}/browser/input/key"),
+        Some(json!({ "key": "7", "modifiers": 3 })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let first_console = mcp_tool(&app, first_id, "browser_console", json!({})).await;
+    assert!(tool_text(&first_console).contains("Live key 7 with modifiers 3"));
+    let second_console = mcp_tool(&app, second_id, "browser_console", json!({})).await;
+    assert!(
+        !tool_text(&second_console).contains("Live key a"),
+        "{second_console}"
+    );
+    assert!(
+        !tool_text(&second_console).contains("Live key 7"),
+        "{second_console}"
+    );
+
     let (status, body) = call(
         &app,
         "POST",
@@ -10977,14 +11013,16 @@ async fn browser_live_input_and_logs_stay_inside_one_session() {
     )
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
-    let (status, body) = call(
-        &app,
-        "POST",
-        &format!("/api/sessions/{first_id}/browser/input/key"),
-        Some(json!({ "key": "F13" })),
-    )
-    .await;
-    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    for key in ["F13", "!"] {
+        let (status, body) = call(
+            &app,
+            "POST",
+            &format!("/api/sessions/{first_id}/browser/input/key"),
+            Some(json!({ "key": key })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{key}: {body}");
+    }
 
     let (status, _) = close_session(&app, first_id).await;
     assert_eq!(status, StatusCode::OK);
@@ -10993,6 +11031,14 @@ async fn browser_live_input_and_logs_stay_inside_one_session() {
         "POST",
         &format!("/api/sessions/{first_id}/browser/input/click"),
         Some(json!({ "x": 0.5, "y": 0.5 })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    let (status, body) = call(
+        &app,
+        "POST",
+        &format!("/api/sessions/{first_id}/browser/input/key"),
+        Some(json!({ "key": "a", "modifiers": 2 })),
     )
     .await;
     assert_eq!(status, StatusCode::CONFLICT, "{body}");
