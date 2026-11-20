@@ -274,9 +274,6 @@ export const fr = {
   'newSession.client': 'Client',
   'newSession.account': 'Compte',
   'newSession.accountPlaceholder': 'Tapez pour trouver un compte',
-  'newSession.accountPlaceholderNoClient': 'Choisissez d’abord un client',
-  'newSession.noAccountForClient':
-    'Aucun compte n’est configuré pour {client} pour l’instant.',
   'newSession.repositoryFolder': 'Dossier du dépôt',
   'newSession.folder': 'Dossier',
   'newSession.folderPlaceholder': 'Saisissez un chemin de dossier',

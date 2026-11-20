@@ -274,9 +274,6 @@ export const ptBR = {
   'newSession.client': 'Cliente',
   'newSession.account': 'Conta',
   'newSession.accountPlaceholder': 'Digite para encontrar uma conta',
-  'newSession.accountPlaceholderNoClient': 'Escolha um cliente primeiro',
-  'newSession.noAccountForClient':
-    'Ainda não há conta configurada para {client}.',
   'newSession.repositoryFolder': 'Pasta do repositório',
   'newSession.folder': 'Pasta',
   'newSession.folderPlaceholder': 'Digite um caminho de pasta',

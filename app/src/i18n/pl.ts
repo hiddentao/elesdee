@@ -273,10 +273,6 @@ export const pl = {
   'newSession.client': 'Klient',
   'newSession.account': 'Konto',
   'newSession.accountPlaceholder': 'Wpisz, aby znaleźć konto',
-  'newSession.accountPlaceholderNoClient':
-    'Najpierw wybierz klienta',
-  'newSession.noAccountForClient':
-    'Dla {client} nie skonfigurowano jeszcze konta.',
   'newSession.repositoryFolder': 'Folder repozytorium',
   'newSession.folder': 'Folder',
   'newSession.folderPlaceholder': 'Wpisz ścieżkę folderu',

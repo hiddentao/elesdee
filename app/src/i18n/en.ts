@@ -265,8 +265,6 @@ export const en = {
   'newSession.client': 'Client',
   'newSession.account': 'Account',
   'newSession.accountPlaceholder': 'Type to find an account',
-  'newSession.accountPlaceholderNoClient': 'Choose a client first',
-  'newSession.noAccountForClient': 'No account is set up for {client} yet.',
   'newSession.repositoryFolder': 'Repository folder',
   'newSession.folder': 'Folder',
   'newSession.folderPlaceholder': 'Type a folder path',

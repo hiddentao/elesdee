@@ -272,9 +272,6 @@ export const sv = {
   'newSession.client': 'Klient',
   'newSession.account': 'Konto',
   'newSession.accountPlaceholder': 'Skriv för att hitta ett konto',
-  'newSession.accountPlaceholderNoClient': 'Välj en klient först',
-  'newSession.noAccountForClient':
-    'Inget konto är inställt för {client} ännu.',
   'newSession.repositoryFolder': 'Lagringsmapp',
   'newSession.folder': 'Mapp',
   'newSession.folderPlaceholder': 'Ange en mappsökväg',

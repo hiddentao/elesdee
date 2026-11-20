@@ -272,9 +272,6 @@ export const ja = {
   'newSession.client': 'クライアント',
   'newSession.account': 'アカウント',
   'newSession.accountPlaceholder': '入力してアカウントを検索',
-  'newSession.accountPlaceholderNoClient': '先にクライアントを選択',
-  'newSession.noAccountForClient':
-    '{client} のアカウントはまだ設定されていません。',
   'newSession.repositoryFolder': 'リポジトリのフォルダー',
   'newSession.folder': 'フォルダー',
   'newSession.folderPlaceholder': 'フォルダーのパスを入力',

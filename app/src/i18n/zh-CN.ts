@@ -258,8 +258,6 @@ export const zhCN = {
   'newSession.client': '客户端',
   'newSession.account': '账户',
   'newSession.accountPlaceholder': '输入以查找账户',
-  'newSession.accountPlaceholderNoClient': '先选择一个客户端',
-  'newSession.noAccountForClient': '尚未为 {client} 设置账户。',
   'newSession.repositoryFolder': '仓库文件夹',
   'newSession.folder': '文件夹',
   'newSession.folderPlaceholder': '输入文件夹路径',

@@ -272,10 +272,6 @@ export const ko = {
   'newSession.client': '클라이언트',
   'newSession.account': '계정',
   'newSession.accountPlaceholder': '입력하여 계정 찾기',
-  'newSession.accountPlaceholderNoClient':
-    '먼저 클라이언트 선택',
-  'newSession.noAccountForClient':
-    '{client}에 대한 계정이 아직 설정되지 않았습니다.',
   'newSession.repositoryFolder': '저장소 폴더',
   'newSession.folder': '폴더',
   'newSession.folderPlaceholder': '폴더 경로 입력',

@@ -272,9 +272,6 @@ export const de = {
   'newSession.client': 'Client',
   'newSession.account': 'Konto',
   'newSession.accountPlaceholder': 'Tippen, um ein Konto zu finden',
-  'newSession.accountPlaceholderNoClient': 'Wähle zuerst einen Client',
-  'newSession.noAccountForClient':
-    'Für {client} ist noch kein Konto eingerichtet.',
   'newSession.repositoryFolder': 'Repository-Ordner',
   'newSession.folder': 'Ordner',
   'newSession.folderPlaceholder': 'Ordnernamen eingeben',

@@ -272,9 +272,6 @@ export const nl = {
   'newSession.client': 'Client',
   'newSession.account': 'Account',
   'newSession.accountPlaceholder': 'Typ om een account te vinden',
-  'newSession.accountPlaceholderNoClient': 'Kies eerst een client',
-  'newSession.noAccountForClient':
-    'Voor {client} is nog geen account ingesteld.',
   'newSession.repositoryFolder': 'Repositorymap',
   'newSession.folder': 'Map',
   'newSession.folderPlaceholder': 'Typ een mappad',

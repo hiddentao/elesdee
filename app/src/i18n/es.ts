@@ -274,9 +274,6 @@ export const es = {
   'newSession.client': 'Cliente',
   'newSession.account': 'Cuenta',
   'newSession.accountPlaceholder': 'Escribe para buscar una cuenta',
-  'newSession.accountPlaceholderNoClient': 'Elige primero un cliente',
-  'newSession.noAccountForClient':
-    'Aún no hay ninguna cuenta configurada para {client}.',
   'newSession.repositoryFolder': 'Carpeta del repositorio',
   'newSession.folder': 'Carpeta',
   'newSession.folderPlaceholder': 'Escribe una ruta de carpeta',
