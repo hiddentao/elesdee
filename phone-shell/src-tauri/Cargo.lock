@@ -1113,6 +1113,7 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-barcode-scanner",
  "tokio",
+ "tracing",
 ]
 
 [[package]]

@@ -1,4 +1,11 @@
-import { phone, scanTicket } from './bridge';
+import { onConnection, openSubscription, phone, scanTicket } from './bridge';
+import {
+  appendOutput,
+  mergeSession,
+  outputFromEvent,
+  sessionFromEvent,
+  type OutputState,
+} from './live';
 import {
   createTranslator,
   htmlLanguage,
@@ -12,6 +19,7 @@ import type {
   CommandError,
   ComputerRecord,
   ComputerView,
+  ConnectionState,
   PairConfirm,
   PhoneInfo,
   Session,
@@ -40,6 +48,18 @@ type Screen =
       filter: Filter;
       loading: boolean;
       error?: Notice;
+      connection?: ConnectionState;
+    }
+  | {
+      name: 'session';
+      computer: ComputerRecord;
+      sessions: Session[];
+      session: Session;
+      output: OutputState;
+      loading: boolean;
+      ended: boolean;
+      error?: Notice;
+      connection?: ConnectionState;
     };
 
 const PAIR_STATUS_KEYS: Record<string, MessageKey> = {
@@ -191,6 +211,11 @@ export class ShellApp {
   private screen: Screen = { name: 'loading' };
   private pairToken = 0;
   private sessionsToken = 0;
+  private stopEvents: (() => Promise<void>) | null = null;
+  private stopOutput: (() => Promise<void>) | null = null;
+  private readonly connectionStates = new Map<string, ConnectionState>();
+  private renderPending = false;
+  private idCounter = 0;
 
   constructor(root: HTMLElement) {
     this.root = root;
@@ -206,6 +231,9 @@ export class ShellApp {
     this.t = createTranslator(language);
     document.documentElement.lang = htmlLanguage(language);
     document.title = this.t('app.title');
+    await onConnection((state) => {
+      void this.handleConnection(state);
+    });
     await this.loadComputers();
   }
 
@@ -231,6 +259,17 @@ export class ShellApp {
   private renderHead(): HTMLElement {
     const screen = this.screen;
     const head = el('header', { class: 'phone-head' });
+
+    if (screen.name === 'session') {
+      head.append(this.backButton(() => this.goSessions(screen.computer)));
+      head.append(
+        el('div', { class: 'phone-head-text' }, [
+          el('span', { class: 'phone-title', text: screen.session.name }),
+          el('span', { class: 'phone-sub', text: screen.computer.name }),
+        ]),
+      );
+      return head;
+    }
 
     if (screen.name === 'sessions') {
       head.append(this.backButton(() => this.goComputers()));
@@ -329,6 +368,8 @@ export class ShellApp {
         return this.renderCode(screen.confirm);
       case 'sessions':
         return this.renderSessions(screen);
+      case 'session':
+        return this.renderSession(screen);
     }
   }
 
@@ -550,6 +591,12 @@ export class ShellApp {
     const visible = screen.sessions.filter((session) =>
       matchesFilter(session, screen.filter),
     );
+    const connectionNotice = screen.connection
+      ? this.connectionNotice(screen.connection)
+      : null;
+    if (connectionNotice) {
+      main.append(this.noticeEl(connectionNotice));
+    }
     const waiting = visible.filter((session) => session.waitingFor !== null);
     const rest = visible.filter((session) => session.waitingFor === null);
 
@@ -601,7 +648,11 @@ export class ShellApp {
       main.append(
         el('h2', { class: 'phone-section-title', text: this.t('sessions.waiting') }),
       );
-      main.append(this.sessionList(waiting));
+      main.append(
+        this.sessionList(waiting, (session) => {
+          void this.openSession(screen.computer, session, screen.sessions);
+        }),
+      );
     }
 
     if (rest.length > 0) {
@@ -610,23 +661,39 @@ export class ShellApp {
           el('h2', { class: 'phone-section-title', text: this.t('sessions.other') }),
         );
       }
-      main.append(this.sessionList(rest));
+      main.append(
+        this.sessionList(rest, (session) => {
+          void this.openSession(screen.computer, session, screen.sessions);
+        }),
+      );
     }
 
     return main;
   }
 
-  private sessionList(sessions: Session[]): HTMLElement {
+  private sessionList(
+    sessions: Session[],
+    onOpen: (session: Session) => void,
+  ): HTMLElement {
     const list = el('ul', { class: 'rows' });
     for (const session of sessions) {
-      const row = el('li', { class: 'row is-static' }, [
-        el('div', { class: 'row-main is-static' }, [
+      const row = el('li', { class: 'row' }, [
+        el('button', {
+          class: 'row-main',
+          attrs: {
+            type: 'button',
+            'aria-label': `${this.t('session.open')} ${session.name}`,
+          },
+          on: { click: () => onOpen(session) },
+        }, [
           el('span', { class: 'row-name', text: session.name }),
           el('span', { class: 'row-meta' }, [
             el('span', {
               class: session.waitingFor
                 ? 'row-state is-waiting'
-                : 'row-state',
+                : session.status === 'active'
+                  ? 'row-state is-on'
+                  : 'row-state',
               text: this.t(sessionStatusKey(session)),
             }),
             el('span', {
@@ -644,6 +711,302 @@ export class ShellApp {
       list.append(row);
     }
     return list;
+  }
+
+  private renderSession(
+    screen: Extract<Screen, { name: 'session' }>,
+  ): HTMLElement {
+    const main = el('main', { class: 'phone-list session-screen' });
+    const connectionNotice = screen.connection
+      ? this.connectionNotice(screen.connection)
+      : null;
+    if (connectionNotice) {
+      main.append(this.noticeEl(connectionNotice));
+    }
+    if (screen.error) {
+      main.append(this.noticeEl(screen.error));
+    }
+    main.append(
+      el('div', { class: 'session-meta' }, [
+        el('span', {
+          class:
+            screen.session.status === 'active'
+              ? 'row-state is-on'
+              : 'row-state',
+          text: this.t(sessionStatusKey(screen.session)),
+        }),
+        el('span', {
+          class: 'row-separator',
+          text: '·',
+          attrs: { 'aria-hidden': 'true' },
+        }),
+        el('span', { class: 'row-id', text: screen.session.projectId }),
+        screen.session.status === 'active' && !screen.ended
+          ? el('span', { class: 'live-badge', text: this.t('session.live') })
+          : null,
+      ]),
+    );
+
+    const panel = el('section', {
+      class: 'session-output-panel',
+      attrs: { 'aria-label': this.t('session.output') },
+    });
+    panel.append(
+      el('h2', {
+        class: 'phone-section-title',
+        text: this.t('session.output'),
+      }),
+    );
+    if (screen.loading && screen.output.text.length === 0) {
+      panel.append(
+        el('p', {
+          class: 'phone-empty',
+          text: this.t('session.loading'),
+          attrs: { 'aria-busy': 'true' },
+        }),
+      );
+    } else if (screen.output.text.length === 0) {
+      panel.append(
+        el('p', { class: 'phone-empty', text: this.t('session.emptyOutput') }),
+      );
+    } else {
+      panel.append(
+        el('pre', {
+          class: 'session-output',
+          text: screen.output.text,
+          attrs: { 'aria-live': 'polite' },
+        }),
+      );
+    }
+    if (screen.output.dropped) {
+      panel.append(
+        el('p', { class: 'session-note', text: this.t('session.dropped') }),
+      );
+    }
+    if (screen.ended) {
+      panel.append(
+        el('p', { class: 'session-note', text: this.t('session.ended') }),
+      );
+    }
+    main.append(panel);
+    return main;
+  }
+
+  private connectionNotice(state: ConnectionState): Notice | null {
+    if (state.state === 'connected') {
+      return null;
+    }
+    if (state.state === 'reconnecting') {
+      return { key: 'connection.reconnecting', tone: 'neutral' };
+    }
+    if (state.state === 'stopped' && state.error?.code === 'revoked') {
+      return { key: 'error.revoked', tone: 'error' };
+    }
+    if (state.state === 'stopped' && state.error?.code === 'not_paired') {
+      return { key: 'error.notPaired', tone: 'error' };
+    }
+    if (state.state === 'stopped') {
+      return { key: 'connection.stopped', tone: 'error' };
+    }
+    return { key: 'connection.disconnected', tone: 'error' };
+  }
+
+  private async handleConnection(state: ConnectionState): Promise<void> {
+    const previous = this.connectionStates.get(state.computerId);
+    this.connectionStates.set(state.computerId, state);
+    const screen = this.screen;
+    if (
+      (screen.name === 'sessions' || screen.name === 'session') &&
+      screen.computer.id === state.computerId
+    ) {
+      this.screen = {
+        ...screen,
+        connection: state,
+        error: state.state === 'connected' ? undefined : screen.error,
+      };
+      if (state.state === 'connected' && previous?.state !== 'connected') {
+        await this.refreshBootstrap(screen.computer);
+      } else {
+        this.render();
+      }
+      return;
+    }
+    if (screen.name === 'computers') {
+      this.computers = this.computers.map((view) =>
+        view.computer.id === state.computerId
+          ? { ...view, connected: state.state === 'connected' }
+          : view,
+      );
+      this.render();
+    }
+  }
+
+  private async refreshBootstrap(computer: ComputerRecord): Promise<void> {
+    const token = this.sessionsToken;
+    try {
+      const data = (await phone.request(
+        computer.id,
+        'bootstrap',
+      )) as BootstrapResponse;
+      if (token !== this.sessionsToken) {
+        return;
+      }
+      const sessions = data.sessions ?? [];
+      const screen = this.screen;
+      if (screen.name === 'sessions' && screen.computer.id === computer.id) {
+        this.screen = { ...screen, sessions };
+      } else if (
+        screen.name === 'session' &&
+        screen.computer.id === computer.id
+      ) {
+        const session =
+          sessions.find((current) => current.id === screen.session.id) ??
+          screen.session;
+        this.screen = { ...screen, sessions, session };
+      } else {
+        return;
+      }
+      this.scheduleRender();
+    } catch {
+      // The connection state notice already explains a failed refresh.
+    }
+  }
+
+  private async startEvents(
+    computer: ComputerRecord,
+    token: number,
+  ): Promise<void> {
+    const id = this.nextId('events');
+    try {
+      const stop = await openSubscription(computer.id, id, 'events', {}, {
+        onEvent: (value) => this.applySessionEvent(value),
+        onError: (error) => this.applyLiveError(computer.id, error),
+      });
+      if (token !== this.sessionsToken) {
+        await stop();
+        return;
+      }
+      this.stopEvents = stop;
+    } catch {
+      // The connection state notice already explains the failure.
+    }
+  }
+
+  private applySessionEvent(value: unknown): void {
+    const session = sessionFromEvent(value);
+    if (!session) {
+      return;
+    }
+    const screen = this.screen;
+    if (screen.name === 'sessions') {
+      this.screen = {
+        ...screen,
+        sessions: mergeSession(screen.sessions, session),
+      };
+      this.scheduleRender();
+      return;
+    }
+    if (screen.name === 'session') {
+      const sessions = mergeSession(screen.sessions, session);
+      if (screen.session.id === session.id) {
+        this.screen = { ...screen, sessions, session };
+        this.scheduleRender();
+      }
+    }
+  }
+
+  private applyLiveError(computerId: string, error: CommandError): void {
+    const notice = noticeFor(error);
+    const screen = this.screen;
+    if (screen.name === 'sessions' && screen.computer.id === computerId) {
+      this.screen = { ...screen, error: notice };
+      this.scheduleRender();
+    } else if (
+      screen.name === 'session' &&
+      screen.computer.id === computerId
+    ) {
+      this.screen = { ...screen, error: notice };
+      this.scheduleRender();
+    }
+  }
+
+  private applyOutputEvent(value: unknown): void {
+    const event = outputFromEvent(value);
+    if (!event) {
+      return;
+    }
+    const screen = this.screen;
+    if (screen.name !== 'session') {
+      return;
+    }
+    this.screen = {
+      ...screen,
+      output: appendOutput(screen.output, event),
+      loading: false,
+      ended: false,
+      error: undefined,
+    };
+    this.scheduleRender();
+  }
+
+  private failOutput(error: CommandError): void {
+    const screen = this.screen;
+    if (screen.name !== 'session') {
+      return;
+    }
+    this.screen = {
+      ...screen,
+      loading: false,
+      ended: true,
+      error: noticeFor(error),
+    };
+    this.scheduleRender();
+  }
+
+  private endOutput(): void {
+    const screen = this.screen;
+    if (screen.name !== 'session') {
+      return;
+    }
+    this.screen = { ...screen, loading: false, ended: true };
+    this.scheduleRender();
+  }
+
+  private closeEvents(): void {
+    const stop = this.stopEvents;
+    this.stopEvents = null;
+    if (stop) {
+      void stop();
+    }
+  }
+
+  private closeOutput(): void {
+    const stop = this.stopOutput;
+    this.stopOutput = null;
+    if (stop) {
+      void stop();
+    }
+  }
+
+  private scheduleRender(): void {
+    if (this.renderPending) {
+      return;
+    }
+    this.renderPending = true;
+    const run = () => {
+      this.renderPending = false;
+      this.render();
+    };
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(run);
+    } else {
+      setTimeout(run, 16);
+    }
+  }
+
+  private nextId(prefix: string): string {
+    this.idCounter += 1;
+    return `${prefix}:${this.idCounter}`;
   }
 
   private noticeEl(notice: Notice): HTMLElement {
@@ -748,20 +1111,41 @@ export class ShellApp {
 
   private goComputers(): void {
     this.sessionsToken += 1;
+    this.closeOutput();
+    this.closeEvents();
     this.screen = { name: 'computers' };
     this.render();
     void this.loadComputers();
   }
 
+  private goSessions(computer: ComputerRecord): void {
+    const sessions =
+      this.screen.name === 'session' ? this.screen.sessions : [];
+    this.closeOutput();
+    this.screen = {
+      name: 'sessions',
+      computer,
+      sessions,
+      filter: 'all',
+      loading: false,
+      connection: this.connectionStates.get(computer.id),
+    };
+    this.render();
+    void this.refreshBootstrap(computer);
+  }
+
   private async openSessions(computer: ComputerRecord): Promise<void> {
     this.sessionsToken += 1;
     const token = this.sessionsToken;
+    this.closeOutput();
+    this.closeEvents();
     this.screen = {
       name: 'sessions',
       computer,
       sessions: [],
       filter: 'all',
       loading: true,
+      connection: this.connectionStates.get(computer.id),
     };
     this.render();
     try {
@@ -779,7 +1163,10 @@ export class ShellApp {
         sessions: data.sessions ?? [],
         filter: 'all',
         loading: false,
+        connection: this.connectionStates.get(computer.id),
       };
+      this.render();
+      await this.startEvents(computer, token);
     } catch (error) {
       if (token !== this.sessionsToken) {
         return;
@@ -791,13 +1178,61 @@ export class ShellApp {
         filter: 'all',
         loading: false,
         error: noticeFor(asError(error)),
+        connection: this.connectionStates.get(computer.id),
       };
+      this.render();
     }
+  }
+
+  private async openSession(
+    computer: ComputerRecord,
+    session: Session,
+    sessions: Session[],
+  ): Promise<void> {
+    this.closeOutput();
+    this.screen = {
+      name: 'session',
+      computer,
+      sessions,
+      session,
+      output: { text: '', lastSeq: 0, dropped: false },
+      loading: true,
+      ended: false,
+      connection: this.connectionStates.get(computer.id),
+    };
     this.render();
+    const id = this.nextId('output');
+    try {
+      const stop = await openSubscription(
+        computer.id,
+        id,
+        'output',
+        { sessionId: session.id, after: 0 },
+        {
+          onEvent: (value) => this.applyOutputEvent(value),
+          onError: (error) => this.failOutput(error),
+          onEnd: () => this.endOutput(),
+        },
+      );
+      if (
+        this.screen.name !== 'session' ||
+        this.screen.session.id !== session.id
+      ) {
+        await stop();
+        return;
+      }
+      this.stopOutput = stop;
+    } catch (error) {
+      this.failOutput(asError(error));
+    }
   }
 
   private async forget(computerId: string): Promise<void> {
     try {
+      this.sessionsToken += 1;
+      this.closeOutput();
+      this.closeEvents();
+      this.connectionStates.delete(computerId);
       await phone.forget(computerId);
       await this.loadComputers();
     } catch (error) {

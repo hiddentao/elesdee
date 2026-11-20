@@ -8,9 +8,10 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use elesdee_link::{
-    APP_ALPN, ComputerRecord, DeviceIdentity, LinkClient, MAX_HEADER_BYTES, MAX_PAIR_FRAME_BYTES,
-    Method, PAIR_ALPN, PROTOCOL_VERSION, PairReply, PairTicket, PhoneStore, Request, Response,
-    StoreError,
+    APP_ALPN, AppHello, ComputerRecord, DeviceIdentity, LinkClient, MAX_APP_FRAME_BYTES,
+    MAX_HEADER_BYTES, MAX_PAIR_FRAME_BYTES, Method, PAIR_ALPN, PROTOCOL_VERSION, PairReply,
+    PairTicket, PhoneStore, Request, Response, StoreError, StreamEvent, Welcome, read_app_frame,
+    write_app_frame,
 };
 use iroh::endpoint::presets;
 use iroh::endpoint::{RecvStream, SendStream};
@@ -109,6 +110,39 @@ async fn write_response(send: &mut SendStream, response: &Response) {
     send.finish().expect("response finishes");
 }
 
+async fn handshake(connection: &iroh::endpoint::Connection, server: &Endpoint) -> AppHello {
+    let (mut send, mut recv) = connection.accept_bi().await.expect("control stream");
+    let hello: AppHello = read_app_frame(&mut recv, MAX_APP_FRAME_BYTES)
+        .await
+        .expect("hello frame");
+    assert!(hello.is_compatible());
+    let welcome = Welcome {
+        v: PROTOCOL_VERSION,
+        computer_id: server.id().to_z32(),
+        computer_name: "Studio computer".to_owned(),
+        app_version: "0.1.0".to_owned(),
+        protocol_version: PROTOCOL_VERSION,
+        min_bridge_version: 1,
+        ui: None,
+    };
+    write_app_frame(&mut send, &welcome, MAX_APP_FRAME_BYTES)
+        .await
+        .expect("welcome frame");
+    send.finish().expect("handshake finishes");
+    hello
+}
+
+async fn write_stream_event(send: &mut SendStream, value: Value) {
+    let frame = StreamEvent::new(value).encode().expect("event encodes");
+    send.write_all(&frame).await.expect("event writes");
+    send.finish().expect("event stream finishes");
+}
+
+async fn write_stream_start(send: &mut SendStream) {
+    let frame = Response::stream_start().encode().expect("start encodes");
+    send.write_all(&frame).await.expect("start writes");
+}
+
 fn confirm(server: &Endpoint, code: &str) -> PairReply {
     PairReply {
         v: PROTOCOL_VERSION,
@@ -168,6 +202,7 @@ async fn pairs_and_reads_the_session_snapshot_over_loopback() {
 
             let incoming = server.accept().await.expect("app connection");
             let connection = incoming.await.expect("app completes");
+            handshake(&connection, &server).await;
             let (mut send, mut recv) = connection.accept_bi().await.expect("app stream");
             let request = read_request(&mut recv).await;
             assert_eq!(request.method(), Method::Bootstrap);
@@ -310,6 +345,7 @@ async fn an_oversized_response_header_is_refused_before_allocation() {
 
             let incoming = server.accept().await.expect("app connection");
             let connection = incoming.await.expect("app completes");
+            handshake(&connection, &server).await;
             let (mut send, mut recv) = connection.accept_bi().await.expect("app stream");
             let _ = read_request(&mut recv).await;
             // Declare a header over the cap and write no body.
@@ -370,6 +406,191 @@ async fn an_expired_ticket_is_refused_before_the_dial() {
         .await
         .unwrap_err();
     assert!(matches!(error, elesdee_link::ClientError::Expired));
+}
+
+#[tokio::test]
+async fn an_event_and_output_stream_cross_loopback() {
+    tokio::time::timeout(TIMEOUT, async {
+        let server = server_endpoint().await;
+        let ticket = PairTicket::new(server.addr(), [0x31; 32], "Studio computer", u64::MAX)
+            .expect("ticket")
+            .encode_string();
+
+        let server_task = tokio::spawn(async move {
+            let incoming = server.accept().await.expect("pair connection");
+            let connection = incoming.await.expect("pair completes");
+            let (mut send, mut recv) = connection.accept_bi().await.expect("pair stream");
+            let _: Value = read_pair(&mut recv).await;
+            write_pair(&mut send, &confirm(&server, "123456")).await;
+            write_pair(&mut send, &paired()).await;
+            send.finish().expect("pair finishes");
+            let _ = connection.closed().await;
+
+            let incoming = server.accept().await.expect("app connection");
+            let connection = incoming.await.expect("app completes");
+            handshake(&connection, &server).await;
+
+            let (mut send, mut recv) = connection.accept_bi().await.expect("event stream");
+            let request = read_request(&mut recv).await;
+            assert_eq!(request.method(), Method::EventsSubscribe);
+            write_stream_start(&mut send).await;
+            write_stream_event(
+                &mut send,
+                json!({"type": "session.updated", "session": {"id": "s1", "name": "renamed"}}),
+            )
+            .await;
+
+            let (mut send, mut recv) = connection.accept_bi().await.expect("output stream");
+            let request = read_request(&mut recv).await;
+            assert_eq!(request.method(), Method::OutputSubscribe);
+            assert_eq!(request.params().expect("params")["sessionId"], "s1");
+            assert_eq!(request.params().expect("params")["after"], 7);
+            write_stream_start(&mut send).await;
+            write_stream_event(
+                &mut send,
+                json!({
+                    "seq": 8,
+                    "data": "hello",
+                    "gap": {"after": 7, "oldestSeq": 8, "newestSeq": 8},
+                }),
+            )
+            .await;
+
+            let _ = connection.closed().await;
+            server.close().await;
+        });
+
+        let store = Arc::new(MemoryStore::default());
+        let store_trait: Arc<dyn PhoneStore> = Arc::clone(&store) as Arc<dyn PhoneStore>;
+        let identity = DeviceIdentity::generate();
+        let endpoint = client_endpoint(&identity).await;
+        let client = LinkClient::from_endpoint(store_trait, identity, endpoint);
+        let pairing = client
+            .pair(&ticket, "Phone", "test")
+            .await
+            .expect("pairing");
+        let computer = pairing.finish().await.expect("paired");
+
+        let app = client.connect(&computer).await.expect("app connects");
+        assert_eq!(app.welcome().computer_id, computer.id);
+
+        let mut events = app.events().await.expect("event stream opens");
+        let event = events.next().await.expect("event").expect("event value");
+        assert_eq!(event["type"], "session.updated");
+        assert_eq!(event["session"]["name"], "renamed");
+        assert!(events.next().await.expect("event end").is_none());
+
+        let mut output = app.output("s1", 7).await.expect("output stream opens");
+        let event = output.next().await.expect("output").expect("output value");
+        assert_eq!(event["seq"], 8);
+        assert_eq!(event["data"], "hello");
+        assert_eq!(event["gap"]["after"], 7);
+        assert!(output.next().await.expect("output end").is_none());
+
+        app.close();
+        server_task.await.expect("server task");
+    })
+    .await
+    .expect("loopback stream test timed out");
+}
+
+#[tokio::test]
+async fn a_revoked_connection_ends_the_stream_and_stops_retries() {
+    tokio::time::timeout(TIMEOUT, async {
+        let server = server_endpoint().await;
+        let ticket = PairTicket::new(server.addr(), [0x41; 32], "Studio computer", u64::MAX)
+            .expect("ticket")
+            .encode_string();
+
+        let server_task = tokio::spawn(async move {
+            let incoming = server.accept().await.expect("pair connection");
+            let connection = incoming.await.expect("pair completes");
+            let (mut send, mut recv) = connection.accept_bi().await.expect("pair stream");
+            let _: Value = read_pair(&mut recv).await;
+            write_pair(&mut send, &confirm(&server, "654321")).await;
+            write_pair(&mut send, &paired()).await;
+            send.finish().expect("pair finishes");
+            let _ = connection.closed().await;
+
+            let incoming = server.accept().await.expect("app connection");
+            let connection = incoming.await.expect("app completes");
+            handshake(&connection, &server).await;
+            connection.close(elesdee_link::CLOSE_REVOKED.into(), b"revoked");
+            server.close().await;
+        });
+
+        let store = Arc::new(MemoryStore::default());
+        let store_trait: Arc<dyn PhoneStore> = Arc::clone(&store) as Arc<dyn PhoneStore>;
+        let identity = DeviceIdentity::generate();
+        let endpoint = client_endpoint(&identity).await;
+        let client = LinkClient::from_endpoint(store_trait, identity, endpoint);
+        let pairing = client
+            .pair(&ticket, "Phone", "test")
+            .await
+            .expect("pairing");
+        let computer = pairing.finish().await.expect("paired");
+        let reason = match client.connect(&computer).await {
+            Ok(app) => app.wait_closed().await,
+            Err(error) => error,
+        };
+        assert!(
+            matches!(reason, elesdee_link::ClientError::Revoked),
+            "unexpected close: {reason}"
+        );
+        let mut policy = elesdee_link::ReconnectPolicy::with_seed(9);
+        assert!(
+            elesdee_link::next_retry(&reason, Duration::ZERO, &mut policy).is_none(),
+            "a revoked device must not retry"
+        );
+
+        server_task.await.expect("server task");
+    })
+    .await
+    .expect("revocation test timed out");
+}
+
+#[test]
+fn reconnect_waits_follow_a_fake_clock() {
+    struct FakeClock {
+        now: Duration,
+    }
+
+    impl FakeClock {
+        fn advance(&mut self, delay: Duration) -> Duration {
+            self.now += delay;
+            self.now
+        }
+    }
+
+    let mut clock = FakeClock {
+        now: Duration::ZERO,
+    };
+    let mut policy = elesdee_link::ReconnectPolicy::with_seed(21);
+    let bases = [500u64, 1_000, 2_000, 4_000, 8_000, 15_000, 30_000];
+    for (index, base) in bases.into_iter().enumerate() {
+        let delay = elesdee_link::next_retry(
+            &elesdee_link::ClientError::ConnectionClosed,
+            Duration::ZERO,
+            &mut policy,
+        )
+        .expect("retry");
+        let now = clock.advance(delay).as_millis() as u64;
+        let low = base * 8 / 10;
+        let high = base * 12 / 10;
+        assert!(
+            (low..=high).contains(&(delay.as_millis() as u64)),
+            "attempt {index} waited {delay:?}"
+        );
+        assert!(now >= delay.as_millis() as u64);
+    }
+    assert!(
+        elesdee_link::next_retry(
+            &elesdee_link::ClientError::Revoked,
+            Duration::ZERO,
+            &mut policy
+        )
+        .is_none()
+    );
 }
 
 #[test]

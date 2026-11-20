@@ -57,5 +57,15 @@
   "error.cancelledByUser": "Associazione annullata.",
   "error.noPairing": "Nessuna associazione in corso.",
   "error.notConnected": "Connettiti prima a questo computer.",
-  "error.generic": "La richiesta non è riuscita."
+  "error.generic": "La richiesta non è riuscita.",
+  "session.open": "Apri",
+  "session.output": "Output",
+  "session.loading": "Caricamento dell'output…",
+  "session.emptyOutput": "Questa sessione non ha ancora output.",
+  "session.ended": "La sessione è terminata.",
+  "session.dropped": "Parte dell'output precedente non è disponibile.",
+  "session.live": "In diretta",
+  "connection.reconnecting": "Riconnessione…",
+  "connection.disconnected": "La connessione è caduta. Riconnessione…",
+  "connection.stopped": "La connessione si è fermata."
 }

@@ -57,5 +57,15 @@
   "error.cancelledByUser": "配对已取消。",
   "error.noPairing": "没有正在进行的配对。",
   "error.notConnected": "请先连接此电脑。",
-  "error.generic": "请求失败。"
+  "error.generic": "请求失败。",
+  "session.open": "打开",
+  "session.output": "输出",
+  "session.loading": "正在加载输出…",
+  "session.emptyOutput": "此会话还没有输出。",
+  "session.ended": "会话已结束。",
+  "session.dropped": "部分旧的输出已丢失。",
+  "session.live": "实时",
+  "connection.reconnecting": "正在重新连接…",
+  "connection.disconnected": "连接已断开。正在重新连接…",
+  "connection.stopped": "连接已停止。"
 }

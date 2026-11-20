@@ -57,5 +57,15 @@
   "error.cancelledByUser": "Conexão cancelada.",
   "error.noPairing": "Nenhuma conexão em andamento.",
   "error.notConnected": "Conecte-se primeiro a este computador.",
-  "error.generic": "A solicitação falhou."
+  "error.generic": "A solicitação falhou.",
+  "session.open": "Abrir",
+  "session.output": "Saída",
+  "session.loading": "Carregando a saída…",
+  "session.emptyOutput": "Esta sessão ainda não tem saída.",
+  "session.ended": "A sessão terminou.",
+  "session.dropped": "Parte da saída antiga está faltando.",
+  "session.live": "Ao vivo",
+  "connection.reconnecting": "Reconectando…",
+  "connection.disconnected": "A conexão caiu. Reconectando…",
+  "connection.stopped": "A conexão parou."
 }

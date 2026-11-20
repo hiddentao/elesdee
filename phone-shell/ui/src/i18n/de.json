@@ -57,5 +57,15 @@
   "error.cancelledByUser": "Kopplung abgebrochen.",
   "error.noPairing": "Es läuft keine Kopplung.",
   "error.notConnected": "Verbinde dich zuerst mit diesem Computer.",
-  "error.generic": "Die Anfrage ist fehlgeschlagen."
+  "error.generic": "Die Anfrage ist fehlgeschlagen.",
+  "session.open": "Öffnen",
+  "session.output": "Ausgabe",
+  "session.loading": "Ausgabe wird geladen…",
+  "session.emptyOutput": "Diese Sitzung hat noch keine Ausgabe.",
+  "session.ended": "Die Sitzung wurde beendet.",
+  "session.dropped": "Ein Teil der alten Ausgabe fehlt.",
+  "session.live": "Live",
+  "connection.reconnecting": "Verbindung wird wiederhergestellt…",
+  "connection.disconnected": "Die Verbindung wurde getrennt. Neuer Versuch…",
+  "connection.stopped": "Die Verbindung wurde gestoppt."
 }

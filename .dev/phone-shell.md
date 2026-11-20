@@ -1,6 +1,6 @@
 # Phone shell, pairing and remote connection
 
-Status: design. Step 1, the shared `link` crate; step 2, the core endpoint and pairing; and step 3, the phone shell skeleton, link client and pairing screens, are implemented. The shell has not run on a device or an emulator, and the Android and iOS projects are not generated.
+Status: design. Step 1, the shared `link` crate; step 2, the core endpoint and pairing; step 3, the phone shell skeleton, link client and pairing screens; and step 4, the app connection, live events, output and session RPC, are implemented. The shell has not run on a device or an emulator, and the Android and iOS projects are not generated.
 
 Read this with `.dev/SPEC.md` (Mobile companion app, Connection technology), `.dev/api.md` and `docs/phone.md`.
 
@@ -229,7 +229,7 @@ Dispatch reuses the core code. It does not copy handlers:
 
 The desktop must authorize the connection key once, at accept. It does not re-check the key on each request. A revoked device has its live connections closed by the device store.
 
-Step 2 implements the accept check and answers `bootstrap` on a request stream. It does not send `hello` or `welcome`, open event or output streams, or hold an output permit yet. Step 3's client dials the app ALPN on demand, sends `bootstrap` on one request stream, and closes the connection when the shell forgets the computer. It still does not send `hello` or `welcome`; that is step 4.
+Step 2 implements the accept check and answers `bootstrap` on a request stream. Step 3's client dials the app ALPN on demand, sends `bootstrap` on one request stream, and closes the connection when the shell forgets the computer. Step 4 implements the control stream handshake, the unary methods with local routes, and the event and output subscriptions. A connection that has not sent `hello` gets no request handling; the handler waits five seconds for the control stream and closes the connection on an incompatible protocol version.
 
 ### 3.6 Reconnect and resume
 
@@ -253,7 +253,7 @@ On reconnect:
 
 The phone stores the full endpoint address from the ticket. Discovery by endpoint id finds new addresses when the network changes. The phone does not need a new QR code.
 
-Step 3 does not implement the retry table. The shell connects when the user opens a computer, on Refresh, and after pairing. A dropped connection shows the error and a Retry control. Step 6 adds the backoff, network change and foreground reconnect.
+Step 4 implements this behavior in `link/src/reconnect.rs`, `link/src/client.rs` and the shell connection manager. A dropped connection retries after the listed delays with ±20% jitter and resets the sequence after 30 seconds connected. The manager reopens the event stream and resumes each output stream from the last sequence seen. A revoked or unknown device stops the retries. Network change and foreground controls come with step 6.
 
 ## 4. Pairing
 
@@ -591,7 +591,7 @@ The phone cannot call:
 
 The link server rejects an unknown method with `forbidden`. A test compares the allowlist table with the local router, so a new route does not become reachable by accident.
 
-Step 2 answers only `bootstrap`, which returns the project, account, session and question snapshot. Every other allowlisted method returns `unsupported`; file writes and session input are not exposed. The step 4 change adds the rest.
+Step 4 dispatches every allowlisted method that has a local route: `bootstrap`, `health`, the project, branch, provider and account lists, session create, close, input, permission, account and resume, question list and answer, session request approve and deny, the file list and text read, the diff read, and the event and output subscriptions. `sessions.create` drops a phone-supplied folder. `sessions.upload`, `files.image`, the UI package methods and `demoServers.list` return `unsupported` until their steps. A method outside the allowlist is rejected while the request frame decodes, so it returns `forbidden`.
 
 A phone never chooses a job folder. When remote session creation is added, it starts in the project folder, and the link drops any `folder` parameter from a `sessions.create` request before a handler sees it.
 
@@ -641,9 +641,9 @@ Each step ends with an end-to-end test.
 | 1. Link crate | Versions, `PairTicket`, framing, method enum, allowlist, limits, error codes. Files: `link/`. | Unit tests: ticket round trip, tampered ticket rejected, frame over the limit rejected, unknown method rejected, golden strings. |
 | 2. Core endpoint and pairing | **Implemented.** Persistent key, endpoint start, pairing state machine, QR PNG, device store, local pairing and device routes. Files: `core/src/link/`, `core/src/state.rs`, `core/src/api.rs`. | **Implemented.** Rust integration with two real loopback endpoints: pair once and read the session snapshot, reject a second use of the ticket, reject an expired ticket, reject a removed device. Local API: QR returns, polling reaches `confirm`, approve stores the device, state reloads with no secret. Unit tests cover five wrong secrets, cancel, deny and the 16-device limit. |
 | 3. Phone shell and pairing screen | **Implemented in part.** Tauri v2 skeleton, `lib.rs` entry point, keychain identity, link client, QR scan and paste, code screen, refusal/expiry/cancel, computer list, session list from `bootstrap`, 12 shell catalogs. Files: `link/src/client.rs`, `link/tests/client.rs`, `phone-shell/`. | **Run:** 58 link tests (52 unit, 5 client loopback, 1 framing loopback), 37 shell catalog tests, UI typecheck and build, shell format, clippy and tests (0 Rust tests). Chromium render at 390 width in both themes with the native bridge stubbed, no console errors and no horizontal scroll. **Not run:** Android and iOS builds, emulator or device install, camera scan on a real phone. These need the SDKs and a device. |
-| 4. App connection and session RPC | `hello` and `welcome`, event and output streams, unary dispatch through the local router, UI transport adapter. Files: `link/src/client.rs`, `core/src/link/app.rs`, `app/src/api/transport.ts`, `client.ts`, `events.ts`. | Rust integration: bootstrap, event delivery, output replay from a sequence, input, permission answer, question answer, session close. Denied method returns `forbidden`. Unknown key is closed. Vitest with a fake bridge. Playwright still drives the browser phone layout against the core. |
+| 4. App connection and session RPC | **Implemented.** `hello` and `welcome`, unary dispatch through the local router, event and output streams with sequence replay, phone link client, shell connection manager and live session screens. Files: `link/src/app.rs`, `link/src/reconnect.rs`, `link/src/client.rs`, `core/src/link/app.rs`, `phone-shell/src-tauri/src/commands.rs`, `phone-shell/ui/src/app.ts`, `live.ts`, `bridge.ts`. | **Implemented.** Rust integration with two real loopback endpoints: welcome, a unary call, a denied method, an event, output replay and live output, live revocation with close code 3, and reconnect delays on a fake clock. The phone shell has UI tests for the live list and output merge and 2 Rust tests for channels and terminal errors. The browser phone layout still runs against the core; Playwright cannot drive the native bridge without a device. |
 | 5. UI package build and delivery | Vite phone config, packaging script, manifest, download, hash check, safe unzip, custom protocol serving, version gates. Files: `app/vite.phone.config.ts`, `scripts/package-phone-ui.mjs`, `core/src/link/ui.rs`, `phone-shell/src/`. | Node test: deterministic zip and matching hash. Rust test: hash mismatch rejected, traversal zip rejected, oversize rejected, atomic swap. Android: first download, desktop upgrade then phone update on connect, offline restart uses the stored build. |
-| 6. Reconnect and revocation | Backoff, network change, foreground reconnect, output resume, revocation close code. Files: `link/src/client.rs`, `phone-shell/src/`. | Kill the desktop endpoint, check retry timing, restart, check reconnect and output continuity. Remove the device, check close code 3 and that retries stop. Use a fake clock for the backoff unit test. |
+| 6. Reconnect and revocation | **Implemented in part.** Backoff, output resume and the revocation close code exist. Network change and foreground reconnect controls remain. Files: `link/src/reconnect.rs`, `phone-shell/src-tauri/src/commands.rs`. | **Implemented in part.** Rust tests cover the backoff sequence on a fake clock, output replay from a requested sequence and close code 3. The shell subscription stores the last sequence and reopens from it after a reconnect. A full reconnect test on a device remains. |
 | 7. Mobile actions | New-session form, close, switch account, usage, upload, files, images, diffs. Files: `core/src/link/`, `core/src/api.rs`, `app/src/phone/`. | One Rust test per method. Upload tests: bad name, duplicate name, oversize, path outside the session. File read tests: `..`, absolute path, symlink. Playwright: permission card, question form and composer. |
 | 8. Demo forwarding | Forward ALPN, port registry, loopback listener, port choice, teardown. Files: `core/src/link/forward.rs`, `phone-shell/src/forward.rs`. | Start a local HTTP server, register the port, fetch it through the phone listener. Refuse an unregistered port. Refuse a non-loopback bind. Android: open it in Chrome, then background the app and check the documented limit. |
 | 9. CI and release | Android job with JDK, SDK, NDK and Rust targets. Shell version and APK artifact. Signing secrets. Path filters. | CI builds the APK on a phone-shell change, runs the Rust and JS tests, and uploads the artifact. Install the artifact on a device and check the version screen. |
@@ -671,6 +671,27 @@ Checks run on macOS with no Android or iOS SDK:
 - The screens render in Chromium at 390 width in light and dark with a stubbed native bridge: no console errors and no horizontal scroll. This checks layout only, not the native bridge.
 
 Not run: `tauri android init`, `tauri ios init`, an Android or iOS build, an emulator install, a real device, the camera, the keychain on a phone, and a connection over Wi-Fi or mobile data. The Android and iOS keychain stores compile only for their own targets and are not compiled here.
+
+### Step 4 files and checks
+
+| Path | Contents |
+| --- | --- |
+| `link/src/app.rs` | `AppHello`, `Welcome`, the welcome checks and the capped handshake reader and writer. |
+| `link/src/reconnect.rs` | `ReconnectPolicy`, the delay table, jitter, the 30-second reset and the terminal error check. |
+| `link/src/client.rs` | Handshake on connect, `EventStream`, `OutputStream`, `wait_closed` and the remote error. |
+| `core/src/link/app.rs` | The app handler: handshake, method routes to the local router, event fan-out and output replay. |
+| `phone-shell/src-tauri/src/commands.rs` | The connection manager, subscriptions, reconnect loop, `phone_subscribe` and `phone_unsubscribe`. |
+| `phone-shell/ui/src/live.ts` | Session merge and output append, shared with the UI tests. |
+| `phone-shell/ui/src/app.ts` | Live session list, session view and connection notices. |
+| `phone-shell/test/live.test.mjs` | Seven tests for the live merge and output behavior. |
+
+Checks run on macOS with no Android or iOS SDK:
+
+- `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings` and `cargo test` in `link/`: 71 tests pass.
+- The same three in `core/`: 259 tests pass, including nine link integration tests.
+- The same three in `phone-shell/src-tauri/`: 2 Rust tests pass.
+- `npm --prefix phone-shell run test`: 44 tests pass. `typecheck` and `build` pass.
+- Playwright is not used for the link. The native bridge needs the Tauri shell and a paired phone key, so a browser test would not exercise it. The existing browser phone layout tests still run against the local HTTP API.
 
 ### Test harness
 

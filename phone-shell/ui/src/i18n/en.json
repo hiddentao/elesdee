@@ -57,5 +57,15 @@
   "error.cancelledByUser": "Pairing cancelled.",
   "error.noPairing": "No pairing is in progress.",
   "error.notConnected": "Connect to this computer first.",
-  "error.generic": "The request failed."
+  "error.generic": "The request failed.",
+  "session.open": "Open",
+  "session.output": "Output",
+  "session.loading": "Loading output…",
+  "session.emptyOutput": "The session has no output yet.",
+  "session.ended": "The session ended.",
+  "session.dropped": "Some old output is missing.",
+  "session.live": "Live",
+  "connection.reconnecting": "Reconnecting…",
+  "connection.disconnected": "The connection dropped. Reconnecting…",
+  "connection.stopped": "The connection stopped."
 }

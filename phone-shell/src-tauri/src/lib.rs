@@ -9,7 +9,7 @@ mod store;
 
 use commands::{
     phone_computers, phone_connect, phone_disconnect, phone_forget, phone_info, phone_pair_cancel,
-    phone_pair_finish, phone_pair_start, phone_request,
+    phone_pair_finish, phone_pair_start, phone_request, phone_subscribe, phone_unsubscribe,
 };
 use tauri::Manager;
 
@@ -39,6 +39,8 @@ pub fn run() {
             phone_connect,
             phone_disconnect,
             phone_request,
+            phone_subscribe,
+            phone_unsubscribe,
         ])
         .run(tauri::generate_context!())
         .expect("the elesdee phone shell failed to start");
