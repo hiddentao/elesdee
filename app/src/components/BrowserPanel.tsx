@@ -91,6 +91,9 @@ export function BrowserPanel({ session }: BrowserPanelProps) {
   const addressRef = useRef<HTMLInputElement>(null);
   const addressFocused = useRef(false);
   const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  // Each action result advances the version. A poll answer that began before
+  // the latest action describes an older page, so it never replaces that state.
+  const stateVersion = useRef(0);
 
   const activeTab: BrowserTab | null =
     state?.tabs.find((tab) => tab.id === state.activeTabId) ?? null;
@@ -100,9 +103,10 @@ export function BrowserPanel({ session }: BrowserPanelProps) {
     let timer: number | undefined;
 
     const load = async () => {
+      const version = stateVersion.current;
       try {
         const next = await getBrowserState(session.id);
-        if (!stopped) {
+        if (!stopped && version === stateVersion.current) {
           setState(next);
           setError(null);
         }
@@ -145,7 +149,9 @@ export function BrowserPanel({ session }: BrowserPanelProps) {
     setBusy(busyLabel);
     setError(null);
     try {
-      setState(await action());
+      const next = await action();
+      stateVersion.current += 1;
+      setState(next);
     } catch (failure) {
       setError(
         failure instanceof Error && failure.message
@@ -216,6 +222,7 @@ export function BrowserPanel({ session }: BrowserPanelProps) {
   async function sendInput(action: () => Promise<BrowserState>) {
     try {
       const next = await action();
+      stateVersion.current += 1;
       setState(next);
       setError(null);
     } catch (failure) {

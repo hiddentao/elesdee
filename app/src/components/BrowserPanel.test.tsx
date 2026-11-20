@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -114,6 +114,15 @@ beforeEach(() => {
 
 describe('BrowserPanel', () => {
   it('opens an address and shows the page and its live view', async () => {
+    // The polled state follows the action, as the core does.
+    let opened = false;
+    vi.mocked(getBrowserState).mockImplementation(async () =>
+      opened ? stateWith([tab()]) : emptyState(),
+    );
+    vi.mocked(openBrowserUrl).mockImplementation(async () => {
+      opened = true;
+      return stateWith([tab()]);
+    });
     const user = userEvent.setup();
     render(<BrowserPanel session={makeSession()} />);
 
@@ -131,12 +140,47 @@ describe('BrowserPanel', () => {
     );
   });
 
+  it('keeps the opened page when an older poll answers afterwards', async () => {
+    let finishPoll: (state: BrowserState) => void = () => undefined;
+    vi.mocked(getBrowserState).mockReturnValueOnce(
+      new Promise((resolve) => {
+        finishPoll = resolve;
+      }),
+    );
+    const user = userEvent.setup();
+    render(<BrowserPanel session={makeSession()} />);
+
+    const address = await screen.findByLabelText('Address');
+    await user.type(address, 'http://localhost:3000/');
+    await user.click(screen.getByRole('button', { name: 'Open' }));
+    expect(await screen.findByRole('tab', { name: 'Demo' })).toBeInTheDocument();
+
+    await act(async () => {
+      finishPoll(emptyState());
+    });
+
+    expect(screen.getByRole('tab', { name: 'Demo' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('img', { name: 'Live view of Demo' }),
+    ).toHaveAttribute(
+      'src',
+      '/api/sessions/s1/browser/screenshot?tab=s1-tab-1&v=1',
+    );
+  });
+
   it('shows a loading state until the page opens', async () => {
     const user = userEvent.setup();
+    let opened = false;
     let finish: (state: BrowserState) => void = () => undefined;
+    vi.mocked(getBrowserState).mockImplementation(async () =>
+      opened ? stateWith([tab()]) : emptyState(),
+    );
     vi.mocked(openBrowserUrl).mockReturnValue(
       new Promise((resolve) => {
-        finish = resolve;
+        finish = (state) => {
+          opened = true;
+          resolve(state);
+        };
       }),
     );
     render(<BrowserPanel session={makeSession()} />);
