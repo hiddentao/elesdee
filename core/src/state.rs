@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{Mutex as AsyncMutex, broadcast};
 
 use crate::clients;
+use crate::demo::{DemoFailure, DemoServer, clean_name, port_is_allowed};
 use crate::persist::{LoadResult, PersistedOutput, PersistedSession, PersistedState, StateStore};
 use crate::secrets::{KeyringStore, MemorySecretStore, SecretStore};
 use crate::seed;
@@ -187,6 +188,9 @@ pub struct Session {
     /// figure.
     #[serde(default)]
     pub context_left: Option<u8>,
+    /// Demo servers that this session registered for the phone to open.
+    #[serde(default)]
+    pub demo_servers: Vec<DemoServer>,
     pub started_at: String,
     pub shortcuts: Vec<Shortcut>,
 }
@@ -553,6 +557,7 @@ struct Inner {
     agent_identity: AsyncMutex<()>,
     store: Option<Arc<StateStore>>,
     persist_lock: Mutex<()>,
+    demo_lock: Mutex<()>,
     usage_gates: Mutex<HashMap<String, Arc<AsyncMutex<()>>>>,
     usage_last_attempt: Mutex<HashMap<String, Instant>>,
     usage_last_save: Mutex<HashMap<String, Instant>>,
@@ -833,6 +838,7 @@ impl AppState {
                 agent_identity: AsyncMutex::new(()),
                 store,
                 persist_lock: Mutex::new(()),
+                demo_lock: Mutex::new(()),
                 usage_gates: Mutex::new(HashMap::new()),
                 usage_last_attempt: Mutex::new(HashMap::new()),
                 usage_last_save: Mutex::new(HashMap::new()),
@@ -1545,6 +1551,115 @@ impl AppState {
         store.entries.get(id).cloned()
     }
 
+    /// Registers a demo server for one session.
+    ///
+    /// A port belongs to at most one active session at a time. The service's
+    /// own port and privileged ports are refused.
+    pub fn register_demo_server(
+        &self,
+        session_id: &str,
+        name: &str,
+        port: u16,
+    ) -> Result<(Session, DemoServer), DemoFailure> {
+        let _guard = lock(&self.inner.demo_lock);
+        let entry = self
+            .session(session_id)
+            .ok_or(DemoFailure::UnknownSession)?;
+        if entry.session().status != SessionState::Active {
+            return Err(DemoFailure::Closed);
+        }
+        let name = clean_name(name).ok_or(DemoFailure::InvalidName)?;
+        if !port_is_allowed(port) {
+            return Err(DemoFailure::InvalidPort);
+        }
+        if port == self.inner.port {
+            return Err(DemoFailure::ReservedPort);
+        }
+        let in_use = self.sessions().iter().any(|other| {
+            if other.id() == session_id {
+                return false;
+            }
+            let session = other.session();
+            session.status == SessionState::Active
+                && session
+                    .demo_servers
+                    .iter()
+                    .any(|server| server.port == port && server.is_active())
+        });
+        if in_use {
+            return Err(DemoFailure::PortInUse);
+        }
+        let session = entry.register_demo_server(name, port)?;
+        let server = session
+            .demo_servers
+            .iter()
+            .find(|server| server.port == port && server.is_active())
+            .cloned()
+            .ok_or(DemoFailure::NotFound)?;
+        Ok((session, server))
+    }
+
+    /// Stops one demo server in a session and returns its port.
+    pub fn stop_demo_server(
+        &self,
+        session_id: &str,
+        server_id: &str,
+    ) -> Result<(Session, u16), DemoFailure> {
+        let entry = self
+            .session(session_id)
+            .ok_or(DemoFailure::UnknownSession)?;
+        let port = entry
+            .session()
+            .demo_servers
+            .iter()
+            .find(|server| server.id == server_id)
+            .map(|server| server.port)
+            .ok_or(DemoFailure::NotFound)?;
+        let session = entry.stop_demo_server(server_id)?;
+        Ok((session, port))
+    }
+
+    /// Returns the active demo server on a port, from any session.
+    pub fn demo_server_by_port(&self, port: u16) -> Option<DemoServer> {
+        self.sessions().iter().find_map(|entry| {
+            let session = entry.session();
+            if session.status != SessionState::Active {
+                return None;
+            }
+            session
+                .demo_servers
+                .iter()
+                .find(|server| server.port == port && server.is_active())
+                .cloned()
+        })
+    }
+
+    /// Returns every active demo server with its session name.
+    pub fn active_demo_servers(&self) -> Vec<(String, DemoServer)> {
+        self.sessions()
+            .iter()
+            .flat_map(|entry| {
+                let session = entry.session();
+                if session.status != SessionState::Active {
+                    return Vec::new();
+                }
+                session
+                    .demo_servers
+                    .iter()
+                    .filter(|server| server.is_active())
+                    .map(|server| (session.name.clone(), server.clone()))
+                    .collect()
+            })
+            .collect()
+    }
+
+    /// Closes the open tunnels for a session's demo servers.
+    pub fn close_demo_tunnels(&self, session: &Session) {
+        for server in &session.demo_servers {
+            self.inner.link.close_forward(server.port);
+        }
+    }
+
     pub fn sessions(&self) -> Vec<Arc<SessionEntry>> {
         self.entries_in_order()
     }
@@ -1787,6 +1902,7 @@ impl AppState {
             if closed_any {
                 std::thread::sleep(sessions::GROUP_KILL_GRACE + Duration::from_millis(50));
             }
+            state.link().close_all_forwards();
             state.save();
             let _ = finished.send(());
         });

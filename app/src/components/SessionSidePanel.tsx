@@ -6,11 +6,13 @@ import {
   readSharedFile,
   sessionChanges,
   sharedFileUrl,
+  stopDemoServer,
   writeFile,
 } from '../api/client';
 import type {
   ChangeStatus,
   ChangedFile,
+  DemoServer,
   FileEntry,
   Session,
   SessionChanges,
@@ -18,6 +20,7 @@ import type {
 } from '../api/types';
 import type { Translate } from '../i18n';
 import { useLanguage } from '../i18n/LanguageProvider';
+import { openUrl } from '../api/shell';
 import { FileEditor } from './FileEditor';
 import {
   ChevronDownIcon,
@@ -100,6 +103,12 @@ export function SessionSidePanel({
   const [sharedFileLoading, setSharedFileLoading] = useState(false);
   const [sharedFileError, setSharedFileError] = useState<string | null>(null);
 
+  const [demoServers, setDemoServers] = useState<DemoServer[]>(
+    session.demoServers ?? [],
+  );
+  const [stoppingServer, setStoppingServer] = useState<string | null>(null);
+  const [demoError, setDemoError] = useState<string | null>(null);
+
   const request = useRef(0);
 
   async function loadDirectory(path: string) {
@@ -132,8 +141,7 @@ export function SessionSidePanel({
     }
   }
 
-  async function loadChanges() {
-    setChangesLoading(true);
+  async function loadChanges() {    setChangesLoading(true);
     setChangesError(null);
     try {
       const next = await sessionChanges(session.id);
@@ -149,6 +157,23 @@ export function SessionSidePanel({
       setChangesLoading(false);
     }
   }
+
+  async function stopServer(server: DemoServer) {
+    setStoppingServer(server.id);
+    setDemoError(null);
+    try {
+      const updated = await stopDemoServer(session.id, server.id);
+      setDemoServers(updated.demoServers ?? []);
+    } catch (error) {
+      setDemoError(messageFor(error, t));
+    } finally {
+      setStoppingServer(null);
+    }
+  }
+
+  useEffect(() => {
+    setDemoServers(session.demoServers ?? []);
+  }, [session.demoServers]);
 
   useEffect(() => {
     setChildren({});
@@ -449,6 +474,79 @@ export function SessionSidePanel({
             <p className="dock-error" role="alert">
               {fileError}
             </p>
+          ) : null}
+          {demoError ? (
+            <p className="dock-error" role="alert">
+              {demoError}
+            </p>
+          ) : null}
+          {demoServers.length > 0 ? (
+            <div className="demo-block">
+              <div className="dock-toolbar">
+                <span className="dock-toolbar-title">
+                  {t('panel.demoServers')}
+                </span>
+              </div>
+              <ul
+                className="demo-list"
+                aria-label={t('panel.demoServersLabel')}
+              >
+                {demoServers.map((server) => {
+                  const active = server.state === 'active';
+                  return (
+                    <li key={server.id} className="demo-row">
+                      <span className="demo-name" title={server.name}>
+                        {server.name}
+                      </span>
+                      <span
+                        className={`demo-state is-${server.state}`}
+                      >
+                        {active
+                          ? t('panel.demoServerActive')
+                          : t('panel.demoServerStopped')}
+                      </span>
+                      {active ? (
+                        <a
+                          className="demo-address"
+                          href={server.address}
+                          target="_blank"
+                          rel="noreferrer"
+                          aria-label={t('panel.demoServerOpenLabel', {
+                            name: server.name,
+                            address: server.address,
+                          })}
+                          onClick={(event) => {
+                            event.preventDefault();
+                            void openUrl(server.address);
+                          }}
+                        >
+                          {server.address}
+                        </a>
+                      ) : (
+                        <span className="demo-address is-inert">
+                          {server.address}
+                        </span>
+                      )}
+                      {active ? (
+                        <button
+                          type="button"
+                          className="btn btn-ghost dock-action"
+                          disabled={stoppingServer === server.id}
+                          aria-label={t('panel.demoServerStopLabel', {
+                            name: server.name,
+                          })}
+                          onClick={() => void stopServer(server)}
+                        >
+                          {stoppingServer === server.id
+                            ? t('panel.demoServerStopping')
+                            : t('panel.demoServerStop')}
+                        </button>
+                      ) : null}
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
           ) : null}
           {shared.length > 0 || sharedError ? (
             <div className="shared-block">

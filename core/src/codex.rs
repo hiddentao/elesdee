@@ -438,6 +438,7 @@ mod tests {
                 agent_session_id: None,
                 handoff_note: None,
                 context_left: None,
+                demo_servers: Vec::new(),
                 started_at: "2026-01-01T00:00:00Z".to_owned(),
                 shortcuts: Vec::new(),
             },

@@ -25,6 +25,18 @@ export interface Shortcut {
   description: string;
 }
 
+export type DemoServerState = 'active' | 'stopped';
+
+export interface DemoServer {
+  id: string;
+  sessionId: string;
+  name: string;
+  port: number;
+  address: string;
+  state: DemoServerState;
+  createdAt: string;
+}
+
 export interface Session {
   id: string;
   name: string;
@@ -50,6 +62,7 @@ export interface Session {
   presetId?: string | null;
   model?: string | null;
   config?: Record<string, string>;
+  demoServers?: DemoServer[];
   startedAt: string;
   shortcuts: Shortcut[];
 }

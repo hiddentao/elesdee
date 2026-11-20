@@ -32,9 +32,17 @@ Swipe a row left to reveal **Close**. No matter how far you swipe, it stops at t
 - Approval requests, agent questions and session requests appear as cards. Answer or approve them there.
 - The back button returns to the session list.
 
+## Demo servers on the phone
+
+A demo server is a loopback port that an agent registers for its session. The session's Files panel on the computer lists it with the local address and a Stop action.
+
+A paired phone can ask for a port from the active list and forward it over the link to `127.0.0.1` on the computer. Only a registered port is allowed. There is one tunnel per port and at most eight at once. The tunnel closes when the server stops, the session closes or pauses, or the phone disconnects.
+
+The installable app is not released. The desktop side of this path is built and tested. The phone shell's listener is not built, so no device test has run.
+
 ## What is not built yet
 
-There is no phone app you can install. The repository has the phone shell, its pairing screens, the live session list and the session output view, but no released build. The downloaded phone interface and the demo-server forwarding come later. The core service starts the link, creates a pairing ticket, stores paired devices and answers the allowlisted methods for a paired phone. The current browser layout still opens on this computer, next to the desktop app.
+There is no phone app you can install. The repository has the phone shell, its pairing screens, the live session list and the session output view, but no released build. The downloaded phone interface and the phone shell's demo-forward listener come later. The core service starts the link, creates a pairing ticket, stores paired devices and answers the allowlisted methods for a paired phone, including the demo-server list and the computer side of demo forwarding. The current browser layout still opens on this computer, next to the desktop app.
 
 ## Next steps
 

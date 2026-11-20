@@ -8,9 +8,10 @@ import {
   readSharedFile,
   sessionChanges,
   sharedFileUrl,
+  stopDemoServer,
   writeFile,
 } from '../api/client';
-import type { FileEntry, SharedFile } from '../api/types';
+import type { DemoServer, FileEntry, SharedFile } from '../api/types';
 import { makeSession } from '../test/fixtures';
 import { SessionSidePanel } from './SessionSidePanel';
 
@@ -21,6 +22,7 @@ vi.mock('../api/client', () => ({
   readSharedFile: vi.fn(),
   sessionChanges: vi.fn(),
   sharedFileUrl: vi.fn(),
+  stopDemoServer: vi.fn(),
   writeFile: vi.fn(),
 }));
 
@@ -57,10 +59,11 @@ function renderPanel(
   tab: 'files' | 'changes' = 'files',
   onSelectTab = vi.fn(),
   onClose = vi.fn(),
+  session = makeSession(),
 ) {
   return render(
     <SessionSidePanel
-      session={makeSession()}
+      session={session}
       tab={tab}
       onSelectTab={onSelectTab}
       onClose={onClose}
@@ -205,6 +208,73 @@ describe('SessionSidePanel files', () => {
 
     await user.click(screen.getByRole('button', { name: 'Close side panel' }));
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('SessionSidePanel demo servers', () => {
+  const preview: DemoServer = {
+    id: 'demo-1',
+    sessionId: 's1',
+    name: 'Preview',
+    port: 3000,
+    address: 'http://localhost:3000',
+    state: 'active',
+    createdAt: '2026-01-01T00:00:00Z',
+  };
+
+  it('shows the address, state and open link for a registered server', async () => {
+    renderPanel('files', vi.fn(), vi.fn(), makeSession({ demoServers: [preview] }));
+
+    expect(await screen.findByText('Preview')).toBeInTheDocument();
+    expect(screen.getByText('Active')).toBeInTheDocument();
+    expect(
+      screen.getByRole('link', { name: 'Open http://localhost:3000 for Preview' }),
+    ).toHaveAttribute('href', 'http://localhost:3000');
+    expect(
+      screen.getByRole('button', { name: 'Stop Preview' }),
+    ).toBeInTheDocument();
+  });
+
+  it('stops a server and shows its stopped state without an open link', async () => {
+    vi.mocked(stopDemoServer).mockResolvedValue(
+      makeSession({
+        demoServers: [{ ...preview, state: 'stopped' }],
+      }),
+    );
+    const user = userEvent.setup();
+    renderPanel('files', vi.fn(), vi.fn(), makeSession({ demoServers: [preview] }));
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Stop Preview' }),
+    );
+
+    expect(stopDemoServer).toHaveBeenCalledWith('s1', 'demo-1');
+    expect(await screen.findByText('Stopped')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('link', { name: /localhost:3000/ }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Stop Preview' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('reports a failed stop and keeps the server active', async () => {
+    vi.mocked(stopDemoServer).mockRejectedValueOnce(
+      new Error('The session is closed.'),
+    );
+    const user = userEvent.setup();
+    renderPanel('files', vi.fn(), vi.fn(), makeSession({ demoServers: [preview] }));
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Stop Preview' }),
+    );
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'The session is closed.',
+    );
+    expect(
+      screen.getByRole('link', { name: 'Open http://localhost:3000 for Preview' }),
+    ).toBeInTheDocument();
   });
 });
 

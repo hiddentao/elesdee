@@ -29,6 +29,13 @@ export interface Session {
   waitingFor: string | null;
   firstPrompt: string | null;
   contextLeft?: number | null;
+  demoServers?: {
+    id: string;
+    name: string;
+    port: number;
+    address: string;
+    state: 'active' | 'stopped';
+  }[];
   pendingPermission: {
     requestId: string;
     tool: string;
@@ -223,11 +230,41 @@ export async function createAgentSession(
   return (await response.json()) as Session;
 }
 
+export async function registerDemoServer(
+  request: APIRequestContext,
+  sessionId: string,
+  name: string,
+  port: number,
+): Promise<void> {
+  const response = await request.post(
+    `${CORE_URL}/internal/mcp/${sessionId}`,
+    {
+      data: {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'tools/call',
+        params: {
+          name: 'register_demo_server',
+          arguments: { name, port },
+        },
+      },
+    },
+  );
+  if (!response.ok()) {
+    throw new Error(`${response.status()}: ${await response.text()}`);
+  }
+  const body = (await response.json()) as {
+    result?: { isError?: boolean; content?: { text?: string }[] };
+  };
+  if (body.result?.isError) {
+    throw new Error(body.result.content?.[0]?.text ?? 'The demo server was refused.');
+  }
+}
+
 export async function closeSession(
   request: APIRequestContext,
   id: string,
-): Promise<Session> {
-  const response = await request.post(
+): Promise<Session> {  const response = await request.post(
     `${CORE_URL}/api/sessions/${id}/close`,
     { data: {} },
   );

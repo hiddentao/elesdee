@@ -16,6 +16,14 @@ export function openTerminal(path: string): Promise<void> {
   return invoke<void>('open_terminal', { path });
 }
 
+export function openUrl(url: string): Promise<void> {
+  if (isTauri()) {
+    return invoke<void>('open_url', { url });
+  }
+  window.open(url, '_blank', 'noopener,noreferrer');
+  return Promise.resolve();
+}
+
 export async function pickFolder(): Promise<string | null> {
   if (!isTauri()) {
     return null;

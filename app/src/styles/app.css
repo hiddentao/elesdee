@@ -3141,6 +3141,70 @@ button:disabled {
   overflow-y: auto;
 }
 
+.demo-block {
+  flex: 0 0 auto;
+  border-bottom: 1px solid var(--border);
+}
+
+.demo-list {
+  margin: 0;
+  padding: 4px 6px;
+  list-style: none;
+  font-size: var(--fs-small);
+}
+
+.demo-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 7px;
+  color: var(--text-2);
+}
+
+.demo-name {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.demo-state {
+  flex: 0 0 auto;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  color: var(--text-3);
+  font-size: var(--fs-small);
+}
+
+.demo-state.is-active {
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+.demo-address {
+  min-width: 0;
+  margin-left: auto;
+  overflow: hidden;
+  color: var(--text-2);
+  font-family: var(--mono-font);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.demo-address:hover {
+  color: var(--text);
+}
+
+.demo-address.is-inert {
+  color: var(--text-3);
+}
+
+.demo-row .dock-action {
+  margin-left: 0;
+}
+
 .shared-list {
   margin: 0;
   padding: 4px 6px;

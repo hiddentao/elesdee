@@ -321,6 +321,7 @@ fn route_for(method: Method, params: Option<&Value>) -> Result<Route, Response> 
 
     let route = match method {
         Method::Bootstrap => get("/api/bootstrap"),
+        Method::DemoServersList => get("/api/demo-servers"),
         Method::Health => get("/api/health"),
         Method::ProjectsList => get(&query_path("/api/projects", [("q", optional(object, "q"))])),
         Method::BranchesList => get(&query_path(
@@ -393,11 +394,7 @@ fn route_for(method: Method, params: Option<&Value>) -> Result<Route, Response> 
             [("path", Some(required(object, "path")?))],
         )),
         Method::DiffRead => get(&format!("/api/sessions/{}/changes", session_id(object)?)),
-        Method::SessionsUpload
-        | Method::FilesImage
-        | Method::UiManifest
-        | Method::UiDownload
-        | Method::DemoServersList => {
+        Method::SessionsUpload | Method::FilesImage | Method::UiManifest | Method::UiDownload => {
             return Err(Response::error(
                 ErrorCode::Unsupported,
                 "This method is not available in this build.",
@@ -792,6 +789,14 @@ mod tests {
             error.error_body().expect("error body").code(),
             ErrorCode::BadRequest
         );
+    }
+
+    #[test]
+    fn the_demo_server_list_is_a_read_only_route() {
+        let route = route_for(Method::DemoServersList, None).expect("route");
+        assert_eq!(route.method, HttpMethod::GET);
+        assert_eq!(route.path, "/api/demo-servers");
+        assert!(route.body.is_none());
     }
 
     #[test]

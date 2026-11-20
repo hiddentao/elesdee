@@ -13,6 +13,7 @@
 mod app;
 mod client;
 mod error;
+mod forward;
 mod framing;
 mod identity;
 mod limits;
@@ -31,14 +32,18 @@ pub use client::{
     PairingStart, PairingState, PhoneStore, StoreError, load_or_create_identity,
 };
 pub use error::{ErrorBody, ErrorCode, LinkError, PairingError};
+pub use forward::{
+    FORWARD_OK, FORWARD_REFUSED, FORWARD_REQUEST_BYTES, FORWARD_UNAVAILABLE, MIN_DEMO_PORT,
+    decode_port, encode_port, local_address, port_allowed,
+};
 pub use framing::{Request, Response, StreamEvent};
 pub use identity::DeviceIdentity;
 pub use limits::{
     CONFIRMATION_TTL_SECS, DESKTOP_NAME_MAX_CHARS, HELLO_TIMEOUT, MAX_CONNECTED_PHONES,
-    MAX_HEADER_BYTES, MAX_PAIR_FRAME_BYTES, MAX_PAIRED_PHONES, MAX_STREAMS_PER_CONNECTION,
-    MAX_STREAMS_TOTAL, MAX_UI_PACKAGE_BYTES, MAX_UPLOAD_BYTES, PAIRING_MAX_ATTEMPTS,
-    PAIRING_TICKET_TTL_SECS, PHONE_NAME_MAX_CHARS, PHONE_NAME_MIN_CHARS, QUIC_IDLE_TIMEOUT,
-    QUIC_KEEP_ALIVE, UNARY_REQUEST_TIMEOUT,
+    MAX_FORWARD_TUNNELS, MAX_HEADER_BYTES, MAX_PAIR_FRAME_BYTES, MAX_PAIRED_PHONES,
+    MAX_STREAMS_PER_CONNECTION, MAX_STREAMS_TOTAL, MAX_UI_PACKAGE_BYTES, MAX_UPLOAD_BYTES,
+    PAIRING_MAX_ATTEMPTS, PAIRING_TICKET_TTL_SECS, PHONE_NAME_MAX_CHARS, PHONE_NAME_MIN_CHARS,
+    QUIC_IDLE_TIMEOUT, QUIC_KEEP_ALIVE, UNARY_REQUEST_TIMEOUT,
 };
 pub use method::Method;
 pub use pairing::{PairingSession, pairing_code};

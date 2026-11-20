@@ -6,7 +6,7 @@ order: 6
 
 # Session tools
 
-Claude Code, Codex and OpenCode 2 sessions get the elesdee tools and the same skill pack: **elesdee**, **Ask and notify**, **Coordinate sessions**, **Handoff** and **Frontend design**. The tools let the agent talk to you and to other sessions without parsing its output.
+Claude Code, Codex and OpenCode 2 sessions get the elesdee tools and the same skill pack: **elesdee**, **Demo servers**, **Handoff**, **Ask and notify**, **Coordinate sessions** and **Frontend design**. The tools let the agent talk to you and to other sessions without parsing its output.
 
 The tools are local to this computer. They use the core service and the same trust as the rest of the app.
 
@@ -49,7 +49,25 @@ A session started this way shows the session it came from in the sidebar.
 - Secret files such as `.env` and private keys are refused. A file that contains a stored account key is refused too.
 - The original file is not changed and the app stores no key in the copy.
 
-**Register demo server** will arrive with demo servers. Until then, a session does not get that tool.
+## Demo servers
+
+**Register demo server** tells the app that a demo server runs on a loopback port. The agent gives a short name and the port, and the tool returns the address to print, such as `http://localhost:3000`. Start the server before you register its port.
+
+The session's Files panel lists each registered server with its address and state:
+
+- **Active** servers show an **Open** link and a **Stop** button. Open the address on this computer, or the same port on a paired phone.
+- **Stop** removes the server from the phone's list and closes its tunnels. The process is not the app's to stop; the agent stops it.
+- Close and pause stop every server in the session. Register the port again after you resume.
+
+Limits and rules:
+
+- A session holds at most 8 demo servers.
+- A port is 1024–65535. Privileged ports and the elesdee service port are refused.
+- A port belongs to one active session at a time. Two sessions never share one.
+- Only an active registered port can be forwarded to a phone. Another port is refused.
+- The record is kept with the session. After an app restart it shows as stopped, because the server no longer runs.
+
+The optional Tailscale address is not built yet.
 
 ## Usage
 
@@ -59,7 +77,7 @@ A session started this way shows the session it came from in the sidebar.
 
 The core service runs one MCP server. Each session gets a private skill folder under the app's data directory, and the folder is removed when the session closes. Claude Code gets a launch-only MCP config and loads the folder as a plugin. Codex gets the server through a launch config override and reads the skills from a private Codex home for the session. OpenCode 2 gets a launch-only config file that adds the server and the skill folder and merges with your own OpenCode config. None of these changes your repository or your global agent settings.
 
-The **Demo servers** and **Browser checks** skills arrive when those features do. Until then, a session gets the five skills listed above.
+The **Browser checks** skill arrives when that feature does. Until then, a session gets the six skills listed above.
 
 ## Next steps
 

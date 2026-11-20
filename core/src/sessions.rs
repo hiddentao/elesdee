@@ -14,6 +14,7 @@ use serde::Serialize;
 use tokio::sync::{Mutex as AsyncMutex, broadcast, oneshot, watch};
 
 use crate::claude;
+use crate::demo::{DemoFailure, DemoServerState, MAX_DEMO_SERVERS};
 use crate::state::{
     Client, PendingPermission, PermissionDecision, Session, SessionEvent, SessionKind,
     SessionState, Shortcut, WaitingFor, WorkState, lock,
@@ -319,6 +320,11 @@ impl SessionEntry {
             session.work_state = None;
             session.waiting_for = None;
         }
+        // A demo server belongs to the agent's process. After a restart none
+        // of them run, so every saved record becomes a stopped record.
+        for server in &mut session.demo_servers {
+            server.state = DemoServerState::Stopped;
+        }
         session.pending_permission = None;
 
         let log = OutputLog::restored(output, next_seq);
@@ -596,6 +602,7 @@ impl SessionEntry {
             state.session.status = SessionState::Closed;
             state.session.work_state = None;
             state.session.waiting_for = None;
+            mark_demo_servers_stopped(&mut state.session);
             state.closing = false;
             state.preview_tail.clear();
             state.last_preview_at = None;
@@ -698,6 +705,7 @@ impl SessionEntry {
         state.session.work_state = Some(WorkState::Paused);
         state.session.waiting_for = None;
         state.session.pending_permission = None;
+        mark_demo_servers_stopped(&mut state.session);
         state.session.preview = reason.to_owned();
         state.preview_tail.clear();
         state.last_preview_at = None;
@@ -733,6 +741,75 @@ impl SessionEntry {
         state.session.work_state = Some(WorkState::Done);
         state.session.waiting_for = None;
         Some(state.session.clone())
+    }
+
+    /// Registers a demo server for this session.
+    ///
+    /// A repeated port in the same session updates its name and makes it active
+    /// again. A closed session refuses the registration.
+    pub fn register_demo_server(&self, name: String, port: u16) -> Result<Session, DemoFailure> {
+        let name = crate::demo::clean_name(&name).ok_or(DemoFailure::InvalidName)?;
+        if !crate::demo::port_is_allowed(port) {
+            return Err(DemoFailure::InvalidPort);
+        }
+        let mut state = lock(&self.data);
+        if state.session.status != SessionState::Active {
+            return Err(DemoFailure::Closed);
+        }
+        if let Some(existing) = state
+            .session
+            .demo_servers
+            .iter_mut()
+            .find(|server| server.port == port)
+        {
+            existing.name = name;
+            existing.state = DemoServerState::Active;
+            return Ok(state.session.clone());
+        }
+        let active = state
+            .session
+            .demo_servers
+            .iter()
+            .filter(|server| server.is_active())
+            .count();
+        if active >= MAX_DEMO_SERVERS {
+            return Err(DemoFailure::TooMany);
+        }
+        // Keep the whole list bounded. A stopped record is a stale process, so
+        // the oldest one makes room for a new registration.
+        if state.session.demo_servers.len() >= MAX_DEMO_SERVERS {
+            let Some(index) = state
+                .session
+                .demo_servers
+                .iter()
+                .position(|server| !server.is_active())
+            else {
+                return Err(DemoFailure::TooMany);
+            };
+            state.session.demo_servers.remove(index);
+        }
+        let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+        let session_id = state.session.id.clone();
+        state
+            .session
+            .demo_servers
+            .push(crate::demo::new_server(&session_id, name, port, &now));
+        Ok(state.session.clone())
+    }
+
+    /// Stops one demo server in this session.
+    pub fn stop_demo_server(&self, server_id: &str) -> Result<Session, DemoFailure> {
+        let mut state = lock(&self.data);
+        let Some(server) = state
+            .session
+            .demo_servers
+            .iter_mut()
+            .find(|server| server.id == server_id)
+        else {
+            return Err(DemoFailure::NotFound);
+        };
+        server.state = DemoServerState::Stopped;
+        Ok(state.session.clone())
     }
 
     pub fn rename(&self, name: String) -> Session {
@@ -1633,6 +1710,7 @@ pub fn close_entry(
         state.session.status = SessionState::Closed;
         state.session.work_state = None;
         state.session.waiting_for = None;
+        mark_demo_servers_stopped(&mut state.session);
         (state.session.clone(), state.runtime.take())
     };
 
@@ -1662,6 +1740,12 @@ fn configure_environment(command: &mut CommandBuilder) {
         }
     }
     command.env("TERM", "xterm-256color");
+}
+
+fn mark_demo_servers_stopped(session: &mut Session) {
+    for server in &mut session.demo_servers {
+        server.state = DemoServerState::Stopped;
+    }
 }
 
 fn resolve_pending(state: &mut SessionData, reason: &str) {
@@ -1938,6 +2022,7 @@ mod tests {
             agent_session_id: None,
             handoff_note: None,
             context_left: None,
+            demo_servers: Vec::new(),
             started_at: "2026-01-01T00:00:00Z".to_owned(),
             shortcuts: Vec::new(),
         };
@@ -1983,6 +2068,7 @@ mod tests {
             agent_session_id: None,
             handoff_note: None,
             context_left: None,
+            demo_servers: Vec::new(),
             started_at: "2026-01-01T00:00:00Z".to_owned(),
             shortcuts: Vec::new(),
         };

@@ -282,7 +282,7 @@ Every agent session gets the same app tools and skills, whatever the agent or pr
 | Coordinate sessions | Split a large task across helper sessions, write clear briefs, and track progress. The coordinating agent merges each helper's branch into its own session branch and resolves conflicts. |
 | Frontend design | Make deliberate visual choices for the subject. Avoid generic layouts and template defaults. Check for redundant controls before adding one. |
 
-Demo servers and Browser checks describe features that are not built yet. Their skills ship with their tools. Until then, every session gets the other five skills: elesdee, Ask and notify, Coordinate sessions, Handoff and Frontend design.
+Browser checks describes a feature that is not built yet. Its skill ships with its tool. Until then, every session gets the other six skills: elesdee, Demo servers, Handoff, Ask and notify, Coordinate sessions and Frontend design.
 
 **Handoff note**
 
@@ -470,6 +470,16 @@ For a branch source, the launch form shows the repository. I can pick a reposito
 ## Demo servers
 
 A session can start a demo server to show me its work, for example a page to review and give feedback on, or the visual output of the code base. I must be able to open it in a browser on my phone, wherever I am. On the Mac, I open `localhost` directly.
+
+The agent starts the server and registers its loopback port with the Register demo server tool. The app records the name, the port and the state for that session. The session's side panel lists each server with its address, its state and the Open and Stop actions. A stopped server needs a new registration before it can be opened again.
+
+- A session holds at most 8 demo servers.
+- A port is 1024–65535. Privileged ports and the elesdee service port are refused.
+- A port belongs to one active session at a time. Two sessions never share one.
+- Stop stops the server and closes its tunnels. Close and pause stop every server in the session.
+- The app forwards only a port that an active session registered. It never exposes another port.
+
+The first build keeps the registration and the forwarding through the phone app. The Tailscale address arrives later.
 
 **Main way: forwarding through the phone app**
 
