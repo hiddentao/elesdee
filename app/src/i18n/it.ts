@@ -803,6 +803,7 @@ export const it = {
   'panel.demoServerStopLabel': 'Ferma {name}',
   'panel.demoServerStopping': 'Arresto in corso…',
   'panel.demoServerPublic': 'Pubblico',
+  'panel.demoServerPublicRetained': 'L’indirizzo pubblico potrebbe essere ancora attivo',
   'panel.demoServerPublicOpenLabel': 'Apri l’indirizzo pubblico {address} per {name}',
   'panel.demoServerFunnel': 'Rendi pubblico',
   'panel.demoServerFunnelLabel': 'Rendi {name} pubblico su internet',

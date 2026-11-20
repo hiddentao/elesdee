@@ -801,6 +801,7 @@ export const es = {
   'panel.demoServerStopLabel': 'Detener {name}',
   'panel.demoServerStopping': 'Deteniendo…',
   'panel.demoServerPublic': 'Público',
+  'panel.demoServerPublicRetained': 'La dirección pública puede seguir activa',
   'panel.demoServerPublicOpenLabel': 'Abrir la dirección pública {address} de {name}',
   'panel.demoServerFunnel': 'Hacer público',
   'panel.demoServerFunnelLabel': 'Hacer {name} público en internet',

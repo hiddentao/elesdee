@@ -242,7 +242,13 @@ export function SessionSidePanel({
     setStoppingFunnel(server.id);
     setDemoError(null);
     try {
-      const updated = await disableDemoFunnel(session.id, server.id);
+      // A stopped server turns its public address off through Stop, which
+      // also works after the session is closed. An active server uses the
+      // public-address action alone so its state does not change.
+      const updated =
+        server.state === 'active'
+          ? await disableDemoFunnel(session.id, server.id)
+          : await stopDemoServer(session.id, server.id);
       setDemoServers(updated.demoServers ?? []);
     } catch (error) {
       setDemoError(messageFor(error, t));
@@ -801,12 +807,22 @@ export function SessionSidePanel({
                           </button>
                         ) : null}
                       </div>
-                      {active ? (
-                        <div className="demo-funnel-row">
+                      {active || publicAddress ? (
+                        <div
+                          className={`demo-funnel-row${
+                            active ? '' : ' is-retained'
+                          }`}
+                        >
                           {publicAddress ? (
                             <>
-                              <span className="demo-funnel-label">
-                                {t('panel.demoServerPublic')}
+                              <span
+                                className={`demo-funnel-label${
+                                  active ? '' : ' is-warning'
+                                }`}
+                              >
+                                {active
+                                  ? t('panel.demoServerPublic')
+                                  : t('panel.demoServerPublicRetained')}
                               </span>
                               {isOpenableDemoAddress(publicAddress) ? (
                                 <a

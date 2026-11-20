@@ -804,6 +804,7 @@ export const sv = {
   'panel.demoServerStopLabel': 'Stoppa {name}',
   'panel.demoServerStopping': 'Stoppar…',
   'panel.demoServerPublic': 'Offentlig',
+  'panel.demoServerPublicRetained': 'Den offentliga adressen kan fortfarande vara aktiv',
   'panel.demoServerPublicOpenLabel': 'Öppna den offentliga adressen {address} för {name}',
   'panel.demoServerFunnel': 'Gör offentlig',
   'panel.demoServerFunnelLabel': 'Gör {name} offentlig på internet',

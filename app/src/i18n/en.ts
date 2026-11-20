@@ -772,6 +772,7 @@ export const en = {
   'panel.demoServerStopLabel': 'Stop {name}',
   'panel.demoServerStopping': 'Stopping…',
   'panel.demoServerPublic': 'Public',
+  'panel.demoServerPublicRetained': 'Public address may still be on',
   'panel.demoServerPublicOpenLabel': 'Open public address {address} for {name}',
   'panel.demoServerFunnel': 'Make public',
   'panel.demoServerFunnelLabel': 'Make {name} public on the internet',

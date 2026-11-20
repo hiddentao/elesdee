@@ -797,6 +797,7 @@ export const ko = {
   'panel.demoServerStopLabel': '{name} 중지',
   'panel.demoServerStopping': '중지하는 중…',
   'panel.demoServerPublic': '공개',
+  'panel.demoServerPublicRetained': '공개 주소가 계속 활성 상태일 수 있습니다',
   'panel.demoServerPublicOpenLabel': '{name}의 공개 주소 {address} 열기',
   'panel.demoServerFunnel': '공개하기',
   'panel.demoServerFunnelLabel': '{name}을(를) 인터넷에 공개',

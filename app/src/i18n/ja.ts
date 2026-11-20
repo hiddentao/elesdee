@@ -802,6 +802,7 @@ export const ja = {
   'panel.demoServerStopLabel': '{name} を停止',
   'panel.demoServerStopping': '停止しています…',
   'panel.demoServerPublic': '公開',
+  'panel.demoServerPublicRetained': '公開アドレスが有効なままの可能性があります',
   'panel.demoServerPublicOpenLabel': '{name} の公開アドレス {address} を開く',
   'panel.demoServerFunnel': '公開する',
   'panel.demoServerFunnelLabel': '{name} をインターネットに公開する',

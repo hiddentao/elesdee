@@ -805,6 +805,7 @@ export const pl = {
   'panel.demoServerStopLabel': 'Zatrzymaj {name}',
   'panel.demoServerStopping': 'Zatrzymywanie…',
   'panel.demoServerPublic': 'Publiczny',
+  'panel.demoServerPublicRetained': 'Publiczny adres może być nadal aktywny',
   'panel.demoServerPublicOpenLabel': 'Otwórz publiczny adres {address} dla {name}',
   'panel.demoServerFunnel': 'Udostępnij publicznie',
   'panel.demoServerFunnelLabel': 'Udostępnij {name} publicznie w internecie',
