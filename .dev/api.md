@@ -122,6 +122,15 @@ interface PairedDevice {
 - `pendingPermission` and a `waitingFor` of `permission` are not written to `state.json`; the live session keeps them.
 - `UserPromptSubmit` sets `working`. `PostToolUse` clears `waitingFor` and keeps the session active. `Notification` with a permission message sets `waitingFor: "permission"`. `MessageDisplay` and `Stop` update `preview`; `Stop` sets `done`.
 
+## Session tools and skills
+
+- Claude Code, Codex and OpenCode 2 sessions get the elesdee MCP server and the skill pack: `elesdee`, `ask-and-notify`, `coordinate-sessions`, `handoff` and `frontend-design`. Antigravity gets neither.
+- The core writes each session's skill kit under `<data dir>/skills/<session id>`. Directories use mode 0700 and files use mode 0600. The kit is removed on close, agent exit, delete and shutdown, and a startup sweep removes stale kits.
+- The kit holds `.claude-plugin/plugin.json` and `skills/<name>/SKILL.md`. Claude Code gets it as `--plugin-dir <kit>`.
+- OpenCode 2 gets `<data dir>/mcp/opencode-<session id>.json`. Its `skills` array lists `<kit>/skills`, and `OPENCODE_CONFIG` points at the file. The file is removed with the session.
+- Codex gets `CODEX_HOME=<kit>/codex` in its launch environment. Its skills are written under `<kit>/codex/skills`. When the user's Codex home has `auth.json` or `config.toml`, the launch links the file into the private home so the client sign-in and configuration still apply. The private home is removed with the kit.
+- The launch does not write into the repository or change the user's global agent files.
+
 ## Persistence
 
 - State lives in `ELESDEE_DATA_DIR`, default `~/.elesdee`, in `state.json`. The directory is created with mode 0700 and files with mode 0600. Writes use a temporary file, fsync and rename.

@@ -1545,6 +1545,7 @@ async fn create_session(
             return Err(error);
         }
         if client == Client::Codex
+            && state.command_override().is_none()
             && let Err(error) = start_codex_runtime(&state, &entry, &mut prepared.command)
         {
             rollback_created_session(&state, &entry, &session_id, worktree_cleanup).await;
@@ -1829,7 +1830,7 @@ async fn reopen_session(
     let size = entry.stored_size();
     if let Some(client) = suspended.client {
         configure_session_tools(&state, &entry, &id, client, &mut command, &mut environment)?;
-        if client == Client::Codex {
+        if client == Client::Codex && state.command_override().is_none() {
             start_codex_runtime(&state, &entry, &mut command)?;
         }
         if client == Client::OpenCode2
@@ -2065,6 +2066,7 @@ async fn relaunch_with_account(
         return Err(error);
     }
     if account.client == Client::Codex
+        && state.command_override().is_none()
         && let Err(error) = start_codex_runtime(state, entry, &mut command)
     {
         let failed = entry.mark_switch_failed("The account switch failed.");
@@ -3367,6 +3369,19 @@ pub(crate) fn session_command(
     }
 }
 
+fn prepare_skill_kit(
+    entry: &SessionEntry,
+    data_dir: &Path,
+    session_id: &str,
+) -> Result<PathBuf, ApiError> {
+    let kit = crate::mcp::prepare_skill_kit(data_dir, session_id).map_err(|error| {
+        tracing::error!(session = %session_id, %error, "could not write the skill pack");
+        ApiError::unprocessable("Could not prepare session tools.")
+    })?;
+    entry.set_skill_dir(kit.clone());
+    Ok(kit)
+}
+
 pub(crate) fn configure_session_tools(
     state: &AppState,
     entry: &SessionEntry,
@@ -3395,14 +3410,24 @@ pub(crate) fn configure_session_tools(
                 command.arg(path.as_os_str());
             }
             entry.set_mcp_config(path);
-            if let Ok(plugin) = crate::mcp::write_skill_plugin(data_dir)
-                && add_args
-            {
+            let plugin = prepare_skill_kit(entry, data_dir, session_id)?;
+            if add_args {
                 command.arg("--plugin-dir");
                 command.arg(plugin.as_os_str());
             }
         }
         Client::Codex => {
+            let home = crate::mcp::prepare_codex_home(
+                data_dir,
+                session_id,
+                crate::mcp::user_codex_home().as_deref(),
+            )
+            .map_err(|error| {
+                tracing::error!(session = %session_id, %error, "could not prepare Codex skills");
+                ApiError::unprocessable("Could not prepare session tools.")
+            })?;
+            entry.set_skill_dir(crate::mcp::skill_kit_path(data_dir, session_id));
+            environment.push(("CODEX_HOME".to_owned(), home.to_string_lossy().into_owned()));
             if add_args {
                 command.arg("-c");
                 command.arg(format!("mcp_servers.elesdee.url=\"{url}\""));
@@ -3410,12 +3435,14 @@ pub(crate) fn configure_session_tools(
         }
         Client::OpenCode2 => {
             let session = entry.session();
+            let plugin = prepare_skill_kit(entry, data_dir, session_id)?;
             let path = crate::mcp::write_opencode_config(
                 data_dir,
                 session_id,
                 state.port(),
                 session.model.as_deref(),
                 &session.config,
+                &plugin.join("skills"),
             )
             .map_err(|error| {
                 tracing::error!(session = %session_id, %error, "could not write MCP config");

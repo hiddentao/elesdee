@@ -227,6 +227,7 @@ Every agent session gets the same app tools and skills, whatever the agent or pr
 - The server listens on localhost and has no access check: any program on the same user account can call it. The same is true of the core API. The app's approval steps are a convenience, not a security boundary against local code.
 - Each session gets its own address on the server, so the server knows which session made each call.
 - At launch, the app adds this MCP server and the skills to the agent through the launch overrides. It does not change global config or write into the repo.
+- Each session's skills live in a private folder under the data directory. The folder is removed when the session closes, the agent exits, the session is deleted or the app shuts down.
 - Skills use the SKILL.md format, which Claude Code, Codex and OpenCode 2 read ([Codex docs](https://developers.openai.com/codex/skills.md), [OpenCode docs](https://opencode.ai/docs/skills/)).
 - Agents read only a skill's name and description at start, and load the rest when they decide they need it. So a short note in each agent's starting instructions also tells it that it runs inside elesdee and points it to the elesdee skill.
 
@@ -280,6 +281,8 @@ Every agent session gets the same app tools and skills, whatever the agent or pr
 | Ask and notify | Ask me through the app when blocked. Withdraw questions that no longer matter. Tell me when work is done. |
 | Coordinate sessions | Split a large task across helper sessions, write clear briefs, and track progress. The coordinating agent merges each helper's branch into its own session branch and resolves conflicts. |
 | Frontend design | Make deliberate visual choices for the subject. Avoid generic layouts and template defaults. Check for redundant controls before adding one. |
+
+Demo servers and Browser checks describe features that are not built yet. Their skills ship with their tools. Until then, every session gets the other five skills: elesdee, Ask and notify, Coordinate sessions, Handoff and Frontend design.
 
 **Handoff note**
 

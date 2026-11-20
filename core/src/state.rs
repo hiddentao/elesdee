@@ -746,6 +746,7 @@ impl AppState {
         *lock(&state.inner.paired_devices) = paired_devices;
         if let Some(directory) = state.data_dir() {
             crate::claude::sweep(directory);
+            crate::mcp::sweep(directory);
         }
         state.inner.output_budget.enforce();
         state
