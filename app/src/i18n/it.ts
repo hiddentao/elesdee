@@ -493,6 +493,8 @@ export const it = {
   'quit.manyRunning': '{count} sessioni sono ancora in esecuzione.',
   'quit.copy':
     'Uscendo si fermano le sessioni in esecuzione. Restano nella barra laterale e possono essere riprese la prossima volta.',
+  'quit.windowHint':
+    'Chiudere la finestra mantiene elesdee e le sue sessioni in esecuzione.',
   'quit.busyLabel': 'Chiusura di elesdee…',
   'quit.submitting': 'Uscita…',
   'quit.submit': 'Esci',

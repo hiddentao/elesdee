@@ -215,7 +215,6 @@ export default function App() {
   const activeSessionIdRef = useRef<string | null>(null);
   const requestsOpenRef = useRef(false);
   const activeStatusRef = useRef<Session['status'] | null>(null);
-  const allowCloseRef = useRef(false);
   const autoInstallRef = useRef(false);
   const activeSessionCount = sessions.filter(
     (session) => session.status === 'active',
@@ -617,7 +616,6 @@ export default function App() {
   }, [loadState, eventAttempt, refresh]);
 
   const quitNow = useCallback(async () => {
-    allowCloseRef.current = true;
     try {
       await invoke('quit_app');
     } catch {
@@ -713,7 +711,7 @@ export default function App() {
     }
 
     let disposed = false;
-    const unlisteners: Array<() => void> = [];
+    let stopQuit: (() => void) | null = null;
 
     const requestQuit = () => {
       const running = sessionsRef.current.some(
@@ -726,34 +724,21 @@ export default function App() {
       }
     };
 
-    void (async () => {
-      try {
-        const window = getCurrentWindow();
-        const stopClose = await window.onCloseRequested((event) => {
-          if (allowCloseRef.current) {
-            return;
-          }
-          event.preventDefault();
-          requestQuit();
-        });
-        const stopQuit = await listen('elesdee://quit-requested', requestQuit);
-
+    void listen('elesdee://quit-requested', requestQuit)
+      .then((stop) => {
         if (disposed) {
-          stopClose();
-          stopQuit();
+          stop();
           return;
         }
-        unlisteners.push(stopClose, stopQuit);
-      } catch {
-        // The Tauri window API is unavailable outside the desktop shell.
-      }
-    })();
+        stopQuit = stop;
+      })
+      .catch(() => {
+        // The Tauri event API is unavailable outside the desktop shell.
+      });
 
     return () => {
       disposed = true;
-      for (const unlisten of unlisteners) {
-        unlisten();
-      }
+      stopQuit?.();
     };
   }, [tauri, quitNow]);
 

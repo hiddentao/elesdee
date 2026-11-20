@@ -492,6 +492,8 @@ export const es = {
   'quit.manyRunning': '{count} sesiones siguen en ejecución.',
   'quit.copy':
     'Al salir se detienen las sesiones en ejecución. Se quedan en la barra lateral y se pueden reanudar la próxima vez.',
+  'quit.windowHint':
+    'Cerrar la ventana mantiene elesdee y sus sesiones en ejecución.',
   'quit.busyLabel': 'Cerrando elesdee…',
   'quit.submitting': 'Saliendo…',
   'quit.submit': 'Salir',

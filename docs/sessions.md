@@ -126,9 +126,13 @@ Turn on **Show closed sessions**, open the session menu and choose **Reopen**.
 
 The app opens the session in a new tab, restores its log, and starts the agent again. A Git session gets its worktree back from the saved branch. The app resumes the agent's saved conversation when it has one; otherwise it continues the most recent conversation in that folder. When the agent cannot resume its conversation, it also gets the handoff note and the end of the log.
 
+## Close the window
+
+Closing the window does not quit. The window hides, and elesdee keeps running with every session. A paired phone stays connected. Click the Dock icon or open elesdee again to show the same tabs.
+
 ## Quit
 
-When you quit while sessions run, the app asks first. The dialog shows how many sessions are still running. Cancel keeps working. Quit stops the sessions and closes the app. On the next launch the sessions restart in place and continue their conversations. You do not need to do anything.
+When you quit with Command-Q or **Quit elesdee** from the app menu while sessions run, the app asks first. The dialog shows how many sessions are still running. Cancel keeps working. Quit stops the sessions and closes the app. On the next launch the sessions restart in place and continue their conversations. You do not need to do anything.
 
 ## Restart recovery
 

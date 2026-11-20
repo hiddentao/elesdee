@@ -493,6 +493,8 @@ export const fr = {
   'quit.manyRunning': '{count} sessions sont encore en cours.',
   'quit.copy':
     'Quitter arrête les sessions en cours. Elles restent dans la barre latérale et peuvent être reprises la prochaine fois.',
+  'quit.windowHint':
+    'Fermer la fenêtre laisse elesdee et ses sessions en cours d’exécution.',
   'quit.busyLabel': 'Fermeture d’elesdee…',
   'quit.submitting': 'Fermeture…',
   'quit.submit': 'Quitter',

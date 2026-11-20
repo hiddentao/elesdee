@@ -6,6 +6,12 @@ order: 9
 
 # Troubleshooting
 
+## I closed the window and the app kept running
+
+This is expected. Closing the window hides it. elesdee and its sessions keep running, and a paired phone stays connected. Click the Dock icon to show the same tabs again.
+
+To stop the sessions, quit with Command-Q or **Quit elesdee** from the app menu and confirm.
+
 ## An agent shows as not installed
 
 The app runs the copy of the agent on your computer. Install the agent, then open the app again so the check runs.

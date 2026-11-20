@@ -488,6 +488,7 @@ export const ko = {
   'quit.manyRunning': '아직 {count}개 세션이 실행 중입니다.',
   'quit.copy':
     '종료하면 실행 중인 세션이 중지됩니다. 사이드바에 남아 있으며 다음에 재개할 수 있습니다.',
+  'quit.windowHint': '창을 닫아도 elesdee와 세션은 계속 실행됩니다.',
   'quit.busyLabel': 'elesdee 닫는 중…',
   'quit.submitting': '종료 중…',
   'quit.submit': '종료',

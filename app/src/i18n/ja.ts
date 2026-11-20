@@ -491,6 +491,8 @@ export const ja = {
   'quit.manyRunning': 'まだ {count} 個のセッションが実行中です。',
   'quit.copy':
     '終了すると実行中のセッションが停止します。サイドバーに残り、次回再開できます。',
+  'quit.windowHint':
+    'ウィンドウを閉じても、elesdee とセッションは実行を続けます。',
   'quit.busyLabel': 'elesdee を閉じています…',
   'quit.submitting': '終了しています…',
   'quit.submit': '終了',

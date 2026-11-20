@@ -488,6 +488,8 @@ export const de = {
   'quit.manyRunning': '{count} Sitzungen laufen noch.',
   'quit.copy':
     'Beim Beenden werden die laufenden Sitzungen gestoppt. Sie bleiben in der Seitenleiste und können beim nächsten Start fortgesetzt werden.',
+  'quit.windowHint':
+    'Wenn du das Fenster schließt, laufen elesdee und die Sitzungen weiter.',
   'quit.busyLabel': 'elesdee wird geschlossen…',
   'quit.submitting': 'Wird beendet…',
   'quit.submit': 'Beenden',
