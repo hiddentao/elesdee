@@ -373,6 +373,24 @@ pub fn write_claude_config(
     Ok(path)
 }
 
+pub fn write_opencode_config(
+    data_dir: &Path,
+    session_id: &str,
+    port: u16,
+) -> io::Result<PathBuf> {
+    let directory = data_dir.join("mcp");
+    crate::private_fs::create_private_dir_all(&directory)?;
+    let path = directory.join(format!("opencode-{session_id}.json"));
+    let url = format!("http://127.0.0.1:{port}/internal/mcp/{session_id}");
+    let body = json!({
+        "mcp": {
+            "elesdee": { "type": "remote", "url": url }
+        }
+    });
+    crate::private_fs::write_private_file(&path, body.to_string().as_bytes())?;
+    Ok(path)
+}
+
 const SKILL: &str = r#"---
 name: elesdee
 description: Work with the elesdee app. Ask the user questions, notify them, report done and coordinate other sessions.
@@ -408,4 +426,42 @@ pub fn write_skill_plugin(data_dir: &Path) -> io::Result<PathBuf> {
     )?;
     crate::private_fs::write_private_file(&skill_dir.join("SKILL.md"), SKILL.as_bytes())?;
     Ok(root)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn writes_an_opencode_config_that_merges_with_the_user_config() {
+        let directory =
+            std::env::temp_dir().join(format!("elesdee-mcp-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&directory).expect("create test directory");
+        let path = write_opencode_config(&directory, "session-1", 4319).expect("write config");
+        let value: Value =
+            serde_json::from_slice(&fs::read(&path).expect("read config")).expect("parse config");
+        assert_eq!(
+            value["mcp"]["elesdee"]["url"],
+            "http://127.0.0.1:4319/internal/mcp/session-1"
+        );
+        assert_eq!(value["mcp"]["elesdee"]["type"], "remote");
+        fs::remove_dir_all(&directory).expect("remove test directory");
+    }
+
+    #[test]
+    fn writes_the_skill_plugin() {
+        let directory =
+            std::env::temp_dir().join(format!("elesdee-skill-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&directory).expect("create test directory");
+        let root = write_skill_plugin(&directory).expect("write plugin");
+        assert!(root.join(".claude-plugin").join("plugin.json").is_file());
+        let skill = root.join("skills").join("elesdee").join("SKILL.md");
+        assert!(
+            fs::read_to_string(&skill)
+                .expect("read skill")
+                .contains("ask_me")
+        );
+        fs::remove_dir_all(&directory).expect("remove test directory");
+    }
 }

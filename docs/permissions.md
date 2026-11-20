@@ -6,7 +6,7 @@ order: 7
 
 # Permissions
 
-Claude Code asks before it runs a command or changes a file. When those requests reach elesdee, they appear as a card in the session view.
+Claude Code, Codex and OpenCode 2 send approval requests to the app. The request appears as a card in the session view. Antigravity keeps its prompts in its own terminal.
 
 ## What appears on a card
 
@@ -27,7 +27,9 @@ Read-only tools, `AskUserQuestion` and `ExitPlanMode` stay in the terminal inter
 
 ## Which clients use cards
 
-Claude Code sends permission requests to the app. Codex and OpenCode 2 keep their prompts in their own terminal for now. Antigravity always keeps its prompts in its terminal.
+Claude Code, Codex and OpenCode 2 send permission requests to the app. Antigravity always keeps its prompts in its terminal.
+
+Codex connects through its app-server websocket. OpenCode 2 exposes its permission list from its session server. Answering on the card answers the agent in both cases.
 
 ## What the card does not protect
 

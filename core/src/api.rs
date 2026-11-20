@@ -114,6 +114,13 @@ impl ApiError {
         }
     }
 
+    fn bad_gateway(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::BAD_GATEWAY,
+            message: message.into(),
+        }
+    }
+
     fn method_not_allowed(message: impl Into<String>) -> Self {
         Self {
             status: StatusCode::METHOD_NOT_ALLOWED,
@@ -806,6 +813,7 @@ async fn create_session(
     };
     let is_claude_agent = prepared.session.kind == SessionKind::Agent
         && prepared.session.client == Some(Client::ClaudeCode);
+    let agent_client = prepared.session.client;
     let identity_guard = if prepared.repo_root.is_some() {
         Some(state.lock_agent_identity().await)
     } else {
@@ -816,6 +824,7 @@ async fn create_session(
     let session_id = prepared.session.id.clone();
     let startup_input = prepared.startup_input.clone();
     let session_environment = prepared.environment.clone();
+    let mut opencode_base = None;
     let entry = Arc::new(SessionEntry::new(
         prepared.session,
         Arc::clone(&output_budget),
@@ -907,44 +916,13 @@ async fn create_session(
     if is_claude_agent {
         match install_claude_settings(&state, &entry, &session_id) {
             Ok(settings_path) => {
-                if state.command_override().is_none() && state.agent_bin().is_none() {
+                if state.command_override().is_none() {
                     claude::add_settings_argument(&mut prepared.command, &settings_path);
                 }
             }
             Err(error) => {
                 rollback_created_session(&state, &entry, &session_id, worktree_cleanup).await;
                 return Err(error);
-            }
-        }
-        if let Some(data_dir) = state.data_dir() {
-            match crate::mcp::write_claude_config(data_dir, &session_id, state.port()) {
-                Ok(path) => {
-                    if state.command_override().is_none() && state.agent_bin().is_none() {
-                        prepared.command.arg("--mcp-config");
-                        prepared.command.arg(path.as_os_str());
-                    }
-                    entry.set_mcp_config(path);
-                }
-                Err(error) => {
-                    tracing::error!(session = %session_id, %error, "could not write MCP config");
-                    rollback_created_session(&state, &entry, &session_id, worktree_cleanup)
-                        .await;
-                    return Err(ApiError::unprocessable("Could not prepare session tools."));
-                }
-            }
-            match crate::mcp::write_skill_plugin(data_dir) {
-                Ok(plugin) => {
-                    if state.command_override().is_none() && state.agent_bin().is_none() {
-                        prepared.command.arg("--plugin-dir");
-                        prepared.command.arg(plugin.as_os_str());
-                    }
-                }
-                Err(error) => {
-                    tracing::error!(session = %session_id, %error, "could not write the skill");
-                    rollback_created_session(&state, &entry, &session_id, worktree_cleanup)
-                        .await;
-                    return Err(ApiError::unprocessable("Could not prepare session tools."));
-                }
             }
         }
     }
@@ -979,6 +957,37 @@ async fn create_session(
         }
     }
 
+    if let Some(client) = agent_client {
+        if let Err(error) = configure_session_tools(
+            &state,
+            &entry,
+            &session_id,
+            client,
+            &mut prepared.command,
+            &mut environment,
+        ) {
+            rollback_created_session(&state, &entry, &session_id, worktree_cleanup).await;
+            return Err(error);
+        }
+        if client == Client::Codex
+            && let Err(error) = start_codex_runtime(&entry, &mut prepared.command)
+        {
+            rollback_created_session(&state, &entry, &session_id, worktree_cleanup).await;
+            return Err(error);
+        }
+        if client == Client::OpenCode2
+            && let Some(port) = crate::opencode::free_port()
+        {
+            crate::opencode::launch_args(&mut prepared.command, port);
+            let base_url = format!("http://127.0.0.1:{port}");
+            entry.set_opencode_runtime(crate::sessions::OpenCodeRuntime {
+                base_url: base_url.clone(),
+                port,
+            });
+            opencode_base = Some(base_url);
+        }
+    }
+
     entry.set_redactions(secret_environment_values(&environment));
 
     if let Err(error) = sessions::spawn(
@@ -992,6 +1001,10 @@ async fn create_session(
     ) {
         rollback_created_session(&state, &entry, &session_id, worktree_cleanup).await;
         return Err(ApiError::unprocessable(error));
+    }
+
+    if let Some(base_url) = opencode_base {
+        start_opencode_poller(state.clone(), Arc::clone(&entry), base_url);
     }
 
     if let Some(prompt) = startup_input {
@@ -1133,6 +1146,7 @@ async fn reopen_session(
 
     let folder_path = PathBuf::from(&suspended.folder);
     let mut environment = Vec::new();
+    let mut opencode_base = None;
     let folder = if suspended.kind == SessionKind::Agent {
         let account_id = suspended
             .account_id
@@ -1201,30 +1215,8 @@ async fn reopen_session(
         suspended.kind == SessionKind::Agent && suspended.client == Some(Client::ClaudeCode);
     if is_claude_agent {
         let settings_path = install_claude_settings(&state, &entry, &id)?;
-        if state.command_override().is_none() && state.agent_bin().is_none() {
+        if state.command_override().is_none() {
             claude::add_settings_argument(&mut command, &settings_path);
-        }
-        if let Some(data_dir) = state.data_dir() {
-            match crate::mcp::write_claude_config(data_dir, &id, state.port()) {
-                Ok(path) => {
-                    if state.command_override().is_none() && state.agent_bin().is_none() {
-                        command.arg("--mcp-config");
-                        command.arg(path.as_os_str());
-                    }
-                    entry.set_mcp_config(path);
-                }
-                Err(error) => {
-                    tracing::error!(session = %id, %error, "could not write MCP config");
-                    return Err(ApiError::unprocessable("Could not prepare session tools."));
-                }
-            }
-            if let Ok(plugin) = crate::mcp::write_skill_plugin(data_dir)
-                && state.command_override().is_none()
-                && state.agent_bin().is_none()
-            {
-                command.arg("--plugin-dir");
-                command.arg(plugin.as_os_str());
-            }
         }
     }
     if suspended.kind == SessionKind::Agent && suspended.client == Some(Client::Antigravity) {
@@ -1244,11 +1236,29 @@ async fn reopen_session(
         environment = antigravity::environment(&home, &key);
     }
     let size = entry.stored_size();
+    if let Some(client) = suspended.client {
+        configure_session_tools(&state, &entry, &id, client, &mut command, &mut environment)?;
+        if client == Client::Codex {
+            start_codex_runtime(&entry, &mut command)?;
+        }
+        if client == Client::OpenCode2
+            && let Some(port) = crate::opencode::free_port()
+        {
+            crate::opencode::launch_args(&mut command, port);
+            let base_url = format!("http://127.0.0.1:{port}");
+            entry.set_opencode_runtime(crate::sessions::OpenCodeRuntime {
+                base_url: base_url.clone(),
+                port,
+            });
+            opencode_base = Some(base_url);
+        }
+    }
 
     state.reserve_activation().map_err(|_| {
         entry.remove_session_files();
         ApiError::too_many_requests("Session limit reached. Close a session first.")
-    })?;    match entry.begin_reopen() {
+    })?;
+    match entry.begin_reopen() {
         Ok(()) => {}
         Err(crate::sessions::ReopenFailure::Closing) => {
             entry.remove_session_files();
@@ -1274,6 +1284,10 @@ async fn reopen_session(
         entry.rollback_reopen();
         state.release_activation();
         return Err(ApiError::unprocessable(error));
+    }
+
+    if let Some(base_url) = opencode_base {
+        start_opencode_poller(state.clone(), Arc::clone(&entry), base_url);
     }
 
     let session = entry.session();
@@ -1382,6 +1396,7 @@ async fn relaunch_with_account(
     }
     let mut environment = account_environment(state, account).await?;
     let folder = canonical_directory(PathBuf::from(&session.folder))?;
+    let mut opencode_base = None;
 
     let should_wait = entry
         .begin_close()
@@ -1394,7 +1409,7 @@ async fn relaunch_with_account(
     if account.client == Client::ClaudeCode {
         match install_claude_settings(state, entry, &session.id) {
             Ok(settings_path) => {
-                if state.command_override().is_none() && state.agent_bin().is_none() {
+                if state.command_override().is_none() {
                     claude::add_settings_argument(&mut command, &settings_path);
                 }
             }
@@ -1403,31 +1418,6 @@ async fn relaunch_with_account(
                 state.emit(SessionEvent::updated(failed));
                 state.save();
                 return Err(error);
-            }
-        }
-        if let Some(data_dir) = state.data_dir() {
-            match crate::mcp::write_claude_config(data_dir, &session.id, state.port()) {
-                Ok(path) => {
-                    if state.command_override().is_none() && state.agent_bin().is_none() {
-                        command.arg("--mcp-config");
-                        command.arg(path.as_os_str());
-                    }
-                    entry.set_mcp_config(path);
-                }
-                Err(error) => {
-                    tracing::error!(session = %session.id, %error, "could not write MCP config");
-                    let failed = entry.mark_switch_failed("The account switch failed.");
-                    state.emit(SessionEvent::updated(failed));
-                    state.save();
-                    return Err(ApiError::unprocessable("Could not prepare session tools."));
-                }
-            }
-            if let Ok(plugin) = crate::mcp::write_skill_plugin(data_dir)
-                && state.command_override().is_none()
-                && state.agent_bin().is_none()
-            {
-                command.arg("--plugin-dir");
-                command.arg(plugin.as_os_str());
             }
         }
     }
@@ -1453,6 +1443,39 @@ async fn relaunch_with_account(
         }
     }
 
+    if let Err(error) = configure_session_tools(
+        state,
+        entry,
+        &session.id,
+        account.client,
+        &mut command,
+        &mut environment,
+    ) {
+        let failed = entry.mark_switch_failed("The account switch failed.");
+        state.emit(SessionEvent::updated(failed));
+        state.save();
+        return Err(error);
+    }
+    if account.client == Client::Codex
+        && let Err(error) = start_codex_runtime(entry, &mut command)
+    {
+        let failed = entry.mark_switch_failed("The account switch failed.");
+        state.emit(SessionEvent::updated(failed));
+        state.save();
+        return Err(error);
+    }
+    if account.client == Client::OpenCode2
+        && let Some(port) = crate::opencode::free_port()
+    {
+        crate::opencode::launch_args(&mut command, port);
+        let base_url = format!("http://127.0.0.1:{port}");
+        entry.set_opencode_runtime(crate::sessions::OpenCodeRuntime {
+            base_url: base_url.clone(),
+            port,
+        });
+        opencode_base = Some(base_url);
+    }
+
     entry.set_redactions(secret_environment_values(&environment));
     let switched = entry.finish_switch(
         account.id.clone(),
@@ -1473,6 +1496,10 @@ async fn relaunch_with_account(
         state.emit(SessionEvent::updated(failed));
         state.save();
         return Err(ApiError::unprocessable("The account switch failed."));
+    }
+
+    if let Some(base_url) = opencode_base {
+        start_opencode_poller(state.clone(), Arc::clone(entry), base_url);
     }
 
     state.emit(SessionEvent::updated(switched.clone()));
@@ -1640,22 +1667,63 @@ async fn answer_permission(
         .session(&id)
         .ok_or_else(|| ApiError::not_found("Unknown session."))?;
 
-    entry
-        .answer_permission(&request.request_id, request.decision)
-        .map_err(|failure| match failure {
-            PermissionAnswerFailure::Closed => ApiError::conflict("Session is closed."),
-            PermissionAnswerFailure::NoPending => {
-                ApiError::conflict("There is no pending permission request.")
-            }
-            PermissionAnswerFailure::Mismatch => {
-                ApiError::conflict("The permission request id does not match.")
-            }
-            PermissionAnswerFailure::AlreadyAnswered => {
-                ApiError::conflict("This permission request was already answered.")
-            }
+    let session = entry.session();
+    let external_opencode =
+        session.client == Some(Client::OpenCode2) && session.pending_permission.is_some();
+    let external_codex =
+        session.client == Some(Client::Codex) && session.pending_permission.is_some();
+    if external_codex {
+        let sender = entry
+            .codex_sender()
+            .ok_or_else(|| ApiError::conflict("The session has no Codex app server."))?;
+        sender
+            .send(crate::codex::Decision {
+                request_id: request.request_id.clone(),
+                allow: request.decision == PermissionDecision::Allow,
+            })
+            .map_err(|_| ApiError::bad_gateway("The agent did not accept the answer."))?;
+        entry
+            .answer_external_permission(&request.request_id, request.decision)
+            .map_err(permission_error)?;
+    } else if external_opencode {
+        let runtime = entry
+            .opencode_runtime()
+            .ok_or_else(|| ApiError::conflict("The session has no OpenCode server."))?;
+        crate::opencode::reply(
+            &runtime.base_url,
+            &request.request_id,
+            request.decision == PermissionDecision::Allow,
+        )
+        .await
+        .map_err(|error| {
+            tracing::warn!(session = %id, %error, "could not answer the OpenCode permission");
+            ApiError::bad_gateway("The agent did not accept the answer.")
         })?;
+        entry
+            .answer_external_permission(&request.request_id, request.decision)
+            .map_err(permission_error)?;
+    } else {
+        entry
+            .answer_permission(&request.request_id, request.decision)
+            .map_err(permission_error)?;
+    }
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+fn permission_error(failure: PermissionAnswerFailure) -> ApiError {
+    match failure {
+        PermissionAnswerFailure::Closed => ApiError::conflict("Session is closed."),
+        PermissionAnswerFailure::NoPending => {
+            ApiError::conflict("There is no pending permission request.")
+        }
+        PermissionAnswerFailure::Mismatch => {
+            ApiError::conflict("The permission request id does not match.")
+        }
+        PermissionAnswerFailure::AlreadyAnswered => {
+            ApiError::conflict("This permission request was already answered.")
+        }
+    }
 }
 
 async fn delete_session(
@@ -2503,6 +2571,137 @@ fn session_command(
             Ok(CommandBuilder::new(executable))
         }
     }
+}
+
+fn configure_session_tools(
+    state: &AppState,
+    entry: &SessionEntry,
+    session_id: &str,
+    client: Client,
+    command: &mut CommandBuilder,
+    environment: &mut Vec<(String, String)>,
+) -> Result<(), ApiError> {
+    let Some(data_dir) = state.data_dir() else {
+        return Ok(());
+    };
+    let url = format!(
+        "http://127.0.0.1:{}/internal/mcp/{session_id}",
+        state.port()
+    );
+    let add_args = state.command_override().is_none();
+    match client {
+        Client::ClaudeCode => {
+            let path =
+                crate::mcp::write_claude_config(data_dir, session_id, state.port()).map_err(|error| {
+                    tracing::error!(session = %session_id, %error, "could not write MCP config");
+                    ApiError::unprocessable("Could not prepare session tools.")
+                })?;
+            if add_args {
+                command.arg("--mcp-config");
+                command.arg(path.as_os_str());
+            }
+            entry.set_mcp_config(path);
+            if let Ok(plugin) = crate::mcp::write_skill_plugin(data_dir)
+                && add_args
+            {
+                command.arg("--plugin-dir");
+                command.arg(plugin.as_os_str());
+            }
+        }
+        Client::Codex => {
+            if add_args {
+                command.arg("-c");
+                command.arg(format!("mcp_servers.elesdee.url=\"{url}\""));
+            }
+        }
+        Client::OpenCode2 => {
+            let path = crate::mcp::write_opencode_config(data_dir, session_id, state.port())
+                .map_err(|error| {
+                    tracing::error!(session = %session_id, %error, "could not write MCP config");
+                    ApiError::unprocessable("Could not prepare session tools.")
+                })?;
+            entry.set_mcp_config(path.clone());
+            environment.push((
+                "OPENCODE_CONFIG".to_owned(),
+                path.to_string_lossy().into_owned(),
+            ));
+        }
+        Client::Antigravity => {}
+    }
+    Ok(())
+}
+
+fn start_opencode_poller(
+    state: AppState,
+    entry: Arc<SessionEntry>,
+    base_url: String,
+) {
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(2));
+        interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+        loop {
+            interval.tick().await;
+            let session = entry.session();
+            if session.status == SessionState::Closed
+                || session.client != Some(Client::OpenCode2)
+                || entry.process_exited()
+            {
+                break;
+            }
+            let Ok(permissions) = crate::opencode::permissions(&base_url).await else {
+                continue;
+            };
+            match permissions.first() {
+                Some(permission) => {
+                    let already = session
+                        .pending_permission
+                        .as_ref()
+                        .is_some_and(|pending| pending.request_id == permission.id);
+                    if !already {
+                        entry.mark_external_permission(PendingPermission {
+                            request_id: permission.id.clone(),
+                            tool: permission.permission.clone(),
+                            summary: permission.summary(),
+                        });
+                    }
+                }
+                None => {
+                    if let Some(pending) = session.pending_permission
+                        && let Some(updated) =
+                            entry.clear_external_permission(&pending.request_id)
+                    {
+                        state.emit(SessionEvent::updated(updated));
+                    }
+                }
+            }
+        }
+    });
+}
+
+fn start_codex_runtime(
+    entry: &Arc<SessionEntry>,
+    command: &mut CommandBuilder,
+) -> Result<(), ApiError> {
+    let (url, server) = if let Some(url) = crate::codex::external_url() {
+        (url, None)
+    } else {
+        let port = crate::codex::free_port()
+            .ok_or_else(|| ApiError::unprocessable("Could not find a port for Codex."))?;
+        let server = crate::codex::start_server(port).map_err(|error| {
+            tracing::error!(%error, "could not start the Codex app server");
+            ApiError::unprocessable("Could not start the Codex app server.")
+        })?;
+        (server.url.clone(), Some(server))
+    };
+    crate::codex::launch_args(command, &url);
+    let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
+    entry.set_codex_runtime(crate::sessions::CodexRuntime {
+        url: url.clone(),
+        sender,
+        server,
+    });
+    tokio::spawn(crate::codex::run(url, Arc::clone(entry), receiver));
+    Ok(())
 }
 
 fn install_claude_settings(

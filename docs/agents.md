@@ -78,11 +78,11 @@ The client follows the style. OpenCode 2 is the default client.
 
 The session starts the client executable and gives it the account's environment. For Claude Code and Codex subscriptions, the client uses its own sign-in. For API-key accounts, the app passes the key in the child process environment and redacts it from session output. For Google, the app creates a private home folder for the session, writes a settings file that selects Gemini, and removes the private home when the session closes.
 
-## Antigravity permission prompts
+## Permission prompts
 
 Antigravity keeps its permission prompts in its own terminal. The app does not show a permission card for Antigravity. Answer its prompts in the terminal.
 
-The other clients also run their normal terminal interface. Claude Code additionally sends permission requests to the app, so those requests appear as cards. See [Permissions](permissions.md).
+Claude Code, Codex and OpenCode 2 send permission requests to the app, so those requests appear as cards. See [Permissions](permissions.md).
 
 ## Usage
 

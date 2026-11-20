@@ -72,18 +72,19 @@ pub fn prompt_arguments(client: Client, prompt: &str) -> Vec<String> {
     match client {
         Client::ClaudeCode | Client::Codex => vec![prompt.to_owned()],
         Client::Antigravity => vec!["--prompt-interactive".to_owned(), prompt.to_owned()],
-        Client::OpenCode2 => Vec::new(),
+        Client::OpenCode2 => vec!["--prompt".to_owned(), prompt.to_owned()],
     }
 }
 
-pub fn client_needs_prompt_input(client: Client) -> bool {
-    client == Client::OpenCode2
+pub fn client_needs_prompt_input(_client: Client) -> bool {
+    false
 }
 
 pub fn resume_arguments(client: Client) -> &'static [&'static str] {
     match client {
         Client::ClaudeCode | Client::Antigravity => &["--continue"],
-        Client::Codex | Client::OpenCode2 => &[],
+        Client::Codex => &["resume", "--last"],
+        Client::OpenCode2 => &["--continue"],
     }
 }
 
@@ -147,7 +148,21 @@ pub struct SessionEntry {
     claude: Mutex<Option<ClaudeRuntime>>,
     home: Mutex<Option<PathBuf>>,
     mcp_config: Mutex<Option<PathBuf>>,
+    opencode: Mutex<Option<OpenCodeRuntime>>,
+    codex: Mutex<Option<CodexRuntime>>,
     redactions: Mutex<Vec<String>>,
+}
+
+#[derive(Clone, Debug)]
+pub struct OpenCodeRuntime {
+    pub base_url: String,
+    pub port: u16,
+}
+
+pub struct CodexRuntime {
+    pub url: String,
+    pub sender: tokio::sync::mpsc::UnboundedSender<crate::codex::Decision>,
+    pub server: Option<crate::codex::CodexServer>,
 }
 
 struct ClaudeRuntime {
@@ -336,8 +351,28 @@ impl SessionEntry {
             claude: Mutex::new(None),
             home: Mutex::new(None),
             mcp_config: Mutex::new(None),
+            opencode: Mutex::new(None),
+            codex: Mutex::new(None),
             redactions: Mutex::new(Vec::new()),
         }
+    }
+
+    pub fn set_codex_runtime(&self, runtime: CodexRuntime) {
+        *lock(&self.codex) = Some(runtime);
+    }
+
+    pub fn codex_sender(
+        &self,
+    ) -> Option<tokio::sync::mpsc::UnboundedSender<crate::codex::Decision>> {
+        lock(&self.codex).as_ref().map(|runtime| runtime.sender.clone())
+    }
+
+    pub fn set_opencode_runtime(&self, runtime: OpenCodeRuntime) {
+        *lock(&self.opencode) = Some(runtime);
+    }
+
+    pub fn opencode_runtime(&self) -> Option<OpenCodeRuntime> {
+        lock(&self.opencode).clone()
     }
 
     pub fn set_mcp_config(&self, path: PathBuf) {
@@ -434,6 +469,7 @@ impl SessionEntry {
         if let Some(path) = lock(&self.mcp_config).take() {
             let _ = std::fs::remove_file(path);
         }
+        let _ = lock(&self.codex).take();
     }
 
     pub fn try_lifecycle(&self) -> Option<tokio::sync::MutexGuard<'_, ()>> {
@@ -768,6 +804,68 @@ impl SessionEntry {
         let mut state = lock(&self.data);
         let pending = state.pending_hook.as_ref()?;
         if pending.permission.request_id != request_id || pending.sender.is_none() {
+            return None;
+        }
+        let _ = state.pending_hook.take();
+        clear_permission_state(&mut state);
+        Some(state.session.clone())
+    }
+
+    pub fn mark_external_permission(&self, permission: PendingPermission) -> Option<Session> {
+        let event = {
+            let mut state = lock(&self.data);
+            if state.session.status != SessionState::Active || state.closing || state.process_exited {
+                return None;
+            }
+            if let Some(pending) = state.pending_hook.as_ref() {
+                if pending.sender.is_some() || pending.permission.request_id == permission.request_id
+                {
+                    return None;
+                }
+            }
+            state.pending_hook = Some(PendingHook {
+                permission: permission.clone(),
+                sender: None,
+            });
+            state.session.pending_permission = Some(permission);
+            state.session.waiting_for = Some(WaitingFor::Permission);
+            state.session.clone()
+        };
+        self.publish(event);
+        Some(self.session())
+    }
+
+    pub fn answer_external_permission(
+        &self,
+        request_id: &str,
+        decision: PermissionDecision,
+    ) -> Result<(), PermissionAnswerFailure> {
+        let mut state = lock(&self.data);
+        if state.session.status == SessionState::Closed || state.closing {
+            return Err(PermissionAnswerFailure::Closed);
+        }
+        let Some(pending) = state.pending_hook.as_ref() else {
+            return Err(PermissionAnswerFailure::NoPending);
+        };
+        if pending.permission.request_id != request_id {
+            return Err(PermissionAnswerFailure::Mismatch);
+        }
+        if pending.sender.is_some() {
+            return Err(PermissionAnswerFailure::AlreadyAnswered);
+        }
+        let _ = state.pending_hook.take();
+        clear_permission_state(&mut state);
+        let session = state.session.clone();
+        drop(state);
+        self.publish(session);
+        let _ = decision;
+        Ok(())
+    }
+
+    pub fn clear_external_permission(&self, request_id: &str) -> Option<Session> {
+        let mut state = lock(&self.data);
+        let pending = state.pending_hook.as_ref()?;
+        if pending.permission.request_id != request_id || pending.sender.is_some() {
             return None;
         }
         let _ = state.pending_hook.take();
@@ -1721,12 +1819,15 @@ mod tests {
             prompt_arguments(Client::Antigravity, "fix it"),
             vec!["--prompt-interactive".to_owned(), "fix it".to_owned()]
         );
-        assert!(prompt_arguments(Client::OpenCode2, "fix it").is_empty());
-        assert!(client_needs_prompt_input(Client::OpenCode2));
+        assert_eq!(
+            prompt_arguments(Client::OpenCode2, "fix it"),
+            vec!["--prompt".to_owned(), "fix it".to_owned()]
+        );
+        assert!(!client_needs_prompt_input(Client::OpenCode2));
 
         assert_eq!(resume_arguments(Client::ClaudeCode), ["--continue"]);
         assert_eq!(resume_arguments(Client::Antigravity), ["--continue"]);
-        assert!(resume_arguments(Client::Codex).is_empty());
-        assert!(resume_arguments(Client::OpenCode2).is_empty());
+        assert_eq!(resume_arguments(Client::Codex), ["resume", "--last"]);
+        assert_eq!(resume_arguments(Client::OpenCode2), ["--continue"]);
     }
 }

@@ -6,7 +6,7 @@ order: 6
 
 # Session tools
 
-Claude Code sessions get the elesdee tools and a short skill. The tools let the agent talk to you and to other sessions without parsing its output.
+Claude Code, Codex and OpenCode 2 sessions get the elesdee tools. Claude Code also gets a short skill. The tools let the agent talk to you and to other sessions without parsing its output.
 
 The tools are local to this computer. They use the core service and the same trust as the rest of the app.
 
@@ -39,9 +39,7 @@ The **Notify me** tool sends a short message. The app shows it as a notification
 
 ## Where the tools come from
 
-The core service runs one MCP server. Each Claude Code session gets its own address on that server and a launch-only MCP config. The app also writes a small skill plugin and passes it to Claude Code for that launch. Neither file changes your repository or your global agent settings.
-
-The same tools for Codex and OpenCode 2 are not built yet.
+The core service runs one MCP server. Claude Code gets a launch-only MCP config and a small skill plugin. Codex gets the server through a launch config override. OpenCode 2 gets a launch-only config file that merges with your own OpenCode config. None of these changes your repository or your global agent settings.
 
 ## Next steps
 

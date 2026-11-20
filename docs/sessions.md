@@ -90,7 +90,7 @@ Closing a session ends its process. The session moves to the closed list.
 
 Turn on **Show closed sessions**, open the session menu and choose **Reopen**.
 
-The app opens the session in a new tab, restores its log, and starts the agent again. A Git session gets its worktree back from the saved branch. Claude Code and Antigravity continue their most recent conversation in that folder. Codex and OpenCode 2 start again in the restored worktree.
+The app opens the session in a new tab, restores its log, and starts the agent again. A Git session gets its worktree back from the saved branch. Every client continues its most recent conversation in that folder.
 
 ## Quit
 
