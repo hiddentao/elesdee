@@ -148,6 +148,7 @@ pub struct SessionEntry {
     claude: Mutex<Option<ClaudeRuntime>>,
     home: Mutex<Option<PathBuf>>,
     mcp_config: Mutex<Option<PathBuf>>,
+    skill_dir: Mutex<Option<PathBuf>>,
     opencode: Mutex<Option<OpenCodeRuntime>>,
     codex: Mutex<Option<CodexRuntime>>,
     auto_approve_children: Mutex<bool>,
@@ -352,6 +353,7 @@ impl SessionEntry {
             claude: Mutex::new(None),
             home: Mutex::new(None),
             mcp_config: Mutex::new(None),
+            skill_dir: Mutex::new(None),
             opencode: Mutex::new(None),
             codex: Mutex::new(None),
             auto_approve_children: Mutex::new(false),
@@ -389,6 +391,10 @@ impl SessionEntry {
 
     pub fn set_mcp_config(&self, path: PathBuf) {
         *lock(&self.mcp_config) = Some(path);
+    }
+
+    pub fn set_skill_dir(&self, path: PathBuf) {
+        *lock(&self.skill_dir) = Some(path);
     }
 
     pub fn set_redactions(&self, secrets: Vec<String>) {
@@ -480,6 +486,9 @@ impl SessionEntry {
         self.remove_home();
         if let Some(path) = lock(&self.mcp_config).take() {
             let _ = std::fs::remove_file(path);
+        }
+        if let Some(path) = lock(&self.skill_dir).take() {
+            let _ = std::fs::remove_dir_all(path);
         }
         let _ = lock(&self.codex).take();
     }

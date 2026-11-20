@@ -6,7 +6,7 @@ order: 6
 
 # Session tools
 
-Claude Code, Codex and OpenCode 2 sessions get the elesdee tools. Claude Code and OpenCode 2 also get a short skill. The tools let the agent talk to you and to other sessions without parsing its output.
+Claude Code, Codex and OpenCode 2 sessions get the elesdee tools and the same skill pack: **elesdee**, **Ask and notify**, **Coordinate sessions**, **Handoff** and **Frontend design**. The tools let the agent talk to you and to other sessions without parsing its output.
 
 The tools are local to this computer. They use the core service and the same trust as the rest of the app.
 
@@ -42,7 +42,9 @@ A session started this way shows the session it came from in the sidebar.
 
 ## Where the tools come from
 
-The core service runs one MCP server. Claude Code gets a launch-only MCP config and a small skill plugin. Codex gets the server through a launch config override. OpenCode 2 gets a launch-only config file that adds the server and the skill folder and merges with your own OpenCode config. None of these changes your repository or your global agent settings.
+The core service runs one MCP server. Each session gets a private skill folder under the app's data directory, and the folder is removed when the session closes. Claude Code gets a launch-only MCP config and loads the folder as a plugin. Codex gets the server through a launch config override and reads the skills from a private Codex home for the session. OpenCode 2 gets a launch-only config file that adds the server and the skill folder and merges with your own OpenCode config. None of these changes your repository or your global agent settings.
+
+The **Demo servers** and **Browser checks** skills arrive when those features do. Until then, a session gets the five skills listed above.
 
 ## Next steps
 

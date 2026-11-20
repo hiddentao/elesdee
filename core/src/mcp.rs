@@ -1,3 +1,4 @@
+use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -479,58 +480,128 @@ pub fn write_claude_config(data_dir: &Path, session_id: &str, port: u16) -> io::
     Ok(path)
 }
 
-pub fn write_opencode_config(data_dir: &Path, session_id: &str, port: u16) -> io::Result<PathBuf> {
+pub fn write_opencode_config(
+    data_dir: &Path,
+    session_id: &str,
+    port: u16,
+    skills_root: &Path,
+) -> io::Result<PathBuf> {
     let directory = data_dir.join("mcp");
     crate::private_fs::create_private_dir_all(&directory)?;
     let path = directory.join(format!("opencode-{session_id}.json"));
     let url = format!("http://127.0.0.1:{port}/internal/mcp/{session_id}");
-    let plugin = write_skill_plugin(data_dir)?;
-    let skills = plugin.join("skills");
     let body = json!({
         "mcp": {
             "elesdee": { "type": "remote", "url": url }
         },
-        "skills": [skills.to_string_lossy()]
+        "skills": [skills_root.to_string_lossy()]
     });
     crate::private_fs::write_private_file(&path, body.to_string().as_bytes())?;
     Ok(path)
 }
 
-const SKILL: &str = r#"---
-name: elesdee
-description: Work with the elesdee app. Ask the user questions, notify them, report done and coordinate other sessions.
----
+const SKILLS: &[(&str, &str)] = &[
+    ("elesdee", include_str!("../assets/skills/elesdee/SKILL.md")),
+    (
+        "ask-and-notify",
+        include_str!("../assets/skills/ask-and-notify/SKILL.md"),
+    ),
+    (
+        "coordinate-sessions",
+        include_str!("../assets/skills/coordinate-sessions/SKILL.md"),
+    ),
+    ("handoff", include_str!("../assets/skills/handoff/SKILL.md")),
+    (
+        "frontend-design",
+        include_str!("../assets/skills/frontend-design/SKILL.md"),
+    ),
+];
 
-# elesdee session tools
+#[cfg(test)]
+pub fn skill_names() -> Vec<&'static str> {
+    SKILLS.iter().map(|(name, _)| *name).collect()
+}
 
-You run inside elesdee, a desktop app for coding agents. The app gives you tools that talk to the user.
+pub fn skill_kit_path(data_dir: &Path, session_id: &str) -> PathBuf {
+    data_dir.join("skills").join(session_id)
+}
 
-- When you are blocked, call `ask_me` with a clear question. You can continue working after asking. Call `wait_for_answer` when you need the answer. Call `withdraw_question` when a question no longer matters.
-- Use `notify_me` for a short update the user should see. Do not use it for every step.
-- Call `report_done` when the task is complete. The user closes the session.
-- Use `list_sessions`, `read_session` and `send_message` to coordinate with other sessions on this computer.
-- Use `check_usage` to see the remaining usage for an account.
+fn write_skills(root: &Path) -> io::Result<()> {
+    crate::private_fs::create_private_dir_all(root)?;
+    for (name, body) in SKILLS {
+        let directory = root.join(name);
+        crate::private_fs::create_private_dir_all(&directory)?;
+        crate::private_fs::write_private_file(&directory.join("SKILL.md"), body.as_bytes())?;
+    }
+    Ok(())
+}
 
-Every pending question appears in the app until the user answers it, you withdraw it, or the session closes.
-"#;
-
-pub fn write_skill_plugin(data_dir: &Path) -> io::Result<PathBuf> {
-    let root = data_dir.join("plugin");
+pub fn prepare_skill_kit(data_dir: &Path, session_id: &str) -> io::Result<PathBuf> {
+    let root = skill_kit_path(data_dir, session_id);
+    let _ = fs::remove_dir_all(&root);
+    crate::private_fs::create_private_dir_all(&root)?;
+    write_skills(&root.join("skills"))?;
     let manifest_dir = root.join(".claude-plugin");
-    let skill_dir = root.join("skills").join("elesdee");
     crate::private_fs::create_private_dir_all(&manifest_dir)?;
-    crate::private_fs::create_private_dir_all(&skill_dir)?;
     let manifest = json!({
         "name": "elesdee",
         "version": env!("CARGO_PKG_VERSION"),
-        "description": "Session tools for the elesdee desktop app."
+        "description": "The elesdee session skills."
     });
     crate::private_fs::write_private_file(
         &manifest_dir.join("plugin.json"),
         manifest.to_string().as_bytes(),
     )?;
-    crate::private_fs::write_private_file(&skill_dir.join("SKILL.md"), SKILL.as_bytes())?;
     Ok(root)
+}
+
+pub fn user_codex_home() -> Option<PathBuf> {
+    std::env::var_os("CODEX_HOME")
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("HOME")
+                .or_else(|| std::env::var_os("USERPROFILE"))
+                .map(|home| PathBuf::from(home).join(".codex"))
+        })
+}
+
+pub fn prepare_codex_home(
+    data_dir: &Path,
+    session_id: &str,
+    user_codex_home: Option<&Path>,
+) -> io::Result<PathBuf> {
+    let home = skill_kit_path(data_dir, session_id).join("codex");
+    let _ = fs::remove_dir_all(&home);
+    crate::private_fs::create_private_dir_all(&home)?;
+    write_skills(&home.join("skills"))?;
+    if let Some(user_home) = user_codex_home {
+        link_user_file(&user_home.join("auth.json"), &home.join("auth.json"));
+        link_user_file(&user_home.join("config.toml"), &home.join("config.toml"));
+    }
+    Ok(home)
+}
+
+#[cfg(unix)]
+fn link_user_file(source: &Path, target: &Path) {
+    if !source.is_file() || target.exists() {
+        return;
+    }
+    if let Err(error) = std::os::unix::fs::symlink(source, target) {
+        tracing::warn!(
+            source = %source.display(),
+            target = %target.display(),
+            %error,
+            "could not link the Codex user file"
+        );
+    }
+}
+
+#[cfg(not(unix))]
+fn link_user_file(_source: &Path, _target: &Path) {}
+
+pub fn sweep(data_dir: &Path) {
+    let _ = fs::remove_dir_all(data_dir.join("skills"));
+    let _ = fs::remove_dir_all(data_dir.join("plugin"));
 }
 
 #[cfg(test)]
@@ -538,11 +609,30 @@ mod tests {
     use super::*;
     use std::fs;
 
+    fn temporary_directory(label: &str) -> PathBuf {
+        let directory =
+            std::env::temp_dir().join(format!("elesdee-{label}-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&directory).expect("create test directory");
+        directory
+    }
+
+    fn assert_skill_set(skills_root: &Path) {
+        for name in skill_names() {
+            let skill = skills_root.join(name).join("SKILL.md");
+            assert!(
+                skill.is_file(),
+                "the {name} skill was not written at {}",
+                skill.display()
+            );
+        }
+    }
+
     #[test]
     fn writes_an_opencode_config_that_merges_with_the_user_config() {
-        let directory = std::env::temp_dir().join(format!("elesdee-mcp-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&directory).expect("create test directory");
-        let path = write_opencode_config(&directory, "session-1", 4319).expect("write config");
+        let directory = temporary_directory("mcp");
+        let root = prepare_skill_kit(&directory, "session-1").expect("write skill kit");
+        let path = write_opencode_config(&directory, "session-1", 4319, &root.join("skills"))
+            .expect("write config");
         let value: Value =
             serde_json::from_slice(&fs::read(&path).expect("read config")).expect("parse config");
         assert_eq!(
@@ -552,30 +642,89 @@ mod tests {
         assert_eq!(value["mcp"]["elesdee"]["type"], "remote");
         let skills = value["skills"].as_array().expect("skills");
         assert_eq!(skills.len(), 1);
-        let skill = PathBuf::from(skills[0].as_str().expect("skill path"))
-            .join("elesdee")
-            .join("SKILL.md");
-        assert!(
-            skill.is_file(),
-            "the skill was not written at {}",
-            skill.display()
-        );
+        let skills_root = PathBuf::from(skills[0].as_str().expect("skill path"));
+        assert_eq!(skills_root, root.join("skills"));
+        assert_skill_set(&skills_root);
         fs::remove_dir_all(&directory).expect("remove test directory");
     }
 
     #[test]
-    fn writes_the_skill_plugin() {
-        let directory =
-            std::env::temp_dir().join(format!("elesdee-skill-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&directory).expect("create test directory");
-        let root = write_skill_plugin(&directory).expect("write plugin");
+    fn writes_the_claude_plugin_with_every_skill() {
+        let directory = temporary_directory("claude-skill");
+        let root = prepare_skill_kit(&directory, "session-1").expect("write skill kit");
         assert!(root.join(".claude-plugin").join("plugin.json").is_file());
+        assert_skill_set(&root.join("skills"));
         let skill = root.join("skills").join("elesdee").join("SKILL.md");
         assert!(
             fs::read_to_string(&skill)
                 .expect("read skill")
                 .contains("ask_me")
         );
+        fs::remove_dir_all(&directory).expect("remove test directory");
+    }
+
+    #[test]
+    fn writes_private_skill_files_and_directories() {
+        let directory = temporary_directory("skill-mode");
+        let root = prepare_skill_kit(&directory, "session-1").expect("write skill kit");
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let file_mode = fs::metadata(root.join("skills/elesdee/SKILL.md"))
+                .expect("skill metadata")
+                .permissions()
+                .mode()
+                & 0o777;
+            assert_eq!(file_mode, 0o600);
+            let directory_mode = fs::metadata(root.join("skills/elesdee"))
+                .expect("skill directory metadata")
+                .permissions()
+                .mode()
+                & 0o777;
+            assert_eq!(directory_mode, 0o700);
+        }
+
+        fs::remove_dir_all(&directory).expect("remove test directory");
+    }
+
+    #[test]
+    fn prepares_a_private_codex_home_with_every_skill() {
+        let directory = temporary_directory("codex-skill");
+        let user_home = temporary_directory("codex-user");
+        fs::write(user_home.join("auth.json"), b"{}").expect("write auth file");
+        fs::write(user_home.join("config.toml"), b"model = \"test\"\n").expect("write config");
+
+        let home = prepare_codex_home(&directory, "session-1", Some(&user_home))
+            .expect("prepare codex home");
+        assert_skill_set(&home.join("skills"));
+        assert!(home.join("auth.json").is_file());
+        assert!(home.join("config.toml").is_file());
+
+        #[cfg(unix)]
+        assert!(
+            fs::symlink_metadata(home.join("auth.json"))
+                .expect("auth metadata")
+                .file_type()
+                .is_symlink(),
+            "the user auth file was not linked"
+        );
+
+        fs::remove_dir_all(&directory).expect("remove test directory");
+        fs::remove_dir_all(&user_home).expect("remove test user directory");
+    }
+
+    #[test]
+    fn sweeps_old_skill_folders() {
+        let directory = temporary_directory("skill-sweep");
+        let kit = prepare_skill_kit(&directory, "session-1").expect("write skill kit");
+        fs::create_dir_all(directory.join("plugin")).expect("create old plugin folder");
+        assert!(kit.exists());
+
+        sweep(&directory);
+
+        assert!(!directory.join("skills").exists());
+        assert!(!directory.join("plugin").exists());
         fs::remove_dir_all(&directory).expect("remove test directory");
     }
 }

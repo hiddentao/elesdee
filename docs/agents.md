@@ -78,6 +78,20 @@ The client follows the style. OpenCode 2 is the default client.
 
 The session starts the client executable and gives it the account's environment. For Claude Code and Codex subscriptions, the client uses its own sign-in. For API-key accounts, the app passes the key in the child process environment and redacts it from session output. For Google, the app creates a private home folder for the session, writes a settings file that selects Gemini, and removes the private home when the session closes.
 
+## Skills
+
+Claude Code, Codex and OpenCode 2 sessions get the same skill pack:
+
+| Skill | What it covers |
+| --- | --- |
+| elesdee | The session branch and worktree, the tools, and the other skills |
+| Ask and notify | Asking you when blocked, waiting for the answer, notifications and reporting done |
+| Coordinate sessions | Helper sessions, briefs and merging their branches |
+| Handoff | The handoff note, the last commit and the push |
+| Frontend design | Visual direction, template defaults and redundant controls |
+
+The skills live in a private folder for each session and are removed when the session closes. Antigravity keeps its own prompts and gets no elesdee skill pack.
+
 ## Permission prompts
 
 Antigravity keeps its permission prompts in its own terminal. The app does not show a permission card for Antigravity. Answer its prompts in the terminal.
