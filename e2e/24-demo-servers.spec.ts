@@ -7,14 +7,21 @@ import { getRunDir } from './env';
 import {
   CORE_URL,
   closeSession,
+  createAccount,
+  createAgentSession,
   createGitRepo,
   createProject,
   createTerminalSession,
+  getSession,
   openApp,
   registerDemoServer,
   sessionRow,
+  setUsage,
   uniqueName,
 } from './helpers';
+
+const TAILNET_NAME = 'elesdee-e2e.tailnet.ts.net';
+const PUBLIC_ADDRESS = `https://${TAILNET_NAME}/`;
 
 async function startDemoServer(): Promise<{
   port: number;
@@ -149,7 +156,7 @@ test('shows the tailnet address from the fake Tailscale CLI', async ({
     const filesPanel = page.getByRole('tabpanel', { name: 'Files' });
 
     const local = `http://localhost:${demo.port}`;
-    const tailnet = `https://elesdee-e2e.tailnet.ts.net:${demo.port}`;
+    const tailnet = `https://${TAILNET_NAME}:${demo.port}`;
     await expect(
       filesPanel.getByRole('link', { name: `Open ${local} for Tailnet` }),
     ).toHaveAttribute('href', local);
@@ -212,7 +219,7 @@ test('makes a demo server public after confirmation and stops the public address
 
     await dialog.getByRole('button', { name: 'Make public' }).click();
 
-    const publicAddress = 'https://elesdee-e2e.tailnet.ts.net/';
+    const publicAddress = PUBLIC_ADDRESS;
     const publicLink = filesPanel.getByRole('link', {
       name: `Open public address ${publicAddress} for Funnel`,
     });
@@ -287,5 +294,172 @@ test('makes a demo server public after confirmation and stops the public address
     await request.post(`${CORE_URL}/api/sessions/${session.id}/close`, {
       data: {},
     });
+  }
+});
+
+test('keeps one public server and turns the first off when a second becomes public', async ({
+  page,
+  request,
+}) => {
+  test.skip(
+    !fs.existsSync(path.join(getRunDir(), 'tailscale-bin', 'tailscale')),
+    'needs the fake Tailscale CLI',
+  );
+  const label = uniqueName('demo-one-public');
+  const repo = createGitRepo(label);
+  const project = await createProject(request, label, repo);
+  const name = uniqueName('One public session');
+  const session = await createTerminalSession(request, {
+    projectId: project.id,
+    name,
+    folder: repo,
+  });
+  const firstDemo = await startDemoServer();
+  const secondDemo = await startDemoServer();
+  const firstName = uniqueName('First server');
+  const secondName = uniqueName('Second server');
+  await registerDemoServer(request, session.id, firstName, firstDemo.port);
+  await registerDemoServer(request, session.id, secondName, secondDemo.port);
+  const callsBefore = tailscaleCalls();
+  const publicAddress = PUBLIC_ADDRESS;
+
+  try {
+    await openApp(page);
+    await sessionRow(page, name).first().click();
+    await page.getByRole('button', { name: 'Session panel' }).click();
+    const filesPanel = page.getByRole('tabpanel', { name: 'Files' });
+    const dialog = page.getByRole('dialog', {
+      name: 'Make this server public?',
+    });
+
+    await filesPanel
+      .getByRole('button', {
+        name: `Make ${firstName} public on the internet`,
+      })
+      .click();
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole('button', { name: 'Make public' }).click();
+
+    const firstPublic = filesPanel.getByRole('link', {
+      name: `Open public address ${publicAddress} for ${firstName}`,
+    });
+    await expect(firstPublic).toHaveAttribute('href', publicAddress);
+    expect((await demoServerEntry(request, firstName))?.funnelAddress).toBe(
+      publicAddress,
+    );
+
+    await filesPanel
+      .getByRole('button', {
+        name: `Make ${secondName} public on the internet`,
+      })
+      .click();
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole('button', { name: 'Make public' }).click();
+
+    await expect(
+      filesPanel.getByRole('link', {
+        name: `Open public address ${publicAddress} for ${secondName}`,
+      }),
+    ).toHaveAttribute('href', publicAddress);
+    await expect(
+      filesPanel.getByRole('link', {
+        name: `Open public address ${publicAddress} for ${firstName}`,
+      }),
+    ).toHaveCount(0);
+    await expect(
+      filesPanel.getByRole('button', {
+        name: `Make ${firstName} public on the internet`,
+      }),
+    ).toBeVisible();
+
+    const response = await request.get(`${CORE_URL}/api/demo-servers`);
+    expect(response.ok()).toBeTruthy();
+    const ours = (
+      (await response.json()) as { name: string; funnelAddress?: string }[]
+    ).filter((entry) => entry.name === firstName || entry.name === secondName);
+    expect(ours).toHaveLength(2);
+    expect(
+      ours.find((entry) => entry.name === firstName)?.funnelAddress,
+    ).toBeUndefined();
+    const publicOurs = ours.filter((entry) => entry.funnelAddress);
+    expect(publicOurs).toHaveLength(1);
+    expect(publicOurs[0]?.name).toBe(secondName);
+    expect(publicOurs[0]?.funnelAddress).toBe(publicAddress);
+
+    await expect
+      .poll(() => tailscaleCalls().slice(callsBefore.length))
+      .toEqual([
+        `funnel --bg ${firstDemo.port}`,
+        `funnel --https=443 localhost:${firstDemo.port} off`,
+        `funnel --bg ${secondDemo.port}`,
+      ]);
+  } finally {
+    await firstDemo.close();
+    await secondDemo.close();
+    await closeSession(request, session.id);
+  }
+});
+
+test('turns a public demo server off when the session pauses', async ({
+  request,
+}) => {
+  test.skip(
+    !fs.existsSync(path.join(getRunDir(), 'tailscale-bin', 'tailscale')),
+    'needs the fake Tailscale CLI',
+  );
+  const label = uniqueName('demo-pause');
+  const repo = createGitRepo(label);
+  const project = await createProject(request, label, repo);
+  const account = await createAccount(request, {
+    name: uniqueName('Pause provider'),
+    key: 'sk-demo-pause-0123456789',
+  });
+  const name = uniqueName('Pause session');
+  const session = await createAgentSession(request, {
+    projectId: project.id,
+    name,
+    folder: repo,
+    configId: account.configId,
+  });
+  const demo = await startDemoServer();
+  const serverName = uniqueName('Pause server');
+  await registerDemoServer(request, session.id, serverName, demo.port);
+  const callsBefore = tailscaleCalls();
+  const publicAddress = PUBLIC_ADDRESS;
+
+  try {
+    const entry = await demoServerEntry(request, serverName);
+    if (!entry) {
+      throw new Error('The demo server was not registered.');
+    }
+    const enabled = await request.post(
+      `${CORE_URL}/api/sessions/${session.id}/demo-servers/${entry.id}/funnel`,
+      { data: { confirmed: true } },
+    );
+    expect(enabled.ok()).toBeTruthy();
+    expect((await demoServerEntry(request, serverName))?.funnelAddress).toBe(
+      publicAddress,
+    );
+
+    await setUsage(request, account.id, [{ label: 'Weekly', used: 95 }]);
+    await expect
+      .poll(async () => (await getSession(request, session.id))?.workState, {
+        timeout: 30_000,
+      })
+      .toBe('paused');
+
+    const paused = await getSession(request, session.id);
+    expect(paused?.demoServers?.length).toBeGreaterThan(0);
+    for (const server of paused?.demoServers ?? []) {
+      expect(server.state).toBe('stopped');
+      expect(server.funnelAddress).toBeUndefined();
+    }
+    expect(await demoServerEntry(request, serverName)).toBeUndefined();
+    expect(tailscaleCalls().slice(callsBefore.length)).toContain(
+      `funnel --https=443 localhost:${demo.port} off`,
+    );
+  } finally {
+    await demo.close();
+    await closeSession(request, session.id).catch(() => undefined);
   }
 });

@@ -37,6 +37,7 @@ export interface Session {
     port: number;
     address: string;
     state: 'active' | 'stopped';
+    funnelAddress?: string;
   }[];
   pendingPermission: {
     requestId: string;
