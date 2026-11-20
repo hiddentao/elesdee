@@ -86,6 +86,7 @@ jobs:
       - name: Push release branch and open PR
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
+          HUSKY: "0"
           VERSION: ${{ steps.release.outputs.version }}
           NOTES: ${{ steps.release.outputs.changelog }}
         run: |

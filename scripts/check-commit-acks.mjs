@@ -10,11 +10,10 @@ const DOC_PATTERNS = [
   /^\.github\/workflows\//
 ];
 
-const DESIGN_PATTERNS = [
-  /^app\/src\/components\//,
-  /^app\/src\/styles\//,
-  /^app\/src\/App\.tsx$/,
-  /^app\/src\/index\.html$/
+const TRANSLATION_PATTERNS = [
+  /^core\/src\//,
+  /^app\/src\//,
+  /^src-tauri\/src\//
 ];
 
 const MEANINGLESS = new Set(['', '-', 'n/a', 'na', 'none', 'no', 'checked', 'ok', 'yes']);
@@ -39,7 +38,9 @@ export function missingAcks(message, files) {
   if (isExempt(message)) return [];
   const errors = [];
   const docFiles = files.filter((file) => DOC_PATTERNS.some((pattern) => pattern.test(file)));
-  const designFiles = files.filter((file) => DESIGN_PATTERNS.some((pattern) => pattern.test(file)));
+  const translationFiles = files.filter((file) =>
+    TRANSLATION_PATTERNS.some((pattern) => pattern.test(file))
+  );
 
   if (docFiles.length && !isMeaningful(trailerValue(message, 'Docs-Checked'))) {
     errors.push(
@@ -50,12 +51,12 @@ export function missingAcks(message, files) {
     );
   }
 
-  if (designFiles.length && !isMeaningful(trailerValue(message, 'Design-Checked'))) {
+  if (translationFiles.length && !isMeaningful(trailerValue(message, 'Translations-Checked'))) {
     errors.push(
-      `This commit changes the UI (${summarize(designFiles)}) but has no meaningful Design-Checked: trailer. ` +
-        'Say what you checked against the mockup, for example:\n' +
-        '  Design-Checked: compared light and dark at 1440 and 1024; no horizontal scroll\n' +
-        '  Design-Checked: mockup unchanged; palette and spacing already verified'
+      `This commit changes user-facing code (${summarize(translationFiles)}) but has no meaningful Translations-Checked: trailer. ` +
+        'Say which language catalogs you updated or verified, or why none apply, for example:\n' +
+        '  Translations-Checked: updated the English, French and German catalogs for the session menu\n' +
+        '  Translations-Checked: no user-facing strings changed; existing catalogs still match'
     );
   }
 

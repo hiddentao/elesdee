@@ -1,6 +1,6 @@
 # AGENTS.md
 
-This repository holds the elesdee product spec, research notes, clickable UI mockups and the application.
+This repository holds the elesdee product spec, research notes, clickable UI mockups, the public product docs and the application.
 
 This file carries the rules that bind every prompt. Detail and decisions live in `.dev/`.
 
@@ -13,6 +13,7 @@ This file carries the rules that bind every prompt. Detail and decisions live in
 | `.dev/hooks.md` | Agent hook integration and the permission answer flow. |
 | `.dev/mockups/round-1.html` | The clickable Mac and phone mockups. A is dark, B is light. The visual reference for the app. |
 | `.dev/research/` | Research notes behind the spec. |
+| `docs/` | Public product documentation. The website build starts from this folder at release. |
 | `core/` | The Rust core service: local HTTP API, sessions, event stream. |
 | `app/` | The React and TypeScript desktop UI, built with Vite. |
 | `src-tauri/` | The Tauri shell that starts the core service and shows the UI. |
@@ -43,15 +44,16 @@ Not built yet: hook adapters for Codex and OpenCode 2 (only Claude Code sends pe
 
 - **Conventional commits.** `commitlint` checks every commit message through `.husky/commit-msg`.
 - **`Docs-Checked:`** is required when a commit changes `core/src/`, `app/src/`, `src-tauri/src/`, `scripts/` or `.github/workflows/`. The value names the docs updated or verified, or why none apply.
-- **`Design-Checked:`** is also required when a commit changes `app/src/components/`, `app/src/styles/`, `app/src/App.tsx` or `app/index.html`. The value names the mockup, theme and width checks done.
+- **`Translations-Checked:`** is also required when a commit changes `core/src/`, `app/src/` or `src-tauri/src/`. The value names the language catalogs updated or verified, or why none apply. User-facing strings stay in sync across languages; English alone is not done.
 - Release and merge commits are exempt. `HUSKY=0` is set only for generated release commits in CI.
 - The checker is `scripts/check-commit-acks.mjs`; its tests run with `npm run acks`.
 
-## Keep this file and `.dev/` current
+## Keep this file, `.dev/` and `docs/` current
 
 - **Every change updates the documents it affects, in the same commit.** That includes `.dev/SPEC.md` and this file.
 - **Rules stay here. Detail goes in `.dev/`.** Link the detail; do not repeat it.
-- **A fact in more than one place changes in every place in the same commit.** The mockup, the spec and these rules must agree.
+- **Public docs live in `docs/`.** They describe what a user can do now. Internal decisions, the spec and research stay in `.dev/`.
+- **A fact in more than one place changes in every place in the same commit.** The mockup, the spec, the public docs and these rules must agree.
 - **A new topic starts as a `.dev/` document.** Add it to the map above.
 - **The spec comes before the code.** A change in behavior updates the spec in the same commit.
 
