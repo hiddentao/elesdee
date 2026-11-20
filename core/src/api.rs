@@ -669,7 +669,9 @@ async fn create_project(
     let project = state
         .add_project(name.to_owned(), path_string(&folder))
         .map_err(|_| ApiError::conflict("A project with this folder already exists."))?;
-    state.save();
+    state
+        .try_save()
+        .map_err(|_| ApiError::internal("The project could not be saved."))?;
 
     Ok(Json(project))
 }
@@ -707,7 +709,7 @@ async fn update_project(
             .ok_or_else(|| {
                 ApiError::unprocessable("The project folder is not a Git repository.")
             })?;
-        if !git::ref_exists(repo_root, branch.clone(), state.git_timeout()).await {
+        if !git::branch_or_remote_exists(repo_root, branch.clone(), state.git_timeout()).await {
             return Err(ApiError::unprocessable("The source branch does not exist."));
         }
     }
@@ -715,7 +717,9 @@ async fn update_project(
     let updated = state
         .update_project_defaults(&id, account_update, branch_update)
         .ok_or_else(|| ApiError::not_found("Unknown project."))?;
-    state.save();
+    state
+        .try_save()
+        .map_err(|_| ApiError::internal("The project could not be saved."))?;
 
     Ok(Json(updated))
 }
@@ -985,7 +989,12 @@ async fn create_session(
                 ));
             }
             Some(branch) => {
-                if !git::ref_exists(repo_root.clone(), branch.to_owned(), state.git_timeout()).await
+                if !git::branch_or_remote_exists(
+                    repo_root.clone(),
+                    branch.to_owned(),
+                    state.git_timeout(),
+                )
+                .await
                 {
                     rollback_created_session(&state, &entry, &session_id, None).await;
                     return Err(ApiError::unprocessable("The source branch does not exist."));
@@ -2057,6 +2066,8 @@ fn file_error(error: files::FileError) -> ApiError {
             files::MAX_FILE_BYTES
         )),
         files::FileError::Binary => ApiError::unprocessable("The file is not UTF-8 text."),
+        files::FileError::Protected => ApiError::unprocessable("The path is not available."),
+        files::FileError::Linked => ApiError::unprocessable("Hard-linked files are not supported."),
         files::FileError::Io(error) => {
             tracing::error!(%error, "file operation failed");
             ApiError::internal("The file operation failed.")

@@ -14,7 +14,7 @@ The service binds `127.0.0.1` only. It accepts requests only for loopback hostna
 - Every POST and PATCH request must send `Content-Type: application/json`. The media type may carry parameters such as `charset`. A missing or different content type returns 415.
 - A project name must not be empty. Its folder must exist and be a directory. The folder is canonicalized, and two projects cannot use the same canonical folder.
 - A project id is a unique slug of its name. A repeated name gets a numeric suffix.
-- A project stores an optional default account and an optional default source branch. `PATCH /api/projects/{id}` sets a field by sending its value and clears it by sending `null`; an absent field keeps its current value. The default account must exist. A default branch must be a safe branch name and must exist in the project folder's Git repository.
+- A project stores an optional default account and an optional default source branch. `PATCH /api/projects/{id}` sets a field by sending its value and clears it by sending `null`; an absent field keeps its current value. The default account must exist. A default branch must be a safe branch name and must exist as a local or remote branch in the project folder's Git repository; tags, other revisions and revision expressions are rejected.
 - At most 64 sessions may be active at one time. This is a safety cap for memory and process limits. A new session above the cap returns 429. Closing a session frees its slot.
 - At most 32 output streams and 32 event streams may be open at once. More returns 429.
 - The optional `folder` is canonicalized. When it is absent, the project folder is used. A terminal session runs in that folder. For an agent, the folder must be inside a Git repository; the session runs in a new worktree under `<data dir>/worktrees/<session id>`.
@@ -239,9 +239,9 @@ Errors use `{ "error": "message" }`. Unknown sessions return 404. A session that
 
 - A terminal session runs a real shell in its folder through a PTY. Closing the session stops the process group and keeps the folder.
 - The file and change routes use the session folder: the worktree for an agent, the chosen folder for a terminal. A missing folder returns 404.
-- A file path is relative to the session folder and is canonicalized. An absolute path, a `..` component and a symlink that resolves outside the folder return 400. A folder where a file is expected returns 422. The listing skips `.git` folders and symlinks.
+- A file path is relative to the session folder and is canonicalized. An absolute path, a `..` component and a symlink that resolves outside the folder return 400. A folder where a file is expected returns 422. A path with a `.git` component is refused, as is a hard-linked file. The listing skips `.git` folders, symlinks and names that are not UTF-8; a skipped name marks the listing truncated.
 - One folder listing returns at most 2000 entries and sets `truncated` when more exist. A file read or write is UTF-8 text of at most 1 MiB. A larger file or request body returns 413. Binary content, meaning a NUL byte in the first 8 KiB, returns 422.
-- `POST /api/sessions/{id}/file` creates the file or replaces its content. The parent folder must exist. The write is not limited to existing files.
+- `POST /api/sessions/{id}/file` creates the file or replaces its content. The parent folder must exist. The write is not limited to existing files. A write goes to a temporary file in the same folder and is renamed into place, so a failure cannot leave a half-written file.
 - Changes for an agent session compare the worktree, including uncommitted work, against the merge base with the repository's current branch. Changes for a terminal session compare the working tree against `HEAD`. Untracked files are included.
 - The change route caps the list at 500 files and the combined diffs at 512 KiB. It sets `truncated` when either cap is reached. A folder outside Git returns `git: false` with no files and no error.
 - An agent session runs the chosen client when one is installed. The client command is chosen by the server, never sent by the UI.

@@ -1,5 +1,5 @@
 use std::fs;
-use std::io;
+use std::io::{self, Read, Write};
 use std::path::{Component, Path, PathBuf};
 
 use serde::Serialize;
@@ -19,6 +19,8 @@ pub enum FileError {
     NotADirectory,
     TooLarge(u64),
     Binary,
+    Protected,
+    Linked,
     Io(io::Error),
 }
 
@@ -87,19 +89,27 @@ pub fn list(root: &Path, relative: &str) -> Result<FileList, FileError> {
         if file_type.is_symlink() {
             continue;
         }
-        let name = item.file_name().to_string_lossy().into_owned();
-        if name.is_empty() || (file_type.is_dir() && name == ".git") {
+        let Ok(name) = item.file_name().into_string() else {
+            truncated = true;
+            continue;
+        };
+        if name.is_empty() || (file_type.is_dir() && name.eq_ignore_ascii_case(".git")) {
             continue;
         }
         if entries.len() >= MAX_TREE_ENTRIES {
             truncated = true;
             break;
         }
-        let path = item
-            .path()
-            .strip_prefix(root)
-            .map(path_string)
-            .unwrap_or_else(|_| name.clone());
+        let entry_path = item.path();
+        let Ok(inner) = entry_path.strip_prefix(&resolved) else {
+            continue;
+        };
+        let inner = path_string(inner);
+        let path = if relative.is_empty() {
+            inner
+        } else {
+            format!("{}/{inner}", relative.trim_end_matches('/'))
+        };
         entries.push(FileEntry {
             name,
             path,
@@ -130,15 +140,21 @@ pub fn read(root: &Path, relative: &str) -> Result<FileContent, FileError> {
         return Err(FileError::OutsideRoot);
     }
 
-    let metadata = fs::metadata(&resolved)?;
+    let file = open_readonly(&resolved)?;
+    let metadata = file.metadata()?;
     if !metadata.is_file() {
         return Err(FileError::NotAFile);
     }
     if metadata.len() > MAX_FILE_BYTES {
         return Err(FileError::TooLarge(metadata.len()));
     }
+    reject_hard_link(&metadata)?;
 
-    let bytes = fs::read(&resolved)?;
+    let mut bytes = Vec::new();
+    file.take(MAX_FILE_BYTES + 1).read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > MAX_FILE_BYTES {
+        return Err(FileError::TooLarge(bytes.len() as u64));
+    }
     if is_binary(&bytes) {
         return Err(FileError::Binary);
     }
@@ -162,22 +178,42 @@ pub fn write(root: &Path, relative: &str, content: &str) -> Result<FileContent, 
 
     let target = root.join(valid_relative(relative)?);
     let parent = target.parent().ok_or(FileError::InvalidPath)?;
+    let name = target.file_name().ok_or(FileError::InvalidPath)?;
     let resolved_parent = fs::canonicalize(parent)?;
     if !resolved_parent.starts_with(root) {
         return Err(FileError::OutsideRoot);
     }
+    let target = resolved_parent.join(name);
 
-    if fs::symlink_metadata(&target).is_ok() {
-        let resolved = fs::canonicalize(&target)?;
-        if !resolved.starts_with(root) {
-            return Err(FileError::OutsideRoot);
+    match fs::symlink_metadata(&target) {
+        Ok(metadata) => {
+            if metadata.file_type().is_symlink() {
+                return Err(FileError::OutsideRoot);
+            }
+            if !metadata.is_file() {
+                return Err(FileError::NotAFile);
+            }
+            reject_hard_link(&metadata)?;
         }
-        if !fs::metadata(&resolved)?.is_file() {
-            return Err(FileError::NotAFile);
-        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
     }
 
-    fs::write(&target, bytes)?;
+    let temporary = resolved_parent.join(format!(".elesdee-{}.tmp", uuid::Uuid::new_v4()));
+    let written = (|| -> io::Result<()> {
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temporary)?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        fs::rename(&temporary, &target)
+    })();
+    if written.is_err() {
+        let _ = fs::remove_file(&temporary);
+        written?;
+    }
+
     Ok(FileContent {
         path: relative.to_owned(),
         size: bytes.len() as u64,
@@ -198,7 +234,12 @@ fn valid_relative(relative: &str) -> Result<PathBuf, FileError> {
     let mut clean = PathBuf::new();
     for component in path.components() {
         match component {
-            Component::Normal(part) if !part.is_empty() => clean.push(part),
+            Component::Normal(part) if !part.is_empty() => {
+                if part.to_string_lossy().eq_ignore_ascii_case(".git") {
+                    return Err(FileError::Protected);
+                }
+                clean.push(part);
+            }
             _ => return Err(FileError::InvalidPath),
         }
     }
@@ -210,6 +251,30 @@ fn valid_relative(relative: &str) -> Result<PathBuf, FileError> {
 
 fn path_string(path: &Path) -> String {
     path.to_string_lossy().replace('\\', "/")
+}
+
+fn open_readonly(path: &Path) -> io::Result<fs::File> {
+    let mut options = fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW);
+    }
+    options.open(path)
+}
+
+fn reject_hard_link(metadata: &fs::Metadata) -> Result<(), FileError> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if metadata.nlink() > 1 {
+            return Err(FileError::Linked);
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = metadata;
+    Ok(())
 }
 
 fn is_binary(bytes: &[u8]) -> bool {
@@ -302,6 +367,60 @@ mod tests {
         );
         let _ = fs::remove_dir_all(root);
         let _ = fs::remove_dir_all(outside);
+    }
+
+    #[test]
+    fn rejects_git_metadata_paths() {
+        let root = temp("git-metadata");
+        fs::create_dir_all(root.join(".git").join("hooks")).unwrap();
+        fs::write(root.join(".git").join("config"), "[remote]\n").unwrap();
+
+        for path in [".git/config", ".git/hooks/pre-commit", ".GIT/config"] {
+            assert!(
+                matches!(read(&root, path), Err(FileError::Protected)),
+                "{path} must not be readable"
+            );
+            assert!(
+                matches!(write(&root, path, "changed\n"), Err(FileError::Protected)),
+                "{path} must not be writable"
+            );
+        }
+        assert!(matches!(list(&root, ".git"), Err(FileError::Protected)));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_hard_links() {
+        let root = temp("hard-link");
+        fs::write(root.join("note.txt"), "hello\n").unwrap();
+        fs::hard_link(root.join("note.txt"), root.join("linked.txt")).unwrap();
+
+        assert!(matches!(read(&root, "linked.txt"), Err(FileError::Linked)));
+        assert!(matches!(
+            write(&root, "linked.txt", "changed\n"),
+            Err(FileError::Linked)
+        ));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn writes_leave_no_temporary_file() {
+        let root = temp("atomic");
+        write(&root, "note.txt", "hello\n").expect("write file");
+
+        let entries = list(&root, "").expect("list root");
+        assert!(
+            entries
+                .entries
+                .iter()
+                .all(|entry| !entry.name.starts_with(".elesdee-"))
+        );
+        assert_eq!(
+            fs::read_to_string(root.join("note.txt")).unwrap(),
+            "hello\n"
+        );
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]

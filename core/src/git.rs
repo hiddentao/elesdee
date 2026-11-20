@@ -4,6 +4,8 @@ use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -57,8 +59,11 @@ impl CloseOutcome {
 enum GitRun {
     Output(Output),
     Timeout,
+    TooLarge,
     Failed,
 }
+
+const MAX_GIT_OUTPUT_BYTES: usize = 16 * 1024 * 1024;
 
 impl GitRun {
     fn success(self) -> bool {
@@ -95,7 +100,12 @@ pub async fn branch_exists(repo_root: PathBuf, branch: String, timeout: Duration
         let reference = format!("refs/heads/{branch}");
         run_git(
             &repo_root,
-            ["rev-parse", "--verify", reference.as_str()],
+            [
+                "rev-parse",
+                "--verify",
+                "--end-of-options",
+                reference.as_str(),
+            ],
             timeout,
         )
         .success()
@@ -159,20 +169,26 @@ pub async fn list_branches(repo_root: PathBuf, timeout: Duration) -> Vec<BranchI
     .unwrap_or_default()
 }
 
-pub async fn ref_exists(repo_root: PathBuf, reference: String, timeout: Duration) -> bool {
+pub async fn branch_or_remote_exists(
+    repo_root: PathBuf,
+    branch: String,
+    timeout: Duration,
+) -> bool {
     tokio::task::spawn_blocking(move || {
-        let revision = format!("{reference}^{{commit}}");
-        run_git(
-            &repo_root,
-            [
-                "rev-parse",
-                "--verify",
-                "--end-of-options",
-                revision.as_str(),
-            ],
-            timeout,
-        )
-        .success()
+        ["refs/heads/", "refs/remotes/"].iter().any(|prefix| {
+            let revision = format!("{prefix}{branch}^{{commit}}");
+            run_git(
+                &repo_root,
+                [
+                    "rev-parse",
+                    "--verify",
+                    "--end-of-options",
+                    revision.as_str(),
+                ],
+                timeout,
+            )
+            .success()
+        })
     })
     .await
     .unwrap_or(false)
@@ -361,7 +377,9 @@ fn ensure_blocking(
     ) {
         GitRun::Output(output) if output.status.success() => {}
         GitRun::Output(_) => return Err(EnsureFailure::BranchMissing),
-        GitRun::Timeout | GitRun::Failed => return Err(EnsureFailure::Failed),
+        GitRun::Timeout | GitRun::TooLarge | GitRun::Failed => {
+            return Err(EnsureFailure::Failed);
+        }
     }
 
     if fs::symlink_metadata(worktree).is_ok() {
@@ -403,7 +421,9 @@ fn registered_worktree(
 ) -> Result<bool, EnsureFailure> {
     let output = match run_git(repo_root, ["worktree", "list", "--porcelain"], timeout) {
         GitRun::Output(output) if output.status.success() => output,
-        GitRun::Timeout | GitRun::Failed => return Err(EnsureFailure::Failed),
+        GitRun::Timeout | GitRun::TooLarge | GitRun::Failed => {
+            return Err(EnsureFailure::Failed);
+        }
         GitRun::Output(_) => return Err(EnsureFailure::Failed),
     };
     let text = String::from_utf8_lossy(&output.stdout);
@@ -491,6 +511,7 @@ where
         .args(arguments)
         .env("GIT_TERMINAL_PROMPT", "0")
         .env("GIT_SSH_COMMAND", "ssh -oBatchMode=yes")
+        .env("GIT_LITERAL_PATHSPECS", "1")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -500,19 +521,14 @@ where
         Ok(child) => child,
         Err(_) => return GitRun::Failed,
     };
-    let stdout = child.stdout.take().map(|mut pipe| {
-        thread::spawn(move || {
-            let mut bytes = Vec::new();
-            let _ = pipe.read_to_end(&mut bytes);
-            bytes
-        })
+    let overflow = Arc::new(AtomicBool::new(false));
+    let stdout = child.stdout.take().map(|pipe| {
+        let overflow = Arc::clone(&overflow);
+        thread::spawn(move || drain_output(pipe, &overflow))
     });
-    let stderr = child.stderr.take().map(|mut pipe| {
-        thread::spawn(move || {
-            let mut bytes = Vec::new();
-            let _ = pipe.read_to_end(&mut bytes);
-            bytes
-        })
+    let stderr = child.stderr.take().map(|pipe| {
+        let overflow = Arc::clone(&overflow);
+        thread::spawn(move || drain_output(pipe, &overflow))
     });
     let deadline = Instant::now() + timeout;
 
@@ -525,6 +541,9 @@ where
                 let stderr = stderr
                     .and_then(|handle| handle.join().ok())
                     .unwrap_or_default();
+                if overflow.load(Ordering::Relaxed) {
+                    return GitRun::TooLarge;
+                }
                 return GitRun::Output(Output {
                     status,
                     stdout,
@@ -532,6 +551,13 @@ where
                 });
             }
             Ok(None) => {
+                if overflow.load(Ordering::Relaxed) {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    let _ = stdout.and_then(|handle| handle.join().ok());
+                    let _ = stderr.and_then(|handle| handle.join().ok());
+                    return GitRun::TooLarge;
+                }
                 if Instant::now() >= deadline {
                     let _ = child.kill();
                     let _ = child.wait();
@@ -550,6 +576,25 @@ where
             }
         }
     }
+}
+
+fn drain_output<R: Read>(mut pipe: R, overflow: &AtomicBool) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let read = match pipe.read(&mut buffer) {
+            Ok(0) | Err(_) => break,
+            Ok(read) => read,
+        };
+        let room = MAX_GIT_OUTPUT_BYTES.saturating_sub(bytes.len());
+        if read > room {
+            bytes.extend_from_slice(&buffer[..room]);
+            overflow.store(true, Ordering::Relaxed);
+            break;
+        }
+        bytes.extend_from_slice(&buffer[..read]);
+    }
+    bytes
 }
 
 const MAX_CHANGED_FILES: usize = 500;
@@ -629,23 +674,37 @@ fn changes_blocking(folder: &Path, agent_repo_root: Option<&Path>, timeout: Dura
         return Changes::not_git();
     }
 
-    let Some(repo_root) = repo_root_blocking(folder, timeout) else {
+    let deadline = Instant::now() + timeout;
+    let budget = || deadline.saturating_duration_since(Instant::now());
+    let Some(repo_root) = repo_root_blocking(folder, budget()) else {
         return Changes::not_git();
     };
-    let prefix = match run_git(folder, ["rev-parse", "--show-prefix"], timeout) {
+    let prefix = match run_git(folder, ["rev-parse", "--show-prefix"], budget()) {
         GitRun::Output(output) if output.status.success() => {
             String::from_utf8_lossy(&output.stdout).trim().to_owned()
         }
         _ => String::new(),
     };
-    let base = choose_base(folder, agent_repo_root, timeout)
-        .or_else(|| resolve_commit(folder, "HEAD", timeout));
-    let base_rev = base.as_deref().unwrap_or(EMPTY_TREE);
+    let base = choose_base(folder, agent_repo_root, budget())
+        .or_else(|| resolve_commit(folder, "HEAD", budget()));
+    let base_rev = match base.as_deref() {
+        Some(base) => base.to_owned(),
+        None => empty_tree(folder, budget()),
+    };
 
     let diff_status = match run_git(
         folder,
-        ["diff", "--name-status", "-z", base_rev, "--", "."],
-        timeout,
+        [
+            "diff",
+            "--name-status",
+            "--no-ext-diff",
+            "--no-textconv",
+            "-z",
+            base_rev.as_str(),
+            "--",
+            ".",
+        ],
+        budget(),
     ) {
         GitRun::Output(output) if output.status.success() => output.stdout,
         GitRun::Output(output) => {
@@ -655,6 +714,15 @@ fn changes_blocking(folder: &Path, agent_repo_root: Option<&Path>, timeout: Dura
                 files: Vec::new(),
                 truncated: false,
                 error: Some(git_error("diff", &output)),
+            };
+        }
+        GitRun::TooLarge => {
+            return Changes {
+                git: true,
+                base,
+                files: Vec::new(),
+                truncated: true,
+                error: Some("The change list is too large.".to_owned()),
             };
         }
         GitRun::Timeout | GitRun::Failed => {
@@ -668,7 +736,8 @@ fn changes_blocking(folder: &Path, agent_repo_root: Option<&Path>, timeout: Dura
         }
     };
 
-    let mut entries = parse_name_status(&diff_status);
+    let mut skipped = false;
+    let mut entries = parse_name_status(&diff_status, &mut skipped);
     if let GitRun::Output(output) = run_git(
         folder,
         [
@@ -679,10 +748,10 @@ fn changes_blocking(folder: &Path, agent_repo_root: Option<&Path>, timeout: Dura
             "--",
             ".",
         ],
-        timeout,
+        budget(),
     ) && output.status.success()
     {
-        for entry in parse_status(&output.stdout) {
+        for entry in parse_status(&output.stdout, &mut skipped) {
             if entry.status != ChangeStatus::Untracked
                 || entries
                     .iter()
@@ -696,10 +765,21 @@ fn changes_blocking(folder: &Path, agent_repo_root: Option<&Path>, timeout: Dura
 
     let stats = match run_git(
         folder,
-        ["diff", "--numstat", "-z", base_rev, "--", "."],
-        timeout,
+        [
+            "diff",
+            "--numstat",
+            "--no-ext-diff",
+            "--no-textconv",
+            "-z",
+            base_rev.as_str(),
+            "--",
+            ".",
+        ],
+        budget(),
     ) {
-        GitRun::Output(output) if output.status.success() => parse_numstat(&output.stdout),
+        GitRun::Output(output) if output.status.success() => {
+            parse_numstat(&output.stdout, &mut skipped)
+        }
         _ => HashMap::new(),
     };
 
@@ -726,7 +806,7 @@ fn changes_blocking(folder: &Path, agent_repo_root: Option<&Path>, timeout: Dura
         .collect::<Vec<_>>();
 
     files.sort_by(|left, right| left.path.cmp(&right.path));
-    let mut truncated = false;
+    let mut truncated = skipped;
     if files.len() > MAX_CHANGED_FILES {
         files.truncate(MAX_CHANGED_FILES);
         truncated = true;
@@ -734,6 +814,10 @@ fn changes_blocking(folder: &Path, agent_repo_root: Option<&Path>, timeout: Dura
 
     let mut diff_budget = MAX_DIFF_BYTES;
     for file in &mut files {
+        if budget().is_zero() {
+            truncated = true;
+            break;
+        }
         let repo_path = if prefix.is_empty() {
             file.path.clone()
         } else {
@@ -755,11 +839,11 @@ fn changes_blocking(folder: &Path, agent_repo_root: Option<&Path>, timeout: Dura
                     "--no-color",
                     "--no-ext-diff",
                     "--no-textconv",
-                    base_rev,
+                    base_rev.as_str(),
                     "--",
                     repo_path.as_str(),
                 ],
-                timeout,
+                budget(),
             ) {
                 GitRun::Output(output) if output.status.success() => {
                     String::from_utf8_lossy(&output.stdout).into_owned()
@@ -772,6 +856,11 @@ fn changes_blocking(folder: &Path, agent_repo_root: Option<&Path>, timeout: Dura
                         truncated: false,
                         error: Some(git_error("diff", &output)),
                     };
+                }
+                GitRun::TooLarge => {
+                    file.diff_truncated = true;
+                    truncated = true;
+                    continue;
                 }
                 GitRun::Timeout | GitRun::Failed => {
                     return Changes {
@@ -892,8 +981,26 @@ fn commit_exists(dir: &Path, reference: &str, timeout: Duration) -> bool {
     .success()
 }
 
+fn empty_tree(folder: &Path, timeout: Duration) -> String {
+    match run_git(folder, ["hash-object", "-t", "tree", "--stdin"], timeout) {
+        GitRun::Output(output) if output.status.success() => {
+            let hash = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+            if hash.is_empty() {
+                EMPTY_TREE.to_owned()
+            } else {
+                hash
+            }
+        }
+        _ => EMPTY_TREE.to_owned(),
+    }
+}
+
 fn merge_base(dir: &Path, reference: &str, timeout: Duration) -> Option<String> {
-    match run_git(dir, ["merge-base", "HEAD", reference], timeout) {
+    match run_git(
+        dir,
+        ["merge-base", "--end-of-options", "HEAD", reference],
+        timeout,
+    ) {
         GitRun::Output(output) if output.status.success() => {
             let base = String::from_utf8_lossy(&output.stdout).trim().to_owned();
             (!base.is_empty()).then_some(base)
@@ -908,7 +1015,13 @@ struct StatusEntry {
     status: ChangeStatus,
 }
 
-fn parse_status(bytes: &[u8]) -> Vec<StatusEntry> {
+fn decoded(bytes: &[u8]) -> Option<String> {
+    String::from_utf8(bytes.to_vec())
+        .ok()
+        .filter(|text| !text.is_empty())
+}
+
+fn parse_status(bytes: &[u8], skipped: &mut bool) -> Vec<StatusEntry> {
     let mut entries = Vec::new();
     let mut tokens = bytes.split(|byte| *byte == 0);
 
@@ -918,20 +1031,21 @@ fn parse_status(bytes: &[u8]) -> Vec<StatusEntry> {
         }
         let index = record[0];
         let worktree = record[1];
-        let path = String::from_utf8_lossy(&record[3..]).into_owned();
-        if path.is_empty() {
-            continue;
-        }
         let status = classify(index, worktree);
-        let old_path = if status == ChangeStatus::Renamed
-            || (status == ChangeStatus::Added && (index == b'C' || worktree == b'C'))
-        {
-            tokens
-                .next()
-                .map(|old| String::from_utf8_lossy(old).into_owned())
+        let renamed = status == ChangeStatus::Renamed
+            || (status == ChangeStatus::Added && (index == b'C' || worktree == b'C'));
+        let old_path = if renamed {
+            tokens.next().and_then(decoded)
         } else {
             None
         };
+        let Some(path) = decoded(&record[3..]) else {
+            *skipped = true;
+            continue;
+        };
+        if renamed && old_path.is_none() {
+            *skipped = true;
+        }
         entries.push(StatusEntry {
             repo_path: path,
             old_path,
@@ -942,7 +1056,7 @@ fn parse_status(bytes: &[u8]) -> Vec<StatusEntry> {
     entries
 }
 
-fn parse_name_status(bytes: &[u8]) -> Vec<StatusEntry> {
+fn parse_name_status(bytes: &[u8], skipped: &mut bool) -> Vec<StatusEntry> {
     let mut entries = Vec::new();
     let mut tokens = bytes.split(|byte| *byte == 0);
 
@@ -950,34 +1064,39 @@ fn parse_name_status(bytes: &[u8]) -> Vec<StatusEntry> {
         let Some(letter) = status.first().copied() else {
             continue;
         };
-        let Some(path) = tokens.next() else {
+        let Some(first) = tokens.next() else {
             break;
         };
-        let path = String::from_utf8_lossy(path).into_owned();
-        if path.is_empty() {
-            continue;
-        }
 
         let (status, repo_path, old_path) = match letter {
             b'R' | b'C' => {
-                let Some(new) = tokens.next() else {
+                let Some(second) = tokens.next() else {
                     break;
                 };
-                let new = String::from_utf8_lossy(new).into_owned();
-                if new.is_empty() {
+                let (Some(old), Some(new)) = (decoded(first), decoded(second)) else {
+                    *skipped = true;
                     continue;
-                }
+                };
                 let kind = if letter == b'R' {
                     ChangeStatus::Renamed
                 } else {
                     ChangeStatus::Added
                 };
-                (kind, new, Some(path))
+                (kind, new, Some(old))
             }
-            b'A' => (ChangeStatus::Added, path, None),
-            b'D' => (ChangeStatus::Deleted, path, None),
-            b'U' => (ChangeStatus::Conflicted, path, None),
-            _ => (ChangeStatus::Modified, path, None),
+            _ => {
+                let Some(path) = decoded(first) else {
+                    *skipped = true;
+                    continue;
+                };
+                let status = match letter {
+                    b'A' => ChangeStatus::Added,
+                    b'D' => ChangeStatus::Deleted,
+                    b'U' => ChangeStatus::Conflicted,
+                    _ => ChangeStatus::Modified,
+                };
+                (status, path, None)
+            }
         };
 
         entries.push(StatusEntry {
@@ -1017,7 +1136,7 @@ struct NumStat {
     binary: bool,
 }
 
-fn parse_numstat(bytes: &[u8]) -> HashMap<String, NumStat> {
+fn parse_numstat(bytes: &[u8], skipped: &mut bool) -> HashMap<String, NumStat> {
     let mut stats = HashMap::new();
     let mut tokens = bytes.split(|byte| *byte == 0);
 
@@ -1025,24 +1144,40 @@ fn parse_numstat(bytes: &[u8]) -> HashMap<String, NumStat> {
         if record.is_empty() {
             continue;
         }
-        let text = String::from_utf8_lossy(record);
-        let mut parts = text.splitn(3, '\t');
-        let additions = parts.next().unwrap_or_default();
-        let deletions = parts.next().unwrap_or_default();
-        let path = parts.next().unwrap_or_default();
+        let mut fields = record.splitn(3, |byte| *byte == b'\t');
+        let additions = fields.next().unwrap_or_default();
+        let deletions = fields.next().unwrap_or_default();
+        let path = fields.next().unwrap_or_default();
         let stat = NumStat {
-            additions: additions.parse().unwrap_or(0),
-            deletions: deletions.parse().unwrap_or(0),
-            binary: additions == "-" && deletions == "-",
+            additions: std::str::from_utf8(additions)
+                .ok()
+                .and_then(|value| value.parse().ok())
+                .unwrap_or(0),
+            deletions: std::str::from_utf8(deletions)
+                .ok()
+                .and_then(|value| value.parse().ok())
+                .unwrap_or(0),
+            binary: additions == b"-" && deletions == b"-",
         };
 
         if path.is_empty() {
             let _old = tokens.next();
-            if let Some(new) = tokens.next() {
-                stats.insert(String::from_utf8_lossy(new).into_owned(), stat);
+            let Some(new) = tokens.next() else {
+                break;
+            };
+            match decoded(new) {
+                Some(new) => {
+                    stats.insert(new, stat);
+                }
+                None => *skipped = true,
             }
         } else {
-            stats.insert(path.to_owned(), stat);
+            match decoded(path) {
+                Some(path) => {
+                    stats.insert(path, stat);
+                }
+                None => *skipped = true,
+            }
         }
     }
 
@@ -1153,11 +1288,36 @@ fn take_diff(diff: &str, budget: &mut usize) -> (String, bool) {
 }
 
 fn git_error(command: &str, output: &Output) -> String {
-    let message = String::from_utf8_lossy(&output.stderr);
-    let message = message.trim();
-    if message.is_empty() {
-        format!("Git {command} failed.")
-    } else {
-        format!("Git {command} failed: {message}")
+    let detail = String::from_utf8_lossy(&output.stderr);
+    let detail = detail.trim();
+    if !detail.is_empty() {
+        tracing::warn!(command, %detail, "Git command failed");
+    }
+    format!("Git {command} failed.")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Cursor;
+
+    #[test]
+    fn output_drain_stops_at_the_cap() {
+        let overflow = AtomicBool::new(false);
+        let input = vec![b'a'; MAX_GIT_OUTPUT_BYTES + 1];
+        let output = drain_output(Cursor::new(input), &overflow);
+
+        assert_eq!(output.len(), MAX_GIT_OUTPUT_BYTES);
+        assert!(overflow.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn paths_that_are_not_utf8_are_skipped() {
+        let mut skipped = false;
+        let entries = parse_name_status(b"M\0ok.txt\0M\0\xff\xfe\0", &mut skipped);
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].repo_path, "ok.txt");
+        assert!(skipped);
     }
 }

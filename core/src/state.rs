@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::env;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -1131,8 +1132,14 @@ impl AppState {
     }
 
     pub fn save(&self) {
+        if let Err(error) = self.try_save() {
+            tracing::error!(%error, "could not save state");
+        }
+    }
+
+    pub fn try_save(&self) -> io::Result<()> {
         let Some(store) = &self.inner.store else {
-            return;
+            return Ok(());
         };
         let _guard = lock(&self.inner.persist_lock);
         let projects = lock(&self.inner.projects).clone();
@@ -1167,9 +1174,7 @@ impl AppState {
             Some(self.pending_session_requests()),
             sessions,
         );
-        if let Err(error) = store.save(&state) {
-            tracing::error!(%error, "could not save state");
-        }
+        store.save(&state)
     }
 
     pub fn close_session(&self, entry: &SessionEntry) -> Result<Session, CloseFailure> {

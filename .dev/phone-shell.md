@@ -140,7 +140,7 @@ One bidirectional stream carries one request and its response.
 4-byte big-endian JSON length | JSON header | optional binary body
 ```
 
-- The JSON header has a maximum of 1 MiB.
+- The JSON header has a maximum of 1 MiB. A reader checks the 4-byte length against the cap before it allocates a buffer, and refuses an oversized frame without reading its body.
 - Request: `{"v":1,"method":"sessions.input","params":{"sessionId":"...","data":"..."}}`
 - Success: `{"v":1,"ok":true,"result":{...}}`
 - Failure: `{"v":1,"ok":false,"error":{"code":"conflict","message":"..."}}`
@@ -514,7 +514,7 @@ interface Transport {
 | `branches.list` | `GET /api/branches` | For the new-session form. |
 | `providers.list` | `GET /api/providers` | For the new-session form. |
 | `accounts.list` | `GET /api/accounts` | Metadata and usage. Never keys. |
-| `sessions.create` | `POST /api/sessions` | The desktop validates the project, client and folder. |
+| `sessions.create` | `POST /api/sessions` | The desktop ignores a folder from a paired device and uses the project folder. |
 | `sessions.close` | `POST /api/sessions/{id}/close` | Same confirmation as the desktop. |
 | `sessions.input` | `POST /api/sessions/{id}/input` | Text and key bytes. No resize. |
 | `sessions.permission` | `POST /api/sessions/{id}/permission` | Allow or deny one request. |
@@ -555,7 +555,7 @@ Account keys never cross the link. The existing account response omits them.
 - The core does not overwrite an existing file. A repeated name gets a numeric suffix.
 - Mode is 0600. The size cap is 25 MiB per file.
 - The core writes the file, then sends one line to the session input with the absolute path. The file name is cleaned first, so the line cannot carry terminal control sequences.
-- The phone cannot read arbitrary files. `files.read` and `files.image` resolve a relative path under the session worktree or the session upload folder. Symlinks are not followed.
+- The phone cannot read arbitrary files. `files.read` and `files.image` resolve a relative path under the session worktree or the session upload folder. Symlinks are not followed. A session created from a paired device always uses its project folder, so the readable root is chosen by the desktop, never by the phone.
 
 ### 6.4 Demo-server forwarding
 
