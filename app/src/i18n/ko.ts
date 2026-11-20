@@ -741,6 +741,8 @@ export const ko = {
   'panel.browserTabLabel': '세션 브라우저 탭',
   'panel.browserNoTitle': '제목 없는 페이지',
   'panel.browserFailed': '브라우저 작업이 실패했습니다.',
+  'panel.browserLive': '브라우저 라이브 페이지',
+  'panel.browserLiveHint': '라이브 보기에서 클릭하거나 입력하여 페이지를 사용하세요.',
   'panel.close': '사이드 패널 닫기',
   'panel.unsavedChanges': '저장하지 않은 변경 사항',
   'panel.loading': '로드 중…',

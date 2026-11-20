@@ -748,6 +748,8 @@ export const pl = {
   'panel.browserTabLabel': 'Karty przeglądarki sesji',
   'panel.browserNoTitle': 'Strona bez tytułu',
   'panel.browserFailed': 'Akcja przeglądarki nie powiodła się.',
+  'panel.browserLive': 'Aktywna strona przeglądarki',
+  'panel.browserLiveHint': 'Kliknij lub wpisz tekst w widoku na żywo, aby korzystać ze strony.',
   'panel.close': 'Zamknij panel boczny',
   'panel.unsavedChanges': 'Niezapisane zmiany',
   'panel.loading': 'Ładowanie…',

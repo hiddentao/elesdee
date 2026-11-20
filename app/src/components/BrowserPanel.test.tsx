@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -7,11 +7,14 @@ import {
   browserForward,
   browserReload,
   browserScreenshotUrl,
+  clickBrowserAt,
   closeBrowserTab,
   createBrowserTab,
   getBrowserState,
   openBrowserUrl,
+  pressBrowserKey,
   setupBrowser,
+  typeBrowserText,
 } from '../api/client';
 import type { BrowserState, BrowserTab, Session } from '../api/types';
 import { makeSession } from '../test/fixtures';
@@ -23,11 +26,14 @@ vi.mock('../api/client', () => ({
   browserForward: vi.fn(),
   browserReload: vi.fn(),
   browserScreenshotUrl: vi.fn(),
+  clickBrowserAt: vi.fn(),
   closeBrowserTab: vi.fn(),
   createBrowserTab: vi.fn(),
   getBrowserState: vi.fn(),
   openBrowserUrl: vi.fn(),
+  pressBrowserKey: vi.fn(),
   setupBrowser: vi.fn(),
+  typeBrowserText: vi.fn(),
 }));
 
 function emptyState(sessionId = 's1'): BrowserState {
@@ -77,6 +83,7 @@ function stateWith(
 }
 
 beforeEach(() => {
+  vi.clearAllMocks();
   vi.mocked(getBrowserState).mockResolvedValue(emptyState());
   vi.mocked(browserScreenshotUrl).mockImplementation(
     (id, tabId, seq) =>
@@ -96,6 +103,9 @@ beforeEach(() => {
       phase: 'checking',
     },
   });
+  vi.mocked(clickBrowserAt).mockResolvedValue(stateWith([tab()]));
+  vi.mocked(typeBrowserText).mockResolvedValue(stateWith([tab()]));
+  vi.mocked(pressBrowserKey).mockResolvedValue(stateWith([tab()]));
 });
 
 describe('BrowserPanel', () => {
@@ -262,5 +272,58 @@ describe('BrowserPanel', () => {
     expect(
       await screen.findByText('Checking for an installed browser…'),
     ).toBeInTheDocument();
+  });
+
+  it('clicks the live view at the matching point of the page', async () => {
+    vi.mocked(getBrowserState).mockResolvedValue(stateWith([tab()]));
+    render(<BrowserPanel session={makeSession()} />);
+
+    const live = await screen.findByRole('application', {
+      name: 'Live browser page',
+    });
+    live.getBoundingClientRect = () => ({
+      left: 100,
+      top: 50,
+      right: 500,
+      bottom: 350,
+      width: 400,
+      height: 300,
+      x: 100,
+      y: 50,
+      toJSON: () => ({}),
+    });
+
+    fireEvent.click(live, { clientX: 300, clientY: 125 });
+    await waitFor(() =>
+      expect(clickBrowserAt).toHaveBeenCalledWith('s1', 0.5, 0.25),
+    );
+  });
+
+  it('types text and presses named keys in the live view', async () => {
+    vi.mocked(getBrowserState).mockResolvedValue(stateWith([tab()]));
+    render(<BrowserPanel session={makeSession()} />);
+
+    const live = await screen.findByRole('application', {
+      name: 'Live browser page',
+    });
+
+    fireEvent.keyDown(live, { key: 'a' });
+    fireEvent.keyDown(live, { key: 'b' });
+    await waitFor(() =>
+      expect(typeBrowserText).toHaveBeenCalledWith('s1', 'ab'),
+    );
+
+    fireEvent.keyDown(live, { key: 'Enter' });
+    await waitFor(() =>
+      expect(pressBrowserKey).toHaveBeenCalledWith('s1', 'Enter', 0),
+    );
+
+    fireEvent.keyDown(live, { key: 'Tab', shiftKey: true });
+    await waitFor(() =>
+      expect(pressBrowserKey).toHaveBeenCalledWith('s1', 'Tab', 8),
+    );
+
+    fireEvent.keyDown(live, { key: 'a', ctrlKey: true });
+    expect(typeBrowserText).toHaveBeenCalledTimes(1);
   });
 });

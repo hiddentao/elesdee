@@ -1,15 +1,25 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+  type MouseEvent,
+} from 'react';
 import {
   activateBrowserTab,
   browserBack,
   browserForward,
   browserReload,
   browserScreenshotUrl,
+  clickBrowserAt,
   closeBrowserTab,
   createBrowserTab,
   getBrowserState,
   openBrowserUrl,
+  pressBrowserKey,
   setupBrowser,
+  typeBrowserText,
 } from '../api/client';
 import type { BrowserState, BrowserTab, Session } from '../api/types';
 import { useLanguage } from '../i18n/LanguageProvider';
@@ -18,6 +28,23 @@ import { CloseIcon, GlobeIcon, PlusIcon } from './icons';
 interface BrowserPanelProps {
   session: Session;
 }
+
+/// The named keys that the live view sends to the page.
+const LIVE_KEYS = new Set([
+  'Enter',
+  'Tab',
+  'Escape',
+  'Backspace',
+  'Delete',
+  'ArrowLeft',
+  'ArrowUp',
+  'ArrowRight',
+  'ArrowDown',
+  'Home',
+  'End',
+  'PageUp',
+  'PageDown',
+]);
 
 export function BrowserPanel({ session }: BrowserPanelProps) {
   const { t } = useLanguage();
@@ -105,6 +132,85 @@ export function BrowserPanel({ session }: BrowserPanelProps) {
   async function newTab() {
     await run(() => createBrowserTab(session.id), t('panel.browserLoading'));
     addressRef.current?.focus();
+  }
+
+  // Live input is serialized so a click, a key and text reach the page in the
+  // order they happened. Text collects for a moment and travels as one call.
+  const inputChain = useRef<Promise<void>>(Promise.resolve());
+  const textBuffer = useRef('');
+  const flushScheduled = useRef(false);
+
+  async function sendInput(action: () => Promise<BrowserState>) {
+    try {
+      const next = await action();
+      setState(next);
+      setError(null);
+    } catch (failure) {
+      setError(
+        failure instanceof Error && failure.message
+          ? failure.message
+          : t('panel.browserFailed'),
+      );
+    }
+  }
+
+  function enqueue(task: () => Promise<void>) {
+    inputChain.current = inputChain.current.then(task).catch(() => undefined);
+  }
+
+  function flushText() {
+    const text = textBuffer.current;
+    textBuffer.current = '';
+    return text ? sendInput(() => typeBrowserText(session.id, text)) : Promise.resolve();
+  }
+
+  function queueText(text: string) {
+    textBuffer.current += text;
+    if (flushScheduled.current) {
+      return;
+    }
+    flushScheduled.current = true;
+    enqueue(async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, 40));
+      flushScheduled.current = false;
+      await flushText();
+    });
+  }
+
+  function pressKey(key: string, modifiers: number) {
+    enqueue(async () => {
+      await flushText();
+      await sendInput(() => pressBrowserKey(session.id, key, modifiers));
+    });
+  }
+
+  function clickLive(event: MouseEvent<HTMLDivElement>) {
+    const rect = event.currentTarget.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) {
+      return;
+    }
+    const x = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
+    const y = Math.min(1, Math.max(0, (event.clientY - rect.top) / rect.height));
+    enqueue(async () => {
+      await flushText();
+      await sendInput(() => clickBrowserAt(session.id, x, y));
+    });
+  }
+
+  function keyDownLive(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.ctrlKey || event.metaKey || event.altKey) {
+      return;
+    }
+    const { key } = event;
+    if (key.length === 1) {
+      event.preventDefault();
+      queueText(key);
+      return;
+    }
+    if (LIVE_KEYS.has(key)) {
+      event.preventDefault();
+      pressKey(key, event.shiftKey ? 8 : 0);
+    }
   }
 
   const loading = busy !== null || activeTab?.loading === true;
@@ -318,18 +424,35 @@ export function BrowserPanel({ session }: BrowserPanelProps) {
 
       <div className="browser-view">
         {activeTab && state && state.screenshotSeq > 0 ? (
-          <img
-            key={`${activeTab.id}:${state.screenshotSeq}`}
-            className="browser-image"
-            src={browserScreenshotUrl(
-              session.id,
-              activeTab.id,
-              state.screenshotSeq,
-            )}
-            alt={t('panel.browserView', {
-              title: activeTab.title || t('panel.browserNoTitle'),
-            })}
-          />
+          <>
+            <div className="browser-stage">
+              <img
+                key={`${activeTab.id}:${state.screenshotSeq}`}
+                className="browser-image"
+                src={browserScreenshotUrl(
+                  session.id,
+                  activeTab.id,
+                  state.screenshotSeq,
+                )}
+                alt={t('panel.browserView', {
+                  title: activeTab.title || t('panel.browserNoTitle'),
+                })}
+              />
+              <div
+                className="browser-live"
+                role="application"
+                tabIndex={0}
+                aria-label={t('panel.browserLive')}
+                aria-describedby="browser-live-hint"
+                onMouseDown={(event) => event.currentTarget.focus()}
+                onClick={clickLive}
+                onKeyDown={keyDownLive}
+              />
+            </div>
+            <p className="browser-live-hint" id="browser-live-hint">
+              {t('panel.browserLiveHint')}
+            </p>
+          </>
         ) : !activeTab ? (
           <p className="dock-note">{t('panel.browserEmpty')}</p>
         ) : null}

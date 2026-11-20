@@ -7,6 +7,7 @@
 
 mod chromium;
 pub(crate) mod install;
+mod logs;
 mod stub;
 
 use std::collections::HashMap;
@@ -24,6 +25,9 @@ pub const MAX_TEXT_CHARS: usize = 20_000;
 pub const MAX_TABS: usize = 12;
 pub const MAX_SCREENSHOT_BYTES: usize = 8 * 1024 * 1024;
 pub const MAX_WAIT: Duration = Duration::from_secs(15);
+pub const MAX_INPUT_TEXT_CHARS: usize = 2000;
+/// The most console or network entries one tool call returns.
+pub const MAX_LOG_LIMIT: usize = 200;
 
 /// One page in a session's browser.
 #[derive(Clone, Debug, Serialize)]
@@ -73,6 +77,7 @@ impl BrowserState {
 pub enum BrowserError {
     Unavailable(String),
     InvalidUrl(String),
+    InvalidInput(String),
     NoPage,
     TabLimit,
     Engine(String),
@@ -83,6 +88,7 @@ impl BrowserError {
         match self {
             Self::Unavailable(reason) => format!("The browser is not available. {reason}"),
             Self::InvalidUrl(reason) => reason.clone(),
+            Self::InvalidInput(reason) => reason.clone(),
             Self::NoPage => "No page is open in this session's browser.".to_owned(),
             Self::TabLimit => format!("A session browser can have at most {MAX_TABS} tabs."),
             Self::Engine(reason) => format!("The browser action failed. {reason}"),
@@ -119,6 +125,8 @@ struct Meta {
     screenshot_seq: u64,
     screenshots: HashMap<String, Vec<u8>>,
     runtime: Option<Runtime>,
+    logs: Arc<Mutex<logs::BrowserLogs>>,
+    logs_hooked: bool,
 }
 
 impl Meta {
@@ -131,6 +139,8 @@ impl Meta {
             screenshot_seq: 0,
             screenshots: HashMap::new(),
             runtime: None,
+            logs: Arc::new(Mutex::new(logs::BrowserLogs::default())),
+            logs_hooked: false,
         }
     }
 
@@ -304,6 +314,11 @@ impl BrowserManager {
         meta.active = None;
         meta.screenshots.clear();
         meta.error = None;
+        meta.logs_hooked = false;
+        meta.logs
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .clear();
     }
 
     /// Stops every browser. Used when the core shuts down.
@@ -504,6 +519,96 @@ impl BrowserManager {
             .await
     }
 
+    /// Clicks the active page at a point given as a fraction of the viewport.
+    /// This is the same input path that the agent's click tool uses, and it
+    /// stays inside this session's browser.
+    pub async fn click_at(
+        &self,
+        session_id: &str,
+        x: f64,
+        y: f64,
+    ) -> Result<BrowserState, BrowserError> {
+        let (x, y) = checked_point(x, y)?;
+        let context = self.context(session_id);
+        let _ops = context.ops.lock().await;
+        self.ensure_runtime(&context).await?;
+        let tab_id = active_tab(&context).ok_or(BrowserError::NoPage)?;
+        let (engine, page) = action_target(&context, &tab_id)?;
+        let result = engine.click_at(page.as_ref(), x, y).await;
+        self.finish_action(&context, &engine, page.as_ref(), &tab_id, result)
+            .await
+    }
+
+    /// Inserts text into the focused element of the active page.
+    pub async fn type_live(
+        &self,
+        session_id: &str,
+        text: &str,
+    ) -> Result<BrowserState, BrowserError> {
+        if text.chars().count() > MAX_INPUT_TEXT_CHARS {
+            return Err(BrowserError::InvalidInput(format!(
+                "The text is longer than {MAX_INPUT_TEXT_CHARS} characters."
+            )));
+        }
+        let context = self.context(session_id);
+        let _ops = context.ops.lock().await;
+        self.ensure_runtime(&context).await?;
+        let tab_id = active_tab(&context).ok_or(BrowserError::NoPage)?;
+        if text.is_empty() {
+            return Ok(self.state(session_id));
+        }
+        let (engine, page) = action_target(&context, &tab_id)?;
+        let result = engine.type_live(page.as_ref(), text).await;
+        self.finish_action(&context, &engine, page.as_ref(), &tab_id, result)
+            .await
+    }
+
+    /// Presses a named key in the active page.
+    pub async fn press_key(
+        &self,
+        session_id: &str,
+        key: &str,
+        modifiers: u8,
+    ) -> Result<BrowserState, BrowserError> {
+        let key = checked_key(key)?;
+        let modifiers = modifiers & 0b1111;
+        let context = self.context(session_id);
+        let _ops = context.ops.lock().await;
+        self.ensure_runtime(&context).await?;
+        let tab_id = active_tab(&context).ok_or(BrowserError::NoPage)?;
+        let (engine, page) = action_target(&context, &tab_id)?;
+        let result = engine.press_key(page.as_ref(), key, modifiers).await;
+        self.finish_action(&context, &engine, page.as_ref(), &tab_id, result)
+            .await
+    }
+
+    /// Returns the recent console messages of the session's browser.
+    pub fn console_log(&self, session_id: &str, limit: usize) -> Result<String, BrowserError> {
+        let logs = self.logs(session_id)?;
+        Ok(logs
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .console_text(limit.min(MAX_LOG_LIMIT)))
+    }
+
+    /// Returns the recent network requests of the session's browser.
+    pub fn network_log(&self, session_id: &str, limit: usize) -> Result<String, BrowserError> {
+        let logs = self.logs(session_id)?;
+        Ok(logs
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .network_text(limit.min(MAX_LOG_LIMIT)))
+    }
+
+    fn logs(&self, session_id: &str) -> Result<Arc<Mutex<logs::BrowserLogs>>, BrowserError> {
+        let context = self.existing(session_id).ok_or(BrowserError::NoPage)?;
+        let meta = lock_meta(&context);
+        if meta.runtime.is_none() {
+            return Err(BrowserError::NoPage);
+        }
+        Ok(Arc::clone(&meta.logs))
+    }
+
     /// Waits for a selector, a text, or the timeout.
     pub async fn wait(
         &self,
@@ -584,6 +689,26 @@ impl BrowserManager {
             (engine, tab_id)
         };
         let page = engine.new_page().await.map_err(BrowserError::Engine)?;
+        engine.enable_logs(Some(&page)).await;
+        let hook = {
+            let mut meta = lock_meta(context);
+            if meta.logs_hooked {
+                false
+            } else {
+                meta.logs_hooked = true;
+                true
+            }
+        };
+        if hook {
+            let logs = {
+                let meta = lock_meta(context);
+                Arc::clone(&meta.logs)
+            };
+            if let Err(error) = engine.subscribe_logs(Some(&page), logs).await {
+                lock_meta(context).logs_hooked = false;
+                tracing::warn!(%error, "the browser log listeners did not start");
+            }
+        }
         let mut meta = lock_meta(context);
         if let Some(runtime) = meta.runtime.as_mut() {
             runtime.pages.insert(tab_id.clone(), page);
@@ -771,6 +896,40 @@ fn checked_url(value: &str) -> Result<String, BrowserError> {
     Ok(parsed.to_string())
 }
 
+fn checked_point(x: f64, y: f64) -> Result<(f64, f64), BrowserError> {
+    if !x.is_finite() || !y.is_finite() || !(0.0..=1.0).contains(&x) || !(0.0..=1.0).contains(&y) {
+        return Err(BrowserError::InvalidInput(
+            "The live view point must be a fraction of the page from 0 to 1.".to_owned(),
+        ));
+    }
+    Ok((x, y))
+}
+
+fn checked_key(value: &str) -> Result<&str, BrowserError> {
+    const KEYS: &[&str] = &[
+        "Enter",
+        "Tab",
+        "Escape",
+        "Backspace",
+        "Delete",
+        "ArrowLeft",
+        "ArrowUp",
+        "ArrowRight",
+        "ArrowDown",
+        "Home",
+        "End",
+        "PageUp",
+        "PageDown",
+        " ",
+    ];
+    if KEYS.contains(&value) {
+        return Ok(value);
+    }
+    Err(BrowserError::InvalidInput(
+        "The live view cannot press that key.".to_owned(),
+    ))
+}
+
 fn checked_selector(value: &str) -> Result<String, BrowserError> {
     let value = value.trim();
     if value.is_empty() {
@@ -868,6 +1027,66 @@ impl Engine {
             }
             (Engine::Stub(stub), Some(PageRef::Stub(page))) => {
                 stub.type_text(page, selector, text).await
+            }
+            _ => Err("No page is open.".to_owned()),
+        }
+    }
+
+    async fn click_at(&self, page: Option<&PageRef>, x: f64, y: f64) -> Result<PageInfo, String> {
+        match (self, page) {
+            (Engine::Chromium(chromium), Some(PageRef::Chromium(page))) => {
+                chromium.click_at(page, x, y).await
+            }
+            (Engine::Stub(stub), Some(PageRef::Stub(page))) => stub.click_at(page, x, y).await,
+            _ => Err("No page is open.".to_owned()),
+        }
+    }
+
+    async fn type_live(&self, page: Option<&PageRef>, text: &str) -> Result<PageInfo, String> {
+        match (self, page) {
+            (Engine::Chromium(chromium), Some(PageRef::Chromium(page))) => {
+                chromium.type_live(page, text).await
+            }
+            (Engine::Stub(stub), Some(PageRef::Stub(page))) => stub.type_live(page, text).await,
+            _ => Err("No page is open.".to_owned()),
+        }
+    }
+
+    async fn press_key(
+        &self,
+        page: Option<&PageRef>,
+        key: &str,
+        modifiers: u8,
+    ) -> Result<PageInfo, String> {
+        match (self, page) {
+            (Engine::Chromium(chromium), Some(PageRef::Chromium(page))) => {
+                chromium.press_key(page, key, modifiers).await
+            }
+            (Engine::Stub(stub), Some(PageRef::Stub(page))) => stub.press_key(page, key).await,
+            _ => Err("No page is open.".to_owned()),
+        }
+    }
+
+    async fn enable_logs(&self, page: Option<&PageRef>) {
+        if let (Engine::Chromium(chromium), Some(PageRef::Chromium(page))) = (self, page)
+            && let Err(error) = chromium.enable_logs(page).await
+        {
+            tracing::warn!(%error, "the browser log domains did not start");
+        }
+    }
+
+    async fn subscribe_logs(
+        &self,
+        page: Option<&PageRef>,
+        logs: Arc<Mutex<logs::BrowserLogs>>,
+    ) -> Result<(), String> {
+        match (self, page) {
+            (Engine::Chromium(chromium), Some(PageRef::Chromium(page))) => {
+                chromium.subscribe_logs(page, logs).await
+            }
+            (Engine::Stub(stub), Some(PageRef::Stub(_))) => {
+                stub.attach_logs(logs);
+                Ok(())
             }
             _ => Err("No page is open.".to_owned()),
         }

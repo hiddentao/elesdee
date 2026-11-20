@@ -744,6 +744,8 @@ export const es = {
   'panel.browserTabLabel': 'Pestañas del navegador de la sesión',
   'panel.browserNoTitle': 'Página sin título',
   'panel.browserFailed': 'La acción del navegador ha fallado.',
+  'panel.browserLive': 'Página del navegador en vivo',
+  'panel.browserLiveHint': 'Haz clic o escribe en la vista en vivo para usar la página.',
   'panel.close': 'Cerrar el panel lateral',
   'panel.unsavedChanges': 'Cambios sin guardar',
   'panel.loading': 'Cargando…',

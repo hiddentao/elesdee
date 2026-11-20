@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use super::PageInfo;
+use super::logs::BrowserLogs;
 
 /// A small stand-in for the browser in core tests.
 ///
@@ -18,6 +19,8 @@ pub struct Stub {
 struct Inner {
     pages: HashMap<String, StubPage>,
     next: u64,
+    next_request: u64,
+    logs: Option<Arc<Mutex<BrowserLogs>>>,
 }
 
 struct StubPage {
@@ -34,12 +37,20 @@ impl Stub {
             inner: Arc::new(Mutex::new(Inner {
                 pages: HashMap::new(),
                 next: 1,
+                next_request: 1,
+                logs: None,
             })),
             client: reqwest::Client::builder()
                 .timeout(Duration::from_secs(10))
                 .build()
                 .unwrap_or_default(),
         }
+    }
+
+    /// Points the stand-in at the session's log buffer. Tests read the buffer
+    /// through the console and network tools, as they do for Chromium.
+    pub fn attach_logs(&self, logs: Arc<Mutex<BrowserLogs>>) {
+        lock(self).logs = Some(logs);
     }
 
     pub fn new_page(&self) -> String {
@@ -60,19 +71,73 @@ impl Stub {
     }
 
     pub async fn goto(&self, page: &str, url: &str) -> Result<PageInfo, String> {
-        let (title, text) = self.fetch(url).await?;
-        let mut inner = lock(self);
-        let page = inner
-            .pages
-            .get_mut(page)
-            .ok_or_else(|| "No page is open.".to_owned())?;
-        page.history.truncate(page.index + 1);
-        page.history.push(url.to_owned());
-        page.index = page.history.len() - 1;
-        page.url = url.to_owned();
-        page.title = title;
-        page.text = text;
-        Ok(page_info(page))
+        let (title, text) = match self.fetch(url).await {
+            Ok(result) => result,
+            Err(error) => {
+                self.record_failed_request(url, &error);
+                return Err(error);
+            }
+        };
+        let info = {
+            let mut inner = lock(self);
+            let page = inner
+                .pages
+                .get_mut(page)
+                .ok_or_else(|| "No page is open.".to_owned())?;
+            page.history.truncate(page.index + 1);
+            page.history.push(url.to_owned());
+            page.index = page.history.len() - 1;
+            page.url = url.to_owned();
+            page.title = title.clone();
+            page.text = text;
+            page_info(page)
+        };
+        self.record_request(url);
+        self.record_console("log", &format!("Loaded {title}"));
+        Ok(info)
+    }
+
+    /// Clicks at a point given as a fraction of the viewport.
+    pub async fn click_at(&self, page: &str, x: f64, y: f64) -> Result<PageInfo, String> {
+        let info = {
+            let inner = lock(self);
+            inner
+                .pages
+                .get(page)
+                .map(page_info)
+                .ok_or_else(|| "No page is open.".to_owned())?
+        };
+        self.record_console("log", &format!("Live click at {x:.3}, {y:.3}"));
+        Ok(info)
+    }
+
+    /// Inserts text at the focused element, as the live view does.
+    pub async fn type_live(&self, page: &str, text: &str) -> Result<PageInfo, String> {
+        let info = {
+            let mut inner = lock(self);
+            let page = inner
+                .pages
+                .get_mut(page)
+                .ok_or_else(|| "No page is open.".to_owned())?;
+            page.text.push_str(text);
+            page_info(page)
+        };
+        self.record_console("log", "Live text was typed");
+        Ok(info)
+    }
+
+    /// Presses a named key from the live view.
+    pub async fn press_key(&self, page: &str, key: &str) -> Result<PageInfo, String> {
+        let info = {
+            let inner = lock(self);
+            inner
+                .pages
+                .get(page)
+                .map(page_info)
+                .ok_or_else(|| "No page is open.".to_owned())?
+        };
+        self.record_console("log", &format!("Live key {key}"));
+        Ok(info)
     }
 
     pub async fn back(&self, page: &str) -> Result<PageInfo, String> {
@@ -123,28 +188,71 @@ impl Stub {
             .unwrap_or_default()
     }
 
-    pub async fn click(&self, page: &str, _selector: &str) -> Result<PageInfo, String> {
-        let inner = lock(self);
-        inner
-            .pages
-            .get(page)
-            .map(page_info)
-            .ok_or_else(|| "No page is open.".to_owned())
+    pub async fn click(&self, page: &str, selector: &str) -> Result<PageInfo, String> {
+        let info = {
+            let inner = lock(self);
+            inner
+                .pages
+                .get(page)
+                .map(page_info)
+                .ok_or_else(|| "No page is open.".to_owned())?
+        };
+        self.record_console("log", &format!("Clicked {selector}"));
+        Ok(info)
     }
 
     pub async fn type_text(
         &self,
         page: &str,
-        _selector: &str,
+        selector: &str,
         text: &str,
     ) -> Result<PageInfo, String> {
-        let mut inner = lock(self);
-        let page = inner
-            .pages
-            .get_mut(page)
-            .ok_or_else(|| "No page is open.".to_owned())?;
-        page.text.push_str(text);
-        Ok(page_info(page))
+        let info = {
+            let mut inner = lock(self);
+            let page = inner
+                .pages
+                .get_mut(page)
+                .ok_or_else(|| "No page is open.".to_owned())?;
+            page.text.push_str(text);
+            page_info(page)
+        };
+        self.record_console("log", &format!("Typed into {selector}"));
+        Ok(info)
+    }
+
+    fn record_request(&self, url: &str) {
+        let (request_id, logs) = {
+            let mut inner = lock(self);
+            let request_id = format!("stub-request-{}", inner.next_request);
+            inner.next_request += 1;
+            (request_id, inner.logs.clone())
+        };
+        if let Some(logs) = logs {
+            let mut buffer = lock_logs(&logs);
+            buffer.push_network(&request_id, "GET", url, "Document");
+            buffer.finish_network(&request_id, 200);
+        }
+    }
+
+    fn record_failed_request(&self, url: &str, reason: &str) {
+        let (request_id, logs) = {
+            let mut inner = lock(self);
+            let request_id = format!("stub-request-{}", inner.next_request);
+            inner.next_request += 1;
+            (request_id, inner.logs.clone())
+        };
+        if let Some(logs) = logs {
+            let mut buffer = lock_logs(&logs);
+            buffer.push_network(&request_id, "GET", url, "Document");
+            buffer.fail_network(&request_id, reason);
+        }
+    }
+
+    fn record_console(&self, level: &str, text: &str) {
+        let logs = lock(self).logs.clone();
+        if let Some(logs) = logs {
+            lock_logs(&logs).push_console(level, text);
+        }
     }
 
     pub async fn wait(
@@ -197,6 +305,10 @@ fn lock(stub: &Stub) -> std::sync::MutexGuard<'_, Inner> {
     stub.inner
         .lock()
         .unwrap_or_else(|poison| poison.into_inner())
+}
+
+fn lock_logs(logs: &Arc<Mutex<BrowserLogs>>) -> std::sync::MutexGuard<'_, BrowserLogs> {
+    logs.lock().unwrap_or_else(|poison| poison.into_inner())
 }
 
 fn page_info(page: &StubPage) -> PageInfo {

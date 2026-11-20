@@ -507,6 +507,25 @@ struct BrowserScreenshotQuery {
     tab: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+struct BrowserClickRequest {
+    x: f64,
+    y: f64,
+}
+
+#[derive(Debug, Deserialize)]
+struct BrowserTypeRequest {
+    text: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BrowserKeyRequest {
+    key: String,
+    #[serde(default)]
+    modifiers: u8,
+}
+
 pub fn router(state: AppState) -> Router {
     let streaming = Router::new()
         .route("/api/sessions/{id}/output", get(session_output))
@@ -628,6 +647,18 @@ pub fn router(state: AppState) -> Router {
         .route("/api/sessions/{id}/browser/back", post(browser_back))
         .route("/api/sessions/{id}/browser/forward", post(browser_forward))
         .route("/api/sessions/{id}/browser/reload", post(browser_reload))
+        .route(
+            "/api/sessions/{id}/browser/input/click",
+            post(browser_input_click),
+        )
+        .route(
+            "/api/sessions/{id}/browser/input/type",
+            post(browser_input_type),
+        )
+        .route(
+            "/api/sessions/{id}/browser/input/key",
+            post(browser_input_key),
+        )
         .route("/api/sessions/{id}/browser/tabs", post(browser_new_tab))
         .route(
             "/api/sessions/{id}/browser/tabs/{tab}/activate",
@@ -3919,7 +3950,9 @@ fn active_session(state: &AppState, id: &str) -> Result<Arc<SessionEntry>, ApiEr
 fn browser_error(error: crate::browser::BrowserError) -> ApiError {
     use crate::browser::BrowserError;
     match error {
-        BrowserError::InvalidUrl(_) => ApiError::bad_request(error.message()),
+        BrowserError::InvalidUrl(_) | BrowserError::InvalidInput(_) => {
+            ApiError::bad_request(error.message())
+        }
         BrowserError::NoPage => ApiError::conflict(error.message()),
         BrowserError::TabLimit => ApiError::conflict(error.message()),
         BrowserError::Unavailable(_) => ApiError::service_unavailable(error.message()),
@@ -4005,6 +4038,51 @@ async fn browser_reload(
 ) -> Result<Json<crate::browser::BrowserState>, ApiError> {
     active_session(&state, &id)?;
     let state_value = state.browser().reload(&id).await.map_err(browser_error)?;
+    Ok(Json(state_value))
+}
+
+async fn browser_input_click(
+    State(state): State<AppState>,
+    UrlPath(id): UrlPath<String>,
+    body: Result<Json<BrowserClickRequest>, JsonRejection>,
+) -> Result<Json<crate::browser::BrowserState>, ApiError> {
+    let Json(request) = body.map_err(invalid_json)?;
+    active_session(&state, &id)?;
+    let state_value = state
+        .browser()
+        .click_at(&id, request.x, request.y)
+        .await
+        .map_err(browser_error)?;
+    Ok(Json(state_value))
+}
+
+async fn browser_input_type(
+    State(state): State<AppState>,
+    UrlPath(id): UrlPath<String>,
+    body: Result<Json<BrowserTypeRequest>, JsonRejection>,
+) -> Result<Json<crate::browser::BrowserState>, ApiError> {
+    let Json(request) = body.map_err(invalid_json)?;
+    active_session(&state, &id)?;
+    let state_value = state
+        .browser()
+        .type_live(&id, &request.text)
+        .await
+        .map_err(browser_error)?;
+    Ok(Json(state_value))
+}
+
+async fn browser_input_key(
+    State(state): State<AppState>,
+    UrlPath(id): UrlPath<String>,
+    body: Result<Json<BrowserKeyRequest>, JsonRejection>,
+) -> Result<Json<crate::browser::BrowserState>, ApiError> {
+    let Json(request) = body.map_err(invalid_json)?;
+    active_session(&state, &id)?;
+    let state_value = state
+        .browser()
+        .press_key(&id, &request.key, request.modifiers)
+        .await
+        .map_err(browser_error)?;
     Ok(Json(state_value))
 }
 

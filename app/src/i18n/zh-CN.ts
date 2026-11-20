@@ -683,6 +683,8 @@ export const zhCN = {
   'panel.browserTabLabel': '会话浏览器标签页',
   'panel.browserNoTitle': '无标题页面',
   'panel.browserFailed': '浏览器操作失败。',
+  'panel.browserLive': '浏览器实时页面',
+  'panel.browserLiveHint': '在实时视图中点击或输入以使用页面。',
   'panel.close': '关闭侧面板',
   'panel.unsavedChanges': '未保存的更改',
   'panel.loading': '正在加载…',

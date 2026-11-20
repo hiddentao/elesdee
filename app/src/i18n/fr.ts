@@ -748,6 +748,8 @@ export const fr = {
   'panel.browserTabLabel': 'Onglets du navigateur de la session',
   'panel.browserNoTitle': 'Page sans titre',
   'panel.browserFailed': 'L’action du navigateur a échoué.',
+  'panel.browserLive': 'Page du navigateur en direct',
+  'panel.browserLiveHint': 'Cliquez ou saisissez dans la vue en direct pour utiliser la page.',
   'panel.close': 'Fermer le panneau latéral',
   'panel.unsavedChanges': 'Modifications non enregistrées',
   'panel.loading': 'Chargement…',
