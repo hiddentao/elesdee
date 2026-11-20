@@ -5,6 +5,8 @@ import {
   createAgentSession,
   createGitRepo,
   createProject,
+  createProjectFolder,
+  createTerminalSession,
   openApp,
   uniqueName,
 } from './helpers';
@@ -74,12 +76,17 @@ function mcpCall(
 async function recorded(
   page: Page,
   kind: DesktopNotificationCall['kind'],
+  body?: string,
 ): Promise<DesktopNotificationCall | null> {
   return page.evaluate(
-    (wanted) =>
+    ({ wanted, wantedBody }) =>
       (window as unknown as { __notifyCalls?: DesktopNotificationCall[] })
-        .__notifyCalls?.find((call) => call.kind === wanted) ?? null,
-    kind,
+        .__notifyCalls?.find(
+          (call) =>
+            call.kind === wanted &&
+            (wantedBody === undefined || call.body === wantedBody),
+        ) ?? null,
+    { wanted: kind, wantedBody: body },
   );
 }
 
@@ -95,25 +102,70 @@ test('sends a desktop notification for a message, a done report and a question',
     name: uniqueName('Notify session'),
     folder: repo,
   });
+  const otherName = uniqueName('Other session');
+  const other = await createTerminalSession(request, {
+    projectId: project.id,
+    name: otherName,
+    folder: createProjectFolder(`${label}-other`),
+  });
 
   try {
     await stubNotificationBridge(page);
     await openApp(page);
+    await expect(
+      page.getByRole('button', { name: new RegExp(session.name) }),
+    ).toBeVisible();
     await page.getByRole('button', { name: new RegExp(session.name) }).click();
+    await expect(
+      page.getByRole('heading', { name: session.name }),
+    ).toBeVisible();
 
     const message = await mcpCall(request, session.id, 'notify_me', {
       message: 'The build finished.',
     });
     expect(message.ok()).toBeTruthy();
     await expect(page.getByText(/The build finished\./)).toBeVisible();
-    await expect.poll(() => recorded(page, 'message')).not.toBeNull();
-    const messageCall = await recorded(page, 'message');
+    await expect
+      .poll(() => recorded(page, 'message', 'The build finished.'))
+      .not.toBeNull();
+    const messageCall = await recorded(
+      page,
+      'message',
+      'The build finished.',
+    );
     expect(messageCall).toMatchObject({
       sessionId: session.id,
       kind: 'message',
       body: 'The build finished.',
+      sessionVisible: true,
     });
     expect(messageCall?.title).toContain(session.name);
+
+    await page.getByRole('button', { name: new RegExp(otherName) }).click();
+    await expect(page.getByRole('heading', { name: otherName })).toBeVisible();
+    const hidden = await mcpCall(request, session.id, 'notify_me', {
+      message: 'While you were away.',
+    });
+    expect(hidden.ok()).toBeTruthy();
+    await expect
+      .poll(() => recorded(page, 'message', 'While you were away.'))
+      .not.toBeNull();
+    const hiddenCall = await recorded(
+      page,
+      'message',
+      'While you were away.',
+    );
+    expect(hiddenCall).toMatchObject({
+      sessionId: session.id,
+      kind: 'message',
+      body: 'While you were away.',
+      sessionVisible: false,
+    });
+
+    await page.getByRole('button', { name: new RegExp(session.name) }).click();
+    await expect(
+      page.getByRole('heading', { name: session.name }),
+    ).toBeVisible();
 
     const done = await mcpCall(request, session.id, 'report_done', {});
     expect(done.ok()).toBeTruthy();
@@ -123,7 +175,11 @@ test('sends a desktop notification for a message, a done report and a question',
     );
     await expect.poll(() => recorded(page, 'done')).not.toBeNull();
     const doneCall = await recorded(page, 'done');
-    expect(doneCall).toMatchObject({ sessionId: session.id, kind: 'done' });
+    expect(doneCall).toMatchObject({
+      sessionId: session.id,
+      kind: 'done',
+      sessionVisible: true,
+    });
     expect(doneCall?.title).toContain(session.name);
     expect(doneCall?.body.length).toBeGreaterThan(0);
 
@@ -140,10 +196,12 @@ test('sends a desktop notification for a message, a done report and a question',
     expect(waitingCall).toMatchObject({
       sessionId: session.id,
       kind: 'waiting',
+      sessionVisible: true,
     });
     expect(waitingCall?.title).toContain(session.name);
     expect(waitingCall?.body.length).toBeGreaterThan(0);
   } finally {
     await closeSession(request, session.id);
+    await closeSession(request, other.id);
   }
 });

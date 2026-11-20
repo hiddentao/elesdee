@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 import {
   closeSession,
   createGitRepo,
@@ -22,6 +22,21 @@ async function expectNoPageOverflow(page: Page) {
         document.documentElement.clientWidth,
     ),
   ).toBeLessThanOrEqual(0);
+}
+
+/**
+ * Reads a box that the layout must show. A missing box fails with the
+ * element's name instead of comparing zero and passing.
+ */
+async function measuredBox(
+  locator: Locator,
+  label: string,
+): Promise<{ x: number; y: number; width: number; height: number }> {
+  const box = await locator.boundingBox();
+  if (!box) {
+    throw new Error(`${label} is not rendered, so it has no bounding box.`);
+  }
+  return box;
 }
 
 async function hasScrollbarRule(page: Page, selector: string) {
@@ -120,21 +135,22 @@ test('desktop layout stays readable, scrollable and free of console errors', asy
         await page.getByRole('button', { name: 'Session panel' }).click();
         await expectNoPageOverflow(page);
         const dock = page.locator('.dock');
-        const dockBox = await dock.boundingBox();
-        expect(dockBox?.width ?? 0).toBeGreaterThanOrEqual(320);
-        expect(dockBox?.width ?? 0).toBeLessThanOrEqual(380);
+        const dockBox = await measuredBox(dock, 'The session side panel');
+        expect(dockBox.width).toBeGreaterThanOrEqual(320);
+        expect(dockBox.width).toBeLessThanOrEqual(380);
 
         const dockName = dock.locator('.dock-context-name');
         await expect(dockName).toHaveAttribute('title', new RegExp(
           LONG_SESSION_NAME,
         ));
-        const nameBox = await dockName.boundingBox();
-        const branchBox = await dock
-          .locator('.dock-context-branch')
-          .boundingBox();
+        const nameBox = await measuredBox(dockName, 'The panel session name');
+        const branchBox = await measuredBox(
+          dock.locator('.dock-context-branch'),
+          'The panel branch line',
+        );
         if (width === 1024) {
-          expect(branchBox?.y ?? 0).toBeGreaterThanOrEqual(
-            (nameBox?.y ?? 0) + (nameBox?.height ?? 0) - 1,
+          expect(branchBox.y).toBeGreaterThanOrEqual(
+            nameBox.y + nameBox.height - 1,
           );
         }
 
@@ -192,12 +208,13 @@ test('desktop layout stays readable, scrollable and free of console errors', asy
         const nameInput = dialog.getByLabel('Session name (optional)');
         const branch = dialog.getByLabel('Source branch (optional)');
         if (width === 1024) {
-          const bodyRect = await body.boundingBox();
-          const branchRect = await branch.boundingBox();
-          expect(
-            (branchRect?.y ?? 0) + (branchRect?.height ?? 0),
-          ).toBeLessThanOrEqual(
-            (bodyRect?.y ?? 0) + (bodyRect?.height ?? 0) + 1,
+          const bodyRect = await measuredBox(body, 'The new session dialog body');
+          const branchRect = await measuredBox(
+            branch,
+            'The source branch field',
+          );
+          expect(branchRect.y + branchRect.height).toBeLessThanOrEqual(
+            bodyRect.y + bodyRect.height + 1,
           );
         }
         await nameInput.scrollIntoViewIfNeeded();
@@ -208,9 +225,12 @@ test('desktop layout stays readable, scrollable and free of console errors', asy
         await additional.scrollIntoViewIfNeeded();
         await expect(additional).toBeInViewport();
 
-        const footerBox = await dialog.locator('.dialog-foot').boundingBox();
+        const footerBox = await measuredBox(
+          dialog.locator('.dialog-foot'),
+          'The new session dialog footer',
+        );
         const viewport = page.viewportSize()!;
-        expect((footerBox?.y ?? 0) + (footerBox?.height ?? 0)).toBeLessThanOrEqual(
+        expect(footerBox.y + footerBox.height).toBeLessThanOrEqual(
           viewport.height + 1,
         );
         expect(
@@ -225,15 +245,12 @@ test('desktop layout stays readable, scrollable and free of console errors', asy
     await emulateWidth(page, 1440, 'light');
     const lastTab = page.locator('.tab').last();
     const add = page.locator('.tab-add');
-    const lastTabBox = await lastTab.boundingBox();
-    const addBox = await add.boundingBox();
-    expect(addBox?.x ?? 0).toBeLessThanOrEqual(
-      (lastTabBox?.x ?? 0) + (lastTabBox?.width ?? 0) + 2,
+    const lastTabBox = await measuredBox(lastTab, 'The last open tab');
+    const addBox = await measuredBox(add, 'The add-tab button');
+    expect(addBox.x).toBeLessThanOrEqual(
+      lastTabBox.x + lastTabBox.width + 2,
     );
 
-    expect(errors.filter((message) => message.includes('same key'))).toEqual(
-      [],
-    );
     expect(errors).toEqual([]);
   } finally {
     await closeSession(request, session.id);
