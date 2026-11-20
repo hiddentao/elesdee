@@ -15,6 +15,7 @@ use elesdee_link::{
     AppConnection, BRIDGE_VERSION, MAX_UI_PACKAGE_BYTES, Method, PROTOCOL_VERSION, Response,
 };
 use serde::{Deserialize, Serialize};
+use tauri::Url;
 use tauri::http::{Request as HttpRequest, Response as HttpResponse, StatusCode, header};
 use zip::ZipArchive;
 
@@ -593,14 +594,65 @@ impl std::fmt::Debug for UiStore {
     }
 }
 
+/// The origin that serves the shell's own screens on this platform.
+#[cfg(any(target_os = "android", target_os = "windows"))]
+pub const SHELL_ORIGIN: &str = "http://tauri.localhost";
+/// The origin that serves the shell's own screens on this platform.
+#[cfg(not(any(target_os = "android", target_os = "windows")))]
+pub const SHELL_ORIGIN: &str = "tauri://localhost";
+
+/// The origin that serves the stored UI packages on this platform.
+#[cfg(any(target_os = "android", target_os = "windows"))]
+pub const PACKAGE_ORIGIN: &str = "http://elesdee.localhost";
+/// The origin that serves the stored UI packages on this platform.
+#[cfg(not(any(target_os = "android", target_os = "windows")))]
+pub const PACKAGE_ORIGIN: &str = "elesdee://localhost";
+
+/// The Vite dev server that serves the shell screens from source.
+#[cfg(dev)]
+const DEV_ORIGIN: &str = "http://localhost:5174";
+
 /// Returns the webview address for one stored build of one computer.
 pub fn package_url(computer_id: &str, build_id: &str) -> String {
-    let host = if cfg!(any(target_os = "android", target_os = "windows")) {
-        "http://elesdee.localhost"
-    } else {
-        "elesdee://localhost"
+    format!(
+        "{PACKAGE_ORIGIN}/ui/{computer_id}/{}/",
+        build_path(build_id)
+    )
+}
+
+/// Checks one top-level navigation.
+///
+/// The webview may load the shell screens and a UI package. A fragment or
+/// query change keeps the same origin and stays allowed. Every other scheme
+/// or host is refused, including script and data URLs.
+pub fn navigation_allowed(url: &str, package_origin: &str) -> bool {
+    let Ok(url) = Url::parse(url.trim()) else {
+        return false;
     };
-    format!("{host}/ui/{computer_id}/{}/", build_path(build_id))
+    [SHELL_ORIGIN, package_origin]
+        .iter()
+        .filter_map(|origin| Url::parse(origin).ok())
+        .any(|origin| same_origin(&url, &origin))
+        || dev_origin_allowed(&url)
+}
+
+/// Checks whether both URLs name the same scheme, host and port.
+fn same_origin(left: &Url, right: &Url) -> bool {
+    left.scheme() == right.scheme()
+        && left.host_str() == right.host_str()
+        && left.port_or_known_default() == right.port_or_known_default()
+}
+
+/// Allows the dev server while the shell runs from source.
+#[cfg(dev)]
+fn dev_origin_allowed(url: &Url) -> bool {
+    Url::parse(DEV_ORIGIN).is_ok_and(|origin| same_origin(url, &origin))
+}
+
+/// No dev origin exists outside a dev build.
+#[cfg(not(dev))]
+fn dev_origin_allowed(_url: &Url) -> bool {
+    false
 }
 
 /// Returns the URL path segment for one build id.
@@ -1139,12 +1191,82 @@ mod tests {
     fn a_served_build_uses_the_platform_origin() {
         let hash = blake3::hash(b"package").to_hex().to_string();
         let url = package_url("computer", &format!("blake3:{hash}"));
-        assert!(url.contains(&format!("/ui/computer/blake3-{hash}/")));
-        if cfg!(any(target_os = "android", target_os = "windows")) {
-            assert!(url.starts_with("http://elesdee.localhost/"));
-        } else {
-            assert!(url.starts_with("elesdee://localhost/"));
+        assert_eq!(url, format!("{PACKAGE_ORIGIN}/ui/computer/blake3-{hash}/"));
+    }
+
+    #[test]
+    fn navigation_stays_on_the_shell_and_package_origins() {
+        assert!(navigation_allowed(
+            &format!("{SHELL_ORIGIN}/index.html"),
+            PACKAGE_ORIGIN
+        ));
+        assert!(navigation_allowed(
+            &format!("{SHELL_ORIGIN}/#/computers"),
+            PACKAGE_ORIGIN
+        ));
+        assert!(navigation_allowed(
+            &format!("{PACKAGE_ORIGIN}/ui/computer/blake3-abc/"),
+            PACKAGE_ORIGIN
+        ));
+        assert!(navigation_allowed(
+            &format!("{PACKAGE_ORIGIN}/ui/computer/blake3-abc/#sheet"),
+            PACKAGE_ORIGIN
+        ));
+        assert!(navigation_allowed(
+            &format!("{PACKAGE_ORIGIN}/ui/computer/blake3-abc/?tab=files"),
+            PACKAGE_ORIGIN
+        ));
+        assert!(navigation_allowed(
+            "http://elesdee.localhost/ui/computer/blake3-abc/",
+            "http://elesdee.localhost"
+        ));
+        assert!(navigation_allowed(
+            "elesdee://localhost/ui/computer/blake3-abc/",
+            "elesdee://localhost"
+        ));
+    }
+
+    #[test]
+    fn navigation_refuses_external_script_and_data_urls() {
+        assert!(!navigation_allowed("https://example.com/", PACKAGE_ORIGIN));
+        assert!(!navigation_allowed(
+            "http://localhost:4319/api/sessions",
+            PACKAGE_ORIGIN
+        ));
+        assert!(!navigation_allowed("javascript:alert(1)", PACKAGE_ORIGIN));
+        assert!(!navigation_allowed(
+            "data:text/html,<h1>hi</h1>",
+            PACKAGE_ORIGIN
+        ));
+        assert!(!navigation_allowed("about:blank", PACKAGE_ORIGIN));
+        assert!(!navigation_allowed("file:///etc/passwd", PACKAGE_ORIGIN));
+    }
+
+    #[test]
+    fn navigation_refuses_lookalike_and_mismatched_origins() {
+        assert!(!navigation_allowed(
+            "elesdee://localhost.evil.example/ui/",
+            PACKAGE_ORIGIN
+        ));
+        assert!(!navigation_allowed(
+            "http://elesdee.localhost.evil.example/ui/",
+            "http://elesdee.localhost"
+        ));
+        assert!(!navigation_allowed(
+            "https://elesdee.localhost/ui/",
+            "http://elesdee.localhost"
+        ));
+    }
+
+    #[test]
+    fn navigation_refuses_malformed_urls() {
+        for url in ["", "not a url", "://bad", "http://", "https://[::1"] {
+            assert!(!navigation_allowed(url, PACKAGE_ORIGIN), "{url}");
         }
+        assert!(!navigation_allowed(
+            &format!("{PACKAGE_ORIGIN}/ui/"),
+            "not an origin"
+        ));
     }
 
     /// Creates one stored build below the store root and returns its folder.
