@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { closeSessionTab, openSessionTab } from './tabs';
+import { closeSessionTab, moveSessionTab, openSessionTab } from './tabs';
 
 describe('session tabs', () => {
   it('opens a session once and makes it active', () => {
@@ -48,5 +48,27 @@ describe('session tabs', () => {
     const next = closeSessionTab(tabs, 'p1', 'c');
 
     expect(next.p1).toEqual({ open: ['a', 'b'], active: 'a' });
+  });
+
+  it('moves an active tab to the new project', () => {
+    let tabs = openSessionTab({}, 'p1', 'a');
+    tabs = openSessionTab(tabs, 'p1', 'b');
+    tabs = openSessionTab(tabs, 'p2', 'c');
+
+    const next = moveSessionTab(tabs, 'p1', 'p2', 'b');
+
+    expect(next.p1).toEqual({ open: ['a'], active: 'a' });
+    expect(next.p2).toEqual({ open: ['c', 'b'], active: 'b' });
+  });
+
+  it('moves a background tab without changing the active tabs', () => {
+    let tabs = openSessionTab({}, 'p1', 'a');
+    tabs = openSessionTab(tabs, 'p1', 'b');
+    tabs = openSessionTab(tabs, 'p1', 'a');
+
+    const next = moveSessionTab(tabs, 'p1', 'p2', 'b');
+
+    expect(next.p1).toEqual({ open: ['a'], active: 'a' });
+    expect(next.p2).toEqual({ open: ['b'], active: null });
   });
 });

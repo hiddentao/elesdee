@@ -111,6 +111,21 @@ async fn ensure_test_project(app: &Router, folder: &Path) {
     assert_eq!(project["id"], "web");
 }
 
+async fn create_test_project(app: &Router, name: &str, folder: &Path) -> Value {
+    let (status, project) = call(
+        app,
+        "POST",
+        "/api/projects",
+        Some(json!({
+            "name": name,
+            "folder": folder.to_string_lossy()
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "create project: {project}");
+    project
+}
+
 async fn create_terminal(app: &Router, folder: &Path) -> Value {
     ensure_test_project(app, folder).await;
     let (status, body) = call(
@@ -5614,6 +5629,177 @@ async fn rename_unknown_session_returns_not_found() {
     .await;
 
     assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+}
+
+#[tokio::test]
+async fn moving_a_running_session_keeps_its_folder_branch_and_process() {
+    let data_dir = TempDirectory::new("move-data");
+    let repo = TempDirectory::new("move-repo");
+    init_git_repo(&repo.path);
+    let state = AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    );
+    let app = router(state.clone());
+    let mut events = state.subscribe_events();
+    ensure_test_project(&app, &repo.path).await;
+    let other_folder = TempDirectory::new("move-other");
+    let other = create_test_project(&app, "mobile", &other_folder.path).await;
+    let other_id = other["id"].as_str().expect("project id").to_owned();
+
+    let (status, session) = call(
+        &app,
+        "POST",
+        "/api/sessions",
+        Some(json!({
+            "projectId": "web",
+            "kind": "agent",
+            "providerId": "max",
+            "client": "Claude Code",
+            "name": "Move me",
+            "folder": repo.path.to_string_lossy()
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let id = session["id"].as_str().expect("session id").to_owned();
+    let branch = session["branch"].clone();
+    let folder = session["folder"].clone();
+    let short = session["short"].clone();
+
+    while events.try_recv().is_ok() {}
+
+    let (status, moved) = call(
+        &app,
+        "PATCH",
+        &format!("/api/sessions/{id}"),
+        Some(json!({ "projectId": other_id })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{moved}");
+    assert_eq!(moved["projectId"], other_id);
+    assert_eq!(moved["folder"], folder, "the worktree stays");
+    assert_eq!(moved["branch"], branch, "the branch stays");
+    assert_eq!(moved["short"], short);
+    assert_eq!(moved["status"], "active");
+
+    let event = tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            if let Ok(event) = events.recv().await
+                && event.session.id == id
+                && event.session.project_id == other_id
+            {
+                return event;
+            }
+        }
+    })
+    .await
+    .expect("the move event did not arrive");
+    assert_eq!(event.event_type, "session.updated");
+
+    let state_text = fs::read_to_string(data_dir.path.join("state.json")).expect("state file");
+    let state_json: Value = serde_json::from_str(&state_text).expect("state json");
+    let stored = state_json["sessions"]
+        .as_array()
+        .and_then(|sessions| {
+            sessions
+                .iter()
+                .find(|session| session["session"]["id"] == id)
+        })
+        .expect("stored session");
+    assert_eq!(stored["session"]["projectId"], other_id);
+
+    let (status, body) = call(
+        &app,
+        "POST",
+        &format!("/api/sessions/{id}/input"),
+        Some(json!({ "data": "still running" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+
+    let (status, closed) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+}
+
+#[tokio::test]
+async fn moving_a_session_to_an_unknown_project_is_refused() {
+    let app = router(AppState::with_test_command(vec![
+        "/bin/sh".to_owned(),
+        "-c".to_owned(),
+        "sleep 30".to_owned(),
+    ]));
+    let folder = TempDirectory::new("move-unknown");
+    let session = create_terminal(&app, &folder.path).await;
+    let id = session["id"].as_str().expect("session id").to_owned();
+
+    let (status, body) = call(
+        &app,
+        "PATCH",
+        &format!("/api/sessions/{id}"),
+        Some(json!({ "projectId": "missing" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+
+    let (status, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    assert_eq!(status, StatusCode::OK);
+    let stored = bootstrap["sessions"]
+        .as_array()
+        .and_then(|sessions| sessions.iter().find(|item| item["id"] == id))
+        .expect("session");
+    assert_eq!(stored["projectId"], "web");
+
+    let (status, closed) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+}
+
+#[tokio::test]
+async fn moving_a_closed_session_keeps_its_log() {
+    let app = router(AppState::with_test_command(vec![
+        "/bin/sh".to_owned(),
+        "-c".to_owned(),
+        "printf keep-me; sleep 30".to_owned(),
+    ]));
+    let folder = TempDirectory::new("move-closed");
+    let other_folder = TempDirectory::new("move-closed-other");
+    ensure_test_project(&app, &folder.path).await;
+    let other = create_test_project(&app, "docs", &other_folder.path).await;
+    let other_id = other["id"].as_str().expect("project id").to_owned();
+    let session = create_terminal(&app, &folder.path).await;
+    let id = session["id"].as_str().expect("session id").to_owned();
+    let short = session["short"].clone();
+    wait_for_session(&app, &id, |session| {
+        session["preview"]
+            .as_str()
+            .is_some_and(|preview| preview.contains("keep-me"))
+    })
+    .await;
+
+    let (status, closed) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+    let preview = closed["preview"].clone();
+
+    let (status, moved) = call(
+        &app,
+        "PATCH",
+        &format!("/api/sessions/{id}"),
+        Some(json!({ "projectId": other_id })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{moved}");
+    assert_eq!(moved["status"], "closed");
+    assert_eq!(moved["projectId"], other_id);
+    assert_eq!(moved["short"], short);
+    assert_eq!(moved["preview"], preview, "the close note stays");
+
+    let request = request_builder("GET", &format!("/api/sessions/{id}/output?after=0"))
+        .body(Body::empty())
+        .expect("build output request");
+    let response = app.clone().oneshot(request).await.expect("open output");
+    assert_eq!(response.status(), StatusCode::OK);
+    let text = read_sse_until(response.into_body(), |text| text.contains("keep-me")).await;
+    assert!(text.contains("keep-me"), "the log stays: {text}");
 }
 
 #[tokio::test]

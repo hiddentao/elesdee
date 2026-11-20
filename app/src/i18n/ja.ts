@@ -21,6 +21,8 @@ export const ja = {
   'app.sessionNotReopened': 'セッションを再度開けませんでした。',
   'app.sessionResumed': 'セッションを再開しました。',
   'app.sessionNotResumed': 'セッションを再開できませんでした。',
+  'app.sessionMoved': 'セッションを移動しました。',
+  'app.sessionNotMoved': 'セッションを移動できませんでした。',
   'app.accountSwitched': 'アカウントを切り替えました。',
   'app.permissionResolved':
     'その権限リクエストはすでに処理されています。',
@@ -81,6 +83,13 @@ export const ja = {
   'sidebar.usage': '使用量',
   'sidebar.settings': '設定',
   'sidebar.noAttentionNeeded': '対応不要',
+  'sidebar.moveStarted': '{name} を移動しています。',
+  'sidebar.moveInstructions':
+    '{name} を移動しています。移動先のプロジェクト: {project}。上下の矢印キーで別のプロジェクトを選び、Enter で移動、Escape でキャンセルします。',
+  'sidebar.moveTarget': '移動先のプロジェクト: {project}。',
+  'sidebar.moveCancelled': '移動をキャンセルしました。',
+  'sidebar.moved': '{name} を {project} に移動しました。',
+  'sidebar.moveFailed': '{name} は移動していません。',
 
   'session.headerActions': 'セッションの操作',
   'session.bodyLabel': '{name} のセッション',

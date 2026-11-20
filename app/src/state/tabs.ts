@@ -48,3 +48,37 @@ export function closeSessionTab(
 
   return { ...tabs, [projectId]: { open, active } };
 }
+
+/** Carries an open tab to the project that now groups its session. */
+export function moveSessionTab(
+  tabs: TabsByProject,
+  fromProjectId: string,
+  toProjectId: string,
+  sessionId: string,
+): TabsByProject {
+  const from = tabs[fromProjectId];
+  if (
+    fromProjectId === toProjectId ||
+    !from ||
+    !from.open.includes(sessionId)
+  ) {
+    return tabs;
+  }
+
+  const wasActive = from.active === sessionId;
+  const next = closeSessionTab(tabs, fromProjectId, sessionId);
+  if (wasActive) {
+    return openSessionTab(next, toProjectId, sessionId);
+  }
+
+  const target = next[toProjectId] ?? { open: [], active: null };
+  return {
+    ...next,
+    [toProjectId]: {
+      ...target,
+      open: target.open.includes(sessionId)
+        ? target.open
+        : [...target.open, sessionId],
+    },
+  };
+}

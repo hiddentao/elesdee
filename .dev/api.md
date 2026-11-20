@@ -38,6 +38,7 @@ The service binds `127.0.0.1` only. It accepts requests only for loopback hostna
 - While an agent session is closing, reopen and delete return 409 and `preview` is updated only when the close finishes.
 - When a session process exits, the session stays `active`, its `workState` becomes `done`, and a `session.updated` event is sent. Input then returns 409.
 - Renaming trims the name, requires 1–64 characters, and does not change `short` or `branch`.
+- Moving a session to another project changes only `projectId`. The folder, branch, worktree, process and log stay as they are, so a running session keeps running and a closed session keeps its log. An unknown project returns 404 and a session that is closing returns 409.
 - While a session runs, `preview` follows its latest non-empty output line. Terminal escape and control sequences are removed, whitespace is collapsed, and the text is capped at about 80 characters. It changes at most once every two seconds and sends `session.updated` only when the text changes. Closed sessions and close notes are never overwritten by output.
 - Reopening requires a closed session. It re-checks the folder and, for an agent, the AI config, installed client, repository and branch. A missing agent worktree is recreated from the branch; a stale or unregistered path is replaced. It keeps the log and sequence numbers.
 - Deleting requires a closed session and removes the session and its log. An agent branch is kept. If a failed close left a worktree, delete attempts to remove it.
@@ -404,7 +405,7 @@ interface DemoServerListEntry extends DemoServer {
 - The desktop link identity is a separate 32-byte key in `<data dir>/link.key`, with mode 0600, written once and reused. It is never in `state.json` and never logged. A missing key creates a new identity; every paired phone must pair again.
 - The paired device list is written on pair, removal and graceful shutdown. `lastSeen` updates in memory at most once a minute.
 - Shared files live in `<data dir>/shared/<session id>/`, directories 0700 and files 0600. Each copy has a metadata record beside it with the original relative path, name, caption, size and content type. The stored copy stays after the session closes. Provider keys are compared with the content and are never copied.
-- State is saved on project create, provider create, provider edit, provider removal, a successful subscription sign-in, config create, config edit, config removal, session create, rename, close, reopen, delete, resize, graceful shutdown, and when an agent reports its conversation ID. It is not written for each output chunk.
+- State is saved on project create, provider create, provider edit, provider removal, a successful subscription sign-in, config create, config edit, config removal, session create, rename, project move, close, reopen, delete, resize, graceful shutdown, and when an agent reports its conversation ID. It is not written for each output chunk.
 - A session that was active on save is restarted when the state loads. It resumes the agent's conversation by its saved `agentSessionId`; without an ID it uses the client's continue-last behavior and the preview says so. A terminal session restarts its shell in the same folder. The log and sequence numbers are kept, so new output continues from the next sequence.
 - If the session folder, AI config or client is missing, that session is restored as active and paused with a clear reason. The other sessions still restart. A pending permission request is not written to the file and is not restored.
 - `agentSessionId` comes from the client. Claude Code gets a generated `--session-id` at launch and also reports it in hook input. Codex reports the app-server thread ID. OpenCode reports the session ID on its local server. Antigravity has no ID and uses its continue-last behavior.
@@ -716,7 +717,7 @@ interface HistoryEvent {
 | DELETE | `/api/configs/{id}` | | `204` |
 | POST | `/api/sessions` | `{ projectId, kind, configId?, allowedConfigIds?, name?, folder?, sourceBranch?, copyUncommittedChanges?, env?, cols?, rows? }` | `Session` |
 | POST | `/api/sessions/{id}/close` | `{}` | `Session` |
-| PATCH | `/api/sessions/{id}` | `{ name?, allowedConfigIds? }` | `Session` |
+| PATCH | `/api/sessions/{id}` | `{ name?, projectId?, allowedConfigIds? }` | `Session` |
 | POST | `/api/sessions/{id}/reopen` | `{}` | `Session` |
 | POST | `/api/sessions/{id}/config` | `{ configId }` | `Session` |
 | GET | `/api/sessions/{id}/switch-options` | | `SwitchOptions` |

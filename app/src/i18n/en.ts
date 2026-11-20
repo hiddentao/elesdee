@@ -19,6 +19,8 @@ export const en = {
   'app.sessionNotReopened': 'The session was not reopened.',
   'app.sessionResumed': 'Session resumed.',
   'app.sessionNotResumed': 'The session was not resumed.',
+  'app.sessionMoved': 'Session moved.',
+  'app.sessionNotMoved': 'The session was not moved.',
   'app.accountSwitched': 'Account switched.',
   'app.permissionResolved': 'That permission request was already resolved.',
   'app.answerSent': 'Answer sent.',
@@ -77,6 +79,13 @@ export const en = {
   'sidebar.usage': 'Usage',
   'sidebar.settings': 'Settings',
   'sidebar.noAttentionNeeded': 'No attention needed',
+  'sidebar.moveStarted': 'Moving {name}.',
+  'sidebar.moveInstructions':
+    'Moving {name}. Target project: {project}. Use the up and down arrows to choose another project, Enter to move, Escape to cancel.',
+  'sidebar.moveTarget': 'Target project: {project}.',
+  'sidebar.moveCancelled': 'Move cancelled.',
+  'sidebar.moved': '{name} moved to {project}.',
+  'sidebar.moveFailed': '{name} was not moved.',
 
   'session.headerActions': 'Session actions',
   'session.bodyLabel': '{name} session',

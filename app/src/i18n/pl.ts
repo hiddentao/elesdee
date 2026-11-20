@@ -21,6 +21,8 @@ export const pl = {
   'app.sessionNotReopened': 'Sesja nie została otwarta ponownie.',
   'app.sessionResumed': 'Sesja wznowiona.',
   'app.sessionNotResumed': 'Sesja nie została wznowiona.',
+  'app.sessionMoved': 'Sesja przeniesiona.',
+  'app.sessionNotMoved': 'Sesja nie została przeniesiona.',
   'app.accountSwitched': 'Konto zmienione.',
   'app.permissionResolved':
     'To żądanie uprawnienia zostało już rozpatrzone.',
@@ -82,6 +84,13 @@ export const pl = {
   'sidebar.usage': 'Użycie',
   'sidebar.settings': 'Ustawienia',
   'sidebar.noAttentionNeeded': 'Nie wymaga uwagi',
+  'sidebar.moveStarted': 'Przenoszenie {name}.',
+  'sidebar.moveInstructions':
+    'Przenoszenie {name}. Projekt docelowy: {project}. Użyj strzałek w górę i w dół, aby wybrać inny projekt, Enter, aby przenieść, Escape, aby anulować.',
+  'sidebar.moveTarget': 'Projekt docelowy: {project}.',
+  'sidebar.moveCancelled': 'Przenoszenie anulowane.',
+  'sidebar.moved': '{name} została przeniesiona do {project}.',
+  'sidebar.moveFailed': '{name} nie została przeniesiona.',
 
   'session.headerActions': 'Akcje sesji',
   'session.bodyLabel': 'Sesja {name}',

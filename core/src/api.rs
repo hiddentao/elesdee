@@ -447,8 +447,10 @@ struct ApproveResponse {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct RenameRequest {
+struct UpdateSessionRequest {
     name: Option<String>,
+    #[serde(default)]
+    project_id: Option<String>,
     #[serde(default)]
     allowed_config_ids: Option<Vec<String>>,
     #[serde(default)]
@@ -618,7 +620,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/sessions", post(create_session))
         .route(
             "/api/sessions/{id}",
-            patch(rename_session).delete(delete_session),
+            patch(update_session).delete(delete_session),
         )
         .route("/api/sessions/{id}/close", post(close_session))
         .route("/api/sessions/{id}/input", post(session_input))
@@ -2763,10 +2765,10 @@ async fn wait_for_process_exit(entry: &SessionEntry, timeout: Duration) -> bool 
     }
 }
 
-async fn rename_session(
+async fn update_session(
     State(state): State<AppState>,
     UrlPath(id): UrlPath<String>,
-    body: Result<Json<RenameRequest>, JsonRejection>,
+    body: Result<Json<UpdateSessionRequest>, JsonRejection>,
 ) -> Result<Json<Session>, ApiError> {
     let Json(mut request) = body.map_err(invalid_json)?;
     if request.allowed_config_ids.is_none()
@@ -2782,9 +2784,12 @@ async fn rename_session(
                 .collect(),
         );
     }
-    if request.name.is_none() && request.allowed_config_ids.is_none() {
+    if request.name.is_none()
+        && request.project_id.is_none()
+        && request.allowed_config_ids.is_none()
+    {
         return Err(ApiError::bad_request(
-            "Send a session name or allowed AI configs.",
+            "Send a session name, project or allowed AI configs.",
         ));
     }
     let name = match request.name.as_deref() {
@@ -2797,6 +2802,14 @@ async fn rename_session(
             }
             Some(name.to_owned())
         }
+        None => None,
+    };
+    let project = match request.project_id.as_deref() {
+        Some(project_id) => Some(
+            state
+                .project(project_id)
+                .ok_or_else(|| ApiError::not_found("Unknown project."))?,
+        ),
         None => None,
     };
 
@@ -2835,6 +2848,11 @@ async fn rename_session(
         Some(name) => entry.rename(name),
         None => entry.session(),
     };
+    if let Some(project) = project
+        && updated.project_id != project.id
+    {
+        updated = entry.move_to_project(project.id);
+    }
     if let Some(allowed) = allowed {
         updated = entry
             .set_allowed_configs(allowed)

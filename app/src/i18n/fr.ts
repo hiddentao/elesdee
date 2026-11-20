@@ -21,6 +21,8 @@ export const fr = {
   'app.sessionNotReopened': 'La session n’a pas été rouverte.',
   'app.sessionResumed': 'Session reprise.',
   'app.sessionNotResumed': 'La session n’a pas été reprise.',
+  'app.sessionMoved': 'Session déplacée.',
+  'app.sessionNotMoved': 'La session n’a pas été déplacée.',
   'app.accountSwitched': 'Compte changé.',
   'app.permissionResolved':
     'Cette demande d’autorisation a déjà été traitée.',
@@ -82,6 +84,13 @@ export const fr = {
   'sidebar.usage': 'Utilisation',
   'sidebar.settings': 'Réglages',
   'sidebar.noAttentionNeeded': 'Aucune attention requise',
+  'sidebar.moveStarted': 'Déplacement de {name}.',
+  'sidebar.moveInstructions':
+    'Déplacement de {name}. Projet cible : {project}. Utilisez les flèches haut et bas pour choisir un autre projet, Entrée pour déplacer, Échap pour annuler.',
+  'sidebar.moveTarget': 'Projet cible : {project}.',
+  'sidebar.moveCancelled': 'Déplacement annulé.',
+  'sidebar.moved': '{name} a été déplacée vers {project}.',
+  'sidebar.moveFailed': '{name} n’a pas été déplacée.',
 
   'session.headerActions': 'Actions de la session',
   'session.bodyLabel': 'Session {name}',

@@ -22,6 +22,8 @@ export const ptBR = {
   'app.sessionNotReopened': 'A sessão não foi reaberta.',
   'app.sessionResumed': 'Sessão retomada.',
   'app.sessionNotResumed': 'A sessão não foi retomada.',
+  'app.sessionMoved': 'Sessão movida.',
+  'app.sessionNotMoved': 'A sessão não foi movida.',
   'app.accountSwitched': 'Conta alterada.',
   'app.permissionResolved':
     'Essa solicitação de permissão já foi resolvida.',
@@ -83,6 +85,13 @@ export const ptBR = {
   'sidebar.usage': 'Uso',
   'sidebar.settings': 'Configurações',
   'sidebar.noAttentionNeeded': 'Nenhuma atenção necessária',
+  'sidebar.moveStarted': 'Movendo {name}.',
+  'sidebar.moveInstructions':
+    'Movendo {name}. Projeto de destino: {project}. Use as setas para cima e para baixo para escolher outro projeto, Enter para mover e Esc para cancelar.',
+  'sidebar.moveTarget': 'Projeto de destino: {project}.',
+  'sidebar.moveCancelled': 'Movimentação cancelada.',
+  'sidebar.moved': '{name} foi movida para {project}.',
+  'sidebar.moveFailed': '{name} não foi movida.',
 
   'session.headerActions': 'Ações da sessão',
   'session.bodyLabel': 'Sessão {name}',
