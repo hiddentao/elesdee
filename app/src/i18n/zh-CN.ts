@@ -386,6 +386,7 @@ export const zhCN = {
   'newSession.folder': '文件夹',
   'newSession.folderPlaceholder': '输入文件夹路径',
   'newSession.browse': '浏览…',
+  'newSession.repositoryPlaceholder': '输入文件夹路径或选择最近的仓库',
   'newSession.gitHint': '文件夹必须位于 Git 仓库中。',
   'newSession.sourceBranch': '源分支（可选）',
   'newSession.sourceBranchPlaceholder': '当前分支',

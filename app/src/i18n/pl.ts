@@ -424,6 +424,8 @@ export const pl = {
   'newSession.folder': 'Folder',
   'newSession.folderPlaceholder': 'Wpisz ścieżkę folderu',
   'newSession.browse': 'Przeglądaj…',
+  'newSession.repositoryPlaceholder':
+    'Wpisz ścieżkę folderu lub wybierz ostatnie repozytorium',
   'newSession.gitHint':
     'Folder musi znajdować się w repozytorium Git.',
   'newSession.sourceBranch': 'Gałąź źródłowa (opcjonalnie)',

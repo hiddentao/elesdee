@@ -113,6 +113,8 @@ test('the launch form asks what to do with uncommitted changes', async ({
 
   let dialog = await fillLaunchForm(page, label, repo);
   await dialog.getByText('Additional settings').click();
+  const settings = dialog.locator('details.additional-settings');
+  await expect(settings.getByLabel('First prompt (optional)')).toBeVisible();
   const choice = dialog.getByRole('group', { name: 'Uncommitted changes' });
   await expect(choice).toBeVisible();
   await choice

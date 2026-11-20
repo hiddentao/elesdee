@@ -421,6 +421,8 @@ export const de = {
   'newSession.folder': 'Ordner',
   'newSession.folderPlaceholder': 'Ordnernamen eingeben',
   'newSession.browse': 'Durchsuchen…',
+  'newSession.repositoryPlaceholder':
+    'Ordnerpfad eingeben oder ein früheres Repository wählen',
   'newSession.gitHint':
     'Der Ordner muss in einem Git-Repository liegen.',
   'newSession.sourceBranch': 'Quell-Branch (optional)',

@@ -422,6 +422,8 @@ export const nl = {
   'newSession.folder': 'Map',
   'newSession.folderPlaceholder': 'Typ een mappad',
   'newSession.browse': 'Bladeren…',
+  'newSession.repositoryPlaceholder':
+    'Typ een mappad of kies een recente repository',
   'newSession.gitHint':
     'De map moet in een Git-repository liggen.',
   'newSession.sourceBranch': 'Bronbranch (optioneel)',

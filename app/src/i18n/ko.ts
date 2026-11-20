@@ -418,6 +418,8 @@ export const ko = {
   'newSession.folder': '폴더',
   'newSession.folderPlaceholder': '폴더 경로 입력',
   'newSession.browse': '찾아보기…',
+  'newSession.repositoryPlaceholder':
+    '폴더 경로를 입력하거나 최근 저장소를 선택하세요',
   'newSession.gitHint':
     '폴더는 Git 저장소 안에 있어야 합니다.',
   'newSession.sourceBranch': '소스 브랜치(선택 사항)',

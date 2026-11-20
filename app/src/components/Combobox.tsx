@@ -5,6 +5,7 @@ import {
   useState,
   type CSSProperties,
   type KeyboardEvent,
+  type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
 import { useLanguage } from '../i18n/LanguageProvider';
@@ -40,6 +41,8 @@ interface ComboboxProps {
   disabled?: boolean;
   /** Accepts a typed value that is not in the loaded list. */
   allowCustom?: boolean;
+  /** A control shown beside the input, such as a browse action. */
+  action?: ReactNode;
 }
 
 const LOAD_DELAY_MS = 220;
@@ -59,6 +62,7 @@ export function Combobox({
   autoFocus = false,
   disabled = false,
   allowCustom = false,
+  action,
 }: ComboboxProps) {
   const { t } = useLanguage();
   const [asyncOptions, setAsyncOptions] = useState<ComboboxOption[]>([]);
@@ -364,42 +368,53 @@ export function Combobox({
     }
   }
 
+  const control = (
+    <div className="combo">
+      <input
+        ref={inputRef}
+        id={id}
+        className="text-input combo-input"
+        role="combobox"
+        aria-expanded={open}
+        aria-controls={listboxId}
+        aria-autocomplete="list"
+        aria-activedescendant={
+          activeOption ? `${id}-option-${activeIndex}` : undefined
+        }
+        aria-invalid={error ? true : undefined}
+        aria-describedby={describedBy}
+        aria-required={required || undefined}
+        autoComplete="off"
+        spellCheck={false}
+        disabled={disabled}
+        value={query}
+        placeholder={placeholder}
+        onChange={(event) => handleChange(event.target.value)}
+        onClick={() => {
+          if (!disabled) {
+            setOpen(true);
+          }
+        }}
+        onBlur={handleBlur}
+        onKeyDown={handleKeyDown}
+      />
+      <span className="combo-caret" aria-hidden="true">
+        <ChevronDownIcon />
+      </span>
+    </div>
+  );
+
   return (
     <div className="field">
       <label htmlFor={id}>{label}</label>
-      <div className="combo">
-        <input
-          ref={inputRef}
-          id={id}
-          className="text-input combo-input"
-          role="combobox"
-          aria-expanded={open}
-          aria-controls={listboxId}
-          aria-autocomplete="list"
-          aria-activedescendant={
-            activeOption ? `${id}-option-${activeIndex}` : undefined
-          }
-          aria-invalid={error ? true : undefined}
-          aria-describedby={describedBy}
-          aria-required={required || undefined}
-          autoComplete="off"
-          spellCheck={false}
-          disabled={disabled}
-          value={query}
-          placeholder={placeholder}
-          onChange={(event) => handleChange(event.target.value)}
-          onClick={() => {
-            if (!disabled) {
-              setOpen(true);
-            }
-          }}
-          onBlur={handleBlur}
-          onKeyDown={handleKeyDown}
-        />
-        <span className="combo-caret" aria-hidden="true">
-          <ChevronDownIcon />
-        </span>
-      </div>
+      {action ? (
+        <div className="field-row">
+          {control}
+          {action}
+        </div>
+      ) : (
+        control
+      )}
 
       {open && popoverStyle
         ? createPortal(
