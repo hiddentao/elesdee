@@ -19,9 +19,10 @@ import {
   sendInput,
   switchSessionConfig,
 } from '../api/client';
-import { subscribeAux, subscribeEvents } from '../api/events';
+import { subscribeAux, subscribeEvents, subscribeHistory } from '../api/events';
 import type {
   AiConfig,
+  HistoryItem,
   PermissionDecision,
   Project,
   Provider,
@@ -63,6 +64,12 @@ import {
   switchableConfigs,
   usageSummary,
 } from './sessionActions';
+import { historySupported, mergeHistory } from './history';
+import {
+  MessageView,
+  SessionContextStrip,
+  type SessionView,
+} from './MessageView';
 
 type Filter = 'all' | 'running' | 'waiting';
 
@@ -109,6 +116,11 @@ export default function PhoneApp() {
   const [screen, setScreen] = useState<'list' | 'session'>(
     sessionHashId() ? 'session' : 'list',
   );
+  const [sessionView, setSessionView] = useState<SessionView>('messages');
+  const [historyItems, setHistoryItems] = useState<HistoryItem[]>([]);
+  const [historyStructured, setHistoryStructured] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [expandedTools, setExpandedTools] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState<Filter>('all');
   const [sheetOpen, setSheetOpen] = useState(false);
   const [dismissedTabs, setDismissedTabs] = useState<Set<string>>(new Set());
@@ -223,6 +235,43 @@ export default function PhoneApp() {
       behavior: 'instant',
     });
   }, [activeIndex]);
+
+  const activeStatusRef = useRef(active?.status ?? 'closed');
+  activeStatusRef.current = active?.status ?? 'closed';
+
+  useEffect(() => {
+    if (!active) {
+      return;
+    }
+    const supported = historySupported(active.client, active.kind);
+    setHistoryItems([]);
+    setExpandedTools(new Set());
+    setHistoryStructured(supported);
+    setHistoryLoading(supported);
+    setSessionView(supported ? 'messages' : 'terminal');
+    if (!supported) {
+      return;
+    }
+    return subscribeHistory(
+      active.id,
+      0,
+      (status) => {
+        setHistoryStructured(status.structured);
+        setHistoryLoading(false);
+        if (!status.structured) {
+          setSessionView('terminal');
+        }
+      },
+      (item) =>
+        setHistoryItems((current) => mergeHistory(current, item)),
+      () => setHistoryLoading(false),
+      undefined,
+      () => activeStatusRef.current === 'closed',
+    );
+    // The stream belongs to one session. Session updates change the object,
+    // not the conversation source.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active?.id]);
 
   useEffect(() => {
     if (!languageSheetOpen) {
@@ -394,7 +443,7 @@ export default function PhoneApp() {
     setLatches((current) => toggleModifier(current, modifier));
   }
 
-  function submitTerminal(event: FormEvent<HTMLFormElement>) {
+  function submitComposer(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!active) {
       return;
@@ -402,6 +451,24 @@ export default function PhoneApp() {
     const value = draft;
     setDraft('');
     void sendTerminal(active, `${value}\r`);
+  }
+
+  function toggleSessionView() {
+    setSessionView((current) =>
+      current === 'messages' ? 'terminal' : 'messages',
+    );
+  }
+
+  function toggleTool(id: string) {
+    setExpandedTools((current) => {
+      const next = new Set(current);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
   }
 
   async function chooseConfig(configId: string) {
@@ -778,9 +845,33 @@ export default function PhoneApp() {
             </section>
           ) : null}
 
-          <div className="phone-terminal">
-            <TerminalPane session={active} readOnly />
-          </div>
+          <SessionContextStrip
+            session={active}
+            view={sessionView}
+            onToggleView={toggleSessionView}
+            t={t}
+            language={language}
+          />
+
+          {sessionView === 'messages' && historyStructured ? (
+            <MessageView
+              session={active}
+              items={historyItems}
+              loading={historyLoading}
+              expanded={expandedTools}
+              onToggleTool={toggleTool}
+              t={t}
+            />
+          ) : (
+            <>
+              {!historySupported(active.client, active.kind) ? (
+                <p className="phone-note">{t('phone.terminalOnly')}</p>
+              ) : null}
+              <div className="phone-terminal">
+                <TerminalPane session={active} readOnly />
+              </div>
+            </>
+          )}
 
           <div className="phone-composer">
             {railOpen ? (
@@ -794,7 +885,7 @@ export default function PhoneApp() {
                 onAddKey={() => setKeysOpen(true)}
               />
             ) : null}
-            <form className="phone-input-row" onSubmit={submitTerminal}>
+            <form className="phone-input-row" onSubmit={submitComposer}>
               <button
                 type="button"
                 className="phone-icon phone-keyboard-toggle"
@@ -809,8 +900,16 @@ export default function PhoneApp() {
                 type="text"
                 value={draft}
                 onChange={(event) => setDraft(event.target.value)}
-                placeholder={t('phone.inputPlaceholder')}
-                aria-label={t('phone.terminalCommand')}
+                placeholder={t(
+                  sessionView === 'messages'
+                    ? 'phone.messagePlaceholder'
+                    : 'phone.inputPlaceholder',
+                )}
+                aria-label={t(
+                  sessionView === 'messages'
+                    ? 'phone.promptLabel'
+                    : 'phone.terminalCommand',
+                )}
                 autoComplete="off"
                 autoCapitalize="sentences"
                 spellCheck={false}

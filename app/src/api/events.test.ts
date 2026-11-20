@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { FakeEventSource } from '../test/fakeEventSource';
-import { subscribeOutput } from './events';
+import { subscribeHistory, subscribeOutput } from './events';
 
 beforeEach(() => {
   FakeEventSource.reset();
@@ -91,6 +91,72 @@ describe('output stream', () => {
 
     vi.advanceTimersByTime(10000);
     expect(FakeEventSource.instances).toHaveLength(1);
+
+    stop();
+  });
+});
+
+describe('history stream', () => {
+  it('reads the status notice, replays items and reconnects after the last one', () => {
+    const onStatus = vi.fn();
+    const onItem = vi.fn();
+    const onError = vi.fn();
+    const stop = subscribeHistory('s1', 0, onStatus, onItem, onError);
+
+    const first = FakeEventSource.instances[0];
+    expect(first.url).toContain('/api/sessions/s1/history?after=0');
+
+    first.open();
+    first.message({
+      type: 'history.state',
+      structured: true,
+      client: 'Claude Code',
+    });
+    expect(onStatus).toHaveBeenCalledWith({
+      type: 'history.state',
+      structured: true,
+      client: 'Claude Code',
+    });
+
+    first.message({
+      seq: 1,
+      id: 'h1',
+      kind: 'prompt',
+      text: 'Fix it',
+      state: 'done',
+    });
+    expect(onItem).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'h1', text: 'Fix it' }),
+    );
+
+    first.message({
+      seq: 2,
+      id: 'h2',
+      kind: 'reply',
+      text: 'Working',
+      state: 'streaming',
+    });
+    expect(onItem).toHaveBeenCalledTimes(2);
+
+    first.fail();
+    expect(onError).toHaveBeenCalledTimes(1);
+
+    vi.advanceTimersByTime(500);
+    expect(FakeEventSource.instances).toHaveLength(2);
+    expect(FakeEventSource.instances[1].url).toContain('after=2');
+
+    stop();
+  });
+
+  it('ignores malformed items and keeps the stream open', () => {
+    const onItem = vi.fn();
+    const stop = subscribeHistory('s2', 0, vi.fn(), onItem);
+
+    const source = FakeEventSource.instances[0];
+    source.message({ seq: 1, id: 'h1', kind: 'tool' });
+    source.message({ seq: 2, kind: 'prompt', text: 'no id' });
+
+    expect(onItem).not.toHaveBeenCalled();
 
     stop();
   });

@@ -346,7 +346,8 @@ export type AuxEvent =
   | { type: 'request.updated'; request: SessionRequest }
   | { type: 'sharedfile.created'; file: SharedFile }
   | { type: 'notification'; notification: Notification }
-  | { type: 'provider.updated'; provider: Provider };
+  | { type: 'provider.updated'; provider: Provider }
+  | { type: 'history.appended'; sessionId: string; item: HistoryItem };
 
 export interface HealthResponse {
   ok: boolean;
@@ -507,6 +508,25 @@ export interface OutputChunk {
   seq: number;
   data: string;
   gap?: OutputGap;
+}
+
+export type HistoryKind = 'prompt' | 'reply' | 'tool';
+export type HistoryState = 'streaming' | 'running' | 'done' | 'failed';
+
+export interface HistoryItem {
+  seq: number;
+  id: string;
+  kind: HistoryKind;
+  tool?: string;
+  text: string;
+  state: HistoryState;
+  gap?: OutputGap;
+}
+
+export interface HistoryStatus {
+  type: 'history.state';
+  structured: boolean;
+  client: Client | null;
 }
 
 export interface SessionUpdatedEvent {
