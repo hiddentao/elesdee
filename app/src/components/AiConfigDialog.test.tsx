@@ -41,6 +41,8 @@ const option: ProviderOption = {
   defaultModel: null,
   custom: false,
   signInClient: null,
+  balanceSource: true,
+  minimumBalanceDefault: 5,
 };
 
 function jsonResponse(body: unknown): Response {

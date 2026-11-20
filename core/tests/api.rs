@@ -2352,6 +2352,147 @@ async fn auto_switch_prefers_subscriptions_then_crosses_to_pay_per_use() {
 }
 
 #[tokio::test]
+async fn auto_switch_follows_the_prepaid_minimum_balance() {
+    let data_dir = TempDirectory::new("balance-data");
+    let repo = TempDirectory::new("balance-repo");
+    init_git_repo(&repo.path);
+    let app = router(
+        AppState::with_test_command_and_data_dir(
+            vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+            data_dir.path.clone(),
+        )
+        .with_test_pause_grace(Duration::from_millis(50)),
+    );
+    ensure_test_project(&app, &repo.path).await;
+    let starter = create_test_subscription_account(&app, "Balance Claude", "anthropic").await;
+    let deepseek =
+        create_test_account_for(&app, "Balance DeepSeek", "deepseek", "sk-balance").await;
+
+    let (status, provider) = call(
+        &app,
+        "GET",
+        &format!("/api/providers/{deepseek}/usage"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{provider}");
+    assert_eq!(provider["minimumBalance"], json!(5.0), "the default floor");
+    let (status, cleared) = call(
+        &app,
+        "PATCH",
+        &format!("/api/providers/{deepseek}"),
+        Some(json!({ "minimumBalance": null })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{cleared}");
+    assert!(
+        cleared["minimumBalance"].is_null(),
+        "an explicit null clears"
+    );
+    let (status, _) = call(
+        &app,
+        "PATCH",
+        &format!("/api/providers/{deepseek}"),
+        Some(json!({ "minimumBalance": -1 })),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::BAD_REQUEST,
+        "a negative floor is refused"
+    );
+    let (status, updated) = call(
+        &app,
+        "PATCH",
+        &format!("/api/providers/{deepseek}"),
+        Some(json!({ "minimumBalance": 10 })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{updated}");
+    assert_eq!(updated["minimumBalance"], json!(10.0));
+
+    let set_balance = |balance: &'static str| {
+        let app = app.clone();
+        let deepseek = deepseek.clone();
+        async move {
+            let (status, _) = call(
+                &app,
+                "POST",
+                &format!("/api/providers/{deepseek}/usage"),
+                Some(json!({
+                    "rows": [{
+                        "label": "Balance",
+                        "window": "balance",
+                        "value": balance
+                    }]
+                })),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK);
+        }
+    };
+
+    set_balance("USD 11.00").await;
+
+    let (status, session) = call(
+        &app,
+        "POST",
+        "/api/sessions",
+        Some(json!({
+            "projectId": "web",
+            "kind": "agent",
+            "accountId": &starter,
+            "allowedAccountIds": [&starter, &deepseek],
+            "name": "Balance switch",
+            "folder": repo.path.to_string_lossy()
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let id = session["id"].as_str().expect("session id").to_owned();
+
+    let (status, _) = call(
+        &app,
+        "POST",
+        &format!("/api/providers/{starter}/usage"),
+        Some(json!({ "rows": [{ "label": "Weekly", "used": 95 }] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let switched = wait_for_session(&app, &id, |session| session["providerId"] == deepseek).await;
+    assert_eq!(
+        switched["workState"], "working",
+        "a balance above the floor has room"
+    );
+
+    set_balance("USD 10.00").await;
+    let paused = wait_for_session(&app, &id, |session| session["workState"] == "paused").await;
+    assert_eq!(
+        paused["providerId"], deepseek,
+        "a balance at the floor has no room"
+    );
+
+    set_balance("USD 9.99").await;
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    assert_eq!(
+        bootstrap_session(&bootstrap, &id)["workState"],
+        "paused",
+        "a balance below the floor has no room"
+    );
+
+    set_balance("USD 10.01").await;
+    let resumed = wait_for_session(&app, &id, |session| session["workState"] == "working").await;
+    assert_eq!(
+        resumed["providerId"], deepseek,
+        "the floor is a strict boundary"
+    );
+
+    let (status, _) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
 async fn auto_switch_keeps_the_current_client_when_subscriptions_tie() {
     let data_dir = TempDirectory::new("tie-data");
     let repo = TempDirectory::new("tie-repo");
@@ -3486,6 +3627,7 @@ async fn opencode_sessions_get_the_full_skill_set() {
         connected: true,
         plan: "team".to_owned(),
         rows: Vec::new(),
+        minimum_balance: None,
         foot: String::new(),
         usage_read_at: None,
         usage_checked_at: None,

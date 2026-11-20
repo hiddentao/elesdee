@@ -542,7 +542,7 @@ export const en = {
   'usage.allAccounts': 'All providers',
   'usage.close': 'Close usage',
   'usage.percentLeft': '{percent}% left',
-  'usage.belowMinimum': 'Below the minimum balance.',
+  'usage.belowMinimum': 'At or below the minimum balance.',
   'usage.fiveHour': '5-hour limit',
   'usage.weekly': 'Weekly limit',
   'usage.balance': 'Balance',
@@ -800,6 +800,11 @@ export const en = {
   'providers.errorServer': 'Enter the server URL.',
   'providers.errorAdd': 'The provider was not added. Try again.',
   'providers.errorSave': 'The provider was not saved. Try again.',
+  'providers.minimumBalance': 'Minimum balance',
+  'providers.minimumBalanceWithCurrency': 'Minimum balance ({currency})',
+  'providers.minimumBalanceHint':
+    'Auto-switch moves the session away when the balance is at or below this value.',
+  'providers.errorMinimumBalance': 'Enter a minimum balance of zero or more.',
 
   'configs.add': 'Add AI config',
   'configs.addTitle': 'Add AI config',

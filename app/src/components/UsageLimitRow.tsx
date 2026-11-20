@@ -8,11 +8,17 @@ import {
   rowWarn,
 } from '../state/usage';
 
-export function UsageLimitRow({ row }: { row: UsageRow }) {
+export function UsageLimitRow({
+  row,
+  minimum,
+}: {
+  row: UsageRow;
+  minimum?: number | null;
+}) {
   const { t, language } = useLanguage();
   const remaining = rowRemaining(row);
-  const warn = rowWarn(row);
-  const lowBalance = balanceBelowMin(row);
+  const warn = rowWarn(row, minimum);
+  const lowBalance = balanceBelowMin(row, minimum);
   const classes = [
     'usage-limit',
     warn ? 'is-warn' : '',

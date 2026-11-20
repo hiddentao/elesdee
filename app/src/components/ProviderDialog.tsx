@@ -13,6 +13,7 @@ import type {
 } from '../api/types';
 import type { MessageKey } from '../i18n';
 import { useLanguage } from '../i18n/LanguageProvider';
+import { balanceCurrency } from '../state/usage';
 import { Dialog } from './Dialog';
 import { AlertIcon } from './icons';
 
@@ -34,6 +35,7 @@ type ApiStyle = 'openai' | 'anthropic';
 interface FormErrors {
   key?: string;
   server?: string;
+  minimumBalance?: string;
   form?: string;
 }
 
@@ -73,6 +75,20 @@ function isActive(signIn: ProviderSignIn | null): boolean {
   return signIn !== null && ACTIVE_STATES.includes(signIn.state);
 }
 
+function initialMinimumBalance(
+  provider: Provider | null,
+  option: ProviderOption | null,
+): string {
+  if (provider) {
+    return provider.minimumBalance != null
+      ? String(provider.minimumBalance)
+      : '';
+  }
+  return option?.minimumBalanceDefault != null
+    ? String(option.minimumBalanceDefault)
+    : '';
+}
+
 export function ProviderDialog({
   provider = null,
   options,
@@ -95,6 +111,13 @@ export function ProviderDialog({
   const [name, setName] = useState(provider?.name ?? '');
   const [apiKey, setApiKey] = useState('');
   const [server, setServer] = useState(provider?.server ?? '');
+  const [minimumBalance, setMinimumBalance] = useState(() =>
+    initialMinimumBalance(
+      provider,
+      options.find((item) => item.id === (provider?.vendor ?? first?.id)) ??
+        null,
+    ),
+  );
   const [errors, setErrors] = useState<FormErrors>({});
   const [submitting, setSubmitting] = useState(false);
   const [signIn, setSignIn] = useState<ProviderSignIn | null>(null);
@@ -106,6 +129,8 @@ export function ProviderDialog({
   const option = options.find((item) => item.id === vendor) ?? null;
   const showKey = auth === 'key';
   const showServer = needsServer(vendor, auth) || Boolean(provider?.server);
+  const balanceSource = option?.balanceSource ?? false;
+  const currency = provider ? balanceCurrency(provider) : null;
   const signInClient = option?.signInClient ?? null;
   const subscription = auth === 'subscription' && signInClient !== null;
   const signingIn = isActive(signIn);
@@ -160,6 +185,13 @@ export function ProviderDialog({
     const next = options.find((item) => item.id === id) ?? null;
     setVendor(id);
     setAuth(next?.auth[0] ?? 'key');
+    if (next?.balanceSource && minimumBalance.trim() === '') {
+      setMinimumBalance(
+        next.minimumBalanceDefault != null
+          ? String(next.minimumBalanceDefault)
+          : '',
+      );
+    }
     setErrors({});
   }
 
@@ -256,6 +288,15 @@ export function ProviderDialog({
     if (showServer && server.trim() === '') {
       nextErrors.server = t('providers.errorServer');
     }
+    let minimum: number | null = null;
+    if (balanceSource && minimumBalance.trim() !== '') {
+      const value = Number(minimumBalance.trim());
+      if (!Number.isFinite(value) || value < 0) {
+        nextErrors.minimumBalance = t('providers.errorMinimumBalance');
+      } else {
+        minimum = value;
+      }
+    }
     if (Object.keys(nextErrors).length > 0) {
       setErrors(nextErrors);
       return;
@@ -276,6 +317,9 @@ export function ProviderDialog({
     }
     if (option?.custom) {
       input.apiStyle = apiStyle;
+    }
+    if (balanceSource) {
+      input.minimumBalance = minimum;
     }
 
     setErrors({});
@@ -469,6 +513,42 @@ export function ProviderDialog({
               {errors.server ? (
                 <p className="field-error" role="alert">
                   {errors.server}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+
+          {balanceSource ? (
+            <div className="field">
+              <label htmlFor="provider-minimum-balance">
+                {currency
+                  ? t('providers.minimumBalanceWithCurrency', { currency })
+                  : t('providers.minimumBalance')}
+              </label>
+              <input
+                id="provider-minimum-balance"
+                className="text-input"
+                type="number"
+                min="0"
+                step="any"
+                inputMode="decimal"
+                value={minimumBalance}
+                disabled={signingIn}
+                aria-invalid={errors.minimumBalance ? true : undefined}
+                onChange={(event) => {
+                  setMinimumBalance(event.target.value);
+                  setErrors((current) => ({
+                    ...current,
+                    minimumBalance: undefined,
+                  }));
+                }}
+              />
+              <p className="field-hint">
+                {t('providers.minimumBalanceHint')}
+              </p>
+              {errors.minimumBalance ? (
+                <p className="field-error" role="alert">
+                  {errors.minimumBalance}
                 </p>
               ) : null}
             </div>

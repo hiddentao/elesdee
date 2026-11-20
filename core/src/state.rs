@@ -338,8 +338,6 @@ pub struct UsageRow {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub value: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub min: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub warn: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resets_at: Option<i64>,
@@ -366,6 +364,10 @@ pub struct Provider {
     pub connected: bool,
     pub plan: String,
     pub rows: Vec<UsageRow>,
+    /// The prepaid balance floor. Auto-switch treats a balance at or below it
+    /// as out of room. A provider without a balance source has no value.
+    #[serde(default)]
+    pub minimum_balance: Option<f64>,
     pub foot: String,
     #[serde(default)]
     pub usage_read_at: Option<String>,
@@ -508,6 +510,7 @@ pub fn migrate_legacy(accounts: Vec<LegacyAccount>, presets: Vec<LegacyPreset>) 
             connected: account.auth != Auth::Subscription,
             plan: account.plan,
             rows: account.rows,
+            minimum_balance: None,
             foot: account.foot,
             usage_read_at: account.usage_read_at,
             usage_checked_at: account.usage_checked_at,

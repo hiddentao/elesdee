@@ -122,7 +122,7 @@ Claude Code, Codex and OpenCode 2 send permission requests to the app, so those 
 
 Provider usage appears where the provider reports a number. A Google provider has no official usage source, so it shows **No usage data**. Usage belongs to the computer and is not part of a session.
 
-When a usage report shows 90% or more used, or a prepaid balance falls below its minimum, the app moves the session to an allowed AI config whose provider has room. Subscription providers come first, then pay-per-use providers; within each group it takes the provider with the most room, and a tie keeps the current client. It skips sample providers and providers without usage data. If no allowed config has room, the session pauses and keeps its worktree. It resumes by itself when an allowed config has room again. You can also choose **Resume** in the session.
+When a usage report shows 90% or more used, or a prepaid balance is at or below its minimum, the app moves the session to an allowed AI config whose provider has room. Set the minimum balance in the provider form; a DeepSeek provider starts with 5 in the currency the provider reports. Subscription providers come first, then pay-per-use providers; within each group it takes the provider with the most room, and a tie keeps the current client. It skips sample providers and providers without usage data. If no allowed config has room, the session pauses and keeps its worktree. It resumes by itself when an allowed config has room again. You can also choose **Resume** in the session.
 
 Set the AI configs a session may use in the launch form, or edit them in the switch chooser while it runs. A new session allows the configs of its starting client. The config in use always stays allowed.
 
