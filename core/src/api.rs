@@ -14,7 +14,7 @@ use axum::http::{HeaderName, HeaderValue, Method, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::sse::{Event, Sse};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, patch, post};
+use axum::routing::{delete, get, patch, post};
 use axum::{Json, Router};
 use chrono::{SecondsFormat, Utc};
 use futures::Stream;
@@ -28,6 +28,7 @@ use crate::claude;
 use crate::clients;
 use crate::files;
 use crate::git;
+use crate::link::{ApproveFailure, PairReject};
 use crate::seed;
 use crate::sessions::{
     self, BeginPermission, CloseFailure, InputFailure, PermissionAnswerFailure, ResizeFailure,
@@ -36,7 +37,7 @@ use crate::sessions::{
 use crate::shortcuts;
 use crate::slug::slugify;
 use crate::state::{
-    Account, AppState, Auth, Bootstrap, Client, DeleteSessionFailure, HealthResponse,
+    Account, AppState, Auth, Bootstrap, Client, DeleteSessionFailure, HealthResponse, PairedDevice,
     PendingPermission, PermissionDecision, Project, Question, QuestionFailure, Session,
     SessionEvent, SessionKind, SessionState, WorkState,
 };
@@ -139,6 +140,13 @@ impl ApiError {
     fn internal(message: impl Into<String>) -> Self {
         Self {
             status: StatusCode::INTERNAL_SERVER_ERROR,
+            message: message.into(),
+        }
+    }
+
+    fn service_unavailable(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::SERVICE_UNAVAILABLE,
             message: message.into(),
         }
     }
@@ -368,6 +376,17 @@ pub fn router(state: AppState) -> Router {
             "/api/session-requests/{id}/deny",
             post(deny_session_request),
         )
+        .route(
+            "/api/pairing",
+            post(create_pairing)
+                .get(pairing_status)
+                .delete(cancel_pairing),
+        )
+        .route("/api/pairing/qr", get(pairing_qr))
+        .route("/api/pairing/approve", post(approve_pairing))
+        .route("/api/pairing/deny", post(deny_pairing))
+        .route("/api/devices", get(list_devices))
+        .route("/api/devices/{id}", delete(remove_device))
         .route("/api/sessions", post(create_session))
         .route(
             "/api/sessions/{id}",
@@ -403,12 +422,12 @@ async fn request_guard(request: Request, next: Next) -> Response {
         Err(error) => return security_headers(error.into_response()),
     };
 
-    if request.method() == Method::POST || request.method() == Method::PATCH {
-        if let Err(error) = validate_content_type(&request) {
-            let mut response = error.into_response();
-            apply_cors(&mut response, origin.as_deref(), false);
-            return security_headers(response);
-        }
+    if (request.method() == Method::POST || request.method() == Method::PATCH)
+        && let Err(error) = validate_content_type(&request)
+    {
+        let mut response = error.into_response();
+        apply_cors(&mut response, origin.as_deref(), false);
+        return security_headers(response);
     }
 
     if request.method() == Method::OPTIONS {
@@ -555,6 +574,91 @@ async fn health(State(state): State<AppState>) -> Json<HealthResponse> {
 
 async fn bootstrap(State(state): State<AppState>) -> Json<Bootstrap> {
     Json(state.bootstrap())
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PairingCreated {
+    expires_at: u64,
+    relay_ready: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ticket: Option<String>,
+}
+
+async fn create_pairing(State(state): State<AppState>) -> Result<Json<PairingCreated>, ApiError> {
+    let created = state
+        .link()
+        .create_ticket(crate::link::now_unix(), true)
+        .await
+        .map_err(pairing_error)?;
+    let debug_ticket = cfg!(debug_assertions) && std::env::var_os("ELESDEE_DEV").is_some();
+    Ok(Json(PairingCreated {
+        expires_at: created.expires_at,
+        relay_ready: created.relay_ready,
+        ticket: debug_ticket.then_some(created.ticket),
+    }))
+}
+
+fn pairing_error(reject: PairReject) -> ApiError {
+    match reject {
+        PairReject::NotReady => ApiError::service_unavailable(reject.message()),
+        PairReject::InvalidRequest(_) => ApiError::internal(reject.message()),
+        _ => ApiError::conflict(reject.message()),
+    }
+}
+
+async fn pairing_status(State(state): State<AppState>) -> Json<crate::link::PairingSnapshot> {
+    Json(state.link().snapshot(crate::link::now_unix()))
+}
+
+async fn pairing_qr(State(state): State<AppState>) -> Result<Response, ApiError> {
+    let Some(ticket) = state.link().active_ticket(crate::link::now_unix()) else {
+        return Err(ApiError::not_found("There is no active pairing code."));
+    };
+    let png = crate::link::qr::ticket_png(&ticket).map_err(|error| {
+        tracing::error!(%error, "could not render the pairing QR code");
+        ApiError::internal("Could not render the pairing code.")
+    })?;
+    Ok(([(CONTENT_TYPE, HeaderValue::from_static("image/png"))], png).into_response())
+}
+
+async fn approve_pairing(State(state): State<AppState>) -> Result<Json<PairedDevice>, ApiError> {
+    match state.link().approve(&state) {
+        Ok(device) => Ok(Json(device)),
+        Err(ApproveFailure::NoPending) => {
+            Err(ApiError::conflict("No phone is waiting for confirmation."))
+        }
+        Err(ApproveFailure::DeviceLimit) => Err(ApiError::conflict(
+            "This computer reached its paired phone limit.",
+        )),
+    }
+}
+
+async fn deny_pairing(State(state): State<AppState>) -> StatusCode {
+    state.link().deny();
+    StatusCode::NO_CONTENT
+}
+
+async fn cancel_pairing(State(state): State<AppState>) -> StatusCode {
+    state.link().cancel();
+    StatusCode::NO_CONTENT
+}
+
+async fn list_devices(State(state): State<AppState>) -> Json<Vec<PairedDevice>> {
+    Json(state.paired_devices())
+}
+
+async fn remove_device(
+    State(state): State<AppState>,
+    UrlPath(id): UrlPath<String>,
+) -> Result<StatusCode, ApiError> {
+    if !state.remove_paired_device(&id) {
+        return Err(ApiError::not_found("Unknown device."));
+    }
+    state.save();
+    state.link().mark_revoked(&id);
+    state.link().revoke_connections(&id);
+    Ok(StatusCode::NO_CONTENT)
 }
 
 async fn list_projects(
@@ -2692,44 +2796,7 @@ fn tool_summary(tool: &str, input: Option<&serde_json::Value>) -> String {
 }
 
 fn non_empty_hook_text(value: &str, limit: usize) -> Option<String> {
-    let collapsed = value
-        .chars()
-        .map(|character| {
-            if character.is_control() || is_invisible_format(character) {
-                ' '
-            } else {
-                character
-            }
-        })
-        .collect::<String>()
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ");
-    if collapsed.is_empty() {
-        return None;
-    }
-    Some(collapsed.chars().take(limit).collect())
-}
-
-fn is_invisible_format(character: char) -> bool {
-    let code = character as u32;
-    matches!(
-        code,
-        0x00AD | 0x061C | 0x06DD | 0x070F | 0x08E2 | 0x180E | 0xFEFF | 0x110BD | 0x110CD | 0xE0001
-    ) || (0x0600..=0x0605).contains(&code)
-        || (0x0890..=0x0891).contains(&code)
-        || (0x200B..=0x200F).contains(&code)
-        || (0x202A..=0x202E).contains(&code)
-        || (0x2060..=0x2064).contains(&code)
-        || (0x2066..=0x206F).contains(&code)
-        || (0xFFF9..=0xFFFB).contains(&code)
-        || (0x13430..=0x1343F).contains(&code)
-        || (0x1BCA0..=0x1BCA3).contains(&code)
-        || (0x1D173..=0x1D17A).contains(&code)
-        || (0xE0020..=0xE007F).contains(&code)
-        || (0xE000..=0xF8FF).contains(&code)
-        || (0xF0000..=0xFFFFD).contains(&code)
-        || (0x100000..=0x10FFFD).contains(&code)
+    crate::text::clean_label(value, limit)
 }
 
 async fn not_found() -> ApiError {

@@ -1,6 +1,6 @@
 # Phone shell, pairing and remote connection
 
-Status: design. Step 1, the shared `link` crate, is implemented. The core endpoint, phone shell and UI are not built.
+Status: design. Step 1, the shared `link` crate, and step 2, the core endpoint and pairing, are implemented. The phone shell and UI are not built.
 
 Read this with `.dev/SPEC.md` (Mobile companion app, Connection technology), `.dev/api.md` and `docs/phone.md`.
 
@@ -31,7 +31,9 @@ Use iroh. The core service and the phone shell each run an iroh endpoint. Each e
 
 Pin exact versions with a committed `Cargo.lock`. iroh 1.5.0 requires Rust 1.91. Raise the `rust-version` of `core` and the new crates to 1.91. The desktop Tauri shell does not depend on iroh and keeps its current MSRV.
 
-Step 1 is implemented in `link/`. The crate pins `iroh` 1.5.0, `iroh-tickets` 1.0.0, `iroh-mdns-address-lookup` 0.6.1 (optional, behind the `mdns` feature), `blake3` 1.8.7, `subtle` 2.6.1, `zeroize` 1.9.2 and `postcard` 1.1.3. Its `Cargo.lock` pins `serde` 1.0.229 and `serde_json` 1.0.154. The crate sets `rust-version = "1.91"`; `core` keeps its current MSRV until step 2 adds the endpoint. The crate holds the device identity, the pairing ticket and session, request and response framing, the method allowlist and the size and count limits. It has unit tests and a loopback test with two iroh endpoints.
+Step 1 is implemented in `link/`. The crate pins `iroh` 1.5.0, `iroh-tickets` 1.0.0, `iroh-mdns-address-lookup` 0.6.1 (optional, behind the `mdns` feature), `blake3` 1.8.7, `subtle` 2.6.1, `zeroize` 1.9.2 and `postcard` 1.1.3. Its `Cargo.lock` pins `serde` 1.0.229 and `serde_json` 1.0.154. The crate sets `rust-version = "1.91"`. The crate holds the device identity, the pairing ticket and session, request and response framing, the method allowlist and the size and count limits. It has unit tests and a loopback test with two iroh endpoints.
+
+Step 2 is implemented in `core/src/link/`. The core raises `rust-version` to 1.91, depends on `elesdee-link` and `iroh` 1.5.0, and pins `qrcode` 0.15.0 and `image` 0.25 for the QR PNG. The desktop Tauri shell still does not depend on iroh.
 
 The iroh API changes often. Keep the surface small: `Endpoint::builder(presets::N0)`, `.alpns`, `.address_lookup`, `.bind`, `Endpoint::connect`, `Connection::{open_bi, accept_bi, remote_id, close}`, `protocol::Router`, and `iroh_tickets::Ticket`. Run the link tests on every upgrade.
 
@@ -81,6 +83,8 @@ Phone
 | `app/src/api/transport.ts` | Transport adapter: HTTP for the browser, Tauri bridge for the phone. |
 | `app/vite.phone.config.ts` | Builds the phone UI package from the same React source. |
 | `scripts/package-phone-ui.mjs` | Zips the phone UI, hashes it and writes the manifest. |
+
+Step 2 files: `core/src/link/mod.rs` holds the endpoint and service, `identity.rs` the private key file, `hub.rs` the pairing state, device access and live connections, `pair.rs` the pair ALPN, `app.rs` the app ALPN and dispatch, `wire.rs` the pair messages, and `qr.rs` the PNG. The integration tests are in `core/tests/link.rs`.
 
 Data flow:
 
@@ -132,6 +136,8 @@ let router = Router::builder(endpoint)
 - Start the endpoint after the state loads. If the UDP socket cannot bind, log the error and keep the local API running. Pairing returns 503 until the endpoint is up.
 - On shutdown, `router.shutdown().await` and `endpoint.close().await`.
 
+Step 2 implements this in `core/src/link/mod.rs`. The identity load happens before the bind. The bind uses the production preset and registers the three ALPNs. A forward connection is closed at once because forwarding is not built. A bind failure leaves the hub unavailable, and the local API still starts.
+
 ### 3.4 Framing
 
 One bidirectional stream carries one request and its response.
@@ -146,6 +152,10 @@ One bidirectional stream carries one request and its response.
 - Failure: `{"v":1,"ok":false,"error":{"code":"conflict","message":"..."}}`
 - If the header has `bytes`, exactly that many binary bytes follow. Uploads are capped at 25 MiB. The UI package is capped at 64 MiB.
 - A streaming response starts with `{"v":1,"ok":true,"stream":true}`. Each later message is a framed JSON event. The stream stays open until the request ends or the connection closes.
+
+Step 2 uses this framing for the app ALPN. The pairing handshake has its own small frame: a four-byte big-endian JSON length followed by the JSON, capped at 16 KiB. The phone sends `{ v, secret, name, platform, bridgeVersion, protocolMin, protocolMax }`, where `secret` is base32 without padding. The computer first answers `{ v, ok: true, status: "confirm", code, computerId, computerName, protocolVersion, minBridgeVersion }`, then one final `{ v, ok: true, status: "paired" }` or `{ v, ok: false, status, message }`.
+
+On the app ALPN, step 2 reads the four-byte header length and checks it against the 1 MiB cap before it allocates the header. It reads the header, checks the declared body length against the 25 MiB cap, and only then reads the body. A frame over either cap gets `too_large` without a large allocation.
 
 Limits:
 
@@ -215,6 +225,8 @@ Dispatch reuses the core code. It does not copy handlers:
 
 The desktop must authorize the connection key once, at accept. It does not re-check the key on each request. A revoked device has its live connections closed by the device store.
 
+Step 2 implements the accept check and answers `bootstrap` on a request stream. It does not send `hello` or `welcome`, open event or output streams, or hold an output permit yet.
+
 ### 3.6 Reconnect and resume
 
 | Event | Phone behavior |
@@ -259,6 +271,8 @@ struct PairTicket {
 - The secret crosses the connection inside iroh's end-to-end encryption. The relay sees only ciphertext.
 - One pairing session per computer. A new request cancels the old one. The pair handler closes every connection when no session is active.
 
+Step 2 implements the ticket and the QR. The QR is rendered in memory in `core/src/link/qr.rs`; the ticket is never written to disk or a log.
+
 ### 4.2 Lifetime
 
 | Item | Value |
@@ -270,6 +284,8 @@ struct PairTicket {
 | Long-lived token | None |
 
 There is no session token after pairing. The phone's endpoint key is the credential. The desktop authorizes that key against the paired device list. Revocation removes the key.
+
+Step 2 implements these values. The confirmation code is stored only while the state is `confirm`. A used or cancelled session keeps a marker, so a replay gets `used` or `cancelled` instead of a silent close.
 
 ### 4.3 Flow
 
@@ -324,6 +340,8 @@ The code confirms that the phone on the channel holds the secret. It does not pr
 - The local API is the only way to read the device list. A phone cannot list other phones.
 - A 17th pairing returns `conflict`.
 
+Step 2 implements this. The core test checks that `state.json` has `pairedDevices` and neither the pairing secret nor a device key.
+
 ### 4.5 Revocation
 
 - Settings, Devices, Remove deletes the record, closes live connections with code 3, and saves state.
@@ -350,6 +368,8 @@ These routes are local only. They are never reachable through the link.
 - A debug build also returns `ticket` from `POST /api/pairing` when `ELESDEE_DEV=1`. This is the emulator paste fallback. Release builds omit it.
 - Approve returns 409 when no phone is waiting for confirmation. Deny and cancel return 204 in every state.
 - Remove returns 404 for an unknown device.
+
+These routes are implemented in `core/src/api.rs`. `POST /api/pairing` returns 503 until the endpoint is up. The QR route returns 404 outside `waiting`.
 
 ## 5. Phone UI delivery
 
@@ -504,6 +524,8 @@ interface Transport {
 - A compromised phone has the user's session access until the user removes the device.
 - There is no app lock. The phone's screen lock is the control, as the spec says.
 
+Step 2 implements the key check at accept, the method allowlist and the frame limits. The phone cannot read the device list, write a file or send session input.
+
 ### 6.2 What the phone may call
 
 | Method | Maps to | Notes |
@@ -544,6 +566,10 @@ The phone cannot call:
 - Any `/internal/*` route
 
 The link server rejects an unknown method with `forbidden`. A test compares the allowlist table with the local router, so a new route does not become reachable by accident.
+
+Step 2 answers only `bootstrap`, which returns the project, account, session and question snapshot. Every other allowlisted method returns `unsupported`; file writes and session input are not exposed. The step 4 change adds the rest.
+
+A phone never chooses a job folder. When remote session creation is added, it starts in the project folder, and the link drops any `folder` parameter from a `sessions.create` request before a handler sees it.
 
 Account keys never cross the link. The existing account response omits them.
 
@@ -589,7 +615,7 @@ Each step ends with an end-to-end test.
 | Step | Scope | End-to-end test |
 | --- | --- | --- |
 | 1. Link crate | Versions, `PairTicket`, framing, method enum, allowlist, limits, error codes. Files: `link/`. | Unit tests: ticket round trip, tampered ticket rejected, frame over the limit rejected, unknown method rejected, golden strings. |
-| 2. Core endpoint and pairing | Persistent key, endpoint start, pairing state machine, QR PNG, device store, local pairing and device routes. Files: `core/src/link/`, `core/src/state.rs`, `core/src/api.rs`. | Rust integration: start two endpoints on loopback with `presets::Minimal`. Pair, reuse the secret, expire the ticket, fail five times, cancel, remove a device, reconnect with an unknown key. Local API test: QR returns, polling reaches `confirm`, approve stores the device, state reloads, no secret in `state.json`. |
+| 2. Core endpoint and pairing | **Implemented.** Persistent key, endpoint start, pairing state machine, QR PNG, device store, local pairing and device routes. Files: `core/src/link/`, `core/src/state.rs`, `core/src/api.rs`. | **Implemented.** Rust integration with two real loopback endpoints: pair once and read the session snapshot, reject a second use of the ticket, reject an expired ticket, reject a removed device. Local API: QR returns, polling reaches `confirm`, approve stores the device, state reloads with no secret. Unit tests cover five wrong secrets, cancel, deny and the 16-device limit. |
 | 3. Phone shell and pairing screen | Tauri mobile project, `lib.rs` entry point, identity key, link client, custom protocol for shell screens, QR scan, paste fallback, computer list. Files: `phone-shell/`. | Android emulator: install, pair with a pasted ticket against a core on the host, list the computer, restart and keep it. Real Android phone: camera scan on Wi-Fi and on mobile data. Screenshot check at 390 width in both themes. |
 | 4. App connection and session RPC | `hello` and `welcome`, event and output streams, unary dispatch through the local router, UI transport adapter. Files: `link/src/client.rs`, `core/src/link/app.rs`, `app/src/api/transport.ts`, `client.ts`, `events.ts`. | Rust integration: bootstrap, event delivery, output replay from a sequence, input, permission answer, question answer, session close. Denied method returns `forbidden`. Unknown key is closed. Vitest with a fake bridge. Playwright still drives the browser phone layout against the core. |
 | 5. UI package build and delivery | Vite phone config, packaging script, manifest, download, hash check, safe unzip, custom protocol serving, version gates. Files: `app/vite.phone.config.ts`, `scripts/package-phone-ui.mjs`, `core/src/link/ui.rs`, `phone-shell/src/`. | Node test: deterministic zip and matching hash. Rust test: hash mismatch rejected, traversal zip rejected, oversize rejected, atomic swap. Android: first download, desktop upgrade then phone update on connect, offline restart uses the stored build. |
@@ -622,7 +648,7 @@ First three steps in order: link crate, core endpoint and pairing, phone shell a
 | Pairing code photographed | Someone can pair within the 120-second window if they see the QR. | Keep the window short. Show the phone name and code on the computer. Test approve and deny. |
 | Android background limits | Demo forwarding stops when Android suspends the app. | Test with Chrome in front. Add a foreground service only if the test proves it is needed. |
 | Package size and startup | A large bundle slows the first connect and uses phone storage. | Measure the phone build. Cap the zip at 64 MiB and keep one previous build. |
-| iroh API churn and MSRV | iroh 1.5.0 is new and needs Rust 1.91. Upgrades may break the build. | Pin exact versions, commit the lock file, and run the link tests on every upgrade. |
+| iroh API churn and MSRV | iroh 1.5.0 is new and needs Rust 1.91. The core and link now require it; the desktop shell keeps its own MSRV. Upgrades may break the build. | Pin exact versions, commit the lock file, and run the core and link tests on every upgrade. |
 | iPhone and store rules | Apple's rules on downloaded code are a risk for the iPhone app. | Out of scope for version 1. Decide the iPhone route later, as the spec says. |
 
 The three biggest risks are iroh on Android, the Tauri mobile and barcode scanner toolchain, and the UI package's bridge access. The test build must settle all three before the rest of the phone work starts.

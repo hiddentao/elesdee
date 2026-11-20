@@ -1,5 +1,5 @@
 use std::env;
-use std::fs::{self, File};
+use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -7,11 +7,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::private_fs;
 use crate::seed;
-use crate::state::{Account, Project, Question, Session, SessionRequest};
+use crate::state::{Account, PairedDevice, Project, Question, Session, SessionRequest};
 
 const STATE_VERSION: u32 = 1;
 const STATE_FILE: &str = "state.json";
-const TEMP_FILE: &str = "state.json.tmp";
 const BAD_FILE: &str = "state.bad.json";
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -25,6 +24,8 @@ pub(crate) struct PersistedState {
     pub questions: Option<Vec<Question>>,
     #[serde(default)]
     pub session_requests: Option<Vec<SessionRequest>>,
+    #[serde(default)]
+    pub paired_devices: Vec<PairedDevice>,
     pub sessions: Vec<PersistedSession>,
 }
 
@@ -34,6 +35,7 @@ impl PersistedState {
         accounts: Option<Vec<Account>>,
         questions: Option<Vec<Question>>,
         session_requests: Option<Vec<SessionRequest>>,
+        paired_devices: Vec<PairedDevice>,
         sessions: Vec<PersistedSession>,
     ) -> Self {
         Self {
@@ -42,6 +44,7 @@ impl PersistedState {
             accounts,
             questions,
             session_requests,
+            paired_devices,
             sessions,
         }
     }
@@ -132,19 +135,7 @@ impl StateStore {
 
     pub fn save(&self, state: &PersistedState) -> io::Result<()> {
         let bytes = serde_json::to_vec_pretty(state).map_err(io::Error::other)?;
-        let temporary = self.directory.join(TEMP_FILE);
-
-        let write_result = (|| {
-            private_fs::write_private_file(&temporary, &bytes)?;
-            fs::rename(&temporary, &self.state_path)?;
-            sync_directory(&self.directory);
-            Ok(())
-        })();
-
-        if write_result.is_err() {
-            let _ = fs::remove_file(&temporary);
-        }
-        write_result
+        private_fs::write_private_file_atomic(&self.state_path, &bytes)
     }
 
     fn corrupt(&self, message: &str) -> LoadResult {
@@ -167,13 +158,3 @@ impl StateStore {
         LoadResult::Corrupt
     }
 }
-
-#[cfg(unix)]
-fn sync_directory(path: &Path) {
-    if let Ok(directory) = File::open(path) {
-        let _ = directory.sync_all();
-    }
-}
-
-#[cfg(not(unix))]
-fn sync_directory(_path: &Path) {}

@@ -6,7 +6,7 @@ order: 10
 
 # Phone layout
 
-The app has a phone-sized layout at `/phone.html`. It uses the same core service and the same sessions as the desktop window. It is a preview of the phone experience; the installable phone app and its pairing flow are not built yet.
+The app has a phone-sized layout at `/phone.html`. It uses the same core service and the same sessions as the desktop window. It is a preview of the phone experience. The core service can hold the phone link identity and pair a phone that speaks the link protocol, but the installable phone app and its QR scanner are not built.
 
 ## Language
 
@@ -30,7 +30,7 @@ The tab bar shows one session at a time. Scroll it sideways to move to the next 
 
 ## What is not built yet
 
-The phone shell, QR pairing and the remote connection are not built. The current layout opens on this computer, next to the desktop app.
+The phone shell, the QR scanner and the remote screens are not built. The core service starts the link, creates a pairing ticket and stores paired devices; only the session snapshot method is answered for a paired phone. The current layout still opens on this computer, next to the desktop app.
 
 ## Next steps
 

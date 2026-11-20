@@ -830,12 +830,11 @@ impl SessionEntry {
             {
                 return None;
             }
-            if let Some(pending) = state.pending_hook.as_ref() {
-                if pending.sender.is_some()
-                    || pending.permission.request_id == permission.request_id
-                {
-                    return None;
-                }
+            if let Some(pending) = state.pending_hook.as_ref()
+                && (pending.sender.is_some()
+                    || pending.permission.request_id == permission.request_id)
+            {
+                return None;
             }
             state.pending_hook = Some(PendingHook {
                 permission: permission.clone(),
@@ -1029,14 +1028,13 @@ impl SessionEntry {
                 let due = state
                     .last_preview_at
                     .is_none_or(|updated| updated.elapsed() >= self.preview_throttle);
-                if due {
-                    if let Some(preview) = preview_from_output(&state.preview_tail) {
-                        if preview != state.session.preview {
-                            state.session.preview = preview;
-                            state.last_preview_at = Some(Instant::now());
-                            preview_event = Some(state.session.clone());
-                        }
-                    }
+                if due
+                    && let Some(preview) = preview_from_output(&state.preview_tail)
+                    && preview != state.session.preview
+                {
+                    state.session.preview = preview;
+                    state.last_preview_at = Some(Instant::now());
+                    preview_event = Some(state.session.clone());
                 }
             }
 
@@ -1293,21 +1291,21 @@ impl Drop for PtyRuntime {
         {
             let descendants = self.leader_pid.map(collect_descendants).unwrap_or_default();
 
-            if let Some(group) = self.process_group {
-                if group > 0 {
-                    signal_group(group, libc::SIGHUP);
-                    for pid in &descendants {
-                        signal_pid(*pid, libc::SIGHUP);
-                    }
-                    thread::spawn(move || {
-                        thread::sleep(GROUP_KILL_GRACE);
-                        signal_group(group, libc::SIGKILL);
-                        for pid in descendants {
-                            signal_pid(pid, libc::SIGKILL);
-                        }
-                    });
-                    return;
+            if let Some(group) = self.process_group
+                && group > 0
+            {
+                signal_group(group, libc::SIGHUP);
+                for pid in &descendants {
+                    signal_pid(*pid, libc::SIGHUP);
                 }
+                thread::spawn(move || {
+                    thread::sleep(GROUP_KILL_GRACE);
+                    signal_group(group, libc::SIGKILL);
+                    for pid in descendants {
+                        signal_pid(pid, libc::SIGKILL);
+                    }
+                });
+                return;
             }
 
             if let Some(pid) = self.leader_pid {
@@ -1408,10 +1406,10 @@ pub fn spawn(
         });
     if let Err(error) = waiter {
         #[cfg(unix)]
-        if let Some(group) = process_group {
-            if group > 0 {
-                signal_group(group, libc::SIGKILL);
-            }
+        if let Some(group) = process_group
+            && group > 0
+        {
+            signal_group(group, libc::SIGKILL);
         }
         let mut killer = killer;
         let _ = killer.kill();
@@ -1607,11 +1605,11 @@ fn signal_group(group: u32, signal: i32) {
 
 #[cfg(unix)]
 fn signal_pid(pid: u32, signal: i32) {
-    if let Ok(pid) = i32::try_from(pid) {
-        if pid > 0 {
-            unsafe {
-                libc::kill(pid, signal);
-            }
+    if let Ok(pid) = i32::try_from(pid)
+        && pid > 0
+    {
+        unsafe {
+            libc::kill(pid, signal);
         }
     }
 }

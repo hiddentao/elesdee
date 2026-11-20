@@ -2,7 +2,7 @@ use std::env;
 use std::net::SocketAddr;
 use std::process::ExitCode;
 
-use elesdee_core::{AppState, router};
+use elesdee_core::{AppState, LinkService, router};
 use tokio::net::TcpListener;
 use tracing_subscriber::EnvFilter;
 
@@ -20,6 +20,13 @@ async fn main() -> ExitCode {
 
     init_tracing();
     let state = AppState::new_with_port(port);
+    let link = match LinkService::start(state.clone()).await {
+        Ok(link) => Some(link),
+        Err(error) => {
+            tracing::error!(%error, "the phone link is unavailable; pairing returns 503");
+            None
+        }
+    };
     let bootstrap = state.bootstrap();
     let app = router(state.clone());
     let requested = SocketAddr::from(([127, 0, 0, 1], port));
@@ -57,6 +64,9 @@ async fn main() -> ExitCode {
         }
     }
 
+    if let Some(link) = link {
+        link.shutdown().await;
+    }
     if !state.shutdown_all() {
         tracing::warn!("session shutdown timed out");
     }

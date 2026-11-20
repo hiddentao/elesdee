@@ -203,6 +203,17 @@ pub struct Notification {
     pub created_at: String,
 }
 
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PairedDevice {
+    pub endpoint_id: String,
+    pub name: String,
+    pub platform: String,
+    pub paired_at: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_seen: Option<String>,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionRequest {
@@ -330,6 +341,9 @@ impl SessionEvent {
 pub struct SessionLimitReached;
 
 #[derive(Debug)]
+pub struct PairedDeviceLimit;
+
+#[derive(Debug)]
 pub struct DuplicateProjectFolder;
 
 #[derive(Debug)]
@@ -409,6 +423,7 @@ struct Inner {
     events: broadcast::Sender<SessionEvent>,
     questions: Mutex<Vec<Question>>,
     session_requests: Mutex<Vec<SessionRequest>>,
+    paired_devices: Mutex<Vec<PairedDevice>>,
     aux_events: broadcast::Sender<AuxEvent>,
     command_override: Option<Vec<String>>,
     agent_bin: Option<PathBuf>,
@@ -426,6 +441,7 @@ struct Inner {
     agent_identity: AsyncMutex<()>,
     store: Option<Arc<StateStore>>,
     persist_lock: Mutex<()>,
+    link: crate::link::LinkHub,
 }
 
 #[derive(Clone)]
@@ -558,7 +574,7 @@ impl AppState {
         session_cap: usize,
         stall_writer: bool,
     ) -> Self {
-        let (projects, accounts, sessions, questions, session_requests) =
+        let (projects, accounts, sessions, questions, session_requests, paired_devices) =
             match store.as_ref().map(|store| store.load()) {
                 Some(LoadResult::Loaded(state)) => (
                     state.projects,
@@ -566,10 +582,12 @@ impl AppState {
                     state.sessions,
                     state.questions.unwrap_or_default(),
                     state.session_requests.unwrap_or_default(),
+                    state.paired_devices,
                 ),
                 Some(LoadResult::Missing | LoadResult::Corrupt) | None => (
                     Vec::new(),
                     seed::accounts(),
+                    Vec::new(),
                     Vec::new(),
                     Vec::new(),
                     Vec::new(),
@@ -618,6 +636,7 @@ impl AppState {
             })
             .collect();
         *lock(&state.inner.session_requests) = pending_requests;
+        *lock(&state.inner.paired_devices) = paired_devices;
         if let Some(directory) = state.data_dir() {
             crate::claude::sweep(directory);
         }
@@ -645,6 +664,7 @@ impl AppState {
                 events,
                 questions: Mutex::new(Vec::new()),
                 session_requests: Mutex::new(Vec::new()),
+                paired_devices: Mutex::new(Vec::new()),
                 aux_events,
                 command_override,
                 agent_bin: None,
@@ -662,7 +682,78 @@ impl AppState {
                 agent_identity: AsyncMutex::new(()),
                 store,
                 persist_lock: Mutex::new(()),
+                link: crate::link::LinkHub::new(),
             }),
+        }
+    }
+
+    /// Returns the shared remote-link state.
+    pub fn link(&self) -> &crate::link::LinkHub {
+        &self.inner.link
+    }
+
+    pub fn paired_devices(&self) -> Vec<PairedDevice> {
+        lock(&self.inner.paired_devices).clone()
+    }
+
+    pub fn paired_device_count(&self) -> usize {
+        lock(&self.inner.paired_devices).len()
+    }
+
+    pub fn is_paired_device(&self, endpoint_id: &str) -> bool {
+        lock(&self.inner.paired_devices)
+            .iter()
+            .any(|device| device.endpoint_id == endpoint_id)
+    }
+
+    /// Adds a paired phone, or updates the record for a phone that pairs again.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PairedDeviceLimit`] when the list is full and the phone is new.
+    pub fn add_paired_device(
+        &self,
+        device: PairedDevice,
+    ) -> Result<PairedDevice, PairedDeviceLimit> {
+        let mut devices = lock(&self.inner.paired_devices);
+        if let Some(existing) = devices
+            .iter_mut()
+            .find(|existing| existing.endpoint_id == device.endpoint_id)
+        {
+            *existing = device.clone();
+            return Ok(device);
+        }
+        if devices.len() >= elesdee_link::MAX_PAIRED_PHONES {
+            return Err(PairedDeviceLimit);
+        }
+        devices.push(device.clone());
+        Ok(device)
+    }
+
+    pub fn remove_paired_device(&self, endpoint_id: &str) -> bool {
+        let mut devices = lock(&self.inner.paired_devices);
+        let before = devices.len();
+        devices.retain(|device| device.endpoint_id != endpoint_id);
+        before != devices.len()
+    }
+
+    /// Records that a paired phone connected, at most once a minute.
+    pub fn touch_paired_device(&self, endpoint_id: &str) {
+        let now = Utc::now();
+        let mut devices = lock(&self.inner.paired_devices);
+        let Some(device) = devices
+            .iter_mut()
+            .find(|device| device.endpoint_id == endpoint_id)
+        else {
+            return;
+        };
+        let stale = device
+            .last_seen
+            .as_deref()
+            .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
+            .is_none_or(|seen| (now - seen.with_timezone(&Utc)).num_seconds() >= 60);
+        if stale {
+            device.last_seen = Some(timestamp());
         }
     }
 
@@ -1093,10 +1184,10 @@ impl AppState {
 
     pub fn remove_session(&self, id: &str) {
         let mut store = lock(&self.inner.sessions);
-        if let Some(entry) = store.entries.remove(id) {
-            if entry.is_active() {
-                store.active = store.active.saturating_sub(1);
-            }
+        if let Some(entry) = store.entries.remove(id)
+            && entry.is_active()
+        {
+            store.active = store.active.saturating_sub(1);
         }
         store.order.retain(|existing| existing != id);
     }
@@ -1165,6 +1256,7 @@ impl AppState {
             Some(self.accounts()),
             Some(self.pending_questions()),
             Some(self.pending_session_requests()),
+            self.paired_devices(),
             sessions,
         );
         if let Err(error) = store.save(&state) {

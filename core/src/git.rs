@@ -451,10 +451,10 @@ fn remote_for_branch(dir: &Path, timeout: Duration) -> Result<Option<String>, Re
         GitRun::Output(output) if output.status.success() => {
             let value = String::from_utf8_lossy(&output.stdout);
             let upstream = value.trim();
-            if let Some((remote, _)) = upstream.split_once('/') {
-                if !remote.is_empty() {
-                    return Ok(Some(remote.to_owned()));
-                }
+            if let Some((remote, _)) = upstream.split_once('/')
+                && !remote.is_empty()
+            {
+                return Ok(Some(remote.to_owned()));
             }
         }
         GitRun::Timeout => return Err(RemoteFailure::Timeout),
