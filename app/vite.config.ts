@@ -5,9 +5,17 @@ const apiPort = process.env.ELESDEE_API_PORT || '4319';
 
 export default defineConfig({
   plugins: [react()],
+  optimizeDeps: {
+    include: [
+      '@tauri-apps/api/core',
+      '@tauri-apps/api/event',
+      '@tauri-apps/api/window'
+    ]
+  },
   server: {
     port: 5173,
     strictPort: true,
+    hmr: process.env.ELESDEE_API_PORT ? false : undefined,
     proxy: {
       '/api': {
         target: `http://127.0.0.1:${apiPort}`,

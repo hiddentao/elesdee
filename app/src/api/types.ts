@@ -40,8 +40,14 @@ export interface Session {
   preview: string;
   waitingFor: WaitingFor | null;
   pendingPermission: PendingPermission | null;
+  firstPrompt?: string | null;
   startedAt: string;
   shortcuts: Shortcut[];
+}
+
+export interface Branch {
+  name: string;
+  current: boolean;
 }
 
 export interface Project {
@@ -96,6 +102,8 @@ export interface CreateSessionInput {
   accountId?: string;
   name?: string;
   folder?: string;
+  sourceBranch?: string;
+  firstPrompt?: string;
 }
 
 export interface CreateProjectInput {

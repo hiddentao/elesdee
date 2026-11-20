@@ -5,6 +5,8 @@ use std::process::{Command, Output, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use serde::Serialize;
+
 const POLL_INTERVAL: Duration = Duration::from_millis(20);
 
 #[derive(Clone, Copy)]
@@ -100,11 +102,81 @@ pub async fn branch_exists(repo_root: PathBuf, branch: String, timeout: Duration
     .unwrap_or(false)
 }
 
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BranchInfo {
+    pub name: String,
+    pub current: bool,
+}
+
+pub async fn list_branches(repo_root: PathBuf, timeout: Duration) -> Vec<BranchInfo> {
+    tokio::task::spawn_blocking(move || {
+        let current = run_git(&repo_root, ["symbolic-ref", "--short", "HEAD"], timeout);
+        let current = match current {
+            GitRun::Output(output) if output.status.success() => {
+                Some(String::from_utf8_lossy(&output.stdout).trim().to_owned())
+            }
+            _ => None,
+        };
+        let output = run_git(
+            &repo_root,
+            [
+                "for-each-ref",
+                "--format=%(refname:short)",
+                "refs/heads",
+                "refs/remotes",
+            ],
+            timeout,
+        );
+        let GitRun::Output(output) = output else {
+            return Vec::new();
+        };
+        if !output.status.success() {
+            return Vec::new();
+        }
+
+        let mut branches = String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .map(str::trim)
+            .filter(|name| !name.is_empty() && !name.ends_with("/HEAD"))
+            .map(|name| BranchInfo {
+                name: name.to_owned(),
+                current: current.as_deref() == Some(name),
+            })
+            .collect::<Vec<_>>();
+        branches.sort_by(|left, right| {
+            right
+                .current
+                .cmp(&left.current)
+                .then_with(|| left.name.cmp(&right.name))
+        });
+        branches.dedup_by(|left, right| left.name == right.name);
+        branches
+    })
+    .await
+    .unwrap_or_default()
+}
+
+pub async fn ref_exists(repo_root: PathBuf, reference: String, timeout: Duration) -> bool {
+    tokio::task::spawn_blocking(move || {
+        let revision = format!("{reference}^{{commit}}");
+        run_git(
+            &repo_root,
+            ["rev-parse", "--verify", "--end-of-options", revision.as_str()],
+            timeout,
+        )
+        .success()
+    })
+    .await
+    .unwrap_or(false)
+}
+
 pub async fn create_worktree(
     repo_root: PathBuf,
     worktrees_root: PathBuf,
     worktree: PathBuf,
     branch: String,
+    base: String,
     timeout: Duration,
 ) -> Result<(), ()> {
     tokio::task::spawn_blocking(move || {
@@ -117,7 +189,7 @@ pub async fn create_worktree(
                 OsStr::new("-b"),
                 OsStr::new(&branch),
                 worktree.as_os_str(),
-                OsStr::new("HEAD"),
+                OsStr::new(&base),
             ],
             timeout,
         );

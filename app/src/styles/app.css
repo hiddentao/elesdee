@@ -2445,6 +2445,11 @@ button:disabled {
   line-height: 1.4;
 }
 
+.prompt-input {
+  min-height: 74px;
+  resize: vertical;
+}
+
 .text-input:hover {
   border-color: var(--accent);
 }

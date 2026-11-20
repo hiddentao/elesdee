@@ -5,6 +5,9 @@ import {
   useRef,
   useState,
 } from 'react';
+import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import {
   ApiError,
   bootstrap,
@@ -36,6 +39,7 @@ import { CloseSessionDialog } from './components/CloseSessionDialog';
 import { DeleteSessionDialog } from './components/DeleteSessionDialog';
 import { FirstLaunch } from './components/FirstLaunch';
 import { NewSessionDialog } from './components/NewSessionDialog';
+import { QuitDialog } from './components/QuitDialog';
 import { RenameSessionDialog } from './components/RenameSessionDialog';
 import {
   SessionActionsMenu,
@@ -99,6 +103,7 @@ export default function App() {
   const [branchMenu, setBranchMenu] = useState<BranchMenuState | null>(null);
   const [dialogProjectId, setDialogProjectId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [quitOpen, setQuitOpen] = useState(false);
   const [toast, setToast] = useState<ToastState | null>(null);
   const [eventsPaused, setEventsPaused] = useState(false);
   const [eventAttempt, setEventAttempt] = useState(0);
@@ -112,6 +117,10 @@ export default function App() {
   sessionsRef.current = sessions;
   const activeSessionIdRef = useRef<string | null>(null);
   const activeStatusRef = useRef<Session['status'] | null>(null);
+  const allowCloseRef = useRef(false);
+  const activeSessionCount = sessions.filter(
+    (session) => session.status === 'active',
+  ).length;
 
   const load = useCallback(async () => {
     setLoadState('loading');
@@ -127,14 +136,6 @@ export default function App() {
       setAgents(report?.agents ?? []);
       setAgentsChecked(report !== null);
       setVersion(report?.version ?? null);
-      setTabsByProject({});
-      setCloseSessionId(null);
-      setRenameSessionId(null);
-      setDeleteSessionId(null);
-      setSessionMenu(null);
-      setBranchMenu(null);
-      setSettingsOpen(false);
-      setProjectDialogOpen(false);
       setActiveProjectId(
         data.sessions[0]?.projectId ?? data.projects[0]?.id ?? null,
       );
@@ -177,7 +178,8 @@ export default function App() {
     closeTarget !== null ||
     renameTarget !== null ||
     deleteTarget !== null ||
-    settingsOpen;
+    settingsOpen ||
+    quitOpen;
 
   activeSessionIdRef.current = activeSessionId;
 
@@ -231,6 +233,65 @@ export default function App() {
       () => setEventsPaused(false),
     );
   }, [loadState, eventAttempt]);
+
+  const quitNow = useCallback(async () => {
+    allowCloseRef.current = true;
+    try {
+      await invoke('quit_app');
+    } catch {
+      await getCurrentWindow().destroy();
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!tauri) {
+      return;
+    }
+
+    let disposed = false;
+    const unlisteners: Array<() => void> = [];
+
+    const requestQuit = () => {
+      const running = sessionsRef.current.some(
+        (session) => session.status === 'active',
+      );
+      if (running) {
+        setQuitOpen(true);
+      } else {
+        void quitNow();
+      }
+    };
+
+    void (async () => {
+      try {
+        const window = getCurrentWindow();
+        const stopClose = await window.onCloseRequested((event) => {
+          if (allowCloseRef.current) {
+            return;
+          }
+          event.preventDefault();
+          requestQuit();
+        });
+        const stopQuit = await listen('elesdee://quit-requested', requestQuit);
+
+        if (disposed) {
+          stopClose();
+          stopQuit();
+          return;
+        }
+        unlisteners.push(stopClose, stopQuit);
+      } catch {
+        // The Tauri window API is unavailable outside the desktop shell.
+      }
+    })();
+
+    return () => {
+      disposed = true;
+      for (const unlisten of unlisteners) {
+        unlisten();
+      }
+    };
+  }, [tauri, quitNow]);
 
   useLayoutEffect(() => {
     const status = activeSession?.status ?? null;
@@ -743,6 +804,14 @@ export default function App() {
           onCreateAccount={createAccount}
           onAccountCreated={handleAccountCreated}
           onClose={() => setSettingsOpen(false)}
+        />
+      ) : null}
+
+      {quitOpen ? (
+        <QuitDialog
+          sessionCount={activeSessionCount}
+          onConfirm={quitNow}
+          onClose={() => setQuitOpen(false)}
         />
       ) : null}
 

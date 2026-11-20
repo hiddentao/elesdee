@@ -19,4 +19,10 @@ export default async function globalSetup(): Promise<void> {
   fs.writeFileSync(path.join(repo, 'README.md'), 'elesdee e2e\n');
   git('add', '.');
   git('commit', '-qm', 'Initial commit');
+
+  git('checkout', '-qb', 'feature');
+  fs.writeFileSync(path.join(repo, 'feature.txt'), 'feature branch\n');
+  git('add', '.');
+  git('commit', '-qm', 'Feature commit');
+  git('checkout', '-q', 'main');
 }

@@ -3,6 +3,7 @@ import type {
   Account,
   ApiErrorPayload,
   BootstrapResponse,
+  Branch,
   CreateAccountInput,
   CreateProjectInput,
   CreateSessionInput,
@@ -79,6 +80,18 @@ export function listAccounts(
   const params = new URLSearchParams({ q: query });
   return request<Account[]>(
     `/api/accounts?${params.toString()}`,
+    signal ? { signal } : undefined,
+  );
+}
+
+export function listBranches(
+  folder: string,
+  query: string,
+  signal?: AbortSignal,
+): Promise<Branch[]> {
+  const params = new URLSearchParams({ folder, q: query });
+  return request<Branch[]>(
+    `/api/branches?${params.toString()}`,
     signal ? { signal } : undefined,
   );
 }

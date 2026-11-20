@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import path from 'node:path';
 import { defineConfig } from '@playwright/test';
 import { createRunDir } from './e2e/env';
@@ -5,6 +6,13 @@ import { createRunDir } from './e2e/env';
 const runDir = createRunDir();
 const corePort = 4399;
 const webPort = 5199;
+const agentStub = path.join(runDir, 'agent-stub.sh');
+
+fs.writeFileSync(
+  agentStub,
+  '#!/bin/sh\nfor arg in "$@"; do printf \'arg:%s\\n\' "$arg"; done\nwhile IFS= read -r line; do printf \'input:%s\\n\' "$line"; done\n',
+);
+fs.chmodSync(agentStub, 0o755);
 
 export default defineConfig({
   testDir: './e2e',
@@ -32,7 +40,7 @@ export default defineConfig({
   globalTeardown: './e2e/global-teardown.ts',
   webServer: [
     {
-      command: `ELESDEE_PORT=${corePort} ELESDEE_DATA_DIR=${JSON.stringify(path.join(runDir, 'data'))} cargo run --manifest-path core/Cargo.toml`,
+      command: `ELESDEE_PORT=${corePort} ELESDEE_DATA_DIR=${JSON.stringify(path.join(runDir, 'data'))} ELESDEE_AGENT_BIN=${JSON.stringify(agentStub)} cargo run --manifest-path core/Cargo.toml`,
       url: `http://127.0.0.1:${corePort}/api/health`,
       timeout: 300_000,
       reuseExistingServer: false,

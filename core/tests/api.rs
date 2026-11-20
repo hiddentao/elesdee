@@ -1061,6 +1061,192 @@ async fn agent_sessions_use_the_supplied_folder_and_unique_short_names() {
 }
 
 #[tokio::test]
+async fn branch_listing_reports_local_and_remote_branches() {
+    let repo = TempDirectory::new("branch-list");
+    init_git_repo(&repo.path);
+    assert!(
+        run_git(&repo.path, &["checkout", "-b", "feature"]).status.success(),
+        "create feature branch"
+    );
+    assert!(run_git(&repo.path, &["checkout", "main"]).status.success());
+    let app = router(AppState::ephemeral());
+    ensure_test_project(&app, &repo.path).await;
+
+    let (status, branches) = call(
+        &app,
+        "GET",
+        &format!(
+            "/api/branches?folder={}",
+            url_escape(&repo.path.to_string_lossy())
+        ),
+        None,
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK, "{branches}");
+    let branches = branches.as_array().expect("branch list");
+    let names = branches
+        .iter()
+        .map(|branch| branch["name"].as_str().unwrap_or_default())
+        .collect::<Vec<_>>();
+    assert!(names.contains(&"main"), "{names:?}");
+    assert!(names.contains(&"feature"), "{names:?}");
+    let main = branches
+        .iter()
+        .find(|branch| branch["name"] == "main")
+        .expect("main branch");
+    assert_eq!(main["current"], true);
+}
+
+#[tokio::test]
+async fn session_name_comes_from_the_first_prompt() {
+    let data_dir = TempDirectory::new("prompt-data");
+    let repo = TempDirectory::new("prompt-repo");
+    init_git_repo(&repo.path);
+    let app = router(AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    ));
+    ensure_test_project(&app, &repo.path).await;
+
+    let (status, session) = call(
+        &app,
+        "POST",
+        "/api/sessions",
+        Some(json!({
+            "projectId": "web",
+            "kind": "agent",
+            "accountId": "max",
+            "folder": repo.path.to_string_lossy(),
+            "firstPrompt": "Fix the login redirect\nand add a test"
+        })),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK, "{session}");
+    assert_eq!(session["name"], "Fix the login redirect");
+    assert_eq!(
+        session["firstPrompt"],
+        "Fix the login redirect\nand add a test"
+    );
+    let id = session["id"].as_str().expect("session id");
+    let (status, _) = close_session(&app, id).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn source_branch_sets_the_worktree_base() {
+    let data_dir = TempDirectory::new("source-data");
+    let repo = TempDirectory::new("source-repo");
+    init_git_repo(&repo.path);
+    assert!(
+        run_git(&repo.path, &["checkout", "-b", "feature"]).status.success(),
+        "create feature branch"
+    );
+    fs::write(repo.path.join("feature.txt"), "from feature\n").expect("write feature file");
+    assert!(run_git(&repo.path, &["add", "."]).status.success());
+    assert!(
+        run_git(
+            &repo.path,
+            &[
+                "-c",
+                "user.name=Test",
+                "-c",
+                "user.email=test@example.com",
+                "commit",
+                "-m",
+                "feature commit"
+            ]
+        )
+        .status
+        .success()
+    );
+    assert!(run_git(&repo.path, &["checkout", "main"]).status.success());
+    let app = router(AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    ));
+    ensure_test_project(&app, &repo.path).await;
+
+    let (status, session) = call(
+        &app,
+        "POST",
+        "/api/sessions",
+        Some(json!({
+            "projectId": "web",
+            "kind": "agent",
+            "accountId": "max",
+            "name": "From feature",
+            "folder": repo.path.to_string_lossy(),
+            "sourceBranch": "feature"
+        })),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let folder = PathBuf::from(session["folder"].as_str().expect("session folder"));
+    assert!(
+        folder.join("feature.txt").is_file(),
+        "worktree did not start from the source branch"
+    );
+    let id = session["id"].as_str().expect("session id");
+    let (status, _) = close_session(&app, id).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn unknown_source_branch_is_rejected() {
+    let data_dir = TempDirectory::new("source-missing-data");
+    let repo = TempDirectory::new("source-missing-repo");
+    init_git_repo(&repo.path);
+    let app = router(AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    ));
+    ensure_test_project(&app, &repo.path).await;
+
+    let (status, body) = call(
+        &app,
+        "POST",
+        "/api/sessions",
+        Some(json!({
+            "projectId": "web",
+            "kind": "agent",
+            "accountId": "max",
+            "name": "Missing base",
+            "folder": repo.path.to_string_lossy(),
+            "sourceBranch": "no-such-branch"
+        })),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert!(
+        body["error"]
+            .as_str()
+            .is_some_and(|error| error.contains("source branch"))
+    );
+    assert_eq!(git_ref_count(&repo.path), 1, "a failed launch left a branch");
+}
+
+fn url_escape(value: &str) -> String {
+    value
+        .replace('%', "%25")
+        .replace(' ', "%20")
+        .replace('/', "%2F")
+        .replace('?', "%3F")
+        .replace('#', "%23")
+}
+
+fn git_ref_count(repo: &Path) -> usize {
+    let output = run_git(repo, &["for-each-ref", "--format=%(refname)", "refs/heads"]);
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .count()
+}
+
+#[tokio::test]
 async fn cors_preflight_and_allowed_origin_headers() {
     let app = router(AppState::ephemeral());
     let origins = [

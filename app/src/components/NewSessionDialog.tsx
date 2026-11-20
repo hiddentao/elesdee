@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
-import { ApiError, listAccounts, listProjects } from '../api/client';
+import { ApiError, listAccounts, listBranches, listProjects } from '../api/client';
 import type {
   Account,
   Client,
@@ -64,6 +64,8 @@ export function NewSessionDialog({
   const [kind, setKind] = useState<SessionKind>('agent');
   const [client, setClient] = useState<Client | null>(null);
   const [accountId, setAccountId] = useState<string | null>(null);
+  const [sourceBranch, setSourceBranch] = useState<string | null>(null);
+  const [firstPrompt, setFirstPrompt] = useState('');
   const [name, setName] = useState('');
   const [folder, setFolder] = useState(
     () =>
@@ -110,6 +112,22 @@ export function NewSessionDialog({
     [client],
   );
 
+  const loadBranchOptions = useCallback<ComboboxLoader>(
+    async (query, signal) => {
+      const path = folder.trim();
+      if (!path) {
+        return [];
+      }
+      const list = await listBranches(path, query, signal);
+      return list.map((branch) => ({
+        id: branch.name,
+        label: branch.name,
+        tag: branch.current ? 'Current' : undefined,
+      }));
+    },
+    [folder],
+  );
+
   const selectedProject = projectId
     ? projects.find((project) => project.id === projectId) ?? null
     : null;
@@ -127,6 +145,7 @@ export function NewSessionDialog({
     const nextProject = projects.find((project) => project.id === id);
 
     setProjectId(id);
+    setSourceBranch(null);
     setErrors((current) => ({ ...current, project: undefined }));
 
     if (nextProject && (!folderEdited || folder === '')) {
@@ -195,6 +214,12 @@ export function NewSessionDialog({
 
     if (kind === 'agent') {
       input.accountId = accountId as string;
+      if (sourceBranch) {
+        input.sourceBranch = sourceBranch;
+      }
+      if (firstPrompt.trim() !== '') {
+        input.firstPrompt = firstPrompt.trim();
+      }
     }
 
     setErrors({});
@@ -375,6 +400,7 @@ export function NewSessionDialog({
               onChange={(event) => {
                 setFolder(event.target.value);
                 setFolderEdited(true);
+                setSourceBranch(null);
                 setErrors((current) => ({ ...current, folder: undefined }));
               }}
             />
@@ -389,6 +415,38 @@ export function NewSessionDialog({
               </p>
             ) : null}
           </div>
+
+          {kind === 'agent' ? (
+            <>
+              <Combobox
+                key={folder}
+                id="new-session-branch"
+                label="Source branch (optional)"
+                value={sourceBranch}
+                loadOptions={loadBranchOptions}
+                onChange={setSourceBranch}
+                placeholder="Current branch"
+                hint="The new session branch starts from this commit."
+              />
+
+              <div className="field">
+                <label htmlFor="new-session-prompt">
+                  First prompt (optional)
+                </label>
+                <textarea
+                  id="new-session-prompt"
+                  className="text-input prompt-input"
+                  value={firstPrompt}
+                  placeholder="Tell the agent what to do first"
+                  rows={3}
+                  onChange={(event) => setFirstPrompt(event.target.value)}
+                />
+                <p className="field-hint">
+                  Names the session when the name is empty.
+                </p>
+              </div>
+            </>
+          ) : null}
 
           <div className="field">
             <label htmlFor="new-session-name">Session name (optional)</label>

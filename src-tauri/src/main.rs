@@ -4,10 +4,23 @@
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 struct CoreProcess(Mutex<Option<Child>>);
+
+#[derive(Default)]
+struct QuitState {
+    confirmed: AtomicBool,
+}
+
+#[tauri::command]
+fn quit_app(app: tauri::AppHandle) {
+    let state = app.state::<QuitState>();
+    state.confirmed.store(true, Ordering::SeqCst);
+    app.exit(0);
+}
 
 fn stop_core(child: &mut Child) {
     #[cfg(unix)]
@@ -135,7 +148,12 @@ fn open_with(folder: &std::path::Path, terminal: bool) -> Result<(), String> {
 
 fn main() {
     let app = tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![open_folder, open_terminal])
+        .manage(QuitState::default())
+        .invoke_handler(tauri::generate_handler![
+            open_folder,
+            open_terminal,
+            quit_app
+        ])
         .setup(|app| {
             app.manage(CoreProcess(Mutex::new(start_core())));
             Ok(())
@@ -143,8 +161,15 @@ fn main() {
         .build(tauri::generate_context!())
         .expect("elesdee failed to start");
 
-    app.run(|app_handle, event| {
-        if let tauri::RunEvent::Exit = event {
+    app.run(|app_handle, event| match event {
+        tauri::RunEvent::ExitRequested { api, .. } => {
+            let state = app_handle.state::<QuitState>();
+            if !state.confirmed.load(Ordering::SeqCst) {
+                api.prevent_exit();
+                let _ = app_handle.emit("elesdee://quit-requested", ());
+            }
+        }
+        tauri::RunEvent::Exit => {
             let child = {
                 let state = app_handle.state::<CoreProcess>();
                 state.0.lock().ok().and_then(|mut guard| guard.take())
@@ -153,5 +178,6 @@ fn main() {
                 stop_core(&mut child);
             }
         }
+        _ => {}
     });
 }

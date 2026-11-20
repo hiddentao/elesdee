@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::env;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -152,6 +153,8 @@ pub struct Session {
     pub waiting_for: Option<WaitingFor>,
     #[serde(default)]
     pub pending_permission: Option<PendingPermission>,
+    #[serde(default)]
+    pub first_prompt: Option<String>,
     pub started_at: String,
     pub shortcuts: Vec<Shortcut>,
 }
@@ -306,6 +309,7 @@ struct Inner {
     sessions: Mutex<SessionStore>,
     events: broadcast::Sender<SessionEvent>,
     command_override: Option<Vec<String>>,
+    agent_bin: Option<PathBuf>,
     session_cap: usize,
     stall_writer: bool,
     output_budget: Arc<OutputBudget>,
@@ -342,6 +346,9 @@ impl AppState {
         );
         if let Some(inner) = Arc::get_mut(&mut state.inner) {
             inner.port = port;
+            inner.agent_bin = env::var_os("ELESDEE_AGENT_BIN")
+                .filter(|value| !value.is_empty())
+                .map(PathBuf::from);
         }
         state
     }
@@ -502,6 +509,7 @@ impl AppState {
                 sessions: Mutex::new(SessionStore::new()),
                 events,
                 command_override,
+                agent_bin: None,
                 session_cap,
                 stall_writer,
                 output_budget: Arc::new(OutputBudget::new(OUTPUT_MEMORY_LIMIT)),
@@ -851,6 +859,10 @@ impl AppState {
 
     pub fn command_override(&self) -> Option<&[String]> {
         self.inner.command_override.as_deref()
+    }
+
+    pub fn agent_bin(&self) -> Option<&Path> {
+        self.inner.agent_bin.as_deref()
     }
 
     pub fn stall_writer_for_tests(&self) -> bool {

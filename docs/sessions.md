@@ -27,10 +27,12 @@ Runs a plain shell. It has no agent, branch or worktree. The folder can be a Git
 3. Choose **Agent** or **Terminal**.
 4. For an agent session, choose a client and an account.
 5. Set the folder if you want a different one.
-6. Optionally enter a name.
-7. Choose **Start**.
+6. For an agent session, optionally choose a source branch. The new session branch starts from that commit. With no choice, it starts from the current branch.
+7. Optionally enter a first prompt. The app passes it to the agent at launch.
+8. Optionally enter a name.
+9. Choose **Start**.
 
-If you leave the name empty, an agent session is named after its client and a terminal session after its folder.
+If you leave the name empty, an agent session is named from the first prompt, or after its client when there is no prompt. A terminal session is named after its folder.
 
 At most 64 sessions can run at once. Close a session to free a slot.
 
@@ -76,7 +78,11 @@ Closing a session ends its process. The session moves to the closed list.
 
 Turn on **Show closed sessions**, open the session menu and choose **Reopen**.
 
-The app opens the session in a new tab, restores its log, and starts the agent again. A Git session gets its worktree back from the saved branch.
+The app opens the session in a new tab, restores its log, and starts the agent again. A Git session gets its worktree back from the saved branch. Claude Code and Antigravity continue their most recent conversation in that folder. Codex and OpenCode 2 start again in the restored worktree.
+
+## Quit
+
+When you quit while sessions run, the app asks first. The dialog shows how many sessions are still running. Cancel keeps working. Quit stops the sessions and closes the app. The sessions stay in the list for the next launch.
 
 ## Delete
 

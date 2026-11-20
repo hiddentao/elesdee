@@ -15,7 +15,7 @@ use tokio::sync::{Mutex as AsyncMutex, broadcast, oneshot, watch};
 
 use crate::claude;
 use crate::state::{
-    PendingPermission, PermissionDecision, Session, SessionEvent, SessionState, WaitingFor,
+    Client, PendingPermission, PermissionDecision, Session, SessionEvent, SessionState, WaitingFor,
     WorkState, lock,
 };
 
@@ -65,6 +65,25 @@ impl TerminalSize {
             pixel_width: 0,
             pixel_height: 0,
         }
+    }
+}
+
+pub fn prompt_arguments(client: Client, prompt: &str) -> Vec<String> {
+    match client {
+        Client::ClaudeCode | Client::Codex => vec![prompt.to_owned()],
+        Client::Antigravity => vec!["--prompt-interactive".to_owned(), prompt.to_owned()],
+        Client::OpenCode2 => Vec::new(),
+    }
+}
+
+pub fn client_needs_prompt_input(client: Client) -> bool {
+    client == Client::OpenCode2
+}
+
+pub fn resume_arguments(client: Client) -> &'static [&'static str] {
+    match client {
+        Client::ClaudeCode | Client::Antigravity => &["--continue"],
+        Client::Codex | Client::OpenCode2 => &[],
     }
 }
 
@@ -1507,6 +1526,7 @@ mod tests {
             preview: "keep me".to_owned(),
             waiting_for: None,
             pending_permission: None,
+            first_prompt: None,
             started_at: "2026-01-01T00:00:00Z".to_owned(),
             shortcuts: Vec::new(),
         };
@@ -1522,5 +1542,28 @@ mod tests {
 
         assert_eq!(entry.session().preview, "keep me");
         assert!(receiver.try_recv().is_err());
+    }
+
+    #[test]
+    fn clients_get_their_own_prompt_and_resume_arguments() {
+        assert_eq!(
+            prompt_arguments(Client::ClaudeCode, "fix it"),
+            vec!["fix it".to_owned()]
+        );
+        assert_eq!(
+            prompt_arguments(Client::Codex, "fix it"),
+            vec!["fix it".to_owned()]
+        );
+        assert_eq!(
+            prompt_arguments(Client::Antigravity, "fix it"),
+            vec!["--prompt-interactive".to_owned(), "fix it".to_owned()]
+        );
+        assert!(prompt_arguments(Client::OpenCode2, "fix it").is_empty());
+        assert!(client_needs_prompt_input(Client::OpenCode2));
+
+        assert_eq!(resume_arguments(Client::ClaudeCode), ["--continue"]);
+        assert_eq!(resume_arguments(Client::Antigravity), ["--continue"]);
+        assert!(resume_arguments(Client::Codex).is_empty());
+        assert!(resume_arguments(Client::OpenCode2).is_empty());
     }
 }

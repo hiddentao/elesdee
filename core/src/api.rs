@@ -154,6 +154,8 @@ struct CreateSessionRequest {
     account_id: Option<String>,
     name: Option<String>,
     folder: Option<String>,
+    source_branch: Option<String>,
+    first_prompt: Option<String>,
     cols: Option<u16>,
     rows: Option<u16>,
 }
@@ -183,6 +185,12 @@ struct CreateAccountRequest {
 
 #[derive(Debug, Deserialize)]
 struct ListQuery {
+    q: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct BranchQuery {
+    folder: String,
     q: Option<String>,
 }
 
@@ -241,6 +249,7 @@ struct PreparedSession {
     command: CommandBuilder,
     repo_root: Option<PathBuf>,
     antigravity_account: Option<String>,
+    startup_input: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -258,6 +267,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/health", get(health))
         .route("/api/bootstrap", get(bootstrap))
         .route("/api/projects", get(list_projects).post(create_project))
+        .route("/api/branches", get(list_branches))
         .route("/api/accounts", get(list_accounts).post(create_account))
         .route("/api/sessions", post(create_session))
         .route(
@@ -454,6 +464,28 @@ async fn list_projects(
     Ok(Json(projects))
 }
 
+async fn list_branches(
+    State(state): State<AppState>,
+    query: Result<Query<BranchQuery>, QueryRejection>,
+) -> Result<Json<Vec<git::BranchInfo>>, ApiError> {
+    let Query(query) = query.map_err(|_| ApiError::bad_request("Invalid branch query."))?;
+    let folder = canonical_directory(seed::expand_tilde(query.folder.trim()))?;
+    let repo_root = git::repo_root(folder, state.git_timeout())
+        .await
+        .ok_or_else(|| ApiError::unprocessable("Folder is not a Git repository."))?;
+    let mut branches = git::list_branches(repo_root, state.git_timeout()).await;
+    if let Some(filter) = query
+        .q
+        .as_deref()
+        .map(str::trim)
+        .filter(|filter| !filter.is_empty())
+        .map(str::to_lowercase)
+    {
+        branches.retain(|branch| branch.name.to_lowercase().contains(&filter));
+    }
+    Ok(Json(branches))
+}
+
 async fn list_accounts(
     State(state): State<AppState>,
     query: Result<Query<ListQuery>, QueryRejection>,
@@ -633,6 +665,7 @@ async fn create_session(
 
     let output_budget = state.output_budget();
     let session_id = prepared.session.id.clone();
+    let startup_input = prepared.startup_input.clone();
     let entry = Arc::new(SessionEntry::new(
         prepared.session,
         Arc::clone(&output_budget),
@@ -651,6 +684,31 @@ async fn create_session(
             return Err(ApiError::unprocessable(
                 "Agent sessions need a data directory.",
             ));
+        };
+        let source = match request
+            .source_branch
+            .as_deref()
+            .map(str::trim)
+            .filter(|branch| !branch.is_empty())
+        {
+            Some(branch) if !safe_branch_name(branch) => {
+                rollback_created_session(&state, &entry, &session_id, None).await;
+                return Err(ApiError::bad_request("The source branch name is not valid."));
+            }
+            Some(branch) => {
+                if !git::ref_exists(
+                    repo_root.clone(),
+                    branch.to_owned(),
+                    state.git_timeout(),
+                )
+                .await
+                {
+                    rollback_created_session(&state, &entry, &session_id, None).await;
+                    return Err(ApiError::unprocessable("The source branch does not exist."));
+                }
+                branch.to_owned()
+            }
+            None => "HEAD".to_owned(),
         };
         let base = slugify(&current.name, "session");
         let project_part = slugify(&current.project_id, "project");
@@ -677,6 +735,7 @@ async fn create_session(
             worktrees_root,
             worktree.clone(),
             branch.clone(),
+            source,
             state.git_timeout(),
         )
         .await
@@ -698,7 +757,7 @@ async fn create_session(
     if is_claude_agent {
         match install_claude_settings(&state, &entry, &session_id) {
             Ok(settings_path) => {
-                if state.command_override().is_none() {
+                if state.command_override().is_none() && state.agent_bin().is_none() {
                     claude::add_settings_argument(&mut prepared.command, &settings_path);
                 }
             }
@@ -750,6 +809,16 @@ async fn create_session(
     ) {
         rollback_created_session(&state, &entry, &session_id, worktree_cleanup).await;
         return Err(ApiError::unprocessable(error));
+    }
+
+    if let Some(prompt) = startup_input {
+        let entry = Arc::clone(&entry);
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(1200)).await;
+            let mut bytes = prompt.into_bytes();
+            bytes.push(b'\n');
+            let _ = entry.write_input(bytes).await;
+        });
     }
 
     let session = entry.session();
@@ -887,7 +956,10 @@ async fn reopen_session(
         let account = state
             .account(account_id)
             .ok_or_else(|| ApiError::unprocessable("Account is no longer available."))?;
-        if state.command_override().is_none() && clients::find_client(account.client).is_none() {
+        if state.command_override().is_none()
+            && state.agent_bin().is_none()
+            && clients::find_client(account.client).is_none()
+        {
             return Err(ApiError::unprocessable(format!(
                 "{} is not installed.",
                 account.client
@@ -931,15 +1003,19 @@ async fn reopen_session(
         canonical_directory(folder_path)?
     };
 
-    let mut command = match entry.stored_command() {
-        Some(command) => command,
-        None => session_command(&state, suspended.kind, suspended.client)?,
-    };
+    let mut command = session_command(&state, suspended.kind, suspended.client)?;
+    if suspended.kind == SessionKind::Agent
+        && let Some(client) = suspended.client
+    {
+        for argument in sessions::resume_arguments(client) {
+            command.arg(*argument);
+        }
+    }
     let is_claude_agent =
         suspended.kind == SessionKind::Agent && suspended.client == Some(Client::ClaudeCode);
     if is_claude_agent {
         let settings_path = install_claude_settings(&state, &entry, &id)?;
-        if state.command_override().is_none() {
+        if state.command_override().is_none() && state.agent_bin().is_none() {
             claude::add_settings_argument(&mut command, &settings_path);
         }
     }
@@ -1600,6 +1676,7 @@ fn prepare_terminal(
         preview: "Terminal ready.".to_owned(),
         waiting_for: None,
         pending_permission: None,
+        first_prompt: None,
         started_at: timestamp(),
         shortcuts: Vec::new(),
     };
@@ -1610,6 +1687,7 @@ fn prepare_terminal(
         command,
         repo_root: None,
         antigravity_account: None,
+        startup_input: None,
     })
 }
 
@@ -1639,9 +1717,22 @@ async fn prepare_agent(
         ));
     }
 
+    let first_prompt = requested_prompt(request.first_prompt.as_deref());
     let name = requested_name(request.name.as_deref())
+        .or_else(|| first_prompt.as_deref().map(name_from_prompt))
         .unwrap_or_else(|| format!("{} session", account.client));
     let short = slugify(&name, "session");
+    let mut command = command;
+    let mut startup_input = None;
+    if let Some(prompt) = first_prompt.as_deref() {
+        if sessions::client_needs_prompt_input(account.client) {
+            startup_input = Some(prompt.to_owned());
+        } else {
+            for argument in sessions::prompt_arguments(account.client, prompt) {
+                command.arg(argument);
+            }
+        }
+    }
     let session = Session {
         id: uuid::Uuid::new_v4().to_string(),
         name,
@@ -1657,6 +1748,7 @@ async fn prepare_agent(
         preview: format!("{} is starting.", account.client),
         waiting_for: None,
         pending_permission: None,
+        first_prompt,
         started_at: timestamp(),
         shortcuts: shortcuts::for_client(account.client),
     };
@@ -1667,6 +1759,7 @@ async fn prepare_agent(
         command,
         repo_root: Some(repo_root),
         antigravity_account: (account.client == Client::Antigravity).then(|| account.id.clone()),
+        startup_input,
     })
 }
 
@@ -1700,6 +1793,9 @@ fn session_command(
             let client = client.ok_or_else(|| {
                 ApiError::unprocessable("An agent session needs a supported client.")
             })?;
+            if let Some(executable) = state.agent_bin() {
+                return Ok(CommandBuilder::new(executable));
+            }
             let executable = clients::find_client(client)
                 .ok_or_else(|| ApiError::unprocessable(format!("{} is not installed.", client)))?;
             Ok(CommandBuilder::new(executable))
@@ -1747,7 +1843,41 @@ fn requested_size(cols: Option<u16>, rows: Option<u16>) -> Result<TerminalSize, 
 fn requested_name(name: Option<&str>) -> Option<String> {
     name.map(str::trim)
         .filter(|name| !name.is_empty())
-        .map(|name| clip(name, 80))
+        .map(|name| clip(name, 64))
+}
+
+fn requested_prompt(prompt: Option<&str>) -> Option<String> {
+    prompt
+        .map(str::trim)
+        .filter(|prompt| !prompt.is_empty())
+        .map(|prompt| clip(prompt, 8000))
+}
+
+fn name_from_prompt(prompt: &str) -> String {
+    let line = prompt.lines().next().unwrap_or_default();
+    let words = line.split_whitespace().collect::<Vec<_>>().join(" ");
+    let words = words.trim_matches(|character: char| {
+        character.is_whitespace() || matches!(character, '#' | '*' | '>' | '-' | '`')
+    });
+    if words.is_empty() {
+        "Agent session".to_owned()
+    } else {
+        clip(words, 48)
+    }
+}
+
+fn safe_branch_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.chars().count() <= 200
+        && !name.starts_with('-')
+        && !name.chars().any(|character| {
+            character.is_control()
+                || character.is_whitespace()
+                || matches!(character, '~' | '^' | ':' | '?' | '*' | '[' | '\\')
+        })
+        && !name.contains("..")
+        && !name.ends_with('/')
+        && !name.ends_with('.')
 }
 
 fn folder_name(folder: &Path) -> String {

@@ -21,6 +21,7 @@ export interface Session {
   folder: string;
   preview: string;
   waitingFor: string | null;
+  firstPrompt: string | null;
   pendingPermission: {
     requestId: string;
     tool: string;
@@ -106,7 +107,13 @@ export async function createTerminalSession(
 
 export async function createAgentSession(
   request: APIRequestContext,
-  input: { projectId: string; name: string; folder: string },
+  input: {
+    projectId: string;
+    name?: string;
+    folder: string;
+    sourceBranch?: string;
+    firstPrompt?: string;
+  },
 ): Promise<Session> {
   const response = await request.post(`${CORE_URL}/api/sessions`, {
     data: {
@@ -115,6 +122,8 @@ export async function createAgentSession(
       accountId: 'max',
       name: input.name,
       folder: input.folder,
+      sourceBranch: input.sourceBranch,
+      firstPrompt: input.firstPrompt,
     },
   });
   if (!response.ok()) {
