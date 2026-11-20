@@ -57,6 +57,13 @@ jobs:
           TAURI_UPDATER_PUBKEY: ${{ vars.TAURI_UPDATER_PUBKEY }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         run: |
+          # An unset GitHub secret arrives as an empty variable. Tauri treats an
+          # empty identity or certificate as set and fails to sign, so drop the
+          # empty values and let the build sign ad hoc.
+          [ -n "$APPLE_CERTIFICATE" ] || unset APPLE_CERTIFICATE
+          [ -n "$APPLE_CERTIFICATE_PASSWORD" ] || unset APPLE_CERTIFICATE_PASSWORD
+          [ -n "$APPLE_SIGNING_IDENTITY" ] || unset APPLE_SIGNING_IDENTITY
+          [ -n "$TAURI_SIGNING_PRIVATE_KEY" ] || unset TAURI_SIGNING_PRIVATE_KEY
           # A build with a public key but no signing key cannot offer a verified
           # update, so it reports updates as unavailable.
           if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
@@ -85,8 +92,24 @@ jobs:
             echo "signed=false" >> "$GITHUB_OUTPUT"
           fi
 
+      # The secrets context is not allowed in a step condition, so its
+      # presence is checked through a step output instead.
+      - name: Check notarization credentials
+        id: notary
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [ -n "$APPLE_ID" ] && [ -n "$APPLE_PASSWORD" ] && [ -n "$APPLE_TEAM_ID" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Notarize the app
-        if: ${{ steps.sign.outputs.signed == 'true' && secrets.APPLE_ID != '' && secrets.APPLE_PASSWORD != '' && secrets.APPLE_TEAM_ID != '' }}
+        id: notarize
+        if: ${{ steps.sign.outputs.signed == 'true' && steps.notary.outputs.available == 'true' }}
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
@@ -100,6 +123,7 @@ jobs:
             --team-id "$APPLE_TEAM_ID" \
             --wait
           xcrun stapler staple "$app"
+          echo "done=true" >> "$GITHUB_OUTPUT"
 
       - name: Package artifacts
         env:
@@ -165,6 +189,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
           SIGNED: ${{ steps.sign.outputs.signed }}
+          NOTARIZED: ${{ steps.notarize.outputs.done }}
           UPDATER: ${{ steps.updater.outputs.available }}
         run: |
           version="${HEAD_REF#release/}"
@@ -181,8 +206,10 @@ jobs:
           if [ ! -s /tmp/release-notes.md ]; then
             printf 'elesdee %s\n' "$version" > /tmp/release-notes.md
           fi
-          if [ "$SIGNED" = "true" ]; then
+          if [ "$SIGNED" = "true" ] && [ "$NOTARIZED" = "true" ]; then
             printf '\n\n---\n\nThe macOS build is signed and notarized. It supports Apple Silicon only.\n' >> /tmp/release-notes.md
+          elif [ "$SIGNED" = "true" ]; then
+            printf '\n\n---\n\nThe macOS build is signed but not notarized. It supports Apple Silicon only. macOS may warn on first open; allow the app in System Settings > Privacy & Security.\n' >> /tmp/release-notes.md
           else
             printf '\n\n---\n\nThe macOS build is unsigned and Apple Silicon only. macOS will warn on first open; allow the app in System Settings > Privacy & Security.\n' >> /tmp/release-notes.md
           fi
