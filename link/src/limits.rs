@@ -5,6 +5,9 @@ use std::time::Duration;
 /// Maximum JSON header size in bytes.
 pub const MAX_HEADER_BYTES: usize = 1024 * 1024;
 
+/// Maximum size of one pairing message in bytes.
+pub const MAX_PAIR_FRAME_BYTES: usize = 16 * 1024;
+
 /// Maximum binary upload body size in bytes.
 pub const MAX_UPLOAD_BYTES: usize = 25 * 1024 * 1024;
 

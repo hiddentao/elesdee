@@ -1,6 +1,6 @@
 # Phone shell, pairing and remote connection
 
-Status: design. Step 1, the shared `link` crate, and step 2, the core endpoint and pairing, are implemented. The phone shell and UI are not built.
+Status: design. Step 1, the shared `link` crate; step 2, the core endpoint and pairing; and step 3, the phone shell skeleton, link client and pairing screens, are implemented. The shell has not run on a device or an emulator, and the Android and iOS projects are not generated.
 
 Read this with `.dev/SPEC.md` (Mobile companion app, Connection technology), `.dev/api.md` and `docs/phone.md`.
 
@@ -34,6 +34,8 @@ Pin exact versions with a committed `Cargo.lock`. iroh 1.5.0 requires Rust 1.91.
 Step 1 is implemented in `link/`. The crate pins `iroh` 1.5.0, `iroh-tickets` 1.0.0, `iroh-mdns-address-lookup` 0.6.1 (optional, behind the `mdns` feature), `blake3` 1.8.7, `subtle` 2.6.1, `zeroize` 1.9.2 and `postcard` 1.1.3. Its `Cargo.lock` pins `serde` 1.0.229 and `serde_json` 1.0.154. The crate sets `rust-version = "1.91"`. The crate holds the device identity, the pairing ticket and session, request and response framing, the method allowlist and the size and count limits. It has unit tests and a loopback test with two iroh endpoints.
 
 Step 2 is implemented in `core/src/link/`. The core raises `rust-version` to 1.91, depends on `elesdee-link` and `iroh` 1.5.0, and pins `qrcode` 0.15.0 and `image` 0.25 for the QR PNG. The desktop Tauri shell still does not depend on iroh.
+
+Step 3 is implemented in `link/src/client.rs` and `phone-shell/`. The client loads or creates the phone identity through a `PhoneStore` trait, so the shell can keep the secret in the platform keychain. It parses the ticket, checks its expiry hint, dials the pair ALPN, reads the code, waits for the final answer, and saves the computer record on approval. It then dials the app ALPN and sends allowlisted requests with the shared framing. A `PairingMachine` holds the pairing state and has unit tests without a network. The shell is a Tauri v2 crate with a `mobile_entry_point`, a plain TypeScript UI and the shared design tokens. The platform keychain uses `keyring-core` with the Apple and Android native stores. The computer list is JSON in app-private storage. The generated Android and iOS projects are not in the repository; `tauri android init` and `tauri ios init` create them on a machine with the SDKs.
 
 The iroh API changes often. Keep the surface small: `Endpoint::builder(presets::N0)`, `.alpns`, `.address_lookup`, `.bind`, `Endpoint::connect`, `Connection::{open_bi, accept_bi, remote_id, close}`, `protocol::Router`, and `iroh_tickets::Ticket`. Run the link tests on every upgrade.
 
@@ -99,7 +101,7 @@ Data flow:
 
 - The desktop key lives in `<data dir>/link.key`: 32 bytes, mode 0600, written atomically. It is not in `state.json` and is never logged.
 - If the key is missing, the core creates a new one. Every paired phone must pair again.
-- The phone key lives in app-private storage. Android backup is disabled for the app, so a restored phone does not clone the identity.
+- The phone key lives in the platform keychain through `phone-shell/src-tauri/src/store.rs`. The shell asks `keyring-core` for the identity entry and never writes the secret to a plain file. Android backup is disabled for the app, so a restored phone does not clone the identity.
 - The computer id is the base32 endpoint id. The interface shows the first 8 characters. The phone stores the full endpoint address from the pairing ticket.
 - A lost key means a new identity. There is no export or import, as the spec says.
 
@@ -156,6 +158,8 @@ One bidirectional stream carries one request and its response.
 Step 2 uses this framing for the app ALPN. The pairing handshake has its own small frame: a four-byte big-endian JSON length followed by the JSON, capped at 16 KiB. The phone sends `{ v, secret, name, platform, bridgeVersion, protocolMin, protocolMax }`, where `secret` is base32 without padding. The computer first answers `{ v, ok: true, status: "confirm", code, computerId, computerName, protocolVersion, minBridgeVersion }`, then one final `{ v, ok: true, status: "paired" }` or `{ v, ok: false, status, message }`.
 
 On the app ALPN, step 2 reads the four-byte header length and checks it against the 1 MiB cap before it allocates the header. It reads the header, checks the declared body length against the 25 MiB cap, and only then reads the body. A frame over either cap gets `too_large` without a large allocation.
+
+Step 3's client applies the same rule in the other direction. `read_json` checks the four-byte length against the 16 KiB pairing cap before it allocates. `read_response` checks the four-byte header length against the 1 MiB cap, reads and parses the header, checks the declared body against the UI package cap, and only then allocates the body. A declared length over a cap returns `TooLarge` before any body allocation.
 
 Limits:
 
@@ -225,7 +229,7 @@ Dispatch reuses the core code. It does not copy handlers:
 
 The desktop must authorize the connection key once, at accept. It does not re-check the key on each request. A revoked device has its live connections closed by the device store.
 
-Step 2 implements the accept check and answers `bootstrap` on a request stream. It does not send `hello` or `welcome`, open event or output streams, or hold an output permit yet.
+Step 2 implements the accept check and answers `bootstrap` on a request stream. It does not send `hello` or `welcome`, open event or output streams, or hold an output permit yet. Step 3's client dials the app ALPN on demand, sends `bootstrap` on one request stream, and closes the connection when the shell forgets the computer. It still does not send `hello` or `welcome`; that is step 4.
 
 ### 3.6 Reconnect and resume
 
@@ -248,6 +252,8 @@ On reconnect:
 5. Do not replay notifications. The bootstrap snapshot shows what still needs the user.
 
 The phone stores the full endpoint address from the ticket. Discovery by endpoint id finds new addresses when the network changes. The phone does not need a new QR code.
+
+Step 3 does not implement the retry table. The shell connects when the user opens a computer, on Refresh, and after pairing. A dropped connection shows the error and a Retry control. Step 6 adds the backoff, network change and foreground reconnect.
 
 ## 4. Pairing
 
@@ -408,6 +414,8 @@ Manifest:
 
 ### 5.2 Ship and serve on the computer
 
+Step 3 does not build or serve the phone UI package. The shell serves its own screens from `frontendDist`. The package delivery below is step 5.
+
 - The Tauri desktop bundle includes `app/dist-phone-package` as a resource.
 - The desktop shell starts the core with `--phone-ui <resource path>`. In development the core falls back to `ELESDEE_PHONE_UI`, then `app/dist-phone-package`.
 - The core checks the manifest and the zip hash at startup. If they are missing or invalid, pairing still works, but `welcome` has `ui: null`. The phone shows "This computer has no phone interface. Update elesdee on this computer."
@@ -490,6 +498,22 @@ The shell exposes a small command set to the package:
 The package cannot use a shell, filesystem, HTTP or process plugin. No command accepts a path and reads it. The package gets a result, not a file handle.
 
 The shell posts notifications itself, from the event stream. The package cannot ask for an arbitrary notification. The shell checks every method against the same allowlist before it sends a request to the computer.
+
+Step 3 implements the shell side of the bridge as these commands in `phone-shell/src-tauri/src/commands.rs`:
+
+| Command | Job |
+| --- | --- |
+| `phone_info` | Return the phone id, platform, bridge version and protocol version. |
+| `phone_computers` | List the stored computers and whether each has an open connection. |
+| `phone_pair_start` | Parse the ticket, dial the pair ALPN and return the six-digit code. |
+| `phone_pair_finish` | Wait for the computer's answer and save the record on approval. |
+| `phone_pair_cancel` | Close the pairing connection. |
+| `phone_forget` | Close any connection and remove the local record. |
+| `phone_connect` | Open the app connection to one computer. |
+| `phone_disconnect` | Close the app connection. |
+| `phone_request` | Parse the method name against `Method::parse`, then send the request. |
+
+`phone_request` is the only path that sends a method. It rejects a name outside the allowlist before it touches a connection, so the screens cannot reach a method that the link crate does not list. The package bridge (`phone_rpc`, subscriptions and upload) comes with steps 4 and 5.
 
 The shell injects `window.__ELESDEE_PHONE__` with `{ computerId, computerName, bridgeVersion, protocolVersion }` before page scripts run. The package uses it to select the phone transport. In a normal browser the marker is absent, so the same bundle uses the local HTTP API. This keeps the Playwright tests working.
 
@@ -616,7 +640,7 @@ Each step ends with an end-to-end test.
 | --- | --- | --- |
 | 1. Link crate | Versions, `PairTicket`, framing, method enum, allowlist, limits, error codes. Files: `link/`. | Unit tests: ticket round trip, tampered ticket rejected, frame over the limit rejected, unknown method rejected, golden strings. |
 | 2. Core endpoint and pairing | **Implemented.** Persistent key, endpoint start, pairing state machine, QR PNG, device store, local pairing and device routes. Files: `core/src/link/`, `core/src/state.rs`, `core/src/api.rs`. | **Implemented.** Rust integration with two real loopback endpoints: pair once and read the session snapshot, reject a second use of the ticket, reject an expired ticket, reject a removed device. Local API: QR returns, polling reaches `confirm`, approve stores the device, state reloads with no secret. Unit tests cover five wrong secrets, cancel, deny and the 16-device limit. |
-| 3. Phone shell and pairing screen | Tauri mobile project, `lib.rs` entry point, identity key, link client, custom protocol for shell screens, QR scan, paste fallback, computer list. Files: `phone-shell/`. | Android emulator: install, pair with a pasted ticket against a core on the host, list the computer, restart and keep it. Real Android phone: camera scan on Wi-Fi and on mobile data. Screenshot check at 390 width in both themes. |
+| 3. Phone shell and pairing screen | **Implemented in part.** Tauri v2 skeleton, `lib.rs` entry point, keychain identity, link client, QR scan and paste, code screen, refusal/expiry/cancel, computer list, session list from `bootstrap`, 12 shell catalogs. Files: `link/src/client.rs`, `link/tests/client.rs`, `phone-shell/`. | **Run:** 58 link tests (52 unit, 5 client loopback, 1 framing loopback), 37 shell catalog tests, UI typecheck and build, shell format, clippy and tests (0 Rust tests). Chromium render at 390 width in both themes with the native bridge stubbed, no console errors and no horizontal scroll. **Not run:** Android and iOS builds, emulator or device install, camera scan on a real phone. These need the SDKs and a device. |
 | 4. App connection and session RPC | `hello` and `welcome`, event and output streams, unary dispatch through the local router, UI transport adapter. Files: `link/src/client.rs`, `core/src/link/app.rs`, `app/src/api/transport.ts`, `client.ts`, `events.ts`. | Rust integration: bootstrap, event delivery, output replay from a sequence, input, permission answer, question answer, session close. Denied method returns `forbidden`. Unknown key is closed. Vitest with a fake bridge. Playwright still drives the browser phone layout against the core. |
 | 5. UI package build and delivery | Vite phone config, packaging script, manifest, download, hash check, safe unzip, custom protocol serving, version gates. Files: `app/vite.phone.config.ts`, `scripts/package-phone-ui.mjs`, `core/src/link/ui.rs`, `phone-shell/src/`. | Node test: deterministic zip and matching hash. Rust test: hash mismatch rejected, traversal zip rejected, oversize rejected, atomic swap. Android: first download, desktop upgrade then phone update on connect, offline restart uses the stored build. |
 | 6. Reconnect and revocation | Backoff, network change, foreground reconnect, output resume, revocation close code. Files: `link/src/client.rs`, `phone-shell/src/`. | Kill the desktop endpoint, check retry timing, restart, check reconnect and output continuity. Remove the device, check close code 3 and that retries stop. Use a fake clock for the backoff unit test. |
@@ -625,6 +649,28 @@ Each step ends with an end-to-end test.
 | 9. CI and release | Android job with JDK, SDK, NDK and Rust targets. Shell version and APK artifact. Signing secrets. Path filters. | CI builds the APK on a phone-shell change, runs the Rust and JS tests, and uploads the artifact. Install the artifact on a device and check the version screen. |
 
 First three steps in order: link crate, core endpoint and pairing, phone shell and pairing screen. They prove the riskiest parts first: the ticket format, the pairing handshake, and Tauri mobile on a real phone.
+
+### Step 3 files and checks
+
+| Path | Contents |
+| --- | --- |
+| `link/src/client.rs` | `PhoneStore`, `LinkClient`, `PairingMachine`, `PairingStart`, `PairingCancel`, `AppConnection`, `ComputerRecord`, frame readers and the client error type. |
+| `link/tests/client.rs` | Five tests on loopback: pair and read `bootstrap`, a refused pairing, an oversized response header refused before allocation, an expired ticket refused before the dial, and the allowlist parser. |
+| `phone-shell/src-tauri/src/store.rs` | Platform keychain identity and the JSON computer list. |
+| `phone-shell/src-tauri/src/commands.rs` | The nine shell commands, the allowlist check and error codes for the screens. |
+| `phone-shell/src-tauri/src/lib.rs` | The mobile entry point, the scanner plugin on mobile, and command registration. |
+| `phone-shell/ui/src/` | Plain TypeScript screens: computers, pair, code, sessions, with the shared design tokens and 12 catalogs. |
+| `phone-shell/test/catalogs.test.mjs` | Key parity, placeholders and empty-string checks across the 12 catalogs. |
+
+Checks run on macOS with no Android or iOS SDK:
+
+- `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings` and `cargo test` in `link/`: 58 tests pass.
+- The same three in `phone-shell/src-tauri/`: 0 Rust tests, because the shell's logic sits in the link client and the screens. The crate builds for macOS.
+- `npm --prefix phone-shell run test`: 37 tests pass.
+- `npm --prefix phone-shell run typecheck` and `npm --prefix phone-shell run build`: both pass.
+- The screens render in Chromium at 390 width in light and dark with a stubbed native bridge: no console errors and no horizontal scroll. This checks layout only, not the native bridge.
+
+Not run: `tauri android init`, `tauri ios init`, an Android or iOS build, an emulator install, a real device, the camera, the keychain on a phone, and a connection over Wi-Fi or mobile data. The Android and iOS keychain stores compile only for their own targets and are not compiled here.
 
 ### Test harness
 
@@ -639,6 +685,7 @@ First three steps in order: link crate, core endpoint and pairing, phone shell a
 | Risk | Why it matters | Test |
 | --- | --- | --- |
 | iroh on Android | QUIC over UDP, battery use, relay reconnect and app backgrounding may behave differently from the desktop. | Run the test build on a real Android phone on Wi-Fi and mobile data for a full day. Check relay fallback and reconnect. |
+| Phone shell has no device run yet | Step 3 proves the client on loopback and the screens in Chromium. The native keychain, the scanner and the mobile build are untested. | Generate the Android project, install on an emulator, pair with a pasted ticket against a core on the host, then repeat on a phone with the camera. |
 | Tauri mobile maturity | The build toolchain is heavy, plugins may lag, and the mobile developer experience is young. | Build the shell in CI early. If a blocker appears, use the spec's fallback: React Native with a web view and a uniffi bridge. |
 | Barcode scanner and ML Kit | The Tauri plugin uses the Play Services model, which downloads on first use. Pairing must work on a fresh or offline device. | Override Gradle to use the bundled `com.google.mlkit:barcode-scanning` artifact. Test on a fresh device without Play Services. |
 | UI package is executable code | The phone runs JavaScript authored by the computer. A compromised computer can use the bridge. | Review the bridge command set. Test that the package cannot reach the fs, shell or HTTP plugins. |
@@ -663,7 +710,7 @@ The three biggest risks are iroh on Android, the Tauri mobile and barcode scanne
 | Allow rename, delete or reopen from the phone | No in version 1. The spec lists close and start, not these. |
 | Foreground service for demo forwarding | Test first. Add it only if Android suspends the app during a normal review. |
 | Android minimum version | API 26 (Android 8). It gives modern Keystore and WebView behavior. |
-| Shell screens framework | Plain TypeScript and the shared design tokens. The screens are small and must not depend on the package. |
+| Shell screens framework | Decided and implemented: plain TypeScript and the shared design tokens. The screens are small and do not depend on the package. |
 
 ## Sources
 
