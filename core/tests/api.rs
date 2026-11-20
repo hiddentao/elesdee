@@ -1632,6 +1632,49 @@ async fn pause_keeps_the_handoff_note_and_resume_keeps_it() {
     assert_eq!(status, StatusCode::OK);
 }
 
+#[tokio::test]
+async fn handoff_note_survives_a_reload() {
+    let data_dir = TempDirectory::new("handoff-reload-data");
+    let repo = TempDirectory::new("handoff-reload-repo");
+    init_git_repo(&repo.path);
+    let command = vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()];
+    let app = router(AppState::with_test_command_and_data_dir(
+        command.clone(),
+        data_dir.path.clone(),
+    ));
+    ensure_test_project(&app, &repo.path).await;
+
+    let (status, session) = call(
+        &app,
+        "POST",
+        "/api/sessions",
+        Some(json!({
+            "projectId": "web",
+            "kind": "agent",
+            "accountId": "max",
+            "name": "Reload note",
+            "folder": repo.path.to_string_lossy()
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let id = session["id"].as_str().expect("session id").to_owned();
+    let note = "Goal: survive a reload.";
+    write_handoff_note(&app, &id, note).await;
+    drop(app);
+
+    let app = router(AppState::with_test_command_and_data_dir(
+        command,
+        data_dir.path.clone(),
+    ));
+    let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    let restored = bootstrap["sessions"]
+        .as_array()
+        .and_then(|sessions| sessions.iter().find(|session| session["id"] == id))
+        .expect("restored session");
+    assert_eq!(restored["handoffNote"], note);
+}
+
 async fn create_test_account(app: &Router, name: &str, key: &str) -> String {
     create_test_account_for(app, name, "anthropic", key).await
 }
