@@ -663,6 +663,7 @@ pub struct AgentCheck {
     pub installed: bool,
     pub version: Option<String>,
     pub path: Option<String>,
+    pub copy: Option<crate::clients::ClientCopy>,
 }
 
 #[derive(Clone, Debug, Serialize)]

@@ -871,6 +871,29 @@ export const nl = {
   'configs.installFailed': '{client} kon niet worden geïnstalleerd.',
   'configs.installReasonInternal':
     'De client is niet geïnstalleerd. Probeer het opnieuw.',
+  'configs.update': 'Bijwerken',
+  'configs.updateClient': '{client} bijwerken',
+  'configs.updateAvailable': 'Update beschikbaar · {version}',
+  'configs.updateProgress': '{client} wordt bijgewerkt',
+  'configs.updateFailed': '{client} kon niet worden bijgewerkt.',
+  'configs.updateReasonInternal':
+    'De client is niet bijgewerkt. Probeer het opnieuw.',
+  'configs.clientManaged':
+    'Beheerd buiten elesdee. Werk het bij met het hulpmiddel dat het heeft geïnstalleerd.',
+  'configs.clientBundled':
+    'Inbegrepen bij elesdee. Werk elesdee bij om dit bij te werken.',
+  'configs.updateTitle': '{client} bijwerken',
+  'configs.updateChecking': 'De versie van de leverancier wordt gecontroleerd…',
+  'configs.updateConfirm':
+    'elesdee downloadt de huidige {client} bij de leverancier, controleert de versie en vervangt deze kopie. Je sessies en instellingen blijven behouden.',
+  'configs.updateStart': '{client} bijwerken',
+  'configs.updateRetry': 'Opnieuw controleren',
+  'configs.updateCheckFailed':
+    'De versie van de leverancier kon niet worden gecontroleerd.',
+  'configs.updateCurrentVersion': 'Deze kopie: {version}',
+  'configs.updateLatestVersion': 'Versie van de leverancier: {version}',
+  'configs.updateCurrentUnknown': 'Deze kopie: onbekende versie',
+  'configs.updateLatestUnknown': 'Versie van de leverancier: onbekend',
   'configs.name': 'Naam (optioneel)',
   'configs.namePlaceholder': 'Provider en client',
   'configs.nameHint': 'De standaardnaam is {name}.',

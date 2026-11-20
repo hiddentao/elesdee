@@ -875,6 +875,29 @@ export const sv = {
   'configs.installFailed': 'Det gick inte att installera {client}.',
   'configs.installReasonInternal':
     'Klienten installerades inte. Försök igen.',
+  'configs.update': 'Uppdatera',
+  'configs.updateClient': 'Uppdatera {client}',
+  'configs.updateAvailable': 'Uppdatering tillgänglig · {version}',
+  'configs.updateProgress': 'Uppdaterar {client}',
+  'configs.updateFailed': 'Det gick inte att uppdatera {client}.',
+  'configs.updateReasonInternal':
+    'Klienten uppdaterades inte. Försök igen.',
+  'configs.clientManaged':
+    'Hanteras utanför elesdee. Uppdatera den med verktyget som installerade den.',
+  'configs.clientBundled':
+    'Ingår i elesdee. Uppdatera elesdee för att uppdatera den.',
+  'configs.updateTitle': 'Uppdatera {client}',
+  'configs.updateChecking': 'Kontrollerar leverantörens version…',
+  'configs.updateConfirm':
+    'elesdee hämtar den aktuella {client} från leverantören, kontrollerar versionen och ersätter kopian. Dina sessioner och inställningar finns kvar.',
+  'configs.updateStart': 'Uppdatera {client}',
+  'configs.updateRetry': 'Kontrollera igen',
+  'configs.updateCheckFailed':
+    'Det gick inte att kontrollera leverantörens version.',
+  'configs.updateCurrentVersion': 'Den här kopian: {version}',
+  'configs.updateLatestVersion': 'Leverantörens version: {version}',
+  'configs.updateCurrentUnknown': 'Den här kopian: okänd version',
+  'configs.updateLatestUnknown': 'Leverantörens version: okänd',
   'configs.name': 'Namn (valfritt)',
   'configs.namePlaceholder': 'Leverantör och klient',
   'configs.nameHint': 'Standardnamnet är {name}.',

@@ -144,6 +144,8 @@ describe('LanguageProvider', () => {
           agents={[]}
           agentsChecked
           onInstallClient={vi.fn()}
+          onUpdateClient={vi.fn()}
+          onCheckClientUpdate={vi.fn()}
           onGetClientInstall={vi.fn()}
           onClientInstalled={vi.fn()}
           update={null}

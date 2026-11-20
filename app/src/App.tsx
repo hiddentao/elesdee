@@ -30,8 +30,10 @@ import {
   getPairingStatus,
   getProviderSignIn,
   getClientInstall,
+  checkClientUpdate,
   health,
   installClient,
+  updateClient,
   listDevices,
   listProviderOptions,
   moveSession,
@@ -1531,6 +1533,8 @@ export default function App() {
           agents={agents}
           agentsChecked={agentsChecked}
           onInstallClient={installClient}
+          onUpdateClient={updateClient}
+          onCheckClientUpdate={checkClientUpdate}
           onGetClientInstall={getClientInstall}
           onClientInstalled={handleClientInstalled}
           update={update}

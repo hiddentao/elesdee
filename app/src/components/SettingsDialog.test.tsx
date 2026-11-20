@@ -23,6 +23,8 @@ function renderSettings(overrides: Partial<Parameters<typeof SettingsDialog>[0]>
     agents: [],
     agentsChecked: true,
     onInstallClient: vi.fn(),
+    onUpdateClient: vi.fn(),
+    onCheckClientUpdate: vi.fn(),
     onGetClientInstall: vi.fn(),
     onClientInstalled: vi.fn(),
     update: null,

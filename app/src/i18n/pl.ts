@@ -876,6 +876,29 @@ export const pl = {
   'configs.installFailed': 'Nie udało się zainstalować {client}.',
   'configs.installReasonInternal':
     'Klient nie został zainstalowany. Spróbuj ponownie.',
+  'configs.update': 'Aktualizuj',
+  'configs.updateClient': 'Aktualizuj {client}',
+  'configs.updateAvailable': 'Dostępna aktualizacja · {version}',
+  'configs.updateProgress': 'Aktualizowanie {client}',
+  'configs.updateFailed': 'Nie udało się zaktualizować {client}.',
+  'configs.updateReasonInternal':
+    'Klient nie został zaktualizowany. Spróbuj ponownie.',
+  'configs.clientManaged':
+    'Zarządzana poza elesdee. Zaktualizuj ją narzędziem, które ją zainstalowało.',
+  'configs.clientBundled':
+    'Dołączona do elesdee. Zaktualizuj elesdee, aby ją zaktualizować.',
+  'configs.updateTitle': 'Aktualizuj {client}',
+  'configs.updateChecking': 'Sprawdzanie wersji dostawcy…',
+  'configs.updateConfirm':
+    'elesdee pobiera bieżącą wersję {client} od dostawcy, sprawdza wersję i zastępuje tę kopię. Sesje i ustawienia pozostają.',
+  'configs.updateStart': 'Aktualizuj {client}',
+  'configs.updateRetry': 'Sprawdź ponownie',
+  'configs.updateCheckFailed':
+    'Nie udało się sprawdzić wersji dostawcy.',
+  'configs.updateCurrentVersion': 'Ta kopia: {version}',
+  'configs.updateLatestVersion': 'Wersja dostawcy: {version}',
+  'configs.updateCurrentUnknown': 'Ta kopia: nieznana wersja',
+  'configs.updateLatestUnknown': 'Wersja dostawcy: nieznana',
   'configs.name': 'Nazwa (opcjonalna)',
   'configs.namePlaceholder': 'Dostawca i klient',
   'configs.nameHint': 'Domyślna nazwa to {name}.',

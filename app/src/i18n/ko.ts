@@ -865,6 +865,28 @@ export const ko = {
   'configs.installFailed': '{client}을(를) 설치할 수 없습니다.',
   'configs.installReasonInternal':
     '클라이언트가 설치되지 않았습니다. 다시 시도하세요.',
+  'configs.update': '업데이트',
+  'configs.updateClient': '{client} 업데이트',
+  'configs.updateAvailable': '업데이트 가능 · {version}',
+  'configs.updateProgress': '{client} 업데이트 중',
+  'configs.updateFailed': '{client}을(를) 업데이트할 수 없습니다.',
+  'configs.updateReasonInternal':
+    '클라이언트가 업데이트되지 않았습니다. 다시 시도하세요.',
+  'configs.clientManaged':
+    'elesdee 외부에서 관리됩니다. 설치한 도구로 업데이트하세요.',
+  'configs.clientBundled':
+    'elesdee에 포함되어 있습니다. 업데이트하려면 elesdee를 업데이트하세요.',
+  'configs.updateTitle': '{client} 업데이트',
+  'configs.updateChecking': '공급업체 버전 확인 중…',
+  'configs.updateConfirm':
+    'elesdee가 공급업체에서 현재 {client}을(를) 다운로드하고 버전을 확인한 뒤 이 복사본을 교체합니다. 세션과 설정은 유지됩니다.',
+  'configs.updateStart': '{client} 업데이트',
+  'configs.updateRetry': '다시 확인',
+  'configs.updateCheckFailed': '공급업체 버전을 확인할 수 없습니다.',
+  'configs.updateCurrentVersion': '이 복사본: {version}',
+  'configs.updateLatestVersion': '공급업체 버전: {version}',
+  'configs.updateCurrentUnknown': '이 복사본: 알 수 없는 버전',
+  'configs.updateLatestUnknown': '공급업체 버전: 알 수 없음',
   'configs.name': '이름(선택)',
   'configs.namePlaceholder': '공급자 및 클라이언트',
   'configs.nameHint': '기본 이름은 {name}입니다.',

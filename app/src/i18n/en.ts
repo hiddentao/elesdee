@@ -844,6 +844,27 @@ export const en = {
   'configs.installFailed': 'Could not install {client}.',
   'configs.installReasonInternal':
     'The client was not installed. Try again.',
+  'configs.update': 'Update',
+  'configs.updateClient': 'Update {client}',
+  'configs.updateAvailable': 'Update available · {version}',
+  'configs.updateProgress': 'Updating {client}',
+  'configs.updateFailed': 'Could not update {client}.',
+  'configs.updateReasonInternal': 'The client was not updated. Try again.',
+  'configs.clientManaged':
+    'Managed outside elesdee. Update it with the tool that installed it.',
+  'configs.clientBundled':
+    'Included with elesdee. Update elesdee to update it.',
+  'configs.updateTitle': 'Update {client}',
+  'configs.updateChecking': 'Checking the vendor’s version…',
+  'configs.updateConfirm':
+    'elesdee downloads the current {client} from its vendor, checks its version and replaces this copy. Your sessions and settings stay.',
+  'configs.updateStart': 'Update {client}',
+  'configs.updateRetry': 'Check again',
+  'configs.updateCheckFailed': 'Could not check the vendor’s version.',
+  'configs.updateCurrentVersion': 'This copy: {version}',
+  'configs.updateLatestVersion': 'Vendor version: {version}',
+  'configs.updateCurrentUnknown': 'This copy: unknown version',
+  'configs.updateLatestUnknown': 'Vendor version: unknown',
   'configs.name': 'Name (optional)',
   'configs.namePlaceholder': 'Provider and client',
   'configs.nameHint': 'The default name is {name}.',

@@ -119,11 +119,25 @@ export interface Provider {
   supportedClients: Client[];
 }
 
+export type ClientCopy = 'app' | 'user' | 'bundled';
+
 export interface AgentCheck {
   name: Client;
   installed: boolean;
   version: string | null;
   path: string | null;
+  copy: ClientCopy | null;
+}
+
+export interface ClientUpdateCheck {
+  client: Client;
+  copy: ClientCopy | null;
+  installed: boolean;
+  currentVersion: string | null;
+  latestVersion: string | null;
+  updateAvailable: boolean;
+  canUpdate: boolean;
+  error: string | null;
 }
 
 export type InstallState = 'running' | 'done' | 'failed';

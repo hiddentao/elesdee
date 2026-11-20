@@ -9,7 +9,7 @@ use std::sync::{Arc, LazyLock, Mutex, MutexGuard};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::private_fs;
 use crate::state::{AgentCheck, Client};
@@ -17,6 +17,7 @@ use crate::state::{AgentCheck, Client};
 const VERSION_TIMEOUT: Duration = Duration::from_secs(2);
 const INSTALL_VERIFY_TIMEOUT: Duration = Duration::from_secs(10);
 const INSTALL_TIMEOUT: Duration = Duration::from_secs(10 * 60);
+const VERSION_CHECK_TIMEOUT: Duration = Duration::from_secs(15);
 const VERSION_POLL_INTERVAL: Duration = Duration::from_millis(25);
 const INSTALL_POLL_INTERVAL: Duration = Duration::from_millis(50);
 const INSTALL_LOG_LIMIT: usize = 4_000;
@@ -25,6 +26,12 @@ const MAX_JOBS: usize = 32;
 const CURL: &str = "/usr/bin/curl";
 const SHELL: &str = "/bin/bash";
 const SAFE_PATH: &str = "/usr/bin:/bin:/usr/sbin:/sbin";
+
+const CLAUDE_VERSION_URL: &str = "https://downloads.claude.ai/claude-code-releases/latest";
+const CODEX_VERSION_URL: &str = "https://releases.openai.com/codex/channels/latest";
+const OPENCODE_VERSION_URL: &str = "https://registry.npmjs.org/opencode-ai/latest";
+const ANTIGRAVITY_MANIFEST_BASE: &str =
+    "https://antigravity-cli-auto-updater-974169037036.us-central1.run.app/manifests";
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct DiscoveryConfig {
@@ -52,13 +59,61 @@ impl DiscoveryConfig {
     }
 }
 
+/// Where the found executable comes from. Only the app's own copy can be
+/// replaced from inside the app.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ClientCopy {
+    App,
+    User,
+    Bundled,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct FoundClient {
+    pub(crate) path: PathBuf,
+    pub(crate) copy: ClientCopy,
+}
+
 pub fn find_client(client: Client) -> Option<PathBuf> {
     let config = DiscoveryConfig::from_process(crate::persist::data_directory_from_environment());
     find_client_in(client, &config)
 }
 
 pub(crate) fn find_client_in(client: Client, config: &DiscoveryConfig) -> Option<PathBuf> {
-    find_in_directories(candidate_directories(client, config), client.binary())
+    locate_client_in(client, config).map(|found| found.path)
+}
+
+pub(crate) fn locate_client_in(client: Client, config: &DiscoveryConfig) -> Option<FoundClient> {
+    let path = find_in_directories(candidate_directories(client, config), client.binary())?;
+    let copy = classify_copy(&path, client, config);
+    Some(FoundClient { path, copy })
+}
+
+/// Names the source of a found executable by the known folder that holds it.
+fn classify_copy(path: &Path, client: Client, config: &DiscoveryConfig) -> ClientCopy {
+    if config
+        .data_dir
+        .as_deref()
+        .is_some_and(|data_dir| path_is_within(path, &install_root(data_dir, client)))
+    {
+        return ClientCopy::App;
+    }
+    if config.bundle_dir.as_deref().is_some_and(|bundle_dir| {
+        bundle_directories(bundle_dir, client)
+            .iter()
+            .any(|directory| path_is_within(path, directory))
+    }) {
+        return ClientCopy::Bundled;
+    }
+    ClientCopy::User
+}
+
+fn path_is_within(path: &Path, directory: &Path) -> bool {
+    let directory = directory
+        .canonicalize()
+        .unwrap_or_else(|_| directory.to_path_buf());
+    path.starts_with(directory)
 }
 
 fn candidate_directories(client: Client, config: &DiscoveryConfig) -> Vec<PathBuf> {
@@ -192,46 +247,37 @@ fn check_all_in(config: &DiscoveryConfig) -> Vec<AgentCheck> {
         Client::ALL
             .into_iter()
             .zip(handles)
-            .map(|(client, handle)| {
-                handle.join().unwrap_or(AgentCheck {
-                    name: client,
-                    installed: false,
-                    version: None,
-                    path: None,
-                })
-            })
+            .map(|(client, handle)| handle.join().unwrap_or_else(|_| missing_check(client)))
             .collect()
     })
 }
 
 pub fn missing_checks() -> Vec<AgentCheck> {
-    Client::ALL
-        .into_iter()
-        .map(|client| AgentCheck {
-            name: client,
-            installed: false,
-            version: None,
-            path: None,
-        })
-        .collect()
+    Client::ALL.into_iter().map(missing_check).collect()
+}
+
+fn missing_check(client: Client) -> AgentCheck {
+    AgentCheck {
+        name: client,
+        installed: false,
+        version: None,
+        path: None,
+        copy: None,
+    }
 }
 
 fn check(client: Client, config: &DiscoveryConfig) -> AgentCheck {
-    let Some(path) = find_client_in(client, config) else {
-        return AgentCheck {
-            name: client,
-            installed: false,
-            version: None,
-            path: None,
-        };
+    let Some(found) = locate_client_in(client, config) else {
+        return missing_check(client);
     };
 
-    let version = probe_version(&path, VERSION_TIMEOUT).unwrap_or_default();
+    let version = probe_version(&found.path, VERSION_TIMEOUT).unwrap_or_default();
     AgentCheck {
         name: client,
         installed: true,
         version,
-        path: Some(path.to_string_lossy().into_owned()),
+        path: Some(found.path.to_string_lossy().into_owned()),
+        copy: Some(found.copy),
     }
 }
 
@@ -282,6 +328,182 @@ fn version_from_output(stdout: &[u8], stderr: &[u8]) -> Option<String> {
         }
     }
     None
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClientUpdateCheck {
+    pub client: Client,
+    pub copy: Option<ClientCopy>,
+    pub installed: bool,
+    pub current_version: Option<String>,
+    pub latest_version: Option<String>,
+    pub update_available: bool,
+    pub can_update: bool,
+    pub error: Option<String>,
+}
+
+/// Reads the vendor's current version and compares it with the found copy.
+/// It reads only version metadata and never downloads or runs an installer.
+pub fn check_update(client: Client, data_dir: Option<&Path>) -> ClientUpdateCheck {
+    let config = DiscoveryConfig::from_process(data_dir.map(Path::to_path_buf));
+    check_update_in(client, &config)
+}
+
+fn check_update_in(client: Client, config: &DiscoveryConfig) -> ClientUpdateCheck {
+    let Some(found) = locate_client_in(client, config) else {
+        return ClientUpdateCheck {
+            client,
+            copy: None,
+            installed: false,
+            current_version: None,
+            latest_version: None,
+            update_available: false,
+            can_update: false,
+            error: None,
+        };
+    };
+
+    let current_version = probe_version(&found.path, VERSION_TIMEOUT).ok().flatten();
+    let (latest_version, error) = match vendor_latest_version(client) {
+        Ok(version) => (Some(version), None),
+        Err(error) => (None, Some(error)),
+    };
+    let update_available = latest_version
+        .as_deref()
+        .zip(current_version.as_deref())
+        .is_some_and(|(latest, current)| is_newer_version(latest, current));
+
+    ClientUpdateCheck {
+        client,
+        copy: Some(found.copy),
+        installed: true,
+        current_version,
+        latest_version,
+        update_available,
+        can_update: found.copy == ClientCopy::App,
+        error,
+    }
+}
+
+fn vendor_latest_version(client: Client) -> Result<String, String> {
+    let url = latest_version_url(client)?;
+    let output = Command::new(CURL)
+        .args([
+            "--fail",
+            "--location",
+            "--silent",
+            "--show-error",
+            "--max-time",
+        ])
+        .arg(VERSION_CHECK_TIMEOUT.as_secs().to_string())
+        .arg(&url)
+        .env("PATH", SAFE_PATH)
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|error| format!("Could not check the vendor version: {error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "The vendor version check failed with {}.",
+            output.status
+        ));
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    parse_latest_version(client, &text)
+        .ok_or_else(|| "The vendor did not return a version.".to_owned())
+}
+
+fn latest_version_url(client: Client) -> Result<String, String> {
+    Ok(match client {
+        Client::ClaudeCode => CLAUDE_VERSION_URL.to_owned(),
+        Client::Codex => CODEX_VERSION_URL.to_owned(),
+        Client::OpenCode2 => OPENCODE_VERSION_URL.to_owned(),
+        Client::Antigravity => {
+            format!(
+                "{ANTIGRAVITY_MANIFEST_BASE}/{}.json",
+                antigravity_platform()?
+            )
+        }
+    })
+}
+
+/// Builds the platform name that the Antigravity manifest path uses.
+fn antigravity_platform() -> Result<String, String> {
+    let os = match std::env::consts::OS {
+        "macos" => "darwin",
+        "linux" => "linux",
+        other => return Err(format!("Antigravity has no version check for {other}.")),
+    };
+    let arch = match std::env::consts::ARCH {
+        "aarch64" => "arm64",
+        "x86_64" => "amd64",
+        other => return Err(format!("Antigravity has no version check for {other}.")),
+    };
+    Ok(format!("{os}_{arch}"))
+}
+
+fn parse_latest_version(client: Client, body: &str) -> Option<String> {
+    let value = match client {
+        Client::ClaudeCode => body.lines().map(str::trim).find(|line| !line.is_empty())?,
+        Client::Codex => json_string_field(body, "tag_name")?,
+        Client::OpenCode2 | Client::Antigravity => json_string_field(body, "version")?,
+    };
+    let value = value.trim().trim_start_matches('v');
+    let value = value.strip_prefix("rust-").unwrap_or(value);
+    let value = value.trim_start_matches('v');
+    version_numbers(value)?;
+    Some(value.chars().take(64).collect())
+}
+
+fn json_string_field<'a>(text: &'a str, key: &str) -> Option<&'a str> {
+    let needle = format!("\"{key}\"");
+    let after_key = &text[text.find(&needle)? + needle.len()..];
+    let after_colon = after_key.trim_start().strip_prefix(':')?.trim_start();
+    let after_quote = after_colon.strip_prefix('"')?;
+    let end = after_quote.find('"')?;
+    Some(&after_quote[..end])
+}
+
+/// Returns the numbers of the first dotted version in the text.
+fn version_numbers(text: &str) -> Option<Vec<u64>> {
+    let bytes = text.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        if !bytes[index].is_ascii_digit() {
+            index += 1;
+            continue;
+        }
+        let start = index;
+        while index < bytes.len() && (bytes[index].is_ascii_digit() || bytes[index] == b'.') {
+            index += 1;
+        }
+        let token = text[start..index].trim_end_matches('.');
+        if token.contains('.') {
+            let parts = token
+                .split('.')
+                .map(str::parse::<u64>)
+                .collect::<Result<Vec<_>, _>>();
+            if let Ok(parts) = parts {
+                return Some(parts);
+            }
+        }
+    }
+    None
+}
+
+fn is_newer_version(latest: &str, current: &str) -> bool {
+    let (Some(latest), Some(current)) = (version_numbers(latest), version_numbers(current)) else {
+        return false;
+    };
+    let length = latest.len().max(current.len());
+    for index in 0..length {
+        let left = latest.get(index).copied().unwrap_or(0);
+        let right = current.get(index).copied().unwrap_or(0);
+        if left != right {
+            return left > right;
+        }
+    }
+    false
 }
 
 pub(crate) fn is_executable(path: &Path) -> bool {
@@ -596,6 +818,56 @@ pub fn start_install(
     let backend = install_backend();
     thread::spawn(move || run_install(id, client, data_dir, backend));
     Ok(job)
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum UpdateStartError {
+    Busy,
+    NoDataDirectory,
+    NotInstalled,
+    NotAppOwned,
+}
+
+impl std::fmt::Display for UpdateStartError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            UpdateStartError::Busy => formatter.write_str("An update is already running."),
+            UpdateStartError::NoDataDirectory => {
+                formatter.write_str("Client update needs a data directory.")
+            }
+            UpdateStartError::NotInstalled => formatter.write_str("The client is not installed."),
+            UpdateStartError::NotAppOwned => formatter.write_str(
+                "This copy is managed outside elesdee. Update it with the tool that installed it.",
+            ),
+        }
+    }
+}
+
+/// Replaces the app's own copy with the vendor's current build. A copy from
+/// the user or the app bundle is never touched.
+pub fn start_update(
+    client: Client,
+    data_dir: impl Into<PathBuf>,
+) -> Result<ClientInstall, UpdateStartError> {
+    let data_dir = data_dir.into();
+    if !data_dir.is_absolute() {
+        return Err(UpdateStartError::NoDataDirectory);
+    }
+
+    let config = DiscoveryConfig::from_process(Some(data_dir.clone()));
+    update_target(client, &config)?;
+    start_install(client, data_dir).map_err(|error| match error {
+        InstallStartError::Busy => UpdateStartError::Busy,
+        InstallStartError::NoDataDirectory => UpdateStartError::NoDataDirectory,
+    })
+}
+
+fn update_target(client: Client, config: &DiscoveryConfig) -> Result<(), UpdateStartError> {
+    match locate_client_in(client, config) {
+        None => Err(UpdateStartError::NotInstalled),
+        Some(found) if found.copy != ClientCopy::App => Err(UpdateStartError::NotAppOwned),
+        Some(_) => Ok(()),
+    }
 }
 
 pub fn install_status(id: &str) -> Option<ClientInstall> {
@@ -1060,6 +1332,109 @@ mod tests {
         assert!(codex.installed);
         assert_eq!(codex.version.as_deref(), Some("1.2.3"));
         assert!(codex.path.is_some());
+        assert_eq!(codex.copy, Some(ClientCopy::User));
+    }
+
+    #[test]
+    fn a_found_copy_is_classified_by_its_folder() {
+        let temp = TempDirectory::new("copy-source");
+        let home = temp.path.join("home");
+        let data_dir = temp.path.join("data");
+        let bundle_dir = temp.path.join("bundle");
+
+        executable(&home.join(".local/bin"), "codex");
+        assert_eq!(
+            locate_client_in(
+                Client::Codex,
+                &config(None, Some(&home), Some(&data_dir), Vec::new())
+            )
+            .expect("user copy")
+            .copy,
+            ClientCopy::User
+        );
+
+        let app = executable(&install_root(&data_dir, Client::Codex).join("bin"), "codex");
+        let mut discovery = config(None, None, Some(&data_dir), Vec::new());
+        let found = locate_client_in(Client::Codex, &discovery).expect("app copy");
+        assert_eq!(found.path, app);
+        assert_eq!(found.copy, ClientCopy::App);
+
+        let bundled = executable(&bundle_dir.join("clients/codex/bin"), "codex");
+        discovery.bundle_dir = Some(bundle_dir);
+        let found = locate_client_in(Client::Codex, &discovery).expect("bundled copy");
+        assert_eq!(found.path, bundled);
+        assert_eq!(found.copy, ClientCopy::Bundled);
+    }
+
+    #[test]
+    fn only_the_apps_own_copy_can_be_updated() {
+        let temp = TempDirectory::new("update-target");
+        let home = temp.path.join("home");
+        let data_dir = temp.path.join("data");
+
+        assert_eq!(
+            update_target(
+                Client::Codex,
+                &config(None, None, Some(&data_dir), Vec::new())
+            ),
+            Err(UpdateStartError::NotInstalled)
+        );
+
+        executable(&home.join(".local/bin"), "codex");
+        assert_eq!(
+            update_target(
+                Client::Codex,
+                &config(None, Some(&home), Some(&data_dir), Vec::new())
+            ),
+            Err(UpdateStartError::NotAppOwned)
+        );
+
+        executable(&install_root(&data_dir, Client::Codex).join("bin"), "codex");
+        assert_eq!(
+            update_target(
+                Client::Codex,
+                &config(None, None, Some(&data_dir), Vec::new())
+            ),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn vendor_version_responses_are_parsed() {
+        assert_eq!(
+            parse_latest_version(Client::ClaudeCode, "2.1.329\n").as_deref(),
+            Some("2.1.329")
+        );
+        assert_eq!(
+            parse_latest_version(Client::Codex, r#"{"tag_name":"rust-v0.171.0"}"#).as_deref(),
+            Some("0.171.0")
+        );
+        assert_eq!(
+            parse_latest_version(Client::OpenCode2, r#"{"version":"1.19.6"}"#).as_deref(),
+            Some("1.19.6")
+        );
+        assert_eq!(
+            parse_latest_version(
+                Client::Antigravity,
+                r#"{"version":"0.4.1","url":"https://example.test"}"#
+            )
+            .as_deref(),
+            Some("0.4.1")
+        );
+        assert_eq!(
+            parse_latest_version(Client::ClaudeCode, "<html>error</html>"),
+            None
+        );
+        assert_eq!(parse_latest_version(Client::Codex, "{}"), None);
+    }
+
+    #[test]
+    fn versions_compare_by_number() {
+        assert!(is_newer_version("2.0.0", "1.9.9 (Claude Code)"));
+        assert!(is_newer_version("2.0.1", "2.0"));
+        assert!(!is_newer_version("1.9.9", "2.0.0"));
+        assert!(!is_newer_version("2.0", "2.0.0"));
+        assert!(!is_newer_version("unknown", "1.0.0"));
     }
 
     struct FakeInstaller {
@@ -1237,5 +1612,60 @@ mod tests {
         );
         assert_eq!(state, InstallState::Done);
         assert!(!root.join("marker").exists());
+    }
+
+    #[test]
+    fn an_update_swaps_the_app_copy_for_the_verified_copy() {
+        let temp = TempDirectory::new("update-ok");
+        let _ = run_install_for_test(
+            Client::Codex,
+            &temp.path,
+            &FakeInstaller { outcome: Ok(true) },
+        );
+        let root = install_root(&temp.path, Client::Codex);
+        fs::write(root.join("marker"), "old").expect("write marker");
+
+        let (_, version, path, state, root) = run_install_for_test(
+            Client::Codex,
+            &temp.path,
+            &FakeInstaller { outcome: Ok(true) },
+        );
+        assert_eq!(state, InstallState::Done);
+        assert_eq!(version.as_deref(), Some("9.9.9"));
+        assert!(path.is_some());
+        assert!(!root.join("marker").exists(), "the old copy is replaced");
+    }
+
+    #[test]
+    fn a_failed_update_keeps_the_old_copy_and_removes_staging() {
+        let temp = TempDirectory::new("update-fail");
+        let _ = run_install_for_test(
+            Client::Codex,
+            &temp.path,
+            &FakeInstaller { outcome: Ok(true) },
+        );
+        let root = install_root(&temp.path, Client::Codex);
+        fs::write(root.join("marker"), "old").expect("write marker");
+
+        let (_, version, error, state, root) = run_install_for_test(
+            Client::Codex,
+            &temp.path,
+            &FakeInstaller {
+                outcome: Err("network failed".to_owned()),
+            },
+        );
+        assert_eq!(state, InstallState::Failed);
+        assert_eq!(version, None);
+        assert!(error.unwrap().contains("network failed"));
+        assert_eq!(fs::read_to_string(root.join("marker")).unwrap(), "old");
+        let leftovers = fs::read_dir(temp.path.join("clients"))
+            .map(|entries| {
+                entries
+                    .filter_map(Result::ok)
+                    .filter(|entry| entry.file_name() != "codex")
+                    .count()
+            })
+            .unwrap_or(0);
+        assert_eq!(leftovers, 0, "staging and backup folders are removed");
     }
 }

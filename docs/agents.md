@@ -15,7 +15,7 @@ elesdee runs four coding agents:
 | OpenCode 2 | OpenRouter, and custom providers |
 | Antigravity | Google Gemini |
 
-The app uses a copy of each agent that is already installed on your computer. It finds copies on `PATH`, in Homebrew, in npm global folders, in `~/.local/bin` and in its own data folder. It does not bundle the agents.
+The app uses a copy of each agent that is already installed on your computer. It finds copies on `PATH`, in Homebrew, in npm global folders, in `~/.local/bin`, inside the app bundle and in its own data folder.
 
 ## Agent check
 
@@ -30,6 +30,19 @@ The client list in the AI config form shows which clients are installed and whic
 3. The app checks the new copy's version. When the check passes, the row shows the version.
 
 The copy goes in a private folder in the app's data folder. A failed install keeps any older copy and leaves nothing partial behind. The error stays on the row, and you can try again. The app uses its own copy only when it finds no copy in the earlier places.
+
+**Update the app's own copy**
+
+Each row names the source of the copy: the app's own copy, a copy you installed, or a copy inside the app bundle. Only the app's own copy has an **Update** action.
+
+1. The row checks the vendor's current version in the background. When the vendor has a newer version, the row shows **Update available** with that version. The form stays usable.
+2. Choose **Update**. The confirmation shows the version of this copy and the vendor's current version.
+3. Choose **Update** again. The row shows each stage and its progress.
+4. The app checks the new copy's version, then replaces the old copy.
+
+A failed update keeps the old copy and leaves nothing partial behind. The error stays on the row, and you can try again. Nothing updates by itself.
+
+The app never replaces a copy that you installed with Homebrew, npm or another tool. Its row tells you to update it with the tool that installed it. A copy inside the app bundle updates when you update elesdee.
 
 ## Providers
 

@@ -14,6 +14,7 @@ import type {
   BrowserState,
   Client,
   ClientInstall,
+  ClientUpdateCheck,
   CloneGitHubRepoInput,
   CreateConfigInput,
   CreateProjectInput,
@@ -87,6 +88,21 @@ export function installClient(client: Client): Promise<ClientInstall> {
 export function getClientInstall(id: string): Promise<ClientInstall> {
   return request<ClientInstall>(
     `/api/clients/install/${encodeURIComponent(id)}`,
+  );
+}
+
+export function checkClientUpdate(
+  client: Client,
+): Promise<ClientUpdateCheck> {
+  return request<ClientUpdateCheck>(
+    `/api/clients/${CLIENT_SLUGS[client]}/update`,
+  );
+}
+
+export function updateClient(client: Client): Promise<ClientInstall> {
+  return request<ClientInstall>(
+    `/api/clients/${CLIENT_SLUGS[client]}/update`,
+    post({}),
   );
 }
 
