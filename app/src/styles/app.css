@@ -3465,9 +3465,17 @@ button:disabled {
   color: var(--text);
 }
 
-.demo-address {
+.demo-addresses {
+  display: flex;
+  flex: 0 1 auto;
+  flex-direction: column;
+  align-items: flex-end;
   min-width: 0;
   margin-left: auto;
+}
+
+.demo-address {
+  max-width: 100%;
   overflow: hidden;
   color: var(--text-2);
   font-family: var(--mono-font);

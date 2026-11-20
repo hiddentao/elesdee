@@ -42,6 +42,9 @@ pub struct DemoServer {
     pub port: u16,
     /// The local address, such as `http://localhost:3000`.
     pub address: String,
+    /// The tailnet address, when Tailscale was running at registration.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tailscale_address: Option<String>,
     pub state: DemoServerState,
     pub created_at: String,
 }
@@ -102,13 +105,20 @@ pub fn port_is_allowed(port: u16) -> bool {
 }
 
 /// Builds a new active demo server record.
-pub fn new_server(session_id: &str, name: String, port: u16, now: &str) -> DemoServer {
+pub fn new_server(
+    session_id: &str,
+    name: String,
+    port: u16,
+    tailscale_address: Option<String>,
+    now: &str,
+) -> DemoServer {
     DemoServer {
         id: uuid::Uuid::new_v4().to_string(),
         session_id: session_id.to_owned(),
         name,
         port,
         address: local_address(port),
+        tailscale_address,
         state: DemoServerState::Active,
         created_at: now.to_owned(),
     }
@@ -139,8 +149,15 @@ mod tests {
 
     #[test]
     fn a_server_carries_its_local_address() {
-        let server = new_server("s1", "Preview".to_owned(), 3000, "2026-01-01T00:00:00Z");
+        let server = new_server(
+            "s1",
+            "Preview".to_owned(),
+            3000,
+            None,
+            "2026-01-01T00:00:00Z",
+        );
         assert_eq!(server.address, "http://localhost:3000");
+        assert_eq!(server.tailscale_address, None);
         assert!(server.is_active());
     }
 }

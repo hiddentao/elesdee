@@ -26,6 +26,7 @@ mod shared;
 mod shortcuts;
 mod slug;
 pub mod state;
+mod tailscale;
 mod text;
 mod usage;
 

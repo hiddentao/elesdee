@@ -26,8 +26,13 @@ import type {
   FileEntry,
   SharedFile,
 } from '../api/types';
+import { openUrl } from '../api/shell';
 import { makeSession } from '../test/fixtures';
 import { SessionSidePanel } from './SessionSidePanel';
+
+vi.mock('../api/shell', () => ({
+  openUrl: vi.fn(() => Promise.resolve()),
+}));
 
 vi.mock('../api/client', () => ({
   activateBrowserTab: vi.fn(),
@@ -303,6 +308,55 @@ describe('SessionSidePanel demo servers', () => {
     expect(
       screen.queryByRole('button', { name: 'Stop Preview' }),
     ).not.toBeInTheDocument();
+  });
+
+  it('shows and opens the local and tailnet addresses', async () => {
+    const tailscaleAddress = 'https://studio.tailnet.ts.net:3000';
+    const user = userEvent.setup();
+    renderPanel(
+      'files',
+      vi.fn(),
+      vi.fn(),
+      makeSession({
+        demoServers: [{ ...preview, tailscaleAddress }],
+      }),
+    );
+
+    const local = await screen.findByRole('link', {
+      name: 'Open http://localhost:3000 for Preview',
+    });
+    const tailnet = screen.getByRole('link', {
+      name: `Open ${tailscaleAddress} for Preview`,
+    });
+    expect(local).toHaveAttribute('href', 'http://localhost:3000');
+    expect(tailnet).toHaveAttribute('href', tailscaleAddress);
+
+    await user.click(local);
+    expect(openUrl).toHaveBeenCalledWith('http://localhost:3000');
+    await user.click(tailnet);
+    expect(openUrl).toHaveBeenCalledWith(tailscaleAddress);
+  });
+
+  it('never opens an address outside loopback and the tailnet', async () => {
+    const user = userEvent.setup();
+    renderPanel(
+      'files',
+      vi.fn(),
+      vi.fn(),
+      makeSession({
+        demoServers: [
+          {
+            ...preview,
+            tailscaleAddress: 'https://example.com:3000',
+          },
+        ],
+      }),
+    );
+
+    const shown = await screen.findByText('https://example.com:3000');
+    expect(shown).not.toHaveAttribute('href');
+    await user.click(shown);
+    expect(openUrl).not.toHaveBeenCalledWith('https://example.com:3000');
   });
 
   it('reports a failed stop and keeps the server active', async () => {

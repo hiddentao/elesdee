@@ -754,7 +754,12 @@ impl SessionEntry {
     ///
     /// A repeated port in the same session updates its name and makes it active
     /// again. A closed session refuses the registration.
-    pub fn register_demo_server(&self, name: String, port: u16) -> Result<Session, DemoFailure> {
+    pub fn register_demo_server(
+        &self,
+        name: String,
+        port: u16,
+        tailscale_address: Option<String>,
+    ) -> Result<Session, DemoFailure> {
         let name = crate::demo::clean_name(&name).ok_or(DemoFailure::InvalidName)?;
         if !crate::demo::port_is_allowed(port) {
             return Err(DemoFailure::InvalidPort);
@@ -770,6 +775,7 @@ impl SessionEntry {
             .find(|server| server.port == port)
         {
             existing.name = name;
+            existing.tailscale_address = tailscale_address;
             existing.state = DemoServerState::Active;
             return Ok(state.session.clone());
         }
@@ -797,10 +803,13 @@ impl SessionEntry {
         }
         let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
         let session_id = state.session.id.clone();
-        state
-            .session
-            .demo_servers
-            .push(crate::demo::new_server(&session_id, name, port, &now));
+        state.session.demo_servers.push(crate::demo::new_server(
+            &session_id,
+            name,
+            port,
+            tailscale_address,
+            &now,
+        ));
         Ok(state.session.clone())
     }
 

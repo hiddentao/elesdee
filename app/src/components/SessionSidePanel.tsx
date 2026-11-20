@@ -22,6 +22,7 @@ import type { Translate } from '../i18n';
 import { useLanguage } from '../i18n/LanguageProvider';
 import { openUrl } from '../api/shell';
 import { BrowserPanel } from './BrowserPanel';
+import { isOpenableDemoAddress } from './demoAddress';
 import { FileEditor } from './FileEditor';
 import {
   ChevronDownIcon,
@@ -505,6 +506,10 @@ export function SessionSidePanel({
               >
                 {demoServers.map((server) => {
                   const active = server.state === 'active';
+                  const addresses = [
+                    server.address,
+                    server.tailscaleAddress,
+                  ].filter((value): value is string => Boolean(value));
                   return (
                     <li key={server.id} className="demo-row">
                       <span className="demo-name" title={server.name}>
@@ -517,28 +522,36 @@ export function SessionSidePanel({
                           ? t('panel.demoServerActive')
                           : t('panel.demoServerStopped')}
                       </span>
-                      {active ? (
-                        <a
-                          className="demo-address"
-                          href={server.address}
-                          target="_blank"
-                          rel="noreferrer"
-                          aria-label={t('panel.demoServerOpenLabel', {
-                            name: server.name,
-                            address: server.address,
-                          })}
-                          onClick={(event) => {
-                            event.preventDefault();
-                            void openUrl(server.address);
-                          }}
-                        >
-                          {server.address}
-                        </a>
-                      ) : (
-                        <span className="demo-address is-inert">
-                          {server.address}
-                        </span>
-                      )}
+                      <span className="demo-addresses">
+                        {addresses.map((address) =>
+                          active && isOpenableDemoAddress(address) ? (
+                            <a
+                              key={address}
+                              className="demo-address"
+                              href={address}
+                              target="_blank"
+                              rel="noreferrer"
+                              aria-label={t('panel.demoServerOpenLabel', {
+                                name: server.name,
+                                address,
+                              })}
+                              onClick={(event) => {
+                                event.preventDefault();
+                                void openUrl(address);
+                              }}
+                            >
+                              {address}
+                            </a>
+                          ) : (
+                            <span
+                              key={address}
+                              className="demo-address is-inert"
+                            >
+                              {address}
+                            </span>
+                          ),
+                        )}
+                      </span>
                       {active ? (
                         <button
                           type="button"

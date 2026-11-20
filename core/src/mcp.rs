@@ -241,7 +241,7 @@ fn tools() -> Vec<Value> {
         }),
         json!({
             "name": "register_demo_server",
-            "description": "Tell the app that a demo server runs on a loopback port. The app records it for this session and returns the address to print. The user can open the address on this computer, and a paired phone can open the same port. Register again after a stop, pause or close.",
+            "description": "Tell the app that a demo server runs on a loopback port. The app records it for this session and returns the local address and, when Tailscale is running, a tailnet address to print. The user can open the local address on this computer, a paired phone can open the same port, and a device on the tailnet can open the tailnet address. Register again after a stop, pause or close.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -803,13 +803,14 @@ fn register_demo_server(state: &AppState, session_id: &str, arguments: Value) ->
         Ok((session, server)) => {
             state.emit(crate::state::SessionEvent::updated(session));
             state.save();
-            (
-                format!(
-                    "Registered \"{}\" at {}. Open this address on this computer, or the same port on a paired phone.",
-                    server.name, server.address
-                ),
-                false,
-            )
+            let mut text = format!("Registered \"{}\" at {}.", server.name, server.address);
+            if let Some(tailscale_address) = &server.tailscale_address {
+                text.push_str(&format!(" On Tailscale, open {tailscale_address}."));
+            }
+            text.push_str(
+                " Open the local address on this computer, or the same port on a paired phone.",
+            );
+            (text, false)
         }
         Err(error) => (error.to_string(), true),
     }

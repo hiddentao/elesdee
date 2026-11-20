@@ -10007,6 +10007,122 @@ async fn demo_servers_register_list_and_stop() {
     assert_eq!(status, StatusCode::OK);
 }
 
+#[cfg(unix)]
+fn write_fake_tailscale(folder: &Path, body: &str) -> PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+
+    let binary = folder.join("tailscale");
+    fs::write(&binary, format!("#!/bin/sh\n{body}\n")).expect("write fake tailscale");
+    fs::set_permissions(&binary, fs::Permissions::from_mode(0o755))
+        .expect("make fake tailscale executable");
+    binary
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn demo_servers_register_with_the_tailnet_address() {
+    let data_dir = TempDirectory::new("demo-tailnet-data");
+    let repo = TempDirectory::new("demo-tailnet-repo");
+    let binary = write_fake_tailscale(
+        &data_dir.path,
+        "printf '{\"BackendState\":\"Running\",\"Self\":{\"DNSName\":\"studio.tailnet.ts.net.\",\"TailscaleIPs\":[\"100.101.102.103\"]}}'\n",
+    );
+    let state = AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    )
+    .with_test_tailscale_binary(binary);
+    let app = router(state);
+    let session = create_terminal(&app, &repo.path).await;
+    let id = session["id"].as_str().expect("session id").to_owned();
+
+    let (failed, text) = mcp_text(
+        &app,
+        &id,
+        "register_demo_server",
+        json!({ "name": "Preview", "port": 3000 }),
+    )
+    .await;
+    assert!(!failed, "{text}");
+    let tailnet = "https://studio.tailnet.ts.net:3000";
+    assert!(text.contains("http://localhost:3000"), "{text}");
+    assert!(text.contains(tailnet), "{text}");
+
+    let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    let listed = bootstrap["sessions"]
+        .as_array()
+        .expect("sessions")
+        .iter()
+        .find(|session| session["id"] == id)
+        .expect("session");
+    let servers = demo_servers(listed);
+    assert_eq!(servers[0]["address"], "http://localhost:3000");
+    assert_eq!(servers[0]["tailscaleAddress"], tailnet);
+
+    let (status, all) = call(&app, "GET", "/api/demo-servers", None).await;
+    assert_eq!(status, StatusCode::OK, "{all}");
+    assert_eq!(all[0]["tailscaleAddress"], tailnet);
+
+    let (status, _) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[cfg(unix)]
+async fn assert_demo_registers_without_tailscale(label: &str, binary: PathBuf) {
+    let data_dir = TempDirectory::new(&format!("demo-{label}-data"));
+    let repo = TempDirectory::new(&format!("demo-{label}-repo"));
+    let state = AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    )
+    .with_test_tailscale_binary(binary);
+    let app = router(state);
+    let session = create_terminal(&app, &repo.path).await;
+    let id = session["id"].as_str().expect("session id").to_owned();
+
+    let (failed, text) = mcp_text(
+        &app,
+        &id,
+        "register_demo_server",
+        json!({ "name": "Preview", "port": 3000 }),
+    )
+    .await;
+    assert!(!failed, "{label}: {text}");
+    assert!(text.contains("http://localhost:3000"), "{label}: {text}");
+    assert!(!text.contains("Tailscale"), "{label}: {text}");
+
+    let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    let listed = bootstrap["sessions"]
+        .as_array()
+        .expect("sessions")
+        .iter()
+        .find(|session| session["id"] == id)
+        .expect("session");
+    let server = &demo_servers(listed)[0];
+    assert_eq!(server["address"], "http://localhost:3000");
+    assert!(
+        server.get("tailscaleAddress").is_none(),
+        "{label}: {server}"
+    );
+
+    let (status, _) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn demo_servers_register_when_tailscale_is_missing_or_fails() {
+    assert_demo_registers_without_tailscale(
+        "missing",
+        PathBuf::from("/nonexistent/elesdee-test-tailscale"),
+    )
+    .await;
+
+    let folder = TempDirectory::new("demo-tailscale-failing");
+    let binary = write_fake_tailscale(&folder.path, "exit 1");
+    assert_demo_registers_without_tailscale("failing", binary).await;
+}
+
 #[tokio::test]
 async fn mcp_browser_refuses_a_non_http_address_and_shares_a_screenshot() {
     let base = start_browser_page_server().await;

@@ -93,6 +93,7 @@ export interface DemoServer {
   name: string;
   port: number;
   address: string;
+  tailscaleAddress?: string;
   state: DemoServerState;
   createdAt: string;
 }
