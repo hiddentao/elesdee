@@ -73,6 +73,7 @@ import {
   type PhoneFilter,
 } from '../../../app/src/phone/list';
 import { combo } from './combo';
+import { preferredFocusTarget } from './focus';
 import {
   noticeForEvent,
   type NotificationRequest,
@@ -510,9 +511,7 @@ export class ShellApp {
     if (!sheet) {
       return;
     }
-    const preferred = sheet.querySelector<HTMLElement>(
-      '#switch-filter, #saved-key-name, .sheet-row:not(.is-danger), .sheet-body button:not([disabled]), .sheet-body input:not([disabled])',
-    );
+    const preferred = preferredFocusTarget(sheet);
     const fallback = focusableIn(sheet)[0] ?? sheet;
     (preferred ?? fallback).focus();
   }

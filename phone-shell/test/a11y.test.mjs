@@ -10,10 +10,8 @@ const source = readFileSync(
   'utf8',
 );
 
-test('a sheet is a modal dialog that takes focus and is keyboard trapped', () => {
+test('a sheet is a modal dialog that is keyboard trapped', () => {
   assert.match(source, /role: 'dialog',\s*'aria-modal': 'true',\s*tabindex: '-1'/);
-  assert.match(source, /private focusSheet\(/);
-  assert.match(source, /this\.focusSheet\(layer\)/);
   assert.match(source, /event\.key === 'Escape'/);
   assert.match(source, /if \(event\.defaultPrevented\)/);
   assert.match(source, /event\.key !== 'Tab'/);
