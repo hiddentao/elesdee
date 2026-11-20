@@ -132,6 +132,27 @@ describe('AddProjectDialog GitHub source', () => {
     expect(github.getSignIn).toHaveBeenCalledWith('flow-1');
   });
 
+  it('shows a loading state while the repositories load', async () => {
+    const user = userEvent.setup();
+    let finish: (items: GitHubRepo[]) => void = () => undefined;
+    const pending = new Promise<GitHubRepo[]>((resolve) => {
+      finish = resolve;
+    });
+    renderDialog(
+      actions({
+        status: vi.fn(async () => connected),
+        listRepos: vi.fn(() => pending),
+      }),
+    );
+
+    await openGitHub(user);
+    await user.click(await screen.findByLabelText('Repository'));
+
+    expect(await screen.findByText('Loading…')).toBeInTheDocument();
+    finish(repos);
+    expect(await screen.findByText('acme/web')).toBeInTheDocument();
+  });
+
   it('reports a refused sign-in', async () => {
     const user = userEvent.setup();
     const github = actions({
