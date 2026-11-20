@@ -43,6 +43,16 @@ The terminal is the real agent terminal. Type in it, scroll it and use its keybo
 
 Each agent has its own short key list in the session. The core service supplies those shortcuts, so they follow the selected agent.
 
+## Files and Changes
+
+Each session has a side panel. It is closed by default and remembers its open state and tab for each session. Open it with the panel button in the session header. The terminal stays usable while the panel is open.
+
+**Files** shows the folders and files in the session's worktree or folder. Select a file to open it in the editor. The editor highlights the language, shows a dot for unsaved changes, and saves only when you choose **Save**. A failed read or save shows an error in the panel.
+
+Files must be UTF-8 text up to 1 MiB. The app refuses binary files and larger files. Every path stays inside the session folder: paths that climb out, leave through a symlink, or name a folder where a file is expected are refused.
+
+**Changes** shows the files that differ from the branch point for an agent session, committed or not. A terminal session shows the changes in its working tree against the current commit. Each file shows added and removed line counts, and selecting it shows a diff. In a plain folder, the panel says the folder is not a Git repository.
+
 ## Tabs and the sidebar
 
 Choose a session in the sidebar to open it in a tab. Each project keeps its own tab strip, and the app restores the last active tab when you return to the project.

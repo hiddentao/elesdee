@@ -58,6 +58,10 @@ import {
   type SessionMenuAction,
 } from './components/SessionActionsMenu';
 import { SessionHeader } from './components/SessionHeader';
+import {
+  SessionSidePanel,
+  type DockTab,
+} from './components/SessionSidePanel';
 import { SessionView } from './components/SessionView';
 import { SettingsDialog } from './components/SettingsDialog';
 import { Sidebar } from './components/Sidebar';
@@ -110,6 +114,7 @@ export default function App() {
   const [agentsChecked, setAgentsChecked] = useState(false);
   const [version, setVersion] = useState<string | null>(null);
   const [tabsByProject, setTabsByProject] = useState<TabsByProject>({});
+  const [docks, setDocks] = useState<Record<string, DockTab | null>>({});
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [projectDialogOpen, setProjectDialogOpen] = useState(false);
@@ -140,6 +145,17 @@ export default function App() {
   const activeSessionCount = sessions.filter(
     (session) => session.status === 'active',
   ).length;
+
+  function setDock(sessionId: string, tab: DockTab | null) {
+    setDocks((current) => ({ ...current, [sessionId]: tab }));
+  }
+
+  function toggleDock(sessionId: string) {
+    setDocks((current) => ({
+      ...current,
+      [sessionId]: current[sessionId] ? null : 'files',
+    }));
+  }
 
   const load = useCallback(async () => {
     setLoadState('loading');
@@ -178,6 +194,9 @@ export default function App() {
   const activeSessionId = projectTabs?.active ?? null;
   const activeSession =
     tabSessions.find((session) => session.id === activeSessionId) ?? null;
+  const activeDock = activeSession
+    ? docks[activeSession.id] ?? null
+    : null;
   const activeQuestion = activeSession
     ? questions.find((question) => question.sessionId === activeSession.id) ??
       null
@@ -739,6 +758,11 @@ export default function App() {
     setTabsByProject((current) =>
       closeSessionTab(current, deleteTarget.projectId, deleteTarget.id),
     );
+    setDocks((current) => {
+      const next = { ...current };
+      delete next[deleteTarget.id];
+      return next;
+    });
     setDeleteSessionId(null);
     setFocusSessionChangeTick((tick) => tick + 1);
   }
@@ -881,33 +905,48 @@ export default function App() {
                   onOpenBranchMenu={(trigger) =>
                     openBranchMenu(activeSession, trigger)
                   }
+                  panelOpen={activeDock !== null}
+                  onTogglePanel={() => toggleDock(activeSession.id)}
                 />
-                <SessionView
-                  key={activeSession.id}
-                  session={activeSession}
-                  onRespondPermission={(decision) =>
-                    answerPermission(activeSession, decision)
-                  }
-                  onReopen={() => void handleReopen(activeSession)}
-                  onResume={() => void handleResume(activeSession)}
-                  question={activeQuestion}
-                  onAnswerQuestion={(answer) =>
-                    activeQuestion
-                      ? answerOpenQuestion(activeQuestion.id, answer)
-                      : Promise.resolve()
-                  }
-                  request={activeRequest}
-                  onApproveRequest={(allowFurther) =>
-                    activeRequest
-                      ? approveRequest(activeRequest.id, allowFurther)
-                      : Promise.resolve()
-                  }
-                  onDenyRequest={() =>
-                    activeRequest
-                      ? denyRequest(activeRequest.id)
-                      : Promise.resolve()
-                  }
-                />
+                <div
+                  className={`session-workspace${activeDock ? ' has-dock' : ''}`}
+                >
+                  <SessionView
+                    key={activeSession.id}
+                    session={activeSession}
+                    onRespondPermission={(decision) =>
+                      answerPermission(activeSession, decision)
+                    }
+                    onReopen={() => void handleReopen(activeSession)}
+                    onResume={() => void handleResume(activeSession)}
+                    question={activeQuestion}
+                    onAnswerQuestion={(answer) =>
+                      activeQuestion
+                        ? answerOpenQuestion(activeQuestion.id, answer)
+                        : Promise.resolve()
+                    }
+                    request={activeRequest}
+                    onApproveRequest={(allowFurther) =>
+                      activeRequest
+                        ? approveRequest(activeRequest.id, allowFurther)
+                        : Promise.resolve()
+                    }
+                    onDenyRequest={() =>
+                      activeRequest
+                        ? denyRequest(activeRequest.id)
+                        : Promise.resolve()
+                    }
+                  />
+                  {activeDock ? (
+                    <SessionSidePanel
+                      key={activeSession.id}
+                      session={activeSession}
+                      tab={activeDock}
+                      onSelectTab={(tab) => setDock(activeSession.id, tab)}
+                      onClose={() => setDock(activeSession.id, null)}
+                    />
+                  ) : null}
+                </div>
               </div>
             ) : (
               <div className="empty-main">

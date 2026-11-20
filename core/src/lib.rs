@@ -3,6 +3,7 @@ pub mod api;
 mod claude;
 mod clients;
 mod codex;
+pub mod files;
 mod git;
 mod mcp;
 mod opencode;

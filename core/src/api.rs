@@ -26,6 +26,7 @@ use tokio::time::{MissedTickBehavior, interval_at};
 use crate::antigravity;
 use crate::claude;
 use crate::clients;
+use crate::files;
 use crate::git;
 use crate::seed;
 use crate::sessions::{
@@ -103,6 +104,13 @@ impl ApiError {
     fn too_many_requests(message: impl Into<String>) -> Self {
         Self {
             status: StatusCode::TOO_MANY_REQUESTS,
+            message: message.into(),
+        }
+    }
+
+    fn payload_too_large(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::PAYLOAD_TOO_LARGE,
             message: message.into(),
         }
     }
@@ -322,6 +330,17 @@ struct OutputQuery {
     after: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+struct FileQuery {
+    path: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct WriteFileRequest {
+    path: String,
+    content: String,
+}
+
 pub fn router(state: AppState) -> Router {
     let streaming = Router::new()
         .route("/api/sessions/{id}/output", get(session_output))
@@ -361,6 +380,12 @@ pub fn router(state: AppState) -> Router {
         .route("/api/sessions/{id}/account", post(switch_session_account))
         .route("/api/sessions/{id}/resume", post(resume_session))
         .route("/api/sessions/{id}/permission", post(answer_permission))
+        .route("/api/sessions/{id}/files", get(list_session_files))
+        .route(
+            "/api/sessions/{id}/file",
+            get(read_session_file).post(write_session_file),
+        )
+        .route("/api/sessions/{id}/changes", get(session_changes))
         .route("/internal/mcp/{id}", post(mcp_request))
         .layer(middleware::from_fn(request_timeout));
 
@@ -1939,6 +1964,108 @@ async fn resize_session(
     state.save();
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+async fn list_session_files(
+    State(state): State<AppState>,
+    UrlPath(id): UrlPath<String>,
+    query: Result<Query<FileQuery>, QueryRejection>,
+) -> Result<Json<files::FileList>, ApiError> {
+    let Query(query) = query.map_err(|_| ApiError::bad_request("Invalid file query."))?;
+    let root = session_folder(&state, &id)?;
+    let path = query.path.unwrap_or_default();
+    let list = tokio::task::spawn_blocking(move || files::list(&root, &path))
+        .await
+        .map_err(|_| ApiError::internal("The file listing failed."))?
+        .map_err(file_error)?;
+    Ok(Json(list))
+}
+
+async fn read_session_file(
+    State(state): State<AppState>,
+    UrlPath(id): UrlPath<String>,
+    query: Result<Query<FileQuery>, QueryRejection>,
+) -> Result<Json<files::FileContent>, ApiError> {
+    let Query(query) = query.map_err(|_| ApiError::bad_request("Invalid file query."))?;
+    let path = query
+        .path
+        .filter(|path| !path.trim().is_empty())
+        .ok_or_else(|| ApiError::bad_request("A file path is required."))?;
+    let root = session_folder(&state, &id)?;
+    let content = tokio::task::spawn_blocking(move || files::read(&root, &path))
+        .await
+        .map_err(|_| ApiError::internal("The file read failed."))?
+        .map_err(file_error)?;
+    Ok(Json(content))
+}
+
+async fn write_session_file(
+    State(state): State<AppState>,
+    UrlPath(id): UrlPath<String>,
+    body: Result<Json<WriteFileRequest>, JsonRejection>,
+) -> Result<Json<files::FileContent>, ApiError> {
+    let Json(request) = body.map_err(invalid_json)?;
+    let root = session_folder(&state, &id)?;
+    let written =
+        tokio::task::spawn_blocking(move || files::write(&root, &request.path, &request.content))
+            .await
+            .map_err(|_| ApiError::internal("The file save failed."))?
+            .map_err(file_error)?;
+    Ok(Json(written))
+}
+
+async fn session_changes(
+    State(state): State<AppState>,
+    UrlPath(id): UrlPath<String>,
+) -> Result<Json<git::Changes>, ApiError> {
+    let entry = state
+        .session(&id)
+        .ok_or_else(|| ApiError::not_found("Unknown session."))?;
+    let session = entry.session();
+    let agent_repo_root = if session.kind == SessionKind::Agent {
+        entry.repo_root().map(PathBuf::from)
+    } else {
+        None
+    };
+    let root = session_folder(&state, &id)?;
+    let changes = git::changes(root, agent_repo_root, state.git_timeout()).await;
+    Ok(Json(changes))
+}
+
+fn session_folder(state: &AppState, id: &str) -> Result<PathBuf, ApiError> {
+    let entry = state
+        .session(id)
+        .ok_or_else(|| ApiError::not_found("Unknown session."))?;
+    let folder = PathBuf::from(entry.session().folder);
+    let root = folder
+        .canonicalize()
+        .map_err(|_| ApiError::not_found("The session folder is no longer available."))?;
+    if !root.is_dir() {
+        return Err(ApiError::not_found(
+            "The session folder is no longer available.",
+        ));
+    }
+    Ok(root)
+}
+
+fn file_error(error: files::FileError) -> ApiError {
+    match error {
+        files::FileError::InvalidPath | files::FileError::OutsideRoot => {
+            ApiError::bad_request("The path must stay inside the session folder.")
+        }
+        files::FileError::NotFound => ApiError::not_found("The file does not exist."),
+        files::FileError::NotAFile => ApiError::unprocessable("The path is a folder, not a file."),
+        files::FileError::NotADirectory => ApiError::unprocessable("The path is not a folder."),
+        files::FileError::TooLarge(size) => ApiError::payload_too_large(format!(
+            "The file is too large. The limit is {} bytes; this file is {size} bytes.",
+            files::MAX_FILE_BYTES
+        )),
+        files::FileError::Binary => ApiError::unprocessable("The file is not UTF-8 text."),
+        files::FileError::Io(error) => {
+            tracing::error!(%error, "file operation failed");
+            ApiError::internal("The file operation failed.")
+        }
+    }
 }
 
 async fn session_output(
