@@ -105,15 +105,21 @@ Closing a session ends its process. The session moves to the closed list.
 
 Turn on **Show closed sessions**, open the session menu and choose **Reopen**.
 
-The app opens the session in a new tab, restores its log, and starts the agent again. A Git session gets its worktree back from the saved branch. Every client continues its most recent conversation in that folder.
+The app opens the session in a new tab, restores its log, and starts the agent again. A Git session gets its worktree back from the saved branch. The app resumes the agent's saved conversation when it has one; otherwise it continues the most recent conversation in that folder.
 
 ## Quit
 
-When you quit while sessions run, the app asks first. The dialog shows how many sessions are still running. Cancel keeps working. Quit stops the sessions and closes the app. The sessions stay active and paused in the list; choose **Resume** after the next launch.
+When you quit while sessions run, the app asks first. The dialog shows how many sessions are still running. Cancel keeps working. Quit stops the sessions and closes the app. On the next launch the sessions restart in place and continue their conversations. You do not need to do anything.
 
 ## Restart recovery
 
-If the app or this computer restarts, the sessions stay in the list as paused. The app keeps their logs, branches and worktrees. Choose **Resume** to start the agent again in the same worktree. Claude Code and Antigravity continue their most recent conversation.
+If the app or this computer restarts, the sessions that were running restart when elesdee next starts. Each one reopens in the same worktree with the same account and client, and the agent continues its own conversation.
+
+A terminal session opens a new shell in the same folder, with the earlier output above it.
+
+If an agent has no saved conversation ID, it continues its most recent conversation and the session preview says so.
+
+If a session's folder, account or client is missing, that session stays paused with the reason. The other sessions still restart.
 
 ## Delete
 

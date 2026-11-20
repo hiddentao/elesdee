@@ -10,7 +10,7 @@ use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::Message;
 
 use crate::sessions::SessionEntry;
-use crate::state::PendingPermission;
+use crate::state::{AppState, PendingPermission, SessionEvent};
 
 pub struct Decision {
     pub request_id: String,
@@ -75,6 +75,7 @@ pub async fn run(
     url: String,
     entry: Arc<SessionEntry>,
     mut decisions: mpsc::UnboundedReceiver<Decision>,
+    state: AppState,
 ) {
     let socket = connect(&url).await;
     let Ok(socket) = socket else {
@@ -113,6 +114,12 @@ pub async fn run(
                 let Message::Text(text) = message else { continue };
                 let Ok(value) = serde_json::from_str::<Value>(&text) else { continue };
                 let Some(method) = value.get("method").and_then(Value::as_str) else { continue };
+                if let Some(thread_id) = thread_id(method, value.get("params"))
+                    && let Some(session) = entry.note_agent_session_id(thread_id)
+                {
+                    state.emit(SessionEvent::updated(session));
+                    state.save();
+                }
                 let Some(id) = value.get("id") else { continue };
                 let Some(permission) = approval(method, value.get("params")) else { continue };
                 let request_id = id_key(id);
@@ -124,6 +131,29 @@ pub async fn run(
             }
         }
     }
+}
+
+fn thread_id<'a>(method: &str, params: Option<&'a Value>) -> Option<&'a str> {
+    let params = params?;
+    let value = if method == "thread/started" {
+        params
+            .get("thread")
+            .and_then(|thread| thread.get("id"))
+            .and_then(Value::as_str)
+    } else {
+        params.get("threadId").and_then(Value::as_str)
+    }
+    .or_else(|| params.get("threadId").and_then(Value::as_str))
+    .or_else(|| {
+        params
+            .get("thread")
+            .and_then(|thread| thread.get("id"))
+            .and_then(Value::as_str)
+    })?;
+
+    let value = value.trim();
+    (!value.is_empty() && value.chars().count() <= 128 && !value.chars().any(char::is_control))
+        .then_some(value)
 }
 
 async fn connect(
@@ -208,5 +238,34 @@ mod tests {
         .expect("response");
         assert_eq!(response["id"], 42);
         assert_eq!(response["result"]["decision"], "accept");
+    }
+
+    #[test]
+    fn thread_ids_come_from_started_notifications_and_approval_params() {
+        let started = json!({
+            "method": "thread/started",
+            "params": { "thread": { "id": "019c-thread" } }
+        });
+        assert_eq!(
+            thread_id("thread/started", started.get("params")),
+            Some("019c-thread")
+        );
+
+        let approval = json!({
+            "method": "item/commandExecution/requestApproval",
+            "params": { "threadId": "turn-thread", "itemId": "item-1" }
+        });
+        assert_eq!(
+            thread_id(
+                "item/commandExecution/requestApproval",
+                approval.get("params")
+            ),
+            Some("turn-thread")
+        );
+        assert_eq!(thread_id("turn/started", Some(&json!({}))), None);
+        assert_eq!(
+            thread_id("turn/started", Some(&json!({ "threadId": " " }))),
+            None
+        );
     }
 }

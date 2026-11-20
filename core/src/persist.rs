@@ -158,3 +158,64 @@ impl StateStore {
         LoadResult::Corrupt
     }
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn stored_state(agent_session_id: Option<&str>) -> serde_json::Value {
+        let mut session = serde_json::json!({
+            "id": "session-1",
+            "name": "Session",
+            "short": "session",
+            "projectId": "project-1",
+            "kind": "agent",
+            "status": "active",
+            "workState": "working",
+            "client": "Claude Code",
+            "accountId": "max",
+            "branch": "elesdee/project/session",
+            "folder": "/tmp/session",
+            "preview": "Working.",
+            "waitingFor": null,
+            "startedAt": "2026-01-01T00:00:00Z",
+            "shortcuts": []
+        });
+        if let Some(id) = agent_session_id {
+            session["agentSessionId"] = serde_json::Value::String(id.to_owned());
+        }
+        serde_json::json!({
+            "version": STATE_VERSION,
+            "projects": [],
+            "sessions": [{
+                "session": session,
+                "cols": 120,
+                "rows": 32,
+                "output": [],
+                "nextSeq": 1
+            }]
+        })
+    }
+
+    #[test]
+    fn persisted_session_keeps_the_agent_session_id() {
+        let state: PersistedState =
+            serde_json::from_value(stored_state(Some("conversation-1"))).expect("parse state");
+        assert_eq!(
+            state.sessions[0].session.agent_session_id.as_deref(),
+            Some("conversation-1")
+        );
+
+        let value = serde_json::to_value(&state).expect("serialize state");
+        assert_eq!(
+            value["sessions"][0]["session"]["agentSessionId"],
+            "conversation-1"
+        );
+    }
+
+    #[test]
+    fn older_sessions_without_an_agent_session_id_still_load() {
+        let state: PersistedState =
+            serde_json::from_value(stored_state(None)).expect("parse state");
+        assert!(state.sessions[0].session.agent_session_id.is_none());
+    }
+}

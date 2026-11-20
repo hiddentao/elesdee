@@ -25,6 +25,7 @@ The core starts Claude Code with a per-session settings file:
 
 - The token is random per session, kept in the running core and sent only to the agent. It is not written to `state.json`. A request with a wrong or missing token gets 403, as does a foreign Host.
 - The hook input is the JSON Claude Code posts. The core reads `hook_event_name`, `session_id`, `cwd`, `tool_name`, `tool_input` and `tool_use_id` where present, and ignores unknown fields.
+- The core stores `session_id` as the session's `agentSessionId`, so crash recovery can resume the same conversation.
 - `UserPromptSubmit` sets the work state to working and clears the waiting state.
 - `PostToolUse` sets waitingFor to null and keeps the session active.
 - `MessageDisplay` and `Stop` update the preview with the last non-empty line, capped at about 80 characters; `Stop` sets the work state to done.

@@ -162,7 +162,7 @@ fn version_from_output(stdout: &[u8], stderr: &[u8]) -> Option<String> {
     None
 }
 
-fn is_executable(path: &Path) -> bool {
+pub(crate) fn is_executable(path: &Path) -> bool {
     let Ok(metadata) = path.metadata() else {
         return false;
     };
