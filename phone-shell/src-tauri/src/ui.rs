@@ -196,7 +196,7 @@ struct Installed {
 
 impl Installed {
     fn url(&self) -> String {
-        package_url(&self.build_id)
+        package_url(&self.computer_id, &self.build_id)
     }
 }
 
@@ -235,16 +235,33 @@ impl UiStore {
         }
     }
 
-    /// Returns the stored status for one computer, or `none`.
-    pub fn status(&self, computer_id: &str) -> UiStatus {
-        if let Some(status) = lock(&self.inner).statuses.get(computer_id) {
-            return status.clone();
+    /// Makes the stored build for one computer the served build.
+    ///
+    /// The computer whose page the shell opens is the one named here, so a
+    /// background update for another computer never changes it. A failed or
+    /// incompatible check keeps the shell screens instead of an older package.
+    pub fn activate(&self, computer_id: &str) -> UiStatus {
+        let cached = lock(&self.inner).statuses.get(computer_id).cloned();
+        if let Some(status) = cached.filter(|status| status.state != "ready") {
+            return status;
         }
-        let Some(installed) = self.find_current(computer_id) else {
-            return UiStatus::simple(computer_id, "none");
+        let installed = self.find_current(computer_id);
+        let mut inner = lock(&self.inner);
+        let Some(installed) = installed else {
+            if inner
+                .active
+                .as_ref()
+                .is_some_and(|active| active.computer_id == computer_id)
+            {
+                inner.active = None;
+            }
+            let status = UiStatus::simple(computer_id, "none");
+            inner
+                .statuses
+                .insert(computer_id.to_owned(), status.clone());
+            return status;
         };
         let status = UiStatus::ready(computer_id, installed.url());
-        let mut inner = lock(&self.inner);
         inner
             .installed
             .insert(computer_id.to_owned(), installed.clone());
@@ -253,11 +270,6 @@ impl UiStore {
             .statuses
             .insert(computer_id.to_owned(), status.clone());
         status
-    }
-
-    /// Makes the stored build for one computer the served build.
-    pub fn activate(&self, computer_id: &str) -> UiStatus {
-        self.status(computer_id)
     }
 
     /// Checks the versions, downloads a changed build once and installs it.
@@ -305,13 +317,41 @@ impl UiStore {
         }
     }
 
+    /// Adopts an installed build as the computer's current build.
+    ///
+    /// A build check that runs in the background must not change the page that
+    /// is open, so this never touches the served build. It records the build
+    /// in `current.json` and keeps that build, the build before it and the
+    /// build on screen.
     fn use_build(&self, computer_id: &str, installed: Installed) -> UiStatus {
         let status = UiStatus::ready(computer_id, installed.url());
+        let served = lock(&self.inner)
+            .active
+            .as_ref()
+            .filter(|active| active.computer_id == computer_id)
+            .map(|active| active.build_id.clone());
+        let previous = self.current_build_id(computer_id);
+        if let Ok(ui_root) = self.ui_root(computer_id) {
+            if let Err(error) = write_current(
+                &ui_root,
+                &installed.build_id,
+                installed.computer_name.as_deref(),
+            ) {
+                tracing::warn!(
+                    %computer_id,
+                    error = %error.message(),
+                    "could not record the current phone UI build"
+                );
+            }
+            prune_builds(
+                &ui_root.join("builds"),
+                &installed.build_id,
+                previous.as_deref(),
+                served.as_deref(),
+            );
+        }
         let mut inner = lock(&self.inner);
-        inner
-            .installed
-            .insert(computer_id.to_owned(), installed.clone());
-        inner.active = Some(installed);
+        inner.installed.insert(computer_id.to_owned(), installed);
         inner
             .statuses
             .insert(computer_id.to_owned(), status.clone());
@@ -366,7 +406,6 @@ impl UiStore {
             return Err(UiError::Hash);
         }
 
-        let previous = self.current_build_id(computer_id);
         let ui_root = self.ui_root(computer_id)?;
         let builds = ui_root.join("builds");
         std::fs::create_dir_all(&builds).map_err(storage)?;
@@ -387,18 +426,7 @@ impl UiStore {
             return Err(error);
         }
 
-        let directory = builds.join(build_dir_name(&served.build_id)?);
-        if directory.exists() {
-            let _ = std::fs::remove_dir_all(&temp);
-        } else {
-            std::fs::rename(&temp, &directory).map_err(storage)?;
-        }
-        write_current(
-            &ui_root,
-            &served.build_id,
-            Some(connection.welcome().computer_name.as_str()),
-        )?;
-        prune_builds(&builds, &served.build_id, previous.as_deref());
+        let directory = place_build(&builds, &temp, &served.build_id)?;
 
         tracing::info!(
             computer = %computer_id.chars().take(8).collect::<String>(),
@@ -432,6 +460,29 @@ impl UiStore {
         read_current(&ui_root).map(|current| current.0)
     }
 
+    /// Returns the stored name for one computer, when the shell has it.
+    fn computer_name(&self, computer_id: &str) -> Option<String> {
+        {
+            let inner = lock(&self.inner);
+            let name = inner
+                .installed
+                .get(computer_id)
+                .and_then(|installed| installed.computer_name.clone())
+                .or_else(|| {
+                    inner
+                        .active
+                        .as_ref()
+                        .filter(|active| active.computer_id == computer_id)
+                        .and_then(|active| active.computer_name.clone())
+                });
+            if name.is_some() {
+                return name;
+            }
+        }
+        let ui_root = self.ui_root(computer_id).ok()?;
+        read_current(&ui_root).and_then(|current| current.1)
+    }
+
     fn find_current(&self, computer_id: &str) -> Option<Installed> {
         let ui_root = self.ui_root(computer_id).ok()?;
         let (build_id, computer_name) = read_current(&ui_root)?;
@@ -445,7 +496,7 @@ impl UiStore {
     /// Resolves the build path in a package URL to an installed build.
     ///
     /// The path is a content hash with a fixed prefix, so the result stays
-    /// inside the active computer's build folder. A build that did not install
+    /// inside the named computer's build folder. A build that did not install
     /// has no entry page and is not found.
     fn find_build_by_path(
         &self,
@@ -475,27 +526,21 @@ impl UiStore {
     }
 
     /// Serves one request on the `elesdee` protocol.
+    ///
+    /// The path names the computer, so a page keeps its own build root when
+    /// another computer is opened or updates in the background.
     pub fn handle(&self, request: HttpRequest<Vec<u8>>) -> HttpResponse<Vec<u8>> {
         let path = request.uri().path();
         let mut segments = path.split('/').filter(|segment| !segment.is_empty());
         if segments.next() != Some("ui") {
             return not_found_response();
         }
-        let Some(build_segment) = segments.next() else {
+        let (Some(computer_id), Some(build_segment)) = (segments.next(), segments.next()) else {
             return not_found_response();
         };
-        let active = lock(&self.inner).active.clone();
-        let Some(active) = active else {
-            return not_found_response();
-        };
-        // The active computer anchors the build root. Its current build and
-        // the one previous build stay installed, so a page that is open while
-        // the computer updates keeps loading its own assets.
-        let Some(installed) = self.find_build_by_path(
-            &active.computer_id,
-            build_segment,
-            active.computer_name.clone(),
-        ) else {
+        let Some(installed) =
+            self.find_build_by_path(computer_id, build_segment, self.computer_name(computer_id))
+        else {
             return not_found_response();
         };
         let rest = segments.collect::<Vec<_>>().join("/");
@@ -535,14 +580,14 @@ impl std::fmt::Debug for UiStore {
     }
 }
 
-/// Returns the webview address for one stored build.
-pub fn package_url(build_id: &str) -> String {
+/// Returns the webview address for one stored build of one computer.
+pub fn package_url(computer_id: &str, build_id: &str) -> String {
     let host = if cfg!(any(target_os = "android", target_os = "windows")) {
         "http://elesdee.localhost"
     } else {
         "elesdee://localhost"
     };
-    format!("{host}/ui/{}/", build_path(build_id))
+    format!("{host}/ui/{computer_id}/{}/", build_path(build_id))
 }
 
 /// Returns the URL path segment for one build id.
@@ -708,9 +753,35 @@ fn write_current(
     std::fs::rename(&temporary, ui_root.join(CURRENT_FILE)).map_err(storage)
 }
 
-fn prune_builds(builds: &Path, keep: &str, previous: Option<&str>) {
-    let keep_name = build_dir_name(keep).ok();
-    let previous_name = previous.and_then(|build| build_dir_name(build).ok());
+/// Places an unpacked build folder and keeps the builds that may still be used.
+///
+/// A destination without an entry page is an incomplete earlier install, so it
+/// is replaced instead of adopted.
+fn place_build(builds: &Path, temp: &Path, build_id: &str) -> Result<PathBuf, UiError> {
+    let directory = builds.join(build_dir_name(build_id)?);
+    if directory.join(INDEX_FILE).is_file() {
+        let _ = std::fs::remove_dir_all(temp);
+        return Ok(directory);
+    }
+    if directory.exists() {
+        if directory.is_dir() {
+            std::fs::remove_dir_all(&directory).map_err(storage)?;
+        } else {
+            std::fs::remove_file(&directory).map_err(storage)?;
+        }
+    }
+    std::fs::rename(temp, &directory).map_err(storage)?;
+    Ok(directory)
+}
+
+/// Deletes every build folder except the current, the previous current and
+/// the build on screen.
+fn prune_builds(builds: &Path, keep: &str, previous: Option<&str>, served: Option<&str>) {
+    let kept = [Some(keep), previous, served]
+        .into_iter()
+        .flatten()
+        .filter_map(|build| build_dir_name(build).ok())
+        .collect::<HashSet<_>>();
     let Ok(entries) = std::fs::read_dir(builds) else {
         return;
     };
@@ -721,9 +792,7 @@ fn prune_builds(builds: &Path, keep: &str, previous: Option<&str>) {
             let _ = std::fs::remove_dir_all(entry.path());
             continue;
         }
-        if Some(name.as_ref()) == keep_name.as_deref()
-            || Some(name.as_ref()) == previous_name.as_deref()
-        {
+        if kept.contains(name.as_ref()) {
             continue;
         }
         let _ = std::fs::remove_dir_all(entry.path());
@@ -747,7 +816,14 @@ fn serve_index(installed: &Installed) -> HttpResponse<Vec<u8>> {
         return not_found_response();
     };
     let body = match String::from_utf8(bytes) {
-        Ok(html) => inject_marker(&html, &build_path(&installed.build_id)).into_bytes(),
+        Ok(html) => {
+            let prefix = format!(
+                "/ui/{}/{}",
+                installed.computer_id,
+                build_path(&installed.build_id)
+            );
+            inject_marker(&html, &prefix).into_bytes()
+        }
         Err(error) => error.into_bytes(),
     };
     package_response(body, "text/html; charset=utf-8", "no-store")
@@ -803,11 +879,13 @@ fn marker_script(installed: &Installed) -> Vec<u8> {
 }
 
 /// Adds the marker script tag before the package's own scripts.
-fn inject_marker(html: &str, build: &str) -> String {
+///
+/// The marker prefix is the package path for its computer and build.
+fn inject_marker(html: &str, build_prefix: &str) -> String {
     let Some(index) = marker_index(html) else {
         return html.to_owned();
     };
-    let tag = format!("<script src=\"/ui/{build}/{MARKER_FILE}\"></script>");
+    let tag = format!("<script src=\"{build_prefix}/{MARKER_FILE}\"></script>");
     let mut output = String::with_capacity(html.len() + tag.len());
     output.push_str(&html[..index]);
     output.push_str(&tag);
@@ -1047,8 +1125,8 @@ mod tests {
     #[test]
     fn a_served_build_uses_the_platform_origin() {
         let hash = blake3::hash(b"package").to_hex().to_string();
-        let url = package_url(&format!("blake3:{hash}"));
-        assert!(url.contains(&format!("/ui/blake3-{hash}/")));
+        let url = package_url("computer", &format!("blake3:{hash}"));
+        assert!(url.contains(&format!("/ui/computer/blake3-{hash}/")));
         if cfg!(any(target_os = "android", target_os = "windows")) {
             assert!(url.starts_with("http://elesdee.localhost/"));
         } else {
@@ -1076,6 +1154,23 @@ mod tests {
         directory
     }
 
+    /// Builds one installed record for a stored build folder.
+    fn installed(computer_id: &str, build_id: &str, directory: PathBuf) -> Installed {
+        Installed {
+            computer_id: computer_id.to_owned(),
+            build_id: build_id.to_owned(),
+            computer_name: Some("Studio".to_owned()),
+            directory,
+        }
+    }
+
+    fn request(path: &str) -> HttpRequest<Vec<u8>> {
+        HttpRequest::builder()
+            .uri(path)
+            .body(Vec::new())
+            .expect("request")
+    }
+
     #[test]
     fn the_protocol_serves_the_current_and_previous_builds() {
         let folder = temp_folder("serve");
@@ -1095,34 +1190,36 @@ mod tests {
             });
         }
 
-        let request = |path: &str| {
-            HttpRequest::builder()
-                .uri(path)
-                .body(Vec::new())
-                .expect("request")
-        };
         let current_path = build_path(&current);
-        let response = store.handle(request(&format!("/ui/{current_path}/")));
+        let response = store.handle(request(&format!("/ui/computer/{current_path}/")));
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(response.body(), b"current");
 
         let previous_path = build_path(&previous);
-        let response = store.handle(request(&format!("/ui/{previous_path}/")));
+        let response = store.handle(request(&format!("/ui/computer/{previous_path}/")));
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(response.body(), b"previous");
-        let response = store.handle(request(&format!("/ui/{previous_path}/assets/app.js")));
+        let response = store.handle(request(&format!(
+            "/ui/computer/{previous_path}/assets/app.js"
+        )));
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(response.body(), b"previous-js");
 
         let unknown = build_path(&format!("blake3:{}", "c".repeat(64)));
-        let response = store.handle(request(&format!("/ui/{unknown}/")));
+        let response = store.handle(request(&format!("/ui/computer/{unknown}/")));
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
 
-        let response = store.handle(request(&format!("/ui/{previous_path}/../outside.js")));
+        let response = store.handle(request(&format!(
+            "/ui/computer/{previous_path}/../outside.js"
+        )));
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
-        let response = store.handle(request(&format!("/ui/{previous_path}/assets/../../x.js")));
+        let response = store.handle(request(&format!(
+            "/ui/computer/{previous_path}/assets/../../x.js"
+        )));
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
         let response = store.handle(request("/ui/not-a-build/"));
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        let response = store.handle(request("/ui/computer/not-a-build/"));
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
 
         let _ = std::fs::remove_dir_all(folder);
@@ -1134,25 +1231,157 @@ mod tests {
         let store = UiStore::new(&folder);
         let current = format!("blake3:{}", "a".repeat(64));
         let other = format!("blake3:{}", "d".repeat(64));
-        let current_directory = stored_build(&folder, "computer", &current, b"current", b"js");
+        stored_build(&folder, "computer", &current, b"current", b"js");
         stored_build(&folder, "other", &other, b"other", b"other-js");
-        {
-            let mut inner = lock(&store.inner);
-            inner.active = Some(Installed {
-                computer_id: "computer".to_owned(),
-                build_id: current.clone(),
-                computer_name: None,
-                directory: current_directory,
-            });
-        }
 
-        let response = store.handle(
-            HttpRequest::builder()
-                .uri(format!("/ui/{}/", build_path(&other)))
-                .body(Vec::new())
-                .expect("request"),
-        );
+        // The build path resolves only under the computer named before it.
+        let response = store.handle(request(&format!("/ui/computer/{}/", build_path(&other))));
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        let response = store.handle(request(&format!("/ui/other/{}/", build_path(&current))));
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+        let _ = std::fs::remove_dir_all(folder);
+    }
+
+    #[test]
+    fn a_page_returns_to_the_first_computer_after_the_second() {
+        let folder = temp_folder("serve-two");
+        let store = UiStore::new(&folder);
+        let first = format!("blake3:{}", "1".repeat(64));
+        let second = format!("blake3:{}", "2".repeat(64));
+        stored_build(&folder, "first", &first, b"first", b"first-js");
+        let second_directory = stored_build(&folder, "second", &second, b"second", b"second-js");
+        let first_root = store.ui_root("first").expect("first root");
+        let second_root = store.ui_root("second").expect("second root");
+        write_current(&first_root, &first, Some("First")).expect("current first");
+        write_current(&second_root, &second, Some("Second")).expect("current second");
+
+        let status = store.activate("first");
+        assert_eq!(status.state, "ready");
+        assert!(status.url.expect("url").contains("/ui/first/"));
+        let status = store.activate("second");
+        assert_eq!(status.state, "ready");
+        assert!(status.url.expect("url").contains("/ui/second/"));
+
+        // Opening the first computer again makes its build the served one.
+        let status = store.activate("first");
+        assert!(status.url.expect("url").contains("/ui/first/"));
+        assert_eq!(
+            lock(&store.inner)
+                .active
+                .as_ref()
+                .expect("active")
+                .computer_id,
+            "first"
+        );
+
+        // A background update for the second computer leaves the page alone.
+        store.use_build("second", installed("second", &second, second_directory));
+        assert_eq!(
+            lock(&store.inner)
+                .active
+                .as_ref()
+                .expect("active")
+                .computer_id,
+            "first"
+        );
+
+        let path = build_path(&first);
+        let response = store.handle(request(&format!("/ui/first/{path}/")));
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.body(), b"first");
+        let response = store.handle(request(&format!("/ui/first/{path}/assets/app.js")));
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.body(), b"first-js");
+        let response = store.handle(request(&format!("/ui/second/{path}/")));
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+        let _ = std::fs::remove_dir_all(folder);
+    }
+
+    #[test]
+    fn two_updates_keep_the_page_that_is_open() {
+        let folder = temp_folder("serve-updates");
+        let store = UiStore::new(&folder);
+        let first = format!("blake3:{}", "a".repeat(64));
+        let second = format!("blake3:{}", "b".repeat(64));
+        let third = format!("blake3:{}", "c".repeat(64));
+        let first_directory = stored_build(&folder, "computer", &first, b"first", b"first-js");
+        let ui_root = store.ui_root("computer").expect("root");
+        write_current(&ui_root, &first, Some("Studio")).expect("current first");
+        assert_eq!(store.activate("computer").state, "ready");
+
+        let second_directory = stored_build(&folder, "computer", &second, b"second", b"second-js");
+        assert_eq!(
+            store
+                .use_build("computer", installed("computer", &second, second_directory))
+                .state,
+            "ready"
+        );
+        assert_eq!(
+            lock(&store.inner)
+                .active
+                .as_ref()
+                .expect("served build")
+                .build_id,
+            first
+        );
+        let third_directory = stored_build(&folder, "computer", &third, b"third", b"third-js");
+        assert_eq!(
+            store
+                .use_build("computer", installed("computer", &third, third_directory))
+                .state,
+            "ready"
+        );
+        assert_eq!(
+            lock(&store.inner)
+                .active
+                .as_ref()
+                .expect("served build")
+                .build_id,
+            first
+        );
+
+        // The page opened before both updates still loads its own build.
+        assert!(first_directory.join(INDEX_FILE).is_file());
+        let response = store.handle(request(&format!(
+            "/ui/computer/{}/assets/app.js",
+            build_path(&first)
+        )));
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.body(), b"first-js");
+        assert_eq!(read_current(&ui_root).expect("current").0, third);
+
+        let _ = std::fs::remove_dir_all(folder);
+    }
+
+    #[test]
+    fn an_incomplete_build_folder_is_replaced() {
+        let folder = temp_folder("partial");
+        let builds = folder.join("builds");
+        std::fs::create_dir_all(&builds).expect("builds");
+        let build = format!("blake3:{}", "f".repeat(64));
+        let directory = builds.join(build_dir_name(&build).expect("name"));
+        std::fs::create_dir_all(&directory).expect("partial build");
+        std::fs::write(directory.join("stale.js"), b"old").expect("stale");
+
+        let temp = builds.join(".tmp-test");
+        std::fs::create_dir_all(&temp).expect("temporary build");
+        std::fs::write(temp.join(INDEX_FILE), b"<!doctype html>").expect("index");
+        std::fs::write(temp.join("app.js"), b"new").expect("app");
+
+        let placed = place_build(&builds, &temp, &build).expect("place");
+        assert_eq!(placed, directory);
+        assert_eq!(
+            std::fs::read(directory.join(INDEX_FILE)).expect("index"),
+            b"<!doctype html>"
+        );
+        assert_eq!(
+            std::fs::read(directory.join("app.js")).expect("app"),
+            b"new"
+        );
+        assert!(!directory.join("stale.js").exists());
+        assert!(!temp.exists());
 
         let _ = std::fs::remove_dir_all(folder);
     }
@@ -1182,28 +1411,18 @@ mod tests {
         let path = build_path(&build);
         let html = String::from_utf8(
             store
-                .handle(
-                    HttpRequest::builder()
-                        .uri(format!("/ui/{path}/"))
-                        .body(Vec::new())
-                        .expect("request"),
-                )
+                .handle(request(&format!("/ui/computer-1/{path}/")))
                 .body()
                 .clone(),
         )
         .expect("html");
         let marker = html
-            .find(&format!("/ui/{path}/{MARKER_FILE}"))
+            .find(&format!("/ui/computer-1/{path}/{MARKER_FILE}"))
             .expect("marker");
         let script = html.find("./assets/app.js").expect("script");
         assert!(marker < script, "the marker runs before the package script");
 
-        let response = store.handle(
-            HttpRequest::builder()
-                .uri(format!("/ui/{path}/{MARKER_FILE}"))
-                .body(Vec::new())
-                .expect("request"),
-        );
+        let response = store.handle(request(&format!("/ui/computer-1/{path}/{MARKER_FILE}")));
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(
             response
@@ -1218,15 +1437,10 @@ mod tests {
         assert!(script.contains("Studio <desk>"));
         assert!(script.contains(&format!("\"bridgeVersion\":{BRIDGE_VERSION}")));
 
-        let response = store.handle(
-            HttpRequest::builder()
-                .uri(format!(
-                    "/ui/{}/{MARKER_FILE}",
-                    build_path(&format!("blake3:{}", blake3::hash(b"y").to_hex()))
-                ))
-                .body(Vec::new())
-                .expect("request"),
-        );
+        let response = store.handle(request(&format!(
+            "/ui/computer-1/{}/{MARKER_FILE}",
+            build_path(&format!("blake3:{}", blake3::hash(b"y").to_hex()))
+        )));
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
 
         let _ = std::fs::remove_dir_all(folder);
@@ -1240,8 +1454,11 @@ mod tests {
             computer_name: None,
             directory: PathBuf::new(),
         };
-        assert_eq!(inject_marker("index", "blake3-x"), "index");
-        assert!(inject_marker("<html><body></body></html>", "blake3-x").contains(MARKER_FILE));
+        assert_eq!(inject_marker("index", "/ui/computer/blake3-x"), "index");
+        assert!(
+            inject_marker("<html><body></body></html>", "/ui/computer/blake3-x")
+                .contains("/ui/computer/blake3-x/")
+        );
         assert!(
             marker_script(&installed)
                 .windows(13)
