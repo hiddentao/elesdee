@@ -293,15 +293,39 @@ function el<K extends keyof HTMLElementTagNameMap>(
   return node;
 }
 
+const FOCUSABLE =
+  'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])';
+
+function focusableIn(container: HTMLElement): HTMLElement[] {
+  return Array.from(
+    container.querySelectorAll<HTMLElement>(FOCUSABLE),
+  ).filter(
+    (element) =>
+      !element.closest('[hidden], [inert]') &&
+      element.getAttribute('aria-hidden') !== 'true',
+  );
+}
+
+function titleEl(text: string): HTMLElement {
+  return el('h1', {
+    class: 'phone-title',
+    text,
+    attrs: { style: 'margin: 0' },
+  });
+}
+
 function iconButton(
   label: string,
   svg: string,
   onClick: () => void,
-  options: { disabled?: boolean; title?: string } = {},
+  options: { disabled?: boolean; title?: string; id?: string } = {},
 ): HTMLElement {
   const attrs: Record<string, string> = { type: 'button', 'aria-label': label };
   if (options.title) {
     attrs.title = options.title;
+  }
+  if (options.id) {
+    attrs.id = options.id;
   }
   const button = el('button', {
     class: 'phone-icon',
@@ -347,6 +371,11 @@ export class ShellApp {
   private requests: SessionRequest[] = [];
   private savedKeys: SavedKey[] = [];
   private overlay: { kind: OverlayKind; sessionId?: string } | null = null;
+  private overlayReturnId: string | null = null;
+  private focusSheetOnRender = false;
+  private focusAfterRenderId: string | null = null;
+  private announcedCard: string | null = null;
+  private readonly liveRegion: HTMLElement;
   private usageLoading = false;
   private usageError: Notice | null = null;
   private switchLoading = false;
@@ -382,9 +411,16 @@ export class ShellApp {
   constructor(root: HTMLElement) {
     this.root = root;
     this.t = createTranslator('en');
+    this.liveRegion = el('p', {
+      attrs: { role: 'status', 'aria-live': 'polite' },
+    });
+    this.liveRegion.style.cssText =
+      'position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0';
+    this.root.append(this.liveRegion);
   }
 
   async start(): Promise<void> {
+    document.addEventListener('keydown', this.handleSheetKey);
     const tags =
       navigator.languages && navigator.languages.length > 0
         ? navigator.languages
@@ -402,6 +438,108 @@ export class ShellApp {
     });
     await this.loadComputers();
     void this.ensureNotifications();
+  }
+
+  private readonly handleSheetKey = (event: KeyboardEvent): void => {
+    if (!this.overlay) {
+      return;
+    }
+    const layer = this.root.querySelector<HTMLElement>('.sheet-layer');
+    const sheet = layer?.querySelector<HTMLElement>('.sheet');
+    if (!sheet) {
+      return;
+    }
+    if (event.key === 'Escape') {
+      if (event.defaultPrevented) {
+        return;
+      }
+      event.preventDefault();
+      this.closeOverlay();
+      return;
+    }
+    if (event.key !== 'Tab') {
+      return;
+    }
+    const items = focusableIn(sheet);
+    if (items.length === 0) {
+      event.preventDefault();
+      sheet.focus();
+      return;
+    }
+    const first = items[0];
+    const last = items[items.length - 1];
+    const active = document.activeElement;
+    const inside = active instanceof HTMLElement && sheet.contains(active);
+    if (!inside) {
+      event.preventDefault();
+      (event.shiftKey ? last : first).focus();
+      return;
+    }
+    if (event.shiftKey && active === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && active === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
+
+  private openOverlay(
+    overlay: { kind: OverlayKind; sessionId?: string },
+    returnId: string | null,
+  ): void {
+    this.overlay = overlay;
+    this.overlayReturnId = returnId;
+    this.focusSheetOnRender = true;
+    this.scheduleRender();
+  }
+
+  private closeOverlay(): void {
+    this.focusAfterRenderId = this.overlayReturnId;
+    this.overlay = null;
+    this.overlayReturnId = null;
+    this.scheduleRender();
+  }
+
+  private focusSheet(layer: HTMLElement): void {
+    const sheet = layer.querySelector<HTMLElement>('.sheet');
+    if (!sheet) {
+      return;
+    }
+    const preferred = sheet.querySelector<HTMLElement>(
+      '#switch-filter, #saved-key-name, .sheet-row:not(.is-danger), .sheet-body button:not([disabled]), .sheet-body input:not([disabled])',
+    );
+    const fallback = focusableIn(sheet)[0] ?? sheet;
+    (preferred ?? fallback).focus();
+  }
+
+  private syncCardAnnouncement(): void {
+    let key: string | null = null;
+    let text = '';
+    if (this.screen.name === 'session') {
+      const session = this.screen.session;
+      if (session.pendingPermission) {
+        key = `permission:${session.pendingPermission.requestId}`;
+        text = this.t('permission.title');
+      } else {
+        const question = pendingQuestion(this.questions, session.id);
+        if (question) {
+          key = `question:${question.id}`;
+          text = this.t('question.title');
+        } else {
+          const request = pendingRequest(this.requests, session.id);
+          if (request) {
+            key = `request:${request.id}`;
+            text = this.t('request.title');
+          }
+        }
+      }
+    }
+    if (key === this.announcedCard) {
+      return;
+    }
+    this.announcedCard = key;
+    this.liveRegion.textContent = text;
   }
 
   private async loadComputers(notice?: Notice): Promise<void> {
@@ -433,18 +571,38 @@ export class ShellApp {
       messages !== null &&
       messages.scrollHeight - messages.scrollTop - messages.clientHeight < 24;
 
-    this.root.replaceChildren();
+    for (const child of Array.from(this.root.children)) {
+      if (child !== this.liveRegion) {
+        child.remove();
+      }
+    }
     const shell = el('div', { class: 'phone' });
     shell.append(this.renderHead());
     shell.append(this.renderBody());
     if (this.overlay) {
-      shell.append(this.renderOverlay(this.overlay));
+      shell.setAttribute('inert', '');
     }
-    this.root.append(shell);
+    this.root.insertBefore(shell, this.liveRegion);
+    if (this.overlay) {
+      const layer = this.renderOverlay(this.overlay);
+      this.root.insertBefore(layer, this.liveRegion);
+      if (this.focusSheetOnRender) {
+        this.focusSheetOnRender = false;
+        this.focusSheet(layer);
+      }
+      this.focusAfterRenderId = null;
+    } else if (this.focusAfterRenderId) {
+      const target = document.getElementById(this.focusAfterRenderId);
+      this.focusAfterRenderId = null;
+      if (target) {
+        target.focus();
+      }
+    }
+    this.syncCardAnnouncement();
 
     if (focusId) {
       const next = document.getElementById(focusId);
-      if (next) {
+      if (next && !next.closest('[inert]')) {
         next.focus();
         if (
           selection &&
@@ -473,15 +631,22 @@ export class ShellApp {
       head.append(this.backButton(() => this.goSessions(screen.computer)));
       head.append(
         el('div', { class: 'phone-head-text' }, [
-          el('span', { class: 'phone-title', text: screen.session.name }),
+          titleEl(screen.session.name),
           el('span', { class: 'phone-sub', text: screen.computer.name }),
         ]),
       );
       head.append(
-        iconButton(this.t('session.actions'), MORE_ICON, () => {
-          this.overlay = { kind: 'actions', sessionId: screen.session.id };
-          this.scheduleRender();
-        }),
+        iconButton(
+          this.t('session.actions'),
+          MORE_ICON,
+          () => {
+            this.openOverlay(
+              { kind: 'actions', sessionId: screen.session.id },
+              'session-actions-trigger',
+            );
+          },
+          { id: 'session-actions-trigger' },
+        ),
       );
       return head;
     }
@@ -490,7 +655,7 @@ export class ShellApp {
       head.append(this.backButton(() => this.goSessions(screen.computer)));
       head.append(
         el('div', { class: 'phone-head-text' }, [
-          el('span', { class: 'phone-title', text: this.t('session.new') }),
+          titleEl(this.t('session.new')),
           el('span', { class: 'phone-sub', text: screen.computer.name }),
         ]),
       );
@@ -501,7 +666,7 @@ export class ShellApp {
       head.append(this.backButton(() => this.goComputers()));
       head.append(
         el('div', { class: 'phone-head-text' }, [
-          el('span', { class: 'phone-title', text: this.t('sessions.title') }),
+          titleEl(this.t('sessions.title')),
           el('span', { class: 'phone-sub', text: screen.computer.name }),
         ]),
       );
@@ -528,12 +693,9 @@ export class ShellApp {
     if (screen.name === 'pair' || screen.name === 'code') {
       head.append(this.backButton(() => this.goComputers()));
       const text = [
-        el('span', {
-          class: 'phone-title',
-          text: this.t(
-            screen.name === 'code' ? 'pair.codeTitle' : 'pair.title',
-          ),
-        }),
+        titleEl(
+          this.t(screen.name === 'code' ? 'pair.codeTitle' : 'pair.title'),
+        ),
       ];
       if (screen.name === 'code') {
         text.push(
@@ -551,7 +713,7 @@ export class ShellApp {
       head.append(this.backButton(() => this.goComputers()));
       head.append(
         el('div', { class: 'phone-head-text' }, [
-          el('span', { class: 'phone-title', text: this.t('update.title') }),
+          titleEl(this.t('update.title')),
         ]),
       );
       return head;
@@ -560,7 +722,7 @@ export class ShellApp {
     if (screen.name === 'loading' || screen.name === 'failed') {
       head.append(
         el('div', { class: 'phone-head-text' }, [
-          el('span', { class: 'phone-title', text: this.t('app.title') }),
+          titleEl(this.t('app.title')),
         ]),
       );
       return head;
@@ -568,7 +730,7 @@ export class ShellApp {
 
     head.append(
       el('div', { class: 'phone-head-text' }, [
-        el('span', { class: 'phone-title', text: this.t('computers.title') }),
+        titleEl(this.t('computers.title')),
         el('span', {
           class: 'phone-sub',
           text: this.t('computers.subtitle', {
@@ -2099,8 +2261,10 @@ export class ShellApp {
         on: {
           click: () => {
             this.keyDraft = { name: '', modifiers: [] };
-            this.overlay = { kind: 'keys', sessionId: session.id };
-            this.scheduleRender();
+            this.openOverlay(
+              { kind: 'keys', sessionId: session.id },
+              `key-add-${session.id}`,
+            );
           },
         },
       }),
@@ -2309,8 +2473,10 @@ export class ShellApp {
   }
 
   private openClose(sessionId: string): void {
-    this.overlay = { kind: 'close', sessionId };
-    this.scheduleRender();
+    this.openOverlay(
+      { kind: 'close', sessionId },
+      'session-actions-trigger',
+    );
   }
 
   private async confirmClose(): Promise<void> {
@@ -2351,8 +2517,10 @@ export class ShellApp {
     const computer = this.currentComputer();
     this.switchFilter = '';
     this.switchLoading = Boolean(computer);
-    this.overlay = { kind: 'switch', sessionId };
-    this.scheduleRender();
+    this.openOverlay(
+      { kind: 'switch', sessionId },
+      'session-actions-trigger',
+    );
     if (!computer) {
       return;
     }
@@ -2422,10 +2590,9 @@ export class ShellApp {
 
   private async openUsage(): Promise<void> {
     const computer = this.currentComputer();
-    this.overlay = { kind: 'usage' };
+    this.openOverlay({ kind: 'usage' }, 'session-actions-trigger');
     this.usageLoading = true;
     this.usageError = null;
-    this.scheduleRender();
     if (!computer) {
       this.usageLoading = false;
       this.scheduleRender();
@@ -2502,6 +2669,14 @@ export class ShellApp {
         error: { key: 'error.startIncomplete', tone: 'error' },
       };
       this.render();
+      const fieldId = !form.projectId
+        ? 'new-session-project'
+        : !form.configId
+          ? 'new-session-config'
+          : null;
+      if (fieldId) {
+        document.getElementById(fieldId)?.focus();
+      }
       return;
     }
     this.screen = { ...screen, busy: true, error: undefined };
@@ -2543,7 +2718,9 @@ export class ShellApp {
       return main;
     }
     if (screen.error) {
-      main.append(this.noticeEl(screen.error));
+      const notice = this.noticeEl(screen.error);
+      notice.id = 'new-session-error';
+      main.append(notice);
     }
 
     if (!hasProjects(this.projects)) {
@@ -2680,6 +2857,17 @@ export class ShellApp {
 
     form.append(projectHandle.element, configCombo.element, branchCombo.element);
 
+    if (screen.error?.key === 'error.startIncomplete') {
+      const invalid = !formState.projectId
+        ? projectHandle.element
+        : !formState.configId
+          ? configCombo.element
+          : null;
+      const input = invalid?.querySelector<HTMLInputElement>('input');
+      input?.setAttribute('aria-invalid', 'true');
+      input?.setAttribute('aria-describedby', 'new-session-error');
+    }
+
     const nameInput = el('input', {
       class: 'text-input',
       attrs: {
@@ -2768,12 +2956,14 @@ export class ShellApp {
     layer.append(
       el('button', {
         class: 'sheet-scrim',
-        attrs: { type: 'button', 'aria-label': this.t('common.close') },
+        attrs: {
+          type: 'button',
+          tabindex: '-1',
+          'aria-hidden': 'true',
+          'aria-label': this.t('common.close'),
+        },
         on: {
-          click: () => {
-            this.overlay = null;
-            this.scheduleRender();
-          },
+          click: () => this.closeOverlay(),
         },
       }),
     );
@@ -2782,6 +2972,7 @@ export class ShellApp {
       attrs: {
         role: 'dialog',
         'aria-modal': 'true',
+        tabindex: '-1',
         'aria-label': this.t(
           overlay.kind === 'keys'
             ? 'keys.title'
@@ -2796,8 +2987,7 @@ export class ShellApp {
       },
     });
     const close = () => {
-      this.overlay = null;
-      this.scheduleRender();
+      this.closeOverlay();
     };
     const head = el('div', { class: 'sheet-head' }, [
       el('h2', {
