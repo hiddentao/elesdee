@@ -23,6 +23,9 @@ test('drags a session row onto another project', async ({ page, request }) => {
   });
 
   await openApp(page);
+  await page.addStyleTag({
+    content: `.project-group:not([data-project-id="${source.id}"]):not([data-project-id="${target.id}"]) { display: none; }`,
+  });
 
   const row = page.locator('.session-row').filter({ hasText: sessionName });
   const targetGroup = page

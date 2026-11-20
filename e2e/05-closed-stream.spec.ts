@@ -23,6 +23,7 @@ test('a closed session replays its log without a disconnect banner', async ({
   await page.locator('.titlebar').getByRole('button', { name: 'New session' }).click();
   const dialog = page.getByRole('dialog');
   const projectCombo = dialog.getByRole('combobox', { name: 'Project' });
+  await projectCombo.click();
   await projectCombo.fill(label);
   await page.getByRole('option', { name: new RegExp(label) }).click();
   await dialog.getByRole('radio', { name: 'Terminal' }).click();

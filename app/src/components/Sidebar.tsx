@@ -210,6 +210,7 @@ export function Sidebar({
   const [keyboardMove, setKeyboardMove] = useState<KeyboardMove | null>(null);
   const [announcement, setAnnouncement] = useState('');
   const usageButtonRef = useRef<HTMLButtonElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<DragState | null>(null);
   const suppressClickRef = useRef(false);
 
@@ -307,6 +308,15 @@ export function Sidebar({
     }
 
     event.preventDefault();
+    const list = listRef.current;
+    if (list) {
+      const rect = list.getBoundingClientRect();
+      if (event.clientY < rect.top + 40) {
+        list.scrollBy?.(0, -24);
+      } else if (event.clientY > rect.bottom - 40) {
+        list.scrollBy?.(0, 24);
+      }
+    }
     const target = projectAtPoint(event.clientX, event.clientY);
     const session = sessionById.get(next.sessionId);
     const targetProjectId =
@@ -670,7 +680,7 @@ export function Sidebar({
         </div>
       ) : null}
 
-      <div className="session-list">
+      <div className="session-list" ref={listRef}>
         {!hasProjects ? (
           <p className="sidebar-empty">{t('sidebar.noSessionsYet')}</p>
         ) : view === 'flat' ? (
