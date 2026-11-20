@@ -6,19 +6,22 @@
 //! and stops on a revoked device. No state lock is held across a network wait.
 
 use std::collections::{HashMap, HashSet};
+use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
+use base64::Engine as _;
 use elesdee_link::{
     AppConnection, BRIDGE_VERSION, ClientError, ComputerRecord, EventStream, HistoryStream,
-    LinkClient, Method, OutputStream, PROTOCOL_VERSION, PairingCancel, PairingStart,
-    ReconnectPolicy, Response, is_terminal, port_allowed,
+    LinkClient, MAX_IMAGE_BYTES, MAX_UPLOAD_BYTES, Method, OutputStream, PROTOCOL_VERSION,
+    PairingCancel, PairingStart, ReconnectPolicy, Response, is_terminal, port_allowed,
 };
 use serde::Serialize;
-use serde_json::Value;
+use serde_json::{Value, json};
 use tauri::async_runtime::JoinHandle;
 use tauri::{AppHandle, Emitter, Manager, State};
+use tauri_plugin_dialog::DialogExt;
 use tokio::sync::{Mutex, watch};
 
 use crate::forward::{ForwardAddress, ForwardRegistry, check_port};
@@ -478,18 +481,15 @@ pub async fn phone_request(
             "Use a subscription for this method.",
         ));
     }
-    let manager = {
-        let shell = state.inner.lock().await;
-        shell.managers.get(&computer_id).map(Arc::clone)
-    }
-    .ok_or_else(|| CommandError::new("not_connected", "Connect to this computer first."))?;
-    let connection = manager.connection().await.ok_or_else(|| {
-        CommandError::new("not_connected", "The computer connection is not ready.")
-    })?;
+    let connection = connection_for(&state, &computer_id).await?;
     let response = connection
         .request(method, params, Vec::new())
         .await
         .map_err(CommandError::from)?;
+    result_from(response)
+}
+
+fn result_from(response: Response) -> Result<Value, CommandError> {
     match response {
         Response::Ok { result, .. } => Ok(result),
         Response::Error(body) => Err(CommandError::new(
@@ -501,6 +501,146 @@ pub async fn phone_request(
             "Use a subscription for this method.",
         )),
     }
+}
+
+async fn connection_for(
+    state: &State<'_, ShellState>,
+    computer_id: &str,
+) -> Result<Arc<AppConnection>, CommandError> {
+    let manager = {
+        let shell = state.inner.lock().await;
+        shell.managers.get(computer_id).map(Arc::clone)
+    }
+    .ok_or_else(|| CommandError::new("not_connected", "Connect to this computer first."))?;
+    manager
+        .connection()
+        .await
+        .ok_or_else(|| CommandError::new("not_connected", "The computer connection is not ready."))
+}
+
+/// One image for the screens, encoded for the bridge.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImagePayload {
+    /// The image media type.
+    pub content_type: String,
+    /// The image bytes as base64.
+    pub data: String,
+}
+
+/// Opens the native file picker and uploads one file to a session.
+#[tauri::command]
+pub async fn phone_pick_upload(
+    state: State<'_, ShellState>,
+    app: AppHandle,
+    computer_id: String,
+    session_id: String,
+) -> Result<Value, CommandError> {
+    if session_id.trim().is_empty() {
+        return Err(CommandError::new(
+            "bad_request",
+            "The session id is required.",
+        ));
+    }
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    app.dialog().file().pick_file(move |picked| {
+        let _ = sender.send(picked);
+    });
+    let picked = receiver
+        .await
+        .map_err(|_| CommandError::new("cancelled", "No file was picked."))?
+        .ok_or_else(|| CommandError::new("cancelled", "No file was picked."))?
+        .into_path()
+        .map_err(|_| CommandError::new("unreadable", "The picked file is not available."))?;
+
+    let (name, bytes) = read_upload_file(&picked).await?;
+    let connection = connection_for(&state, &computer_id).await?;
+    let response = connection
+        .request(
+            Method::SessionsUpload,
+            Some(json!({"sessionId": session_id, "filename": name})),
+            bytes,
+        )
+        .await
+        .map_err(CommandError::from)?;
+    result_from(response)
+}
+
+/// Reads one image from the session folder over the link.
+#[tauri::command]
+pub async fn phone_read_image(
+    state: State<'_, ShellState>,
+    computer_id: String,
+    session_id: String,
+    path: String,
+) -> Result<ImagePayload, CommandError> {
+    let connection = connection_for(&state, &computer_id).await?;
+    let response = connection
+        .request(
+            Method::FilesImage,
+            Some(json!({"sessionId": session_id, "path": path})),
+            Vec::new(),
+        )
+        .await
+        .map_err(CommandError::from)?;
+    match response {
+        Response::Ok { result, body } => {
+            if body.len() as u64 > MAX_IMAGE_BYTES {
+                return Err(CommandError::new(
+                    "too_large",
+                    "The image is too large to show.",
+                ));
+            }
+            let content_type = result
+                .get("contentType")
+                .and_then(Value::as_str)
+                .unwrap_or("application/octet-stream")
+                .to_owned();
+            Ok(ImagePayload {
+                content_type,
+                data: base64::engine::general_purpose::STANDARD.encode(body),
+            })
+        }
+        Response::Error(body) => Err(CommandError::new(
+            body.code().as_str(),
+            body.message().to_owned(),
+        )),
+        Response::StreamStart => Err(CommandError::new("streaming", "The image must not stream.")),
+    }
+}
+
+/// Reads a picked file and checks its size before it crosses the link.
+async fn read_upload_file(path: &Path) -> Result<(String, Vec<u8>), CommandError> {
+    let metadata = tokio::fs::metadata(path)
+        .await
+        .map_err(|_| CommandError::new("unreadable", "The picked file could not be read."))?;
+    if !metadata.is_file() {
+        return Err(CommandError::new(
+            "not_a_file",
+            "The picked item is not a file.",
+        ));
+    }
+    if metadata.len() > MAX_UPLOAD_BYTES as u64 {
+        return Err(CommandError::new(
+            "too_large",
+            "The file is over the upload limit.",
+        ));
+    }
+    let bytes = tokio::fs::read(path)
+        .await
+        .map_err(|_| CommandError::new("unreadable", "The picked file could not be read."))?;
+    if bytes.len() > MAX_UPLOAD_BYTES {
+        return Err(CommandError::new(
+            "too_large",
+            "The file is over the upload limit.",
+        ));
+    }
+    let name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("file")
+        .to_owned();
+    Ok((name, bytes))
 }
 
 /// Opens a live event or output subscription.
@@ -1067,5 +1207,53 @@ mod tests {
         assert!(!ports.contains(&4000));
         assert!(!ports.contains(&80));
         assert_eq!(registered_ports(&serde_json::json!({})), HashSet::new());
+    }
+
+    fn temp_folder(label: &str) -> std::path::PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "elesdee-phone-{label}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|value| value.as_nanos())
+                .unwrap_or_default()
+        ));
+        std::fs::create_dir_all(&path).expect("create temporary folder");
+        path
+    }
+
+    #[tokio::test]
+    async fn a_picked_file_is_read_with_its_name() {
+        let folder = temp_folder("upload");
+        let path = folder.join("notes.txt");
+        std::fs::write(&path, b"hello").expect("write file");
+
+        let (name, bytes) = read_upload_file(&path).await.expect("read upload");
+        assert_eq!(name, "notes.txt");
+        assert_eq!(bytes, b"hello");
+
+        let _ = std::fs::remove_dir_all(folder);
+    }
+
+    #[tokio::test]
+    async fn a_picked_file_over_the_cap_is_refused() {
+        let folder = temp_folder("upload-large");
+        let path = folder.join("big.bin");
+        let file = std::fs::File::create(&path).expect("create file");
+        file.set_len(MAX_UPLOAD_BYTES as u64 + 1)
+            .expect("size file");
+
+        let error = read_upload_file(&path).await.expect_err("oversized file");
+        assert_eq!(error.code, "too_large");
+
+        let _ = std::fs::remove_dir_all(folder);
+    }
+
+    #[tokio::test]
+    async fn a_picked_folder_is_refused() {
+        let folder = temp_folder("upload-folder");
+        let error = read_upload_file(&folder).await.expect_err("a folder");
+        assert_eq!(error.code, "not_a_file");
+        let _ = std::fs::remove_dir_all(folder);
     }
 }

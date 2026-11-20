@@ -47,6 +47,16 @@ Antigravity and terminal sessions have no structured source, so they open on the
 - Approval requests, agent questions and session requests appear as cards. Answer or approve them there.
 - The back button returns to the session list.
 
+## Files, images, uploads and changes
+
+**Files** and **Changes** sit beside the session actions.
+
+**Files** lists the session folder one folder at a time. Tap a folder to open it, and **Up** returns to the parent. A text file opens in a read-only view. An image file, such as PNG, JPEG, GIF, WebP, AVIF or BMP, opens as a picture. A binary file, an image that is not supported and an image over the size cap each show a short explanation instead of a broken view.
+
+**Upload a file** opens the file picker on the phone, or the browser's file picker in this layout. One file of up to 25 MiB is sent. It goes in elesdee's own folder for the session, not in the repository, with a private file mode. The name is reduced to one name, an existing file is never replaced, and a repeated name gets a number. The agent is told the path in its input.
+
+**Changes** shows every file changed since the session branched off, committed or not, like a pull request view, with the lines added and removed. Tap a file to open its diff. A binary file has no text diff. A folder outside Git says so.
+
 ## Demo servers on the phone
 
 A demo server is a loopback port that an agent registers for its session. The session's Files panel on the computer lists it with the local address and a Stop action. When Tailscale is installed and running, the panel also lists the server's tailnet address, which a device on the tailnet can open without the app.
@@ -57,7 +67,7 @@ The installable app is not released. The computer side and the phone shell liste
 
 ## What is not built yet
 
-There is no phone app you can install. The repository has the phone shell, its pairing screens, the live session list, the structured message view and output, terminal input and the key rail, the session actions, and the demo-server list with its forwarding listener, but no released build. The downloaded phone interface comes later. The core service starts the link, creates a pairing ticket, stores paired devices and answers the allowlisted methods for a paired phone, including terminal input, session start, close, AI config switch, the structured conversation stream and the demo-server list and both sides of demo forwarding. Upload, file and image reads and diffs are not built. The phone shell's own screens show the same message view as the browser layout, with the same one button to the read-only terminal, and they keep the composer and the key rail. The phone's system browser handoff, the native keychain, the camera and behavior in the background need a device test, and the message view has not run on a device. The current browser layout still opens on this computer, next to the desktop app.
+There is no phone app you can install. The repository has the phone shell, its pairing screens, the live session list, the structured message view and output, terminal input and the key rail, the session actions, the file list with text and image previews, the diff view, the upload action, and the demo-server list with its forwarding listener, but no released build. The downloaded phone interface comes later. The core service starts the link, creates a pairing ticket, stores paired devices and answers the allowlisted methods for a paired phone, including terminal input, session start, close, AI config switch, the structured conversation stream, upload, the file and image reads, the change list and the demo-server list and both sides of demo forwarding. The phone shell's own screens show the same message view and file and change views as the browser layout, with the same one button to the read-only terminal, and they keep the composer and the key rail. The phone's system browser handoff, the native keychain, the camera, the file picker and behavior in the background need a device test, and the message view, the image preview and the upload have not run on a device. The current browser layout still opens on this computer, next to the desktop app.
 
 ## Next steps
 

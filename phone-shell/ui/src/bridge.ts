@@ -7,10 +7,12 @@ import type {
   ComputerView,
   ConnectionState,
   ForwardAddress,
+  ImagePayload,
   PairConfirm,
   PhoneInfo,
   SubscriptionOpened,
   SubscriptionValue,
+  UploadedFile,
 } from './types';
 
 function normalizeError(error: unknown): CommandError {
@@ -89,6 +91,10 @@ export const phone = {
     call<ForwardAddress>('phone_forward_start', { computerId, port }),
   forwardStop: (port: number) =>
     call<void>('phone_forward_stop', { port }),
+  pickUpload: (computerId: string, sessionId: string) =>
+    call<UploadedFile>('phone_pick_upload', { computerId, sessionId }),
+  readImage: (computerId: string, sessionId: string, path: string) =>
+    call<ImagePayload>('phone_read_image', { computerId, sessionId, path }),
 };
 
 /** Opens a demo-server address in the phone's browser. */

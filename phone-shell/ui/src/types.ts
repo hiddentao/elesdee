@@ -205,3 +205,59 @@ export interface SubscriptionValue {
 export interface SubscriptionOpened {
   id: string;
 }
+
+export interface UploadedFile {
+  name: string;
+  path: string;
+  size: number;
+}
+
+export interface ImagePayload {
+  contentType: string;
+  data: string;
+}
+
+export interface FileEntry {
+  name: string;
+  path: string;
+  directory: boolean;
+}
+
+export interface FileList {
+  path: string;
+  entries: FileEntry[];
+  truncated: boolean;
+}
+
+export interface FileContent {
+  path: string;
+  content: string;
+  size: number;
+}
+
+export type ChangeStatus =
+  | 'added'
+  | 'modified'
+  | 'deleted'
+  | 'renamed'
+  | 'untracked'
+  | 'conflicted';
+
+export interface ChangedFile {
+  path: string;
+  oldPath: string | null;
+  status: ChangeStatus;
+  additions: number;
+  deletions: number;
+  binary: boolean;
+  diff: string;
+  diffTruncated: boolean;
+}
+
+export interface SessionChanges {
+  git: boolean;
+  base: string | null;
+  files: ChangedFile[];
+  truncated: boolean;
+  error: string | null;
+}

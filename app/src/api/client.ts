@@ -43,6 +43,7 @@ import type {
   UpdateConfigInput,
   UpdateProjectDefaultsInput,
   UpdateProviderInput,
+  UploadedFile,
   UsageRow,
 } from './types';
 
@@ -489,6 +490,41 @@ export function writeFile(
   return request<FileContent>(
     `/api/sessions/${encodeURIComponent(id)}/file`,
     post({ path, content }),
+  );
+}
+
+export function readSessionImage(
+  id: string,
+  path: string,
+  signal?: AbortSignal,
+): Promise<Blob> {
+  const params = new URLSearchParams({ path });
+  return fetch(
+    `${API_BASE}/api/sessions/${encodeURIComponent(id)}/image?${params.toString()}`,
+    signal ? { signal } : undefined,
+  ).then(async (response) => {
+    if (!response.ok) {
+      throw new ApiError(response.status, await errorMessage(response));
+    }
+    return response.blob();
+  });
+}
+
+export function uploadFile(
+  id: string,
+  name: string,
+  file: Blob,
+): Promise<UploadedFile> {
+  return request<UploadedFile>(
+    `/api/sessions/${encodeURIComponent(id)}/upload`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/octet-stream',
+        'X-El-Esdee-Filename': encodeURIComponent(name),
+      },
+      body: file,
+    },
   );
 }
 

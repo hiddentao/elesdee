@@ -70,6 +70,7 @@ import {
   SessionContextStrip,
   type SessionView,
 } from './MessageView';
+import { SessionFiles, type PhoneFilePanel } from './SessionFiles';
 
 type Filter = 'all' | 'running' | 'waiting';
 
@@ -117,6 +118,7 @@ export default function PhoneApp() {
     sessionHashId() ? 'session' : 'list',
   );
   const [sessionView, setSessionView] = useState<SessionView>('messages');
+  const [filePanel, setFilePanel] = useState<PhoneFilePanel | null>(null);
   const [historyItems, setHistoryItems] = useState<HistoryItem[]>([]);
   const [historyStructured, setHistoryStructured] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -132,6 +134,10 @@ export default function PhoneApp() {
   const languageSheetRef = useRef<HTMLDivElement>(null);
   const activeIdRef = useRef(activeId);
   activeIdRef.current = activeId;
+
+  useEffect(() => {
+    setFilePanel(null);
+  }, [activeId]);
 
   const load = useCallback(async () => {
     try {
@@ -843,6 +849,44 @@ export default function PhoneApp() {
                 }}
               />
             </section>
+          ) : null}
+
+          <div
+            className="phone-session-tools"
+            role="group"
+            aria-label={t('phone.sessionFiles')}
+          >
+            <button
+              type="button"
+              className={`btn btn-secondary phone-tool${filePanel === 'files' ? ' is-on' : ''}`}
+              aria-pressed={filePanel === 'files'}
+              onClick={() =>
+                setFilePanel((current) => (current === 'files' ? null : 'files'))
+              }
+            >
+              {t('phone.files')}
+            </button>
+            <button
+              type="button"
+              className={`btn btn-secondary phone-tool${filePanel === 'changes' ? ' is-on' : ''}`}
+              aria-pressed={filePanel === 'changes'}
+              onClick={() =>
+                setFilePanel((current) =>
+                  current === 'changes' ? null : 'changes',
+                )
+              }
+            >
+              {t('phone.changes')}
+            </button>
+          </div>
+
+          {filePanel ? (
+            <SessionFiles
+              session={active}
+              panel={filePanel}
+              t={t}
+              language={language}
+            />
           ) : null}
 
           <SessionContextStrip

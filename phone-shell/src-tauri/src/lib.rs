@@ -11,7 +11,7 @@ mod store;
 use commands::{
     phone_computers, phone_connect, phone_disconnect, phone_forget, phone_forward_start,
     phone_forward_stop, phone_info, phone_pair_cancel, phone_pair_finish, phone_pair_start,
-    phone_request, phone_subscribe, phone_unsubscribe,
+    phone_pick_upload, phone_read_image, phone_request, phone_subscribe, phone_unsubscribe,
 };
 use tauri::Manager;
 
@@ -27,6 +27,7 @@ pub fn run() {
 
     let app = builder
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let state = commands::init_state(app.handle());
             app.manage(state);
@@ -42,6 +43,8 @@ pub fn run() {
             phone_connect,
             phone_disconnect,
             phone_request,
+            phone_read_image,
+            phone_pick_upload,
             phone_subscribe,
             phone_unsubscribe,
             phone_forward_start,
