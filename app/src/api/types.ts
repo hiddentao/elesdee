@@ -266,8 +266,14 @@ export interface CreateSessionInput {
   name?: string;
   folder?: string;
   sourceBranch?: string;
+  copyUncommittedChanges?: boolean;
   firstPrompt?: string;
   env?: EnvOverride[];
+}
+
+export interface GitStatus {
+  git: boolean;
+  dirty: boolean;
 }
 
 export interface CreateProjectInput {

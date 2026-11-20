@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fs;
-use std::io::Read;
-use std::path::{Path, PathBuf};
+use std::io::{Read, Write};
+use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -69,6 +69,442 @@ impl GitRun {
     fn success(self) -> bool {
         matches!(self, GitRun::Output(output) if output.status.success())
     }
+}
+
+#[derive(Debug)]
+pub enum SyncError {
+    BranchMissing,
+    FetchFailed,
+    Diverged,
+    Timeout,
+    Failed,
+}
+
+impl SyncError {
+    pub fn message(&self) -> &'static str {
+        match self {
+            SyncError::BranchMissing => "The source branch does not exist.",
+            SyncError::FetchFailed => {
+                "Could not fetch the remote. Check the network and Git access."
+            }
+            SyncError::Diverged => {
+                "The source branch and its remote branch have diverged. Push or merge them first."
+            }
+            SyncError::Timeout => "Git did not answer in time.",
+            SyncError::Failed => "Git could not prepare the source branch.",
+        }
+    }
+}
+
+pub struct SyncedSource {
+    pub base: String,
+}
+
+#[derive(Debug)]
+pub enum CopyChangesError {
+    DiffFailed,
+    ApplyFailed,
+    UntrackedFailed,
+    TooLarge,
+    Timeout,
+}
+
+impl CopyChangesError {
+    pub fn message(&self) -> &'static str {
+        match self {
+            CopyChangesError::DiffFailed => "Could not read the uncommitted changes.",
+            CopyChangesError::ApplyFailed => {
+                "The uncommitted changes could not be applied to the new session."
+            }
+            CopyChangesError::UntrackedFailed => "The untracked files could not be copied.",
+            CopyChangesError::TooLarge => "The uncommitted changes are too large to copy.",
+            CopyChangesError::Timeout => "Git did not answer in time.",
+        }
+    }
+}
+
+const MAX_COPY_BYTES: u64 = 256 * 1024 * 1024;
+
+/// Resolves the commit a new session starts from and brings the branch up to date.
+///
+/// A remote source is fetched, and a local source that tracks a remote branch is
+/// fast-forwarded when it is behind. The user's working tree is never changed and
+/// nothing is forced. Calls without a remote or an upstream keep the local commit.
+pub async fn sync_source(
+    repo_root: PathBuf,
+    source: Option<String>,
+    fetch_timeout: Duration,
+    timeout: Duration,
+) -> Result<SyncedSource, SyncError> {
+    tokio::task::spawn_blocking(move || {
+        sync_source_blocking(&repo_root, source.as_deref(), fetch_timeout, timeout)
+    })
+    .await
+    .unwrap_or(Err(SyncError::Failed))
+}
+
+/// Reports whether the checkout has staged, unstaged or untracked changes.
+pub async fn has_uncommitted_changes(repo_root: PathBuf, timeout: Duration) -> Result<bool, ()> {
+    tokio::task::spawn_blocking(move || {
+        match run_git(&repo_root, ["status", "--porcelain=v1", "-z"], timeout) {
+            GitRun::Output(output) if output.status.success() => Ok(!output.stdout.is_empty()),
+            GitRun::Output(_) => Err(()),
+            GitRun::Timeout | GitRun::TooLarge | GitRun::Failed => Err(()),
+        }
+    })
+    .await
+    .unwrap_or(Err(()))
+}
+
+/// Copies the checkout's uncommitted changes into a newly created worktree.
+///
+/// Tracked changes are applied as a patch against `HEAD`. Untracked files are
+/// copied after their paths are checked to stay inside the worktree.
+pub async fn copy_uncommitted_changes(
+    repo_root: PathBuf,
+    worktree: PathBuf,
+    timeout: Duration,
+) -> Result<(), CopyChangesError> {
+    tokio::task::spawn_blocking(move || copy_uncommitted_blocking(&repo_root, &worktree, timeout))
+        .await
+        .unwrap_or(Err(CopyChangesError::DiffFailed))
+}
+
+fn sync_source_blocking(
+    repo_root: &Path,
+    source: Option<&str>,
+    fetch_timeout: Duration,
+    timeout: Duration,
+) -> Result<SyncedSource, SyncError> {
+    let source = match source {
+        Some(source) => source.to_owned(),
+        None => match current_branch(repo_root, timeout)? {
+            Some(branch) => branch,
+            None => {
+                return Ok(SyncedSource {
+                    base: "HEAD".to_owned(),
+                });
+            }
+        },
+    };
+
+    if branch_exists_blocking(repo_root, "refs/heads/", &source, timeout)? {
+        sync_local_branch(repo_root, &source, fetch_timeout, timeout)
+    } else if branch_exists_blocking(repo_root, "refs/remotes/", &source, timeout)? {
+        sync_remote_branch(repo_root, &source, fetch_timeout, timeout)
+    } else {
+        Err(SyncError::BranchMissing)
+    }
+}
+
+fn sync_local_branch(
+    repo_root: &Path,
+    branch: &str,
+    fetch_timeout: Duration,
+    timeout: Duration,
+) -> Result<SyncedSource, SyncError> {
+    let local_ref = format!("refs/heads/{branch}");
+    let Some(upstream) = run_text(
+        repo_root,
+        &[
+            "for-each-ref",
+            "--format=%(upstream:short)%00%(upstream:remotename)",
+            local_ref.as_str(),
+        ],
+        timeout,
+    )?
+    .filter(|value| !value.is_empty()) else {
+        return Ok(SyncedSource { base: local_ref });
+    };
+
+    let (upstream_ref, remote_name) = upstream.split_once('\0').unwrap_or(("", ""));
+    if upstream_ref.is_empty() || remote_name.is_empty() {
+        return Ok(SyncedSource { base: local_ref });
+    }
+
+    fetch_remote(repo_root, remote_name, fetch_timeout)?;
+
+    let Some(local_commit) = resolve_sync_commit(repo_root, &local_ref, timeout)? else {
+        return Ok(SyncedSource { base: local_ref });
+    };
+    let upstream_full = format!("refs/remotes/{upstream_ref}");
+    let Some(upstream_commit) = resolve_sync_commit(repo_root, &upstream_full, timeout)? else {
+        return Ok(SyncedSource { base: local_ref });
+    };
+
+    if local_commit == upstream_commit {
+        return Ok(SyncedSource { base: local_ref });
+    }
+    if is_ancestor(repo_root, &local_commit, &upstream_commit, timeout)? {
+        fast_forward_branch(repo_root, branch, &local_commit, &upstream_commit, timeout);
+        return Ok(SyncedSource {
+            base: upstream_commit,
+        });
+    }
+    if is_ancestor(repo_root, &upstream_commit, &local_commit, timeout)? {
+        return Ok(SyncedSource { base: local_commit });
+    }
+    Err(SyncError::Diverged)
+}
+
+fn sync_remote_branch(
+    repo_root: &Path,
+    source: &str,
+    fetch_timeout: Duration,
+    timeout: Duration,
+) -> Result<SyncedSource, SyncError> {
+    let remote = remote_for_ref(repo_root, source, timeout)?.ok_or(SyncError::BranchMissing)?;
+    fetch_remote(repo_root, &remote, fetch_timeout)?;
+    let reference = format!("refs/remotes/{source}");
+    resolve_sync_commit(repo_root, &reference, timeout)?
+        .map(|commit| SyncedSource { base: commit })
+        .ok_or(SyncError::BranchMissing)
+}
+
+fn fetch_remote(dir: &Path, remote: &str, timeout: Duration) -> Result<(), SyncError> {
+    match run_git(dir, ["fetch", "--quiet", remote], timeout) {
+        GitRun::Output(output) if output.status.success() => Ok(()),
+        GitRun::Timeout => Err(SyncError::Timeout),
+        GitRun::Output(_) | GitRun::TooLarge | GitRun::Failed => Err(SyncError::FetchFailed),
+    }
+}
+
+fn fast_forward_branch(repo_root: &Path, branch: &str, old: &str, new: &str, timeout: Duration) {
+    if branch_checked_out(repo_root, branch, timeout).unwrap_or(true) {
+        return;
+    }
+    let reference = format!("refs/heads/{branch}");
+    let _ = run_git(
+        repo_root,
+        [
+            "update-ref",
+            "-m",
+            "elesdee: sync at launch",
+            reference.as_str(),
+            new,
+            old,
+        ],
+        timeout,
+    );
+}
+
+fn branch_checked_out(
+    repo_root: &Path,
+    branch: &str,
+    timeout: Duration,
+) -> Result<bool, SyncError> {
+    let Some(list) = run_text(repo_root, &["worktree", "list", "--porcelain"], timeout)? else {
+        return Ok(true);
+    };
+    let reference = format!("refs/heads/{branch}");
+    Ok(list
+        .lines()
+        .any(|line| line.trim() == format!("branch {reference}")))
+}
+
+fn remote_for_ref(
+    repo_root: &Path,
+    source: &str,
+    timeout: Duration,
+) -> Result<Option<String>, SyncError> {
+    let Some(list) = run_text(repo_root, &["remote"], timeout)? else {
+        return Ok(None);
+    };
+    Ok(list
+        .lines()
+        .map(str::trim)
+        .filter(|remote| {
+            !remote.is_empty()
+                && (*remote == source
+                    || source
+                        .strip_prefix(remote)
+                        .is_some_and(|rest| rest.starts_with('/')))
+        })
+        .max_by_key(|remote| remote.len())
+        .map(str::to_owned))
+}
+
+fn current_branch(dir: &Path, timeout: Duration) -> Result<Option<String>, SyncError> {
+    Ok(
+        run_text(dir, &["symbolic-ref", "--short", "HEAD"], timeout)?
+            .filter(|branch| !branch.is_empty()),
+    )
+}
+
+fn branch_exists_blocking(
+    dir: &Path,
+    prefix: &str,
+    branch: &str,
+    timeout: Duration,
+) -> Result<bool, SyncError> {
+    let reference = format!("{prefix}{branch}");
+    Ok(resolve_sync_commit(dir, &reference, timeout)?.is_some())
+}
+
+fn resolve_sync_commit(
+    dir: &Path,
+    reference: &str,
+    timeout: Duration,
+) -> Result<Option<String>, SyncError> {
+    let revision = format!("{reference}^{{commit}}");
+    Ok(run_text(
+        dir,
+        &[
+            "rev-parse",
+            "--verify",
+            "--end-of-options",
+            revision.as_str(),
+        ],
+        timeout,
+    )?
+    .filter(|commit| !commit.is_empty()))
+}
+
+fn is_ancestor(
+    dir: &Path,
+    ancestor: &str,
+    descendant: &str,
+    timeout: Duration,
+) -> Result<bool, SyncError> {
+    match run_git(
+        dir,
+        ["merge-base", "--is-ancestor", ancestor, descendant],
+        timeout,
+    ) {
+        GitRun::Output(output) if output.status.success() => Ok(true),
+        GitRun::Output(output) if output.status.code() == Some(1) => Ok(false),
+        GitRun::Output(_) => Err(SyncError::Failed),
+        GitRun::Timeout => Err(SyncError::Timeout),
+        GitRun::TooLarge | GitRun::Failed => Err(SyncError::Failed),
+    }
+}
+
+fn run_text(
+    dir: &Path,
+    arguments: &[&str],
+    timeout: Duration,
+) -> Result<Option<String>, SyncError> {
+    match run_git(dir, arguments.iter().copied(), timeout) {
+        GitRun::Output(output) if output.status.success() => Ok(Some(
+            String::from_utf8_lossy(&output.stdout).trim().to_owned(),
+        )),
+        GitRun::Output(_) => Ok(None),
+        GitRun::Timeout => Err(SyncError::Timeout),
+        GitRun::TooLarge | GitRun::Failed => Err(SyncError::Failed),
+    }
+}
+
+fn copy_uncommitted_blocking(
+    repo_root: &Path,
+    worktree: &Path,
+    timeout: Duration,
+) -> Result<(), CopyChangesError> {
+    let patch = match run_git(
+        repo_root,
+        [
+            "diff",
+            "--binary",
+            "--no-ext-diff",
+            "--no-textconv",
+            "HEAD",
+            "--",
+        ],
+        timeout,
+    ) {
+        GitRun::Output(output) if output.status.success() => output.stdout,
+        GitRun::Output(_) => return Err(CopyChangesError::DiffFailed),
+        GitRun::Timeout => return Err(CopyChangesError::Timeout),
+        GitRun::TooLarge | GitRun::Failed => return Err(CopyChangesError::DiffFailed),
+    };
+    if !patch.is_empty() {
+        match run_git_with_input(
+            worktree,
+            ["apply", "--binary", "--whitespace=nowarn", "-"],
+            patch,
+            timeout,
+        ) {
+            GitRun::Output(output) if output.status.success() => {}
+            GitRun::Timeout => return Err(CopyChangesError::Timeout),
+            GitRun::Output(_) | GitRun::TooLarge | GitRun::Failed => {
+                return Err(CopyChangesError::ApplyFailed);
+            }
+        }
+    }
+
+    let listing = match run_git(
+        repo_root,
+        ["ls-files", "--others", "--exclude-standard", "-z"],
+        timeout,
+    ) {
+        GitRun::Output(output) if output.status.success() => output.stdout,
+        GitRun::Timeout => return Err(CopyChangesError::Timeout),
+        GitRun::Output(_) | GitRun::TooLarge | GitRun::Failed => {
+            return Err(CopyChangesError::UntrackedFailed);
+        }
+    };
+
+    let root = fs::canonicalize(worktree).map_err(|_| CopyChangesError::UntrackedFailed)?;
+    let mut copied = 0_u64;
+    for raw in listing.split(|byte| *byte == 0) {
+        if raw.is_empty() {
+            continue;
+        }
+        let path = std::str::from_utf8(raw).map_err(|_| CopyChangesError::UntrackedFailed)?;
+        let relative = Path::new(path);
+        if !is_safe_relative(relative) {
+            return Err(CopyChangesError::UntrackedFailed);
+        }
+        let source = repo_root.join(relative);
+        let metadata =
+            fs::symlink_metadata(&source).map_err(|_| CopyChangesError::UntrackedFailed)?;
+        let target = root.join(relative);
+        let parent = target.parent().ok_or(CopyChangesError::UntrackedFailed)?;
+        fs::create_dir_all(parent).map_err(|_| CopyChangesError::UntrackedFailed)?;
+        let canonical_parent =
+            fs::canonicalize(parent).map_err(|_| CopyChangesError::UntrackedFailed)?;
+        if !canonical_parent.starts_with(&root) {
+            return Err(CopyChangesError::UntrackedFailed);
+        }
+
+        if metadata.file_type().is_symlink() {
+            copy_symlink(&source, &target)?;
+        } else if metadata.is_file() {
+            copied = copied.saturating_add(metadata.len());
+            if copied > MAX_COPY_BYTES {
+                return Err(CopyChangesError::TooLarge);
+            }
+            // A tracked symlink in the new base must not redirect the copy.
+            if fs::symlink_metadata(&target).is_ok_and(|item| item.file_type().is_symlink()) {
+                fs::remove_file(&target).map_err(|_| CopyChangesError::UntrackedFailed)?;
+            }
+            fs::copy(&source, &target).map_err(|_| CopyChangesError::UntrackedFailed)?;
+        } else {
+            return Err(CopyChangesError::UntrackedFailed);
+        }
+    }
+
+    Ok(())
+}
+
+fn is_safe_relative(path: &Path) -> bool {
+    !path.as_os_str().is_empty()
+        && path
+            .components()
+            .all(|component| matches!(component, Component::Normal(_)))
+}
+
+#[cfg(unix)]
+fn copy_symlink(source: &Path, target: &Path) -> Result<(), CopyChangesError> {
+    let link = fs::read_link(source).map_err(|_| CopyChangesError::UntrackedFailed)?;
+    if fs::symlink_metadata(target).is_ok() {
+        fs::remove_file(target).map_err(|_| CopyChangesError::UntrackedFailed)?;
+    }
+    std::os::unix::fs::symlink(link, target).map_err(|_| CopyChangesError::UntrackedFailed)
+}
+
+#[cfg(not(unix))]
+fn copy_symlink(_source: &Path, _target: &Path) -> Result<(), CopyChangesError> {
+    Err(CopyChangesError::UntrackedFailed)
 }
 
 enum RemoteFailure {
@@ -546,6 +982,27 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
 {
+    run_git_inner(dir, arguments, None, timeout)
+}
+
+fn run_git_with_input<I, S>(dir: &Path, arguments: I, input: Vec<u8>, timeout: Duration) -> GitRun
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
+    run_git_inner(dir, arguments, Some(input), timeout)
+}
+
+fn run_git_inner<I, S>(
+    dir: &Path,
+    arguments: I,
+    input: Option<Vec<u8>>,
+    timeout: Duration,
+) -> GitRun
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
     let spawned = Command::new("git")
         .arg("-C")
         .arg(dir)
@@ -553,7 +1010,11 @@ where
         .env("GIT_TERMINAL_PROMPT", "0")
         .env("GIT_SSH_COMMAND", "ssh -oBatchMode=yes")
         .env("GIT_LITERAL_PATHSPECS", "1")
-        .stdin(Stdio::null())
+        .stdin(if input.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn();
@@ -562,30 +1023,38 @@ where
         Ok(child) => child,
         Err(_) => return GitRun::Failed,
     };
+    let writer = match (input, child.stdin.take()) {
+        (Some(input), Some(mut stdin)) => Some(thread::spawn(move || {
+            let _ = stdin.write_all(&input);
+        })),
+        _ => None,
+    };
     let overflow = Arc::new(AtomicBool::new(false));
-    let stdout = child.stdout.take().map(|pipe| {
+    let mut stdout = child.stdout.take().map(|pipe| {
         let overflow = Arc::clone(&overflow);
         thread::spawn(move || drain_output(pipe, &overflow))
     });
-    let stderr = child.stderr.take().map(|pipe| {
+    let mut stderr = child.stderr.take().map(|pipe| {
         let overflow = Arc::clone(&overflow);
         thread::spawn(move || drain_output(pipe, &overflow))
     });
     let deadline = Instant::now() + timeout;
 
-    loop {
+    let result = loop {
         match child.try_wait() {
             Ok(Some(status)) => {
                 let stdout = stdout
+                    .take()
                     .and_then(|handle| handle.join().ok())
                     .unwrap_or_default();
                 let stderr = stderr
+                    .take()
                     .and_then(|handle| handle.join().ok())
                     .unwrap_or_default();
                 if overflow.load(Ordering::Relaxed) {
-                    return GitRun::TooLarge;
+                    break GitRun::TooLarge;
                 }
-                return GitRun::Output(Output {
+                break GitRun::Output(Output {
                     status,
                     stdout,
                     stderr,
@@ -595,28 +1064,32 @@ where
                 if overflow.load(Ordering::Relaxed) {
                     let _ = child.kill();
                     let _ = child.wait();
-                    let _ = stdout.and_then(|handle| handle.join().ok());
-                    let _ = stderr.and_then(|handle| handle.join().ok());
-                    return GitRun::TooLarge;
+                    let _ = stdout.take().and_then(|handle| handle.join().ok());
+                    let _ = stderr.take().and_then(|handle| handle.join().ok());
+                    break GitRun::TooLarge;
                 }
                 if Instant::now() >= deadline {
                     let _ = child.kill();
                     let _ = child.wait();
-                    let _ = stdout.and_then(|handle| handle.join().ok());
-                    let _ = stderr.and_then(|handle| handle.join().ok());
-                    return GitRun::Timeout;
+                    let _ = stdout.take().and_then(|handle| handle.join().ok());
+                    let _ = stderr.take().and_then(|handle| handle.join().ok());
+                    break GitRun::Timeout;
                 }
                 thread::sleep(POLL_INTERVAL);
             }
             Err(_) => {
                 let _ = child.kill();
                 let _ = child.wait();
-                let _ = stdout.and_then(|handle| handle.join().ok());
-                let _ = stderr.and_then(|handle| handle.join().ok());
-                return GitRun::Failed;
+                let _ = stdout.take().and_then(|handle| handle.join().ok());
+                let _ = stderr.take().and_then(|handle| handle.join().ok());
+                break GitRun::Failed;
             }
         }
+    };
+    if let Some(writer) = writer {
+        let _ = writer.join();
     }
+    result
 }
 
 fn drain_output<R: Read>(mut pipe: R, overflow: &AtomicBool) -> Vec<u8> {

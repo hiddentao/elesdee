@@ -292,6 +292,11 @@ export const ko = {
   'newSession.namePlaceholder':
     '비어 있으면 첫 번째 프롬프트나 폴더를 사용',
   'newSession.additional': '추가 설정',
+  'newSession.uncommitted': '커밋되지 않은 변경 사항',
+  'newSession.uncommittedHint':
+    '저장소에 커밋되지 않은 변경 사항이 있습니다. 새 세션의 시작 상태를 선택하세요.',
+  'newSession.uncommittedCopy': '새 세션에 복사',
+  'newSession.uncommittedLeave': '포함하지 않음',
   'newSession.env': '환경 변수(선택 사항)',
   'newSession.envHint':
     '한 줄에 하나의 NAME=value. 이 세션에만 적용됩니다.',

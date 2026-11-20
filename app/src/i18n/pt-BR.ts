@@ -294,6 +294,11 @@ export const ptBR = {
   'newSession.namePlaceholder':
     'Usa o primeiro prompt ou a pasta quando está vazio',
   'newSession.additional': 'Configurações adicionais',
+  'newSession.uncommitted': 'Alterações não confirmadas',
+  'newSession.uncommittedHint':
+    'O repositório tem alterações não confirmadas. Escolha como a nova sessão começa.',
+  'newSession.uncommittedCopy': 'Copiá-las para a nova sessão',
+  'newSession.uncommittedLeave': 'Deixá-las de fora',
   'newSession.env': 'Variáveis de ambiente (opcional)',
   'newSession.envHint':
     'Uma linha NAME=value por linha. Elas valem só para esta sessão.',

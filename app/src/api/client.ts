@@ -11,6 +11,7 @@ import type {
   CreateSessionInput,
   FileContent,
   FileList,
+  GitStatus,
   HealthResponse,
   LaunchPreset,
   PermissionDecision,
@@ -174,6 +175,17 @@ export function listBranches(
   const params = new URLSearchParams({ folder, q: query });
   return request<Branch[]>(
     `/api/branches?${params.toString()}`,
+    signal ? { signal } : undefined,
+  );
+}
+
+export function getGitStatus(
+  folder: string,
+  signal?: AbortSignal,
+): Promise<GitStatus> {
+  const params = new URLSearchParams({ folder });
+  return request<GitStatus>(
+    `/api/git-status?${params.toString()}`,
     signal ? { signal } : undefined,
   );
 }

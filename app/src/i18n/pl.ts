@@ -293,6 +293,11 @@ export const pl = {
   'newSession.namePlaceholder':
     'Używa pierwszego promptu lub folderu, gdy jest puste',
   'newSession.additional': 'Dodatkowe ustawienia',
+  'newSession.uncommitted': 'Niezapisane zmiany',
+  'newSession.uncommittedHint':
+    'Repozytorium zawiera niezapisane zmiany. Wybierz, od czego zacznie się nowa sesja.',
+  'newSession.uncommittedCopy': 'Skopiuj je do nowej sesji',
+  'newSession.uncommittedLeave': 'Pomiń je',
   'newSession.env': 'Zmienne środowiskowe (opcjonalnie)',
   'newSession.envHint':
     'Jedna linia NAME=value na linię. Dotyczą tylko tej sesji.',

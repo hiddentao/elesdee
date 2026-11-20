@@ -56,6 +56,22 @@ export function createProjectFolder(label: string): string {
   return fs.realpathSync(folder);
 }
 
+export function createBareRepo(label: string): string {
+  const folder = path.join(projectsDir(), label);
+  fs.mkdirSync(folder, { recursive: true });
+  execFileSync('git', ['init', '--bare', '--quiet', folder], { stdio: 'pipe' });
+  return fs.realpathSync(folder);
+}
+
+export function gitIn(folder: string, args: string[]): string {
+  return execFileSync('git', args, { cwd: folder, encoding: 'utf8' }).trim();
+}
+
+export function cloneRepo(remote: string, target: string): string {
+  execFileSync('git', ['clone', '--quiet', remote, target], { stdio: 'pipe' });
+  return fs.realpathSync(target);
+}
+
 export function createGitRepo(label: string): string {
   const folder = path.join(projectsDir(), label);
   fs.mkdirSync(folder, { recursive: true });

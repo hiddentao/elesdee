@@ -447,10 +447,13 @@ For a branch source, the launch form shows the repository. I can pick a reposito
 
 **Auto-sync at launch**
 
-- From a remote branch: the IDE gets the latest version of that branch.
-- From a local branch that tracks a remote branch (for example `main`): the IDE pulls the latest changes before the agent starts.
-- The session starts from the latest commit, in its own new worktree, so the IDE never changes my own checkout.
-- If my checkout has uncommitted changes, the launch form asks me: copy them into the new session, or leave them out.
+- From a remote branch: the app fetches that remote and starts the session from the latest commit on the remote branch.
+- From a local branch that tracks a remote branch (for example `main`): the app fetches the remote first. When the local branch is behind and is not checked out, the app moves it forward to the remote branch. The session starts from the latest commit either way.
+- The session starts from the latest commit, in its own new worktree, so the app never changes my checkout.
+- When the local branch and its remote branch have diverged, the launch stops and says why. The app never forces and never discards work.
+- When the folder has no remote or the branch has no upstream, the session starts from the local commit.
+- When the fetch fails, the launch stops and says why.
+- If my checkout has uncommitted changes, the launch form asks me under Additional settings: copy them into the new session, or leave them out. The choice applies to that launch only. The app copies tracked and untracked changes into the new worktree and leaves my checkout as it is.
 
 **Branch and worktree per session**
 
