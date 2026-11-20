@@ -10,6 +10,8 @@ export interface Project {
   id: string;
   name: string;
   folder: string;
+  defaultAccountId?: string | null;
+  defaultSourceBranch?: string | null;
 }
 
 export interface Session {

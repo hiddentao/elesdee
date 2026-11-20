@@ -62,6 +62,7 @@ interface SidebarOptions {
   ) => void;
   onAddProject?: () => void;
   onNewSession?: (projectId: string) => void;
+  onProjectSettings?: (project: Project) => void;
   onOpenSettings?: () => void;
 }
 
@@ -75,6 +76,7 @@ function renderSidebar(
     onSessionMenu = vi.fn(),
     onAddProject = vi.fn(),
     onNewSession = vi.fn(),
+    onProjectSettings = vi.fn(),
     onOpenSettings = vi.fn(),
   }: SidebarOptions = {},
 ) {
@@ -90,6 +92,7 @@ function renderSidebar(
       onSessionMenu={onSessionMenu}
       onAddProject={onAddProject}
       onNewSession={onNewSession}
+      onProjectSettings={onProjectSettings}
       onOpenSettings={onOpenSettings}
     />,
   );
@@ -440,6 +443,7 @@ describe('Sidebar', () => {
         onSessionMenu={vi.fn()}
         onAddProject={vi.fn()}
         onNewSession={vi.fn()}
+        onProjectSettings={vi.fn()}
         onOpenSettings={vi.fn()}
       />,
     );
@@ -458,6 +462,18 @@ describe('Sidebar', () => {
       screen.getByRole('button', { name: /^core,/ }),
     ).toBeInTheDocument();
     expect(screen.getByText('No sessions')).toBeInTheDocument();
+  });
+
+  it('opens the project settings from the project header', async () => {
+    const user = userEvent.setup();
+    const onProjectSettings = vi.fn();
+    renderSidebar([], { onProjectSettings });
+
+    await user.click(
+      screen.getByRole('button', { name: 'Project settings for core' }),
+    );
+
+    expect(onProjectSettings).toHaveBeenCalledWith(project);
   });
 
   it('keeps a project visible when the filter hides all its sessions', () => {

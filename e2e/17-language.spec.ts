@@ -9,7 +9,9 @@ test('switches the interface language, keeps the choice and switches back', asyn
   await openApp(page);
   await expect(page.locator('html')).toHaveAttribute('lang', 'en');
 
-  await page.getByRole('button', { name: 'Settings' }).click();
+  await page
+    .getByRole('button', { name: 'Settings', exact: true })
+    .click();
   const settings = page.getByRole('dialog', { name: 'Settings' });
   await settings.getByRole('button', { name: 'Languages' }).click();
 
@@ -31,7 +33,9 @@ test('switches the interface language, keeps the choice and switches back', asyn
   await expect(page.locator('html')).toHaveAttribute('lang', 'de');
   await expect(page.locator('.sidebar')).toContainText('Sitzungen');
 
-  await page.getByRole('button', { name: 'Einstellungen' }).click();
+  await page
+    .getByRole('button', { name: 'Einstellungen', exact: true })
+    .click();
   await page
     .getByRole('dialog', { name: 'Einstellungen' })
     .getByRole('button', { name: 'Sprachen' })

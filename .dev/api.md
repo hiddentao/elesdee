@@ -14,6 +14,7 @@ The service binds `127.0.0.1` only. It accepts requests only for loopback hostna
 - Every POST and PATCH request must send `Content-Type: application/json`. The media type may carry parameters such as `charset`. A missing or different content type returns 415.
 - A project name must not be empty. Its folder must exist and be a directory. The folder is canonicalized, and two projects cannot use the same canonical folder.
 - A project id is a unique slug of its name. A repeated name gets a numeric suffix.
+- A project stores an optional default account and an optional default source branch. `PATCH /api/projects/{id}` sets a field by sending its value and clears it by sending `null`; an absent field keeps its current value. The default account must exist. A default branch must be a safe branch name and must exist in the project folder's Git repository.
 - At most 64 sessions may be active at one time. This is a safety cap for memory and process limits. A new session above the cap returns 429. Closing a session frees its slot.
 - At most 32 output streams and 32 event streams may be open at once. More returns 429.
 - The optional `folder` is canonicalized. When it is absent, the project folder is used. A terminal session runs in that folder. For an agent, the folder must be inside a Git repository; the session runs in a new worktree under `<data dir>/worktrees/<session id>`.
@@ -65,7 +66,7 @@ The service binds `127.0.0.1` only. It accepts requests only for loopback hostna
 ## Persistence
 
 - State lives in `ELESDEE_DATA_DIR`, default `~/.elesdee`, in `state.json`. The directory is created with mode 0700 and files with mode 0600. Writes use a temporary file, fsync and rename.
-- Projects, accounts, sessions, each session's desired columns and rows, its output log, and an agent's repository root are saved. Account keys are not saved. No runtime handles are saved.
+- Projects and their default account and source branch, accounts, sessions, each session's desired columns and rows, its output log, and an agent's repository root are saved. Account keys are not saved. No runtime handles are saved.
 - State is saved on project create, account create, session create, rename, close, reopen, delete, resize, and graceful shutdown. It is not written for each output chunk.
 - A session that was active on save is restored as closed, with preview `"The app restarted. Reopen to continue."` and no process. Its log and sequence numbers are kept, and reopen continues from the next sequence. A pending permission request is not written to the file and is not restored.
 - A new state starts with no projects. Seed accounts are used only when no state file exists, when the state file is corrupt, or when an older state file has no account list. A corrupt file is moved to `state.bad.json` and the problem is logged.
@@ -116,6 +117,53 @@ interface Project {
   id: string;
   name: string;
   folder: string;
+  defaultAccountId: string | null;
+  defaultSourceBranch: string | null;
+}
+
+interface FileEntry {
+  name: string;
+  path: string;       // relative to the session folder, "/" separated
+  directory: boolean;
+}
+
+interface FileList {
+  path: string;       // the listed folder, "" for the root
+  entries: FileEntry[];
+  truncated: boolean; // true when the folder has more entries than the cap
+}
+
+interface FileContent {
+  path: string;
+  content: string;    // UTF-8 text
+  size: number;       // bytes
+}
+
+type ChangeStatus =
+  | "added"
+  | "modified"
+  | "deleted"
+  | "renamed"
+  | "untracked"
+  | "conflicted";
+
+interface ChangedFile {
+  path: string;
+  oldPath: string | null;   // set for a rename or copy
+  status: ChangeStatus;
+  additions: number;
+  deletions: number;
+  binary: boolean;
+  diff: string;             // unified diff, empty for binary files
+  diffTruncated: boolean;
+}
+
+interface Changes {
+  git: boolean;             // false for a folder outside Git
+  base: string | null;      // the comparison commit, null for a plain folder
+  files: ChangedFile[];
+  truncated: boolean;       // the file or diff cap was reached
+  error: string | null;     // a Git failure the UI can show
 }
 
 interface UsageRow {
@@ -167,6 +215,7 @@ interface OutputEvent {
 | GET | `/api/bootstrap` | | `{ projects, accounts, sessions }` |
 | GET | `/api/projects?q={text}` | | `Project[]` |
 | POST | `/api/projects` | `{ name, folder }` | `Project` |
+| PATCH | `/api/projects/{id}` | `{ defaultAccountId?, defaultSourceBranch? }` | `Project` |
 | GET | `/api/accounts?q={text}` | | `Account[]` |
 | POST | `/api/accounts` | `{ name, providerId, client, auth: "key", key, model? }` | `Account` |
 | POST | `/api/sessions` | `{ projectId, kind, accountId?, name?, folder?, cols?, rows? }` | `Session` |
@@ -177,14 +226,24 @@ interface OutputEvent {
 | POST | `/api/sessions/{id}/input` | `{ data }` (UTF-8 text) | `204` |
 | POST | `/api/sessions/{id}/resize` | `{ cols, rows }` | `204` |
 | POST | `/api/sessions/{id}/permission` | `{ requestId, decision: "allow" \| "deny" }` | `204` |
+| GET | `/api/sessions/{id}/files?path={folder}` | | `FileList` |
+| GET | `/api/sessions/{id}/file?path={file}` | | `FileContent` |
+| POST | `/api/sessions/{id}/file` | `{ path, content }` | `FileContent` |
+| GET | `/api/sessions/{id}/changes` | | `Changes` |
 | GET | `/api/sessions/{id}/output?after={seq}` | | SSE: `data: {"seq":n,"data":"..."}` and an optional `gap` |
 | GET | `/api/events` | | SSE: `data: {"type":"session.updated","session":Session}` |
 
-Errors use `{ "error": "message" }`. Unknown sessions return 404. A session that is closed, or whose process has exited, returns 409 for input. An invalid session name or terminal size returns 400. An agent session in a non-Git folder returns 422. Reopening an active session, deleting an active session, or reopening or deleting while a close is running returns 409; reopening with a missing folder, repository, branch or client returns 422. A permission answer returns 404 for an unknown session and 409 when the session is closed, there is no pending request, the request id does not match, or the request was already answered. An empty project name returns 400, a bad project folder returns 422, and a duplicate project folder returns 409. An empty account name, empty key or overlong model returns 400; an unsupported provider and client pair or an unsupported auth mode returns 422; a keychain failure returns 500. A blocked Host or Origin returns 403, a bad POST or PATCH content type returns 415, a full session list or stream list returns 429, a request that exceeds the 30-second timeout returns 408, and a wrong non-OPTIONS method returns 405.
+Errors use `{ "error": "message" }`. Unknown sessions return 404. A session that is closed, or whose process has exited, returns 409 for input. An invalid session name or terminal size returns 400. An agent session in a non-Git folder returns 422. Reopening an active session, deleting an active session, or reopening or deleting while a close is running returns 409; reopening with a missing folder, repository, branch or client returns 422. A permission answer returns 404 for an unknown session and 409 when the session is closed, there is no pending request, the request id does not match, or the request was already answered. An empty project name returns 400, a bad project folder returns 422, and a duplicate project folder returns 409. An unknown project returns 404. A default account that does not exist, a default branch that does not exist, or a project folder that is not a Git repository returns 422. An unsafe branch name returns 400. An empty account name, empty key or overlong model returns 400; an unsupported provider and client pair or an unsupported auth mode returns 422; a keychain failure returns 500. A blocked Host or Origin returns 403, a bad POST or PATCH content type returns 415, a full session list or stream list returns 429, a request that exceeds the 30-second timeout returns 408, and a wrong non-OPTIONS method returns 405. A file path outside the session folder returns 400, a binary file returns 422, and content above 1 MiB returns 413.
 
 ## Rules
 
 - A terminal session runs a real shell in its folder through a PTY. Closing the session stops the process group and keeps the folder.
+- The file and change routes use the session folder: the worktree for an agent, the chosen folder for a terminal. A missing folder returns 404.
+- A file path is relative to the session folder and is canonicalized. An absolute path, a `..` component and a symlink that resolves outside the folder return 400. A folder where a file is expected returns 422. The listing skips `.git` folders and symlinks.
+- One folder listing returns at most 2000 entries and sets `truncated` when more exist. A file read or write is UTF-8 text of at most 1 MiB. A larger file or request body returns 413. Binary content, meaning a NUL byte in the first 8 KiB, returns 422.
+- `POST /api/sessions/{id}/file` creates the file or replaces its content. The parent folder must exist. The write is not limited to existing files.
+- Changes for an agent session compare the worktree, including uncommitted work, against the merge base with the repository's current branch. Changes for a terminal session compare the working tree against `HEAD`. Untracked files are included.
+- The change route caps the list at 500 files and the combined diffs at 512 KiB. It sets `truncated` when either cap is reached. A folder outside Git returns `git: false` with no files and no error.
 - An agent session runs the chosen client when one is installed. The client command is chosen by the server, never sent by the UI.
 - The server tells the UI the client's key shortcuts. The UI keeps no list of client keys. An Antigravity session gets an empty list, so the UI shows the base keys.
 - Every change to a session sends `session.updated` on `/api/events`.

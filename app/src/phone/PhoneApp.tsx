@@ -78,8 +78,8 @@ export default function PhoneApp() {
           next[index] = session;
           return next;
         });
-      }),
-    [],
+      }, undefined, () => void load()),
+    [load],
   );
 
   useEffect(
@@ -104,8 +104,8 @@ export default function PhoneApp() {
               : others;
           });
         }
-      }),
-    [],
+      }, undefined, () => void load()),
+    [load],
   );
 
   const openSessions = useMemo(
@@ -118,10 +118,17 @@ export default function PhoneApp() {
     : -1;
 
   useEffect(() => {
-    if (!active) {
-      setActiveId(openSessions[0]?.id ?? null);
+    if (active) {
+      return;
     }
-  }, [active, openSessions]);
+    const fromHash = sessionHashId();
+    const target =
+      openSessions.find((session) => session.id === fromHash) ??
+      openSessions[0];
+    if (target && target.id !== activeId) {
+      setActiveId(target.id);
+    }
+  }, [active, openSessions, activeId]);
 
   useEffect(() => {
     if (activeIndex < 0 || !tabStripRef.current) {

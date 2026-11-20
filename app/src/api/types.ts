@@ -57,6 +57,13 @@ export interface Project {
   id: string;
   name: string;
   folder: string;
+  defaultAccountId?: string | null;
+  defaultSourceBranch?: string | null;
+}
+
+export interface UpdateProjectDefaultsInput {
+  defaultAccountId?: string | null;
+  defaultSourceBranch?: string | null;
 }
 
 export interface UsageRow {
@@ -160,6 +167,51 @@ export interface HealthResponse {
 export interface EnvOverride {
   name: string;
   value: string;
+}
+
+export interface FileEntry {
+  name: string;
+  path: string;
+  directory: boolean;
+}
+
+export interface FileList {
+  path: string;
+  entries: FileEntry[];
+  truncated: boolean;
+}
+
+export interface FileContent {
+  path: string;
+  content: string;
+  size: number;
+}
+
+export type ChangeStatus =
+  | 'added'
+  | 'modified'
+  | 'deleted'
+  | 'renamed'
+  | 'untracked'
+  | 'conflicted';
+
+export interface ChangedFile {
+  path: string;
+  oldPath: string | null;
+  status: ChangeStatus;
+  additions: number;
+  deletions: number;
+  binary: boolean;
+  diff: string;
+  diffTruncated: boolean;
+}
+
+export interface SessionChanges {
+  git: boolean;
+  base: string | null;
+  files: ChangedFile[];
+  truncated: boolean;
+  error: string | null;
 }
 
 export interface CreateSessionInput {

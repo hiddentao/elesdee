@@ -19,6 +19,17 @@ A new install has no projects. Add one from the welcome screen.
 
 The folder must exist on this computer. The app does not create it for you. In the desktop app, choose **Browse…** to pick the folder, or type the path.
 
+## Project settings
+
+Choose the settings button in the project header to set the defaults for new sessions in that project.
+
+- **Default account** fills the account and client in the launch form.
+- **Default source branch** fills the source branch. The branch must exist in the project folder's Git repository.
+
+Choose **Clear default account** or **Clear default branch** to remove a default. New sessions then start with no account or branch filled in.
+
+The launch form uses the defaults when you choose the project. You can change the account, client or branch for one session without changing the project defaults. A sample account is never filled in unless you choose it as the project default.
+
 ## Sidebar views
 
 The sidebar shows sessions in one of two views.

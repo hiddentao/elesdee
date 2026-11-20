@@ -16,6 +16,7 @@ The app keeps your sessions, projects and accounts on this computer. It does not
 - Start an agent session from a chosen branch, with an optional first prompt.
 - Give each agent session its own branch and worktree.
 - Watch and type into the agent's real terminal.
+- Browse a session's files, edit a text file and save it, and review its changes with a diff.
 - Approve or deny Claude Code permission requests from a card.
 - Close, reopen, rename and delete sessions.
 - Confirm before quitting while sessions run.

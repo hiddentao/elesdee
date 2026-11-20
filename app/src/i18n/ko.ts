@@ -380,4 +380,68 @@ export const ko = {
   'phone.question': '질문',
   'phone.chooseSession': '세션을 선택하세요.',
   'phone.open': '열기',
+
+  'projectSettings.title': '프로젝트 설정',
+  'projectSettings.defaultAccount': '기본 계정',
+  'projectSettings.noDefaultAccount': '기본 계정 없음',
+  'projectSettings.accountHint':
+    '이 프로젝트의 새 세션은 이 계정으로 시작합니다.',
+  'projectSettings.clearAccount': '기본 계정 지우기',
+  'projectSettings.defaultBranch': '기본 소스 브랜치',
+  'projectSettings.noDefaultBranch': '기본 브랜치 없음',
+  'projectSettings.branchHint':
+    '새 세션은 이 커밋에서 시작합니다. 프로젝트 폴더에서 브랜치를 선택하세요.',
+  'projectSettings.clearBranch': '기본 브랜치 지우기',
+  'projectSettings.errorSave':
+    '프로젝트 기본값을 저장하지 못했습니다. 다시 시도하세요.',
+  'projectSettings.busyLabel': '프로젝트 기본값 저장 중…',
+  'projectSettings.submitting': '저장 중…',
+  'projectSettings.submit': '기본값 저장',
+
+  'sidebar.projectSettings': '프로젝트 설정',
+  'sidebar.projectSettingsFor': '{name} 프로젝트 설정',
+
+  'session.panel': '세션 패널',
+
+  'app.projectDefaultsSaved': '프로젝트 기본값을 저장했습니다.',
+
+  'panel.label': '{name} 사이드 패널',
+  'panel.tabsLabel': '세션 패널',
+  'panel.files': '파일',
+  'panel.changes': '변경 사항',
+  'panel.close': '사이드 패널 닫기',
+  'panel.unsavedChanges': '저장하지 않은 변경 사항',
+  'panel.loading': '로드 중…',
+  'panel.emptyFolder': '빈 폴더',
+  'panel.moreEntries': '더 많은 항목이 표시되지 않습니다.',
+  'panel.filesLabel': '세션 파일',
+  'panel.save': '저장',
+  'panel.saving': '저장 중…',
+  'panel.saved': '저장했습니다.',
+  'panel.loadingFile': '파일 로드 중…',
+  'panel.selectFile': '파일을 선택하여 보고 편집하세요.',
+  'panel.sinceBranch': '브랜치 지점부터',
+  'panel.refresh': '새로 고침',
+  'panel.refreshing': '새로 고침 중…',
+  'panel.loadingChanges': '변경 사항 로드 중…',
+  'panel.notGit': '이 폴더는 Git 저장소가 아닙니다.',
+  'panel.noChanges': '아직 변경 사항이 없습니다.',
+  'panel.changedFiles': '변경된 파일',
+  'panel.selectDiff': '파일을 선택하여 차이를 확인하세요.',
+  'panel.largeChanges':
+    '변경 목록이 커서 일부 파일이나 차이가 표시되지 않습니다.',
+  'panel.from': '{path}에서',
+  'panel.binary':
+    '바이너리 파일입니다. 텍스트 미리보기가 없습니다.',
+  'panel.noTextChanges': '표시할 텍스트 변경이 없습니다.',
+  'panel.diffLabel': '{path} 차이',
+  'panel.diffShortened': '차이가 길어 줄였습니다.',
+  'panel.requestFailed': '요청이 실패했습니다.',
+
+  'changeStatus.added': '추가됨',
+  'changeStatus.modified': '변경됨',
+  'changeStatus.deleted': '삭제됨',
+  'changeStatus.renamed': '이름 변경됨',
+  'changeStatus.untracked': '새 파일',
+  'changeStatus.conflicted': '충돌',
 } satisfies Record<MessageKey, string>;

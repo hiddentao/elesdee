@@ -40,6 +40,7 @@ interface SidebarProps {
   ) => void;
   onAddProject: () => void;
   onNewSession: (projectId: string) => void;
+  onProjectSettings: (project: Project) => void;
   onOpenSettings: () => void;
   questions?: number;
   onOpenQuestions?: () => void;
@@ -149,6 +150,7 @@ export function Sidebar({
   onSessionMenu,
   onAddProject,
   onNewSession,
+  onProjectSettings,
   onOpenSettings,
   questions = 0,
   onOpenQuestions,
@@ -437,6 +439,18 @@ export function Sidebar({
                     <span className="project-count">
                       {projectSessions.length}
                     </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    className="project-add"
+                    aria-label={t('sidebar.projectSettingsFor', {
+                      name: project.name,
+                    })}
+                    title={t('sidebar.projectSettings')}
+                    onClick={() => onProjectSettings(project)}
+                  >
+                    <SettingsIcon />
                   </button>
 
                   <button

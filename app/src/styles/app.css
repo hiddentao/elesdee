@@ -2480,6 +2480,13 @@ button:disabled {
   line-height: 1.45;
 }
 
+.project-default-clear {
+  align-self: flex-start;
+  margin-top: -10px;
+  color: var(--text-3);
+  font-size: var(--fs-small);
+}
+
 .combo {
   position: relative;
   min-width: 0;
@@ -2843,4 +2850,483 @@ button:disabled {
 
 .additional-settings[open] summary {
   margin-bottom: 8px;
+}
+
+/* Session workspace and side panel */
+
+.session-workspace {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.session-workspace > .session-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.session-panel-toggle {
+  width: 32px;
+  min-height: 28px;
+  padding: 0;
+}
+
+.session-panel-toggle svg {
+  width: 16px;
+  height: 16px;
+}
+
+.session-panel-toggle.is-on {
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+.dock {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  width: 340px;
+  min-height: 0;
+  border-left: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.dock-head {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 2px;
+  height: 42px;
+  padding: 0 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.dock-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 100%;
+  padding: 0 8px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--text-3);
+  font: inherit;
+  font-size: var(--fs-small);
+  cursor: pointer;
+}
+
+.dock-tab:hover {
+  color: var(--text-2);
+}
+
+.dock-tab.is-on {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+
+.dock-count {
+  min-width: 16px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  color: var(--text-3);
+  font-size: 10px;
+  line-height: 16px;
+  text-align: center;
+}
+
+.dock-close {
+  margin-left: auto;
+}
+
+.dock-context {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-3);
+  font-size: var(--fs-small);
+  overflow: hidden;
+}
+
+.dock-context-dot {
+  flex: 0 0 6px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--running);
+}
+
+.dock-context-dot[data-status='closed'] {
+  background: var(--closed);
+}
+
+.dock-context-name {
+  color: var(--text-2);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dock-context-branch {
+  margin-left: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mono-font);
+  font-size: 10.5px;
+}
+
+.dock-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.dock-view {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.dock-view[hidden] {
+  display: none;
+}
+
+.dock-note,
+.tree-note {
+  margin: 0;
+  padding: 10px;
+  color: var(--text-3);
+  font-size: var(--fs-small);
+  line-height: 1.5;
+}
+
+.dock-error {
+  margin: 8px 10px;
+  padding: 7px 9px;
+  border: 1px solid var(--danger);
+  border-radius: var(--radius);
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: var(--fs-small);
+  line-height: 1.5;
+}
+
+.file-tree {
+  flex: 0 1 auto;
+  max-height: 45%;
+  margin: 0;
+  padding: 8px 6px;
+  border-bottom: 1px solid var(--border);
+  list-style: none;
+  overflow-y: auto;
+  font-size: var(--fs-small);
+}
+
+.file-tree ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tree-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  padding: 3px 7px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tree-row:hover {
+  background: var(--surface-3);
+}
+
+.tree-row.is-on {
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+.tree-row svg {
+  flex: 0 0 12px;
+  width: 12px;
+  height: 12px;
+}
+
+.tree-row.is-folder {
+  color: var(--text-2);
+  font-weight: 600;
+}
+
+.tree-spacer {
+  flex: 0 0 12px;
+  width: 12px;
+  height: 12px;
+}
+
+.tree-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tree-dirty {
+  flex: 0 0 6px;
+  width: 6px;
+  height: 6px;
+  margin-left: auto;
+  border-radius: 50%;
+  background: var(--waiting);
+}
+
+.editor {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--code-bg);
+  color: var(--code-text);
+}
+
+.editor-head {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-2);
+  font-size: var(--fs-small);
+}
+
+.editor-head .dirty {
+  flex: 0 0 6px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--waiting);
+}
+
+.editor-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mono-font);
+}
+
+.editor-note {
+  margin-left: 8px;
+  color: var(--running);
+  white-space: nowrap;
+}
+
+.editor-save {
+  min-height: 26px;
+  margin-left: auto;
+  padding: 0 9px;
+}
+
+.editor-mount {
+  flex: 1;
+  min-height: 160px;
+  overflow: hidden;
+}
+
+.editor-mount .cm-editor {
+  height: 100%;
+}
+
+.dock-toolbar {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.dock-toolbar-title {
+  color: var(--text-3);
+  font-size: var(--fs-small);
+}
+
+.dock-action {
+  min-height: 26px;
+  margin-left: auto;
+  padding: 0 8px;
+}
+
+.diff-list {
+  flex: 1;
+  min-height: 0;
+  padding: 10px;
+  overflow-y: auto;
+}
+
+.change-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.change-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--fs-small);
+  text-align: left;
+  cursor: pointer;
+}
+
+.change-file:hover {
+  background: var(--surface-3);
+}
+
+.change-file.is-on {
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+.change-main {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.change-main code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mono-font);
+  font-size: 10.5px;
+}
+
+.change-status {
+  flex: 0 0 auto;
+  color: var(--text-3);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.change-status.is-added,
+.change-status.is-untracked {
+  color: var(--running);
+}
+
+.change-status.is-deleted {
+  color: var(--danger);
+}
+
+.diff-stat {
+  flex: 0 0 auto;
+  color: var(--text-3);
+  font-family: var(--mono-font);
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+
+.diff-stat b {
+  color: var(--running);
+  font-weight: 500;
+}
+
+.diff-stat i {
+  color: var(--danger);
+  font-style: normal;
+}
+
+.diff-preview {
+  margin-top: 10px;
+}
+
+.diff-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 6px;
+  color: var(--text-3);
+  font-size: var(--fs-small);
+}
+
+.diff-head code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mono-font);
+}
+
+.diff-snippet {
+  max-height: 420px;
+  margin: 0;
+  padding: 6px 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--code-bg);
+  overflow: auto;
+  font-family: var(--mono-font);
+  font-size: 10.5px;
+  line-height: 1.6;
+}
+
+.diff-line {
+  display: block;
+  padding: 0 10px;
+  color: var(--code-text);
+  white-space: pre;
+}
+
+.diff-add {
+  background: var(--diff-add-bg);
+  color: var(--running);
+}
+
+.diff-del {
+  background: var(--diff-del-bg);
+  color: var(--danger);
+}
+
+.diff-meta {
+  color: var(--code-comment);
+}
+
+@media (max-width: 1200px) {
+  .dock {
+    width: 300px;
+  }
+}
+
+@media (max-width: 1024px) {
+  .dock {
+    width: 276px;
+  }
 }

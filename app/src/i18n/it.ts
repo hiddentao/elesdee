@@ -377,4 +377,73 @@ export const it = {
   'phone.question': 'Domanda',
   'phone.chooseSession': 'Scegli una sessione.',
   'phone.open': 'Apri',
+
+  'projectSettings.title': 'Impostazioni del progetto',
+  'projectSettings.defaultAccount': 'Account predefinito',
+  'projectSettings.noDefaultAccount': 'Nessun account predefinito',
+  'projectSettings.accountHint':
+    'Le nuove sessioni di questo progetto iniziano con questo account.',
+  'projectSettings.clearAccount': 'Rimuovi account predefinito',
+  'projectSettings.defaultBranch': 'Branch di origine predefinito',
+  'projectSettings.noDefaultBranch': 'Nessun branch predefinito',
+  'projectSettings.branchHint':
+    'Le nuove sessioni partono da questo commit. Scegli un branch nella cartella del progetto.',
+  'projectSettings.clearBranch': 'Rimuovi branch predefinito',
+  'projectSettings.errorSave':
+    'I valori predefiniti del progetto non sono stati salvati. Riprova.',
+  'projectSettings.busyLabel':
+    'Salvataggio dei valori predefiniti del progetto…',
+  'projectSettings.submitting': 'Salvataggio…',
+  'projectSettings.submit': 'Salva predefiniti',
+
+  'sidebar.projectSettings': 'Impostazioni del progetto',
+  'sidebar.projectSettingsFor': 'Impostazioni del progetto {name}',
+
+  'session.panel': 'Pannello della sessione',
+
+  'app.projectDefaultsSaved':
+    'Valori predefiniti del progetto salvati.',
+
+  'panel.label': 'Pannello laterale di {name}',
+  'panel.tabsLabel': 'Pannelli della sessione',
+  'panel.files': 'File',
+  'panel.changes': 'Modifiche',
+  'panel.close': 'Chiudi pannello laterale',
+  'panel.unsavedChanges': 'Modifiche non salvate',
+  'panel.loading': 'Caricamento…',
+  'panel.emptyFolder': 'Cartella vuota',
+  'panel.moreEntries': 'Altre voci non sono mostrate.',
+  'panel.filesLabel': 'File della sessione',
+  'panel.save': 'Salva',
+  'panel.saving': 'Salvataggio…',
+  'panel.saved': 'Salvato.',
+  'panel.loadingFile': 'Caricamento del file…',
+  'panel.selectFile':
+    'Seleziona un file per vederlo e modificarlo.',
+  'panel.sinceBranch': 'Dal punto di branch',
+  'panel.refresh': 'Aggiorna',
+  'panel.refreshing': 'Aggiornamento…',
+  'panel.loadingChanges': 'Caricamento delle modifiche…',
+  'panel.notGit': 'Questa cartella non è un repository Git.',
+  'panel.noChanges': 'Nessuna modifica per ora.',
+  'panel.changedFiles': 'File modificati',
+  'panel.selectDiff':
+    'Seleziona un file per vedere il suo diff.',
+  'panel.largeChanges':
+    'L’elenco delle modifiche è grande. Alcuni file o diff non sono mostrati.',
+  'panel.from': 'da {path}',
+  'panel.binary': 'File binario. Nessuna anteprima testuale.',
+  'panel.noTextChanges':
+    'Nessuna modifica di testo da mostrare.',
+  'panel.diffLabel': 'Diff di {path}',
+  'panel.diffShortened':
+    'Il diff è lungo ed è stato accorciato.',
+  'panel.requestFailed': 'La richiesta non è riuscita.',
+
+  'changeStatus.added': 'Aggiunto',
+  'changeStatus.modified': 'Modificato',
+  'changeStatus.deleted': 'Eliminato',
+  'changeStatus.renamed': 'Rinominato',
+  'changeStatus.untracked': 'Nuovo',
+  'changeStatus.conflicted': 'Conflitto',
 } satisfies Record<MessageKey, string>;

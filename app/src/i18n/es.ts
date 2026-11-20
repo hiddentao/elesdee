@@ -377,4 +377,72 @@ export const es = {
   'phone.question': 'Pregunta',
   'phone.chooseSession': 'Elige una sesión.',
   'phone.open': 'Abrir',
+
+  'projectSettings.title': 'Ajustes del proyecto',
+  'projectSettings.defaultAccount': 'Cuenta predeterminada',
+  'projectSettings.noDefaultAccount': 'Sin cuenta predeterminada',
+  'projectSettings.accountHint':
+    'Las sesiones nuevas de este proyecto empiezan con esta cuenta.',
+  'projectSettings.clearAccount': 'Quitar la cuenta predeterminada',
+  'projectSettings.defaultBranch': 'Rama de origen predeterminada',
+  'projectSettings.noDefaultBranch': 'Sin rama predeterminada',
+  'projectSettings.branchHint':
+    'Las sesiones nuevas empiezan en este commit. Elige una rama en la carpeta del proyecto.',
+  'projectSettings.clearBranch': 'Quitar la rama predeterminada',
+  'projectSettings.errorSave':
+    'No se han guardado los valores predeterminados del proyecto. Inténtalo de nuevo.',
+  'projectSettings.busyLabel':
+    'Guardando los valores predeterminados del proyecto…',
+  'projectSettings.submitting': 'Guardando…',
+  'projectSettings.submit': 'Guardar valores',
+
+  'sidebar.projectSettings': 'Ajustes del proyecto',
+  'sidebar.projectSettingsFor': 'Ajustes del proyecto {name}',
+
+  'session.panel': 'Panel de la sesión',
+
+  'app.projectDefaultsSaved':
+    'Valores predeterminados del proyecto guardados.',
+
+  'panel.label': 'Panel lateral de {name}',
+  'panel.tabsLabel': 'Paneles de la sesión',
+  'panel.files': 'Archivos',
+  'panel.changes': 'Cambios',
+  'panel.close': 'Cerrar el panel lateral',
+  'panel.unsavedChanges': 'Cambios sin guardar',
+  'panel.loading': 'Cargando…',
+  'panel.emptyFolder': 'Carpeta vacía',
+  'panel.moreEntries': 'No se muestran más entradas.',
+  'panel.filesLabel': 'Archivos de la sesión',
+  'panel.save': 'Guardar',
+  'panel.saving': 'Guardando…',
+  'panel.saved': 'Guardado.',
+  'panel.loadingFile': 'Cargando archivo…',
+  'panel.selectFile':
+    'Selecciona un archivo para verlo y editarlo.',
+  'panel.sinceBranch': 'Desde el punto de rama',
+  'panel.refresh': 'Actualizar',
+  'panel.refreshing': 'Actualizando…',
+  'panel.loadingChanges': 'Cargando cambios…',
+  'panel.notGit': 'Esta carpeta no es un repositorio Git.',
+  'panel.noChanges': 'Aún no hay cambios.',
+  'panel.changedFiles': 'Archivos cambiados',
+  'panel.selectDiff':
+    'Selecciona un archivo para ver su diff.',
+  'panel.largeChanges':
+    'La lista de cambios es grande. Algunos archivos o diffs no se muestran.',
+  'panel.from': 'desde {path}',
+  'panel.binary': 'Archivo binario. Sin vista previa de texto.',
+  'panel.noTextChanges':
+    'No hay cambios de texto que mostrar.',
+  'panel.diffLabel': 'Diff de {path}',
+  'panel.diffShortened': 'El diff es largo y se ha acortado.',
+  'panel.requestFailed': 'La solicitud ha fallado.',
+
+  'changeStatus.added': 'Añadido',
+  'changeStatus.modified': 'Cambiado',
+  'changeStatus.deleted': 'Eliminado',
+  'changeStatus.renamed': 'Renombrado',
+  'changeStatus.untracked': 'Nuevo',
+  'changeStatus.conflicted': 'Conflicto',
 } satisfies Record<MessageKey, string>;

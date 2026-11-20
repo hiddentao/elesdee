@@ -374,4 +374,75 @@ export const ja = {
   'phone.question': '質問',
   'phone.chooseSession': 'セッションを選択してください。',
   'phone.open': '開く',
+
+  'projectSettings.title': 'プロジェクト設定',
+  'projectSettings.defaultAccount': '既定のアカウント',
+  'projectSettings.noDefaultAccount': '既定のアカウントなし',
+  'projectSettings.accountHint':
+    'このプロジェクトの新しいセッションはこのアカウントで開始します。',
+  'projectSettings.clearAccount': '既定のアカウントを解除',
+  'projectSettings.defaultBranch': '既定のソースブランチ',
+  'projectSettings.noDefaultBranch': '既定のブランチなし',
+  'projectSettings.branchHint':
+    '新しいセッションはこのコミットから開始します。プロジェクトのフォルダーでブランチを選択してください。',
+  'projectSettings.clearBranch': '既定のブランチを解除',
+  'projectSettings.errorSave':
+    'プロジェクトの既定値を保存できませんでした。もう一度お試しください。',
+  'projectSettings.busyLabel':
+    'プロジェクトの既定値を保存しています…',
+  'projectSettings.submitting': '保存しています…',
+  'projectSettings.submit': '既定値を保存',
+
+  'sidebar.projectSettings': 'プロジェクト設定',
+  'sidebar.projectSettingsFor': '{name} のプロジェクト設定',
+
+  'session.panel': 'セッションパネル',
+
+  'app.projectDefaultsSaved':
+    'プロジェクトの既定値を保存しました。',
+
+  'panel.label': '{name} のサイドパネル',
+  'panel.tabsLabel': 'セッションパネル',
+  'panel.files': 'ファイル',
+  'panel.changes': '変更',
+  'panel.close': 'サイドパネルを閉じる',
+  'panel.unsavedChanges': '未保存の変更',
+  'panel.loading': '読み込み中…',
+  'panel.emptyFolder': '空のフォルダー',
+  'panel.moreEntries':
+    'さらに項目がありますが表示されていません。',
+  'panel.filesLabel': 'セッションのファイル',
+  'panel.save': '保存',
+  'panel.saving': '保存しています…',
+  'panel.saved': '保存しました。',
+  'panel.loadingFile': 'ファイルを読み込み中…',
+  'panel.selectFile':
+    'ファイルを選択して表示・編集します。',
+  'panel.sinceBranch': 'ブランチポイントから',
+  'panel.refresh': '更新',
+  'panel.refreshing': '更新しています…',
+  'panel.loadingChanges': '変更を読み込み中…',
+  'panel.notGit':
+    'このフォルダーは Git リポジトリではありません。',
+  'panel.noChanges': '変更はまだありません。',
+  'panel.changedFiles': '変更されたファイル',
+  'panel.selectDiff':
+    'ファイルを選択して差分を表示します。',
+  'panel.largeChanges':
+    '変更一覧が大きいため、一部のファイルや差分は表示されていません。',
+  'panel.from': '{path} から',
+  'panel.binary':
+    'バイナリファイルです。テキストのプレビューはありません。',
+  'panel.noTextChanges':
+    '表示するテキストの変更はありません。',
+  'panel.diffLabel': '{path} の差分',
+  'panel.diffShortened': '差分が長いため短縮されました。',
+  'panel.requestFailed': 'リクエストに失敗しました。',
+
+  'changeStatus.added': '追加',
+  'changeStatus.modified': '変更',
+  'changeStatus.deleted': '削除',
+  'changeStatus.renamed': '名前変更',
+  'changeStatus.untracked': '新規',
+  'changeStatus.conflicted': '競合',
 } satisfies Record<MessageKey, string>;

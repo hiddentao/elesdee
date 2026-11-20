@@ -378,4 +378,73 @@ export const pl = {
   'phone.question': 'Pytanie',
   'phone.chooseSession': 'Wybierz sesję.',
   'phone.open': 'Otwórz',
+
+  'projectSettings.title': 'Ustawienia projektu',
+  'projectSettings.defaultAccount': 'Domyślne konto',
+  'projectSettings.noDefaultAccount': 'Brak domyślnego konta',
+  'projectSettings.accountHint':
+    'Nowe sesje w tym projekcie zaczynają się z tym kontem.',
+  'projectSettings.clearAccount': 'Usuń domyślne konto',
+  'projectSettings.defaultBranch': 'Domyślna gałąź źródłowa',
+  'projectSettings.noDefaultBranch': 'Brak domyślnej gałęzi',
+  'projectSettings.branchHint':
+    'Nowe sesje zaczynają się od tego commita. Wybierz gałąź w folderze projektu.',
+  'projectSettings.clearBranch': 'Usuń domyślną gałąź',
+  'projectSettings.errorSave':
+    'Nie udało się zapisać ustawień domyślnych projektu. Spróbuj ponownie.',
+  'projectSettings.busyLabel':
+    'Zapisywanie ustawień domyślnych projektu…',
+  'projectSettings.submitting': 'Zapisywanie…',
+  'projectSettings.submit': 'Zapisz ustawienia',
+
+  'sidebar.projectSettings': 'Ustawienia projektu',
+  'sidebar.projectSettingsFor': 'Ustawienia projektu {name}',
+
+  'session.panel': 'Panel sesji',
+
+  'app.projectDefaultsSaved':
+    'Zapisano ustawienia domyślne projektu.',
+
+  'panel.label': 'Panel boczny sesji {name}',
+  'panel.tabsLabel': 'Panele sesji',
+  'panel.files': 'Pliki',
+  'panel.changes': 'Zmiany',
+  'panel.close': 'Zamknij panel boczny',
+  'panel.unsavedChanges': 'Niezapisane zmiany',
+  'panel.loading': 'Ładowanie…',
+  'panel.emptyFolder': 'Pusty folder',
+  'panel.moreEntries': 'Więcej pozycji nie jest pokazywanych.',
+  'panel.filesLabel': 'Pliki sesji',
+  'panel.save': 'Zapisz',
+  'panel.saving': 'Zapisywanie…',
+  'panel.saved': 'Zapisano.',
+  'panel.loadingFile': 'Ładowanie pliku…',
+  'panel.selectFile':
+    'Wybierz plik, aby go zobaczyć i edytować.',
+  'panel.sinceBranch': 'Od punktu rozgałęzienia',
+  'panel.refresh': 'Odśwież',
+  'panel.refreshing': 'Odświeżanie…',
+  'panel.loadingChanges': 'Ładowanie zmian…',
+  'panel.notGit': 'Ten folder nie jest repozytorium Git.',
+  'panel.noChanges': 'Brak zmian.',
+  'panel.changedFiles': 'Zmienione pliki',
+  'panel.selectDiff':
+    'Wybierz plik, aby zobaczyć jego diff.',
+  'panel.largeChanges':
+    'Lista zmian jest duża. Część plików lub diffów nie jest pokazywana.',
+  'panel.from': 'z {path}',
+  'panel.binary': 'Plik binarny. Brak podglądu tekstu.',
+  'panel.noTextChanges':
+    'Brak zmian tekstu do pokazania.',
+  'panel.diffLabel': 'Diff pliku {path}',
+  'panel.diffShortened':
+    'Diff jest długi i został skrócony.',
+  'panel.requestFailed': 'Żądanie nie powiodło się.',
+
+  'changeStatus.added': 'Dodany',
+  'changeStatus.modified': 'Zmieniony',
+  'changeStatus.deleted': 'Usunięty',
+  'changeStatus.renamed': 'Zmieniono nazwę',
+  'changeStatus.untracked': 'Nowy',
+  'changeStatus.conflicted': 'Konflikt',
 } satisfies Record<MessageKey, string>;

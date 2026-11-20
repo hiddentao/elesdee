@@ -348,6 +348,69 @@ export const en = {
   'phone.question': 'Question',
   'phone.chooseSession': 'Choose a session.',
   'phone.open': 'Open',
+
+  'projectSettings.title': 'Project settings',
+  'projectSettings.defaultAccount': 'Default account',
+  'projectSettings.noDefaultAccount': 'No default account',
+  'projectSettings.accountHint':
+    'New sessions in this project start with this account.',
+  'projectSettings.clearAccount': 'Clear default account',
+  'projectSettings.defaultBranch': 'Default source branch',
+  'projectSettings.noDefaultBranch': 'No default branch',
+  'projectSettings.branchHint':
+    'New sessions start from this commit. Choose a branch in the project folder.',
+  'projectSettings.clearBranch': 'Clear default branch',
+  'projectSettings.errorSave':
+    'The project defaults were not saved. Try again.',
+  'projectSettings.busyLabel': 'Saving project defaults…',
+  'projectSettings.submitting': 'Saving…',
+  'projectSettings.submit': 'Save defaults',
+
+  'sidebar.projectSettings': 'Project settings',
+  'sidebar.projectSettingsFor': 'Project settings for {name}',
+
+  'session.panel': 'Session panel',
+
+  'app.projectDefaultsSaved': 'Project defaults saved.',
+
+  'panel.label': '{name} side panel',
+  'panel.tabsLabel': 'Session panels',
+  'panel.files': 'Files',
+  'panel.changes': 'Changes',
+  'panel.close': 'Close side panel',
+  'panel.unsavedChanges': 'Unsaved changes',
+  'panel.loading': 'Loading…',
+  'panel.emptyFolder': 'Empty folder',
+  'panel.moreEntries': 'More entries are not shown.',
+  'panel.filesLabel': 'Session files',
+  'panel.save': 'Save',
+  'panel.saving': 'Saving…',
+  'panel.saved': 'Saved.',
+  'panel.loadingFile': 'Loading file…',
+  'panel.selectFile': 'Select a file to view and edit it.',
+  'panel.sinceBranch': 'Since the branch point',
+  'panel.refresh': 'Refresh',
+  'panel.refreshing': 'Refreshing…',
+  'panel.loadingChanges': 'Loading changes…',
+  'panel.notGit': 'This folder is not a Git repository.',
+  'panel.noChanges': 'No changes yet.',
+  'panel.changedFiles': 'Changed files',
+  'panel.selectDiff': 'Select a file to see its diff.',
+  'panel.largeChanges':
+    'The change list is large. Some files or diffs are not shown.',
+  'panel.from': 'from {path}',
+  'panel.binary': 'Binary file. No text preview.',
+  'panel.noTextChanges': 'No text changes to show.',
+  'panel.diffLabel': 'Diff for {path}',
+  'panel.diffShortened': 'The diff is long and was shortened.',
+  'panel.requestFailed': 'The request failed.',
+
+  'changeStatus.added': 'Added',
+  'changeStatus.modified': 'Changed',
+  'changeStatus.deleted': 'Deleted',
+  'changeStatus.renamed': 'Renamed',
+  'changeStatus.untracked': 'New',
+  'changeStatus.conflicted': 'Conflict',
 } as const;
 
 export type MessageKey = keyof typeof en;

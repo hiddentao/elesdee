@@ -25,6 +25,7 @@ import {
   respondPermission,
   resumeSession,
   switchSessionAccount,
+  updateProjectDefaults,
 } from './api/client';
 import { subscribeAux, subscribeEvents } from './api/events';
 import { isTauri, openFolder, openTerminal } from './api/shell';
@@ -36,6 +37,7 @@ import type {
   Question,
   Session,
   SessionRequest,
+  UpdateProjectDefaultsInput,
 } from './api/types';
 import { AddProjectDialog } from './components/AddProjectDialog';
 import {
@@ -46,6 +48,7 @@ import { CloseSessionDialog } from './components/CloseSessionDialog';
 import { DeleteSessionDialog } from './components/DeleteSessionDialog';
 import { FirstLaunch } from './components/FirstLaunch';
 import { NewSessionDialog } from './components/NewSessionDialog';
+import { ProjectSettingsDialog } from './components/ProjectSettingsDialog';
 import { QuitDialog } from './components/QuitDialog';
 import { QuestionsDialog } from './components/QuestionsDialog';
 import { RenameSessionDialog } from './components/RenameSessionDialog';
@@ -55,6 +58,10 @@ import {
   type SessionMenuAction,
 } from './components/SessionActionsMenu';
 import { SessionHeader } from './components/SessionHeader';
+import {
+  SessionSidePanel,
+  type DockTab,
+} from './components/SessionSidePanel';
 import { SessionView } from './components/SessionView';
 import { SettingsDialog } from './components/SettingsDialog';
 import { Sidebar } from './components/Sidebar';
@@ -112,9 +119,11 @@ export default function App() {
   const [agentsChecked, setAgentsChecked] = useState(false);
   const [version, setVersion] = useState<string | null>(null);
   const [tabsByProject, setTabsByProject] = useState<TabsByProject>({});
+  const [docks, setDocks] = useState<Record<string, DockTab | null>>({});
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [projectDialogOpen, setProjectDialogOpen] = useState(false);
+  const [projectSettingsId, setProjectSettingsId] = useState<string | null>(null);
   const [closeSessionId, setCloseSessionId] = useState<string | null>(null);
   const [renameSessionId, setRenameSessionId] = useState<string | null>(null);
   const [deleteSessionId, setDeleteSessionId] = useState<string | null>(null);
@@ -142,6 +151,17 @@ export default function App() {
     (session) => session.status === 'active',
   ).length;
 
+  function setDock(sessionId: string, tab: DockTab | null) {
+    setDocks((current) => ({ ...current, [sessionId]: tab }));
+  }
+
+  function toggleDock(sessionId: string) {
+    setDocks((current) => ({
+      ...current,
+      [sessionId]: current[sessionId] ? null : 'files',
+    }));
+  }
+
   const load = useCallback(async () => {
     setLoadState('loading');
     setLoadError('');
@@ -168,6 +188,19 @@ export default function App() {
     }
   }, []);
 
+  const refresh = useCallback(async () => {
+    try {
+      const data = await bootstrap();
+      setProjects(data.projects);
+      setAccounts(data.accounts);
+      setSessions(data.sessions);
+      setQuestions(data.questions ?? []);
+      setSessionRequests(data.sessionRequests ?? []);
+    } catch {
+      // The event stream reports a broken connection.
+    }
+  }, []);
+
   const activeProject =
     projects.find((project) => project.id === activeProjectId) ?? null;
   const projectTabs = activeProjectId
@@ -179,6 +212,9 @@ export default function App() {
   const activeSessionId = projectTabs?.active ?? null;
   const activeSession =
     tabSessions.find((session) => session.id === activeSessionId) ?? null;
+  const activeDock = activeSession
+    ? docks[activeSession.id] ?? null
+    : null;
   const activeQuestion = activeSession
     ? questions.find((question) => question.sessionId === activeSession.id) ??
       null
@@ -200,6 +236,9 @@ export default function App() {
   const switchTarget = switchSessionId
     ? sessions.find((session) => session.id === switchSessionId) ?? null
     : null;
+  const projectSettingsTarget = projectSettingsId
+    ? projects.find((project) => project.id === projectSettingsId) ?? null
+    : null;
   const menuSession = sessionMenu
     ? sessions.find((session) => session.id === sessionMenu.sessionId) ?? null
     : null;
@@ -209,6 +248,7 @@ export default function App() {
   const anyDialogOpen =
     dialogOpen ||
     projectDialogOpen ||
+    projectSettingsTarget !== null ||
     closeTarget !== null ||
     renameTarget !== null ||
     deleteTarget !== null ||
@@ -271,9 +311,12 @@ export default function App() {
         });
       },
       () => setEventsPaused(true),
-      () => setEventsPaused(false),
+      () => {
+        setEventsPaused(false);
+        void refresh();
+      },
     );
-  }, [loadState, eventAttempt]);
+  }, [loadState, eventAttempt, refresh]);
 
   useEffect(() => {
     if (loadState !== 'ready') {
@@ -307,8 +350,8 @@ export default function App() {
         message: `${event.notification.sessionName}: ${event.notification.message}`,
         error: false,
       });
-    });
-  }, [loadState, eventAttempt]);
+    }, undefined, () => void refresh());
+  }, [loadState, eventAttempt, refresh]);
 
   const quitNow = useCallback(async () => {
     allowCloseRef.current = true;
@@ -451,6 +494,23 @@ export default function App() {
     setActiveProjectId(project.id);
     setProjectDialogOpen(false);
     focusMainRef.current = isFirstProject;
+  }
+
+  async function saveProjectDefaults(input: UpdateProjectDefaultsInput) {
+    if (!projectSettingsTarget) {
+      return;
+    }
+
+    const updated = await updateProjectDefaults(
+      projectSettingsTarget.id,
+      input,
+    );
+    setProjects((current) =>
+      current.map((project) =>
+        project.id === updated.id ? updated : project,
+      ),
+    );
+    setToast({ message: t('app.projectDefaultsSaved'), error: false });
   }
 
   async function confirmClose() {
@@ -723,6 +783,11 @@ export default function App() {
     setTabsByProject((current) =>
       closeSessionTab(current, deleteTarget.projectId, deleteTarget.id),
     );
+    setDocks((current) => {
+      const next = { ...current };
+      delete next[deleteTarget.id];
+      return next;
+    });
     setDeleteSessionId(null);
     setFocusSessionChangeTick((tick) => tick + 1);
   }
@@ -815,6 +880,7 @@ export default function App() {
             onSessionMenu={openSessionMenu}
             onAddProject={() => setProjectDialogOpen(true)}
             onNewSession={(projectId) => openNewSession(projectId)}
+            onProjectSettings={(project) => setProjectSettingsId(project.id)}
             onOpenSettings={() => setSettingsOpen(true)}
             questions={questions.length}
             onOpenQuestions={() => setQuestionsOpen(true)}
@@ -866,33 +932,48 @@ export default function App() {
                   onOpenBranchMenu={(trigger) =>
                     openBranchMenu(activeSession, trigger)
                   }
+                  panelOpen={activeDock !== null}
+                  onTogglePanel={() => toggleDock(activeSession.id)}
                 />
-                <SessionView
-                  key={activeSession.id}
-                  session={activeSession}
-                  onRespondPermission={(decision) =>
-                    answerPermission(activeSession, decision)
-                  }
-                  onReopen={() => void handleReopen(activeSession)}
-                  onResume={() => void handleResume(activeSession)}
-                  question={activeQuestion}
-                  onAnswerQuestion={(answer) =>
-                    activeQuestion
-                      ? answerOpenQuestion(activeQuestion.id, answer)
-                      : Promise.resolve()
-                  }
-                  request={activeRequest}
-                  onApproveRequest={(allowFurther) =>
-                    activeRequest
-                      ? approveRequest(activeRequest.id, allowFurther)
-                      : Promise.resolve()
-                  }
-                  onDenyRequest={() =>
-                    activeRequest
-                      ? denyRequest(activeRequest.id)
-                      : Promise.resolve()
-                  }
-                />
+                <div
+                  className={`session-workspace${activeDock ? ' has-dock' : ''}`}
+                >
+                  <SessionView
+                    key={activeSession.id}
+                    session={activeSession}
+                    onRespondPermission={(decision) =>
+                      answerPermission(activeSession, decision)
+                    }
+                    onReopen={() => void handleReopen(activeSession)}
+                    onResume={() => void handleResume(activeSession)}
+                    question={activeQuestion}
+                    onAnswerQuestion={(answer) =>
+                      activeQuestion
+                        ? answerOpenQuestion(activeQuestion.id, answer)
+                        : Promise.resolve()
+                    }
+                    request={activeRequest}
+                    onApproveRequest={(allowFurther) =>
+                      activeRequest
+                        ? approveRequest(activeRequest.id, allowFurther)
+                        : Promise.resolve()
+                    }
+                    onDenyRequest={() =>
+                      activeRequest
+                        ? denyRequest(activeRequest.id)
+                        : Promise.resolve()
+                    }
+                  />
+                  {activeDock ? (
+                    <SessionSidePanel
+                      key={activeSession.id}
+                      session={activeSession}
+                      tab={activeDock}
+                      onSelectTab={(tab) => setDock(activeSession.id, tab)}
+                      onClose={() => setDock(activeSession.id, null)}
+                    />
+                  ) : null}
+                </div>
               </div>
             ) : (
               <div className="empty-main">
@@ -934,6 +1015,15 @@ export default function App() {
           onCreate={createProject}
           onCreated={handleProjectCreated}
           onClose={() => setProjectDialogOpen(false)}
+        />
+      ) : null}
+
+      {projectSettingsTarget ? (
+        <ProjectSettingsDialog
+          project={projectSettingsTarget}
+          accounts={accounts}
+          onSave={saveProjectDefaults}
+          onClose={() => setProjectSettingsId(null)}
         />
       ) : null}
 

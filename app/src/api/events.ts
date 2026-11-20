@@ -47,8 +47,13 @@ export function subscribeEvents(
 export function subscribeAux(
   onEvent: (event: AuxEvent) => void,
   onError?: () => void,
+  onOpen?: () => void,
 ): Unsubscribe {
   const source = new EventSource(API_BASE + '/api/questions/events');
+
+  source.onopen = () => {
+    onOpen?.();
+  };
 
   source.onmessage = (event) => {
     try {

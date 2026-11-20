@@ -376,4 +376,73 @@ export const sv = {
   'phone.question': 'Fråga',
   'phone.chooseSession': 'Välj en session.',
   'phone.open': 'Öppna',
+
+  'projectSettings.title': 'Projektinställningar',
+  'projectSettings.defaultAccount': 'Standardkonto',
+  'projectSettings.noDefaultAccount': 'Inget standardkonto',
+  'projectSettings.accountHint':
+    'Nya sessioner i det här projektet startar med det här kontot.',
+  'projectSettings.clearAccount': 'Rensa standardkonto',
+  'projectSettings.defaultBranch': 'Standardkällgren',
+  'projectSettings.noDefaultBranch': 'Ingen standardgren',
+  'projectSettings.branchHint':
+    'Nya sessioner startar vid den här commiten. Välj en gren i projektmappen.',
+  'projectSettings.clearBranch': 'Rensa standardgren',
+  'projectSettings.errorSave':
+    'Projektets standardvärden sparades inte. Försök igen.',
+  'projectSettings.busyLabel':
+    'Sparar projektets standardvärden…',
+  'projectSettings.submitting': 'Sparar…',
+  'projectSettings.submit': 'Spara standardvärden',
+
+  'sidebar.projectSettings': 'Projektinställningar',
+  'sidebar.projectSettingsFor': 'Projektinställningar för {name}',
+
+  'session.panel': 'Sessionspanel',
+
+  'app.projectDefaultsSaved':
+    'Projektets standardvärden sparades.',
+
+  'panel.label': 'Sidopanel för {name}',
+  'panel.tabsLabel': 'Sessionspaneler',
+  'panel.files': 'Filer',
+  'panel.changes': 'Ändringar',
+  'panel.close': 'Stäng sidopanelen',
+  'panel.unsavedChanges': 'Ej sparade ändringar',
+  'panel.loading': 'Läser in…',
+  'panel.emptyFolder': 'Tom mapp',
+  'panel.moreEntries': 'Fler poster visas inte.',
+  'panel.filesLabel': 'Sessionsfiler',
+  'panel.save': 'Spara',
+  'panel.saving': 'Sparar…',
+  'panel.saved': 'Sparat.',
+  'panel.loadingFile': 'Läser in fil…',
+  'panel.selectFile':
+    'Välj en fil för att visa och redigera den.',
+  'panel.sinceBranch': 'Sedan grenpunkten',
+  'panel.refresh': 'Uppdatera',
+  'panel.refreshing': 'Uppdaterar…',
+  'panel.loadingChanges': 'Läser in ändringar…',
+  'panel.notGit': 'Den här mappen är inte ett Git-lager.',
+  'panel.noChanges': 'Inga ändringar ännu.',
+  'panel.changedFiles': 'Ändrade filer',
+  'panel.selectDiff':
+    'Välj en fil för att se dess diff.',
+  'panel.largeChanges':
+    'Ändringslistan är stor. Vissa filer eller diffar visas inte.',
+  'panel.from': 'från {path}',
+  'panel.binary': 'Binärfil. Ingen textförhandsvisning.',
+  'panel.noTextChanges':
+    'Inga textändringar att visa.',
+  'panel.diffLabel': 'Diff för {path}',
+  'panel.diffShortened':
+    'Diffen är lång och har kortats.',
+  'panel.requestFailed': 'Begäran misslyckades.',
+
+  'changeStatus.added': 'Tillagd',
+  'changeStatus.modified': 'Ändrad',
+  'changeStatus.deleted': 'Borttagen',
+  'changeStatus.renamed': 'Omdöpt',
+  'changeStatus.untracked': 'Ny',
+  'changeStatus.conflicted': 'Konflikt',
 } satisfies Record<MessageKey, string>;

@@ -374,4 +374,72 @@ export const nl = {
   'phone.question': 'Vraag',
   'phone.chooseSession': 'Kies een sessie.',
   'phone.open': 'Openen',
+
+  'projectSettings.title': 'Projectinstellingen',
+  'projectSettings.defaultAccount': 'Standaardaccount',
+  'projectSettings.noDefaultAccount': 'Geen standaardaccount',
+  'projectSettings.accountHint':
+    'Nieuwe sessies in dit project starten met dit account.',
+  'projectSettings.clearAccount': 'Standaardaccount wissen',
+  'projectSettings.defaultBranch': 'Standaard bronbranch',
+  'projectSettings.noDefaultBranch': 'Geen standaardbranch',
+  'projectSettings.branchHint':
+    'Nieuwe sessies starten bij deze commit. Kies een branch in de projectmap.',
+  'projectSettings.clearBranch': 'Standaardbranch wissen',
+  'projectSettings.errorSave':
+    'De projectstandaarden zijn niet opgeslagen. Probeer het opnieuw.',
+  'projectSettings.busyLabel':
+    'Projectstandaarden worden opgeslagen…',
+  'projectSettings.submitting': 'Opslaan…',
+  'projectSettings.submit': 'Standaarden opslaan',
+
+  'sidebar.projectSettings': 'Projectinstellingen',
+  'sidebar.projectSettingsFor': 'Projectinstellingen voor {name}',
+
+  'session.panel': 'Sessiepaneel',
+
+  'app.projectDefaultsSaved': 'Projectstandaarden opgeslagen.',
+
+  'panel.label': 'Zijpaneel van {name}',
+  'panel.tabsLabel': 'Sessiepanelen',
+  'panel.files': 'Bestanden',
+  'panel.changes': 'Wijzigingen',
+  'panel.close': 'Zijpaneel sluiten',
+  'panel.unsavedChanges': 'Niet-opgeslagen wijzigingen',
+  'panel.loading': 'Laden…',
+  'panel.emptyFolder': 'Lege map',
+  'panel.moreEntries': 'Meer items worden niet getoond.',
+  'panel.filesLabel': 'Sessiebestanden',
+  'panel.save': 'Opslaan',
+  'panel.saving': 'Opslaan…',
+  'panel.saved': 'Opgeslagen.',
+  'panel.loadingFile': 'Bestand laden…',
+  'panel.selectFile':
+    'Kies een bestand om het te bekijken en te bewerken.',
+  'panel.sinceBranch': 'Sinds het branchpunt',
+  'panel.refresh': 'Vernieuwen',
+  'panel.refreshing': 'Vernieuwen…',
+  'panel.loadingChanges': 'Wijzigingen laden…',
+  'panel.notGit': 'Deze map is geen Git-repository.',
+  'panel.noChanges': 'Nog geen wijzigingen.',
+  'panel.changedFiles': 'Gewijzigde bestanden',
+  'panel.selectDiff':
+    'Kies een bestand om de diff te zien.',
+  'panel.largeChanges':
+    'De wijzigingslijst is groot. Sommige bestanden of diffs worden niet getoond.',
+  'panel.from': 'vanaf {path}',
+  'panel.binary': 'Binair bestand. Geen tekstvoorbeeld.',
+  'panel.noTextChanges':
+    'Geen tekstwijzigingen om te tonen.',
+  'panel.diffLabel': 'Diff voor {path}',
+  'panel.diffShortened':
+    'De diff is lang en is ingekort.',
+  'panel.requestFailed': 'Het verzoek is mislukt.',
+
+  'changeStatus.added': 'Toegevoegd',
+  'changeStatus.modified': 'Gewijzigd',
+  'changeStatus.deleted': 'Verwijderd',
+  'changeStatus.renamed': 'Hernoemd',
+  'changeStatus.untracked': 'Nieuw',
+  'changeStatus.conflicted': 'Conflict',
 } satisfies Record<MessageKey, string>;

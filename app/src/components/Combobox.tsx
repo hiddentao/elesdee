@@ -95,9 +95,7 @@ export function Combobox({
   );
 
   useEffect(() => {
-    if (selectedLabel) {
-      setQuery(selectedLabel);
-    }
+    setQuery(selectedLabel);
   }, [selectedLabel]);
 
   const normalized = query.trim().toLowerCase();

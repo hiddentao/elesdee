@@ -8,13 +8,17 @@ import type {
   CreateAccountInput,
   CreateProjectInput,
   CreateSessionInput,
+  FileContent,
+  FileList,
   HealthResponse,
   PermissionDecision,
   Project,
   ProviderInfo,
   Question,
   Session,
+  SessionChanges,
   SessionRequest,
+  UpdateProjectDefaultsInput,
 } from './types';
 
 export class ApiError extends Error {
@@ -143,6 +147,17 @@ export function createProject(input: CreateProjectInput): Promise<Project> {
   return request<Project>('/api/projects', post(input));
 }
 
+export function updateProjectDefaults(
+  id: string,
+  input: UpdateProjectDefaultsInput,
+): Promise<Project> {
+  return request<Project>(`/api/projects/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+}
+
 export function createSession(input: CreateSessionInput): Promise<Session> {
   return request<Session>('/api/sessions', post(input));
 }
@@ -207,4 +222,50 @@ export function resizeSession(
   rows: number,
 ): Promise<void> {
   return request<void>(`/api/sessions/${encodeURIComponent(id)}/resize`, post({ cols, rows }));
+}
+
+export function listFiles(
+  id: string,
+  path = '',
+  signal?: AbortSignal,
+): Promise<FileList> {
+  const params = new URLSearchParams(path ? { path } : {});
+  const query = params.toString();
+  return request<FileList>(
+    `/api/sessions/${encodeURIComponent(id)}/files${query ? `?${query}` : ''}`,
+    signal ? { signal } : undefined,
+  );
+}
+
+export function readFile(
+  id: string,
+  path: string,
+  signal?: AbortSignal,
+): Promise<FileContent> {
+  const params = new URLSearchParams({ path });
+  return request<FileContent>(
+    `/api/sessions/${encodeURIComponent(id)}/file?${params.toString()}`,
+    signal ? { signal } : undefined,
+  );
+}
+
+export function writeFile(
+  id: string,
+  path: string,
+  content: string,
+): Promise<FileContent> {
+  return request<FileContent>(
+    `/api/sessions/${encodeURIComponent(id)}/file`,
+    post({ path, content }),
+  );
+}
+
+export function sessionChanges(
+  id: string,
+  signal?: AbortSignal,
+): Promise<SessionChanges> {
+  return request<SessionChanges>(
+    `/api/sessions/${encodeURIComponent(id)}/changes`,
+    signal ? { signal } : undefined,
+  );
 }

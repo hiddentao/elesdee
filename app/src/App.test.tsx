@@ -12,11 +12,14 @@ import {
   deleteSession,
   health,
   listAccounts,
+  listFiles,
   listProjects,
   listProviders,
   renameSession,
   reopenSession,
   respondPermission,
+  sessionChanges,
+  updateProjectDefaults,
 } from './api/client';
 import { subscribeEvents } from './api/events';
 import { isTauri, openFolder, openTerminal } from './api/shell';
@@ -34,12 +37,16 @@ vi.mock('./api/client', async (importOriginal) => {
     deleteSession: vi.fn(),
     health: vi.fn(),
     listAccounts: vi.fn(),
+    listFiles: vi.fn(),
     listProjects: vi.fn(),
     listProviders: vi.fn(),
     renameSession: vi.fn(),
     reopenSession: vi.fn(),
     respondPermission: vi.fn(),
     sendInput: vi.fn(),
+    updateProjectDefaults: vi.fn(),
+    sessionChanges: vi.fn(),
+    writeFile: vi.fn(),
   };
 });
 
@@ -134,10 +141,60 @@ beforeEach(() => {
     workState: 'working',
   });
   vi.mocked(deleteSession).mockResolvedValue(undefined);
+  vi.mocked(updateProjectDefaults).mockResolvedValue({
+    id: 'p1',
+    name: 'web',
+    folder: '/dev/web',
+  });
+  vi.mocked(listFiles).mockResolvedValue({
+    path: '',
+    entries: [
+      { name: 'README.md', path: 'README.md', directory: false },
+    ],
+    truncated: false,
+  });
+  vi.mocked(sessionChanges).mockResolvedValue({
+    git: true,
+    base: 'abc123',
+    files: [],
+    truncated: false,
+    error: null,
+  });
   vi.mocked(subscribeEvents).mockReturnValue(() => {});
   vi.mocked(isTauri).mockReturnValue(false);
   vi.mocked(openFolder).mockResolvedValue(undefined);
   vi.mocked(openTerminal).mockResolvedValue(undefined);
+});
+
+describe('session side panel', () => {
+  it('is closed by default and opens the session files', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(
+      await screen.findByRole('button', { name: /Check close/ }),
+    );
+
+    const toggle = screen.getByRole('button', { name: 'Session panel' });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(
+      screen.queryByRole('tab', { name: 'Files' }),
+    ).not.toBeInTheDocument();
+
+    await user.click(toggle);
+
+    expect(screen.getByRole('tab', { name: 'Files' })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('button', { name: /README\.md/ }),
+    ).toBeInTheDocument();
+    expect(listFiles).toHaveBeenCalledWith('s1', '');
+
+    await user.click(screen.getByRole('button', { name: 'Session panel' }));
+
+    expect(
+      screen.queryByRole('tab', { name: 'Files' }),
+    ).not.toBeInTheDocument();
+  });
 });
 
 describe('first launch', () => {
@@ -782,6 +839,59 @@ describe('permission requests', () => {
   });
 });
 
+
+describe('project settings', () => {
+  it('saves the defaults from the project header', async () => {
+    const account: Account = {
+      id: 'a1',
+      name: 'Work',
+      plan: 'Max',
+      client: 'Claude Code',
+      provider: 'Anthropic',
+      auth: 'subscription',
+      sample: false,
+      rows: [],
+      foot: '',
+      server: null,
+      model: null,
+    };
+    vi.mocked(listAccounts).mockResolvedValue([account]);
+    vi.mocked(updateProjectDefaults).mockResolvedValue({
+      id: 'p1',
+      name: 'web',
+      folder: '/dev/web',
+      defaultAccountId: 'a1',
+      defaultSourceBranch: null,
+    });
+
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(
+      await screen.findByRole('button', {
+        name: 'Project settings for web',
+      }),
+    );
+    const dialog = screen.getByRole('dialog', { name: 'Project settings' });
+    const accountInput = within(dialog).getByLabelText('Default account');
+    await user.click(accountInput);
+    await user.click(await screen.findByRole('option', { name: /Work/ }));
+
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Save defaults' }),
+    );
+
+    await waitFor(() =>
+      expect(updateProjectDefaults).toHaveBeenCalledWith('p1', {
+        defaultAccountId: 'a1',
+        defaultSourceBranch: null,
+      }),
+    );
+    expect(
+      await screen.findByText('Project defaults saved.'),
+    ).toBeInTheDocument();
+  });
+});
 
 describe('settings', () => {
   it('opens from the footer and restores focus on close', async () => {

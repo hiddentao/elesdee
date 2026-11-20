@@ -381,4 +381,72 @@ export const ptBR = {
   'phone.question': 'Pergunta',
   'phone.chooseSession': 'Escolha uma sessão.',
   'phone.open': 'Abrir',
+
+  'projectSettings.title': 'Configurações do projeto',
+  'projectSettings.defaultAccount': 'Conta padrão',
+  'projectSettings.noDefaultAccount': 'Nenhuma conta padrão',
+  'projectSettings.accountHint':
+    'As novas sessões deste projeto começam com esta conta.',
+  'projectSettings.clearAccount': 'Remover conta padrão',
+  'projectSettings.defaultBranch': 'Branch de origem padrão',
+  'projectSettings.noDefaultBranch': 'Nenhuma branch padrão',
+  'projectSettings.branchHint':
+    'As novas sessões começam neste commit. Escolha uma branch na pasta do projeto.',
+  'projectSettings.clearBranch': 'Remover branch padrão',
+  'projectSettings.errorSave':
+    'Os padrões do projeto não foram salvos. Tente novamente.',
+  'projectSettings.busyLabel':
+    'Salvando os padrões do projeto…',
+  'projectSettings.submitting': 'Salvando…',
+  'projectSettings.submit': 'Salvar padrões',
+
+  'sidebar.projectSettings': 'Configurações do projeto',
+  'sidebar.projectSettingsFor': 'Configurações do projeto {name}',
+
+  'session.panel': 'Painel da sessão',
+
+  'app.projectDefaultsSaved': 'Padrões do projeto salvos.',
+
+  'panel.label': 'Painel lateral de {name}',
+  'panel.tabsLabel': 'Painéis da sessão',
+  'panel.files': 'Arquivos',
+  'panel.changes': 'Alterações',
+  'panel.close': 'Fechar painel lateral',
+  'panel.unsavedChanges': 'Alterações não salvas',
+  'panel.loading': 'Carregando…',
+  'panel.emptyFolder': 'Pasta vazia',
+  'panel.moreEntries': 'Mais entradas não são mostradas.',
+  'panel.filesLabel': 'Arquivos da sessão',
+  'panel.save': 'Salvar',
+  'panel.saving': 'Salvando…',
+  'panel.saved': 'Salvo.',
+  'panel.loadingFile': 'Carregando arquivo…',
+  'panel.selectFile':
+    'Selecione um arquivo para ver e editar.',
+  'panel.sinceBranch': 'Desde o ponto da branch',
+  'panel.refresh': 'Atualizar',
+  'panel.refreshing': 'Atualizando…',
+  'panel.loadingChanges': 'Carregando alterações…',
+  'panel.notGit': 'Esta pasta não é um repositório Git.',
+  'panel.noChanges': 'Nenhuma alteração ainda.',
+  'panel.changedFiles': 'Arquivos alterados',
+  'panel.selectDiff':
+    'Selecione um arquivo para ver o diff.',
+  'panel.largeChanges':
+    'A lista de alterações é grande. Alguns arquivos ou diffs não são mostrados.',
+  'panel.from': 'de {path}',
+  'panel.binary': 'Arquivo binário. Sem prévia de texto.',
+  'panel.noTextChanges':
+    'Nenhuma alteração de texto para mostrar.',
+  'panel.diffLabel': 'Diff de {path}',
+  'panel.diffShortened':
+    'O diff é longo e foi encurtado.',
+  'panel.requestFailed': 'A solicitação falhou.',
+
+  'changeStatus.added': 'Adicionado',
+  'changeStatus.modified': 'Alterado',
+  'changeStatus.deleted': 'Excluído',
+  'changeStatus.renamed': 'Renomeado',
+  'changeStatus.untracked': 'Novo',
+  'changeStatus.conflicted': 'Conflito',
 } satisfies Record<MessageKey, string>;

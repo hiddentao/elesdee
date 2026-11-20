@@ -372,4 +372,69 @@ export const de = {
   'phone.question': 'Frage',
   'phone.chooseSession': 'Wähle eine Sitzung.',
   'phone.open': 'Öffnen',
+
+  'projectSettings.title': 'Projekteinstellungen',
+  'projectSettings.defaultAccount': 'Standardkonto',
+  'projectSettings.noDefaultAccount': 'Kein Standardkonto',
+  'projectSettings.accountHint':
+    'Neue Sitzungen in diesem Projekt starten mit diesem Konto.',
+  'projectSettings.clearAccount': 'Standardkonto entfernen',
+  'projectSettings.defaultBranch': 'Standard-Quellbranch',
+  'projectSettings.noDefaultBranch': 'Kein Standardbranch',
+  'projectSettings.branchHint':
+    'Neue Sitzungen starten bei diesem Commit. Wähle einen Branch im Projektordner.',
+  'projectSettings.clearBranch': 'Standardbranch entfernen',
+  'projectSettings.errorSave':
+    'Die Projektstandards wurden nicht gespeichert. Versuche es erneut.',
+  'projectSettings.busyLabel': 'Projektstandards werden gespeichert…',
+  'projectSettings.submitting': 'Wird gespeichert…',
+  'projectSettings.submit': 'Standards speichern',
+
+  'sidebar.projectSettings': 'Projekteinstellungen',
+  'sidebar.projectSettingsFor': 'Projekteinstellungen für {name}',
+
+  'session.panel': 'Sitzungsbereich',
+
+  'app.projectDefaultsSaved': 'Projektstandards gespeichert.',
+
+  'panel.label': 'Seitenbereich von {name}',
+  'panel.tabsLabel': 'Sitzungsbereiche',
+  'panel.files': 'Dateien',
+  'panel.changes': 'Änderungen',
+  'panel.close': 'Seitenbereich schließen',
+  'panel.unsavedChanges': 'Ungespeicherte Änderungen',
+  'panel.loading': 'Wird geladen…',
+  'panel.emptyFolder': 'Leerer Ordner',
+  'panel.moreEntries': 'Weitere Einträge werden nicht angezeigt.',
+  'panel.filesLabel': 'Sitzungsdateien',
+  'panel.save': 'Speichern',
+  'panel.saving': 'Wird gespeichert…',
+  'panel.saved': 'Gespeichert.',
+  'panel.loadingFile': 'Datei wird geladen…',
+  'panel.selectFile':
+    'Wähle eine Datei zum Anzeigen und Bearbeiten.',
+  'panel.sinceBranch': 'Seit dem Branch-Punkt',
+  'panel.refresh': 'Aktualisieren',
+  'panel.refreshing': 'Wird aktualisiert…',
+  'panel.loadingChanges': 'Änderungen werden geladen…',
+  'panel.notGit': 'Dieser Ordner ist kein Git-Repository.',
+  'panel.noChanges': 'Noch keine Änderungen.',
+  'panel.changedFiles': 'Geänderte Dateien',
+  'panel.selectDiff':
+    'Wähle eine Datei, um ihren Diff zu sehen.',
+  'panel.largeChanges':
+    'Die Änderungsliste ist groß. Einige Dateien oder Diffs werden nicht angezeigt.',
+  'panel.from': 'von {path}',
+  'panel.binary': 'Binärdatei. Keine Textvorschau.',
+  'panel.noTextChanges': 'Keine Textänderungen zum Anzeigen.',
+  'panel.diffLabel': 'Diff für {path}',
+  'panel.diffShortened': 'Der Diff ist lang und wurde gekürzt.',
+  'panel.requestFailed': 'Die Anfrage ist fehlgeschlagen.',
+
+  'changeStatus.added': 'Hinzugefügt',
+  'changeStatus.modified': 'Geändert',
+  'changeStatus.deleted': 'Gelöscht',
+  'changeStatus.renamed': 'Umbenannt',
+  'changeStatus.untracked': 'Neu',
+  'changeStatus.conflicted': 'Konflikt',
 } satisfies Record<MessageKey, string>;

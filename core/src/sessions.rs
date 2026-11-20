@@ -374,7 +374,9 @@ impl SessionEntry {
     pub fn codex_sender(
         &self,
     ) -> Option<tokio::sync::mpsc::UnboundedSender<crate::codex::Decision>> {
-        lock(&self.codex).as_ref().map(|runtime| runtime.sender.clone())
+        lock(&self.codex)
+            .as_ref()
+            .map(|runtime| runtime.sender.clone())
     }
 
     pub fn set_opencode_runtime(&self, runtime: OpenCodeRuntime) {
@@ -824,11 +826,13 @@ impl SessionEntry {
     pub fn mark_external_permission(&self, permission: PendingPermission) -> Option<Session> {
         let event = {
             let mut state = lock(&self.data);
-            if state.session.status != SessionState::Active || state.closing || state.process_exited {
+            if state.session.status != SessionState::Active || state.closing || state.process_exited
+            {
                 return None;
             }
             if let Some(pending) = state.pending_hook.as_ref() {
-                if pending.sender.is_some() || pending.permission.request_id == permission.request_id
+                if pending.sender.is_some()
+                    || pending.permission.request_id == permission.request_id
                 {
                     return None;
                 }
@@ -1813,10 +1817,7 @@ mod tests {
         entry.append_output("key is sk-secret-value now\n".to_owned());
 
         let (chunks, _) = entry.persistence_output();
-        let text = chunks
-            .into_iter()
-            .map(|(_, data)| data)
-            .collect::<String>();
+        let text = chunks.into_iter().map(|(_, data)| data).collect::<String>();
         assert!(text.contains("[redacted]"), "{text}");
         assert!(!text.contains("sk-secret-value"), "{text}");
     }

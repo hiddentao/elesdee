@@ -82,6 +82,7 @@ The desktop app is a Tauri app. Version 1 is for macOS; Windows and Linux follow
 - The service trusts the local user. Any program running as the same user account can call the API, including the session and permission routes.
 - The permission card is a convenience and a phone approval path. It is not a security boundary against local code, and it does not stop a prompt-injected agent from answering its own request.
 - The Claude hook token protects the internal hook route from other users and remote callers. It is not a general credential for the public API.
+- The file and change routes read and write only inside the session's folder or worktree. Every path is canonicalized. Traversal, an absolute path, a symlink that leaves the folder, a folder where a file is expected, binary content and content above 1 MiB are refused.
 
 ## Window layout and sessions
 
@@ -174,10 +175,11 @@ The agents write their conversation to files on disk, and each keeps its own int
 
 **Session side panel**
 
-- Each session has its own side panel, closed by default. Switching sessions switches its content and open state.
-- It has three tabs: Files, Changes and Browser.
-- Files shows the file tree of the session's worktree or folder. It opens a CodeMirror editor with full syntax highlighting, which works on touch screens. I can edit and save files.
-- Changes shows every change since the branch point, committed or not.
+- Each session has its own side panel, closed by default. Switching sessions switches its content and open state. The panel sits beside the terminal, which stays usable while the panel is open.
+- It has three tabs: Files, Changes and Browser. Browser comes later; the Files and Changes tabs are built.
+- Files shows the file tree of the session's worktree or folder, one folder at a time. It opens a CodeMirror editor with full syntax highlighting, which works on touch screens. I can edit and save files with an explicit Save action. Unsaved edits are marked, and a failed read or save shows an error.
+- The file API handles UTF-8 text up to 1 MiB. It refuses binary files, larger files, traversal, symlink escapes and a folder where a file is expected.
+- Changes shows every change since the branch point, committed or not. A terminal session has no branch point, so it shows the working-tree changes against the current commit. Each changed file has added and removed line counts and a diff. A plain folder reports that it is not a Git repository.
 - Browser shows a live view of the session's browser. Each session has its own browser context: separate tabs, cookies, storage and logins.
 - Usage is not in this panel. Usage belongs to the computer and opens from the sidebar summary.
 - Not a main feature: the editor supports quick edits, not full IDE work.
@@ -419,7 +421,7 @@ A project groups sessions.
 
 - Creating a project is fast: one action, a name and a folder. The folder can be a Git repository or a plain folder.
 - I can drag a session from one project to another.
-- A project can store a default source (repo and branch) and a default preset. New sessions in the project start with these filled in, and I can change them for each session.
+- A project can store a default account and a default source branch. New sessions in the project start with these filled in, and I can change them for each session. The branch must exist in the project folder's Git repository.
 
 ## Launching a session
 

@@ -9,8 +9,8 @@ use serde_json::{Value, json};
 use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::Message;
 
-use crate::state::PendingPermission;
 use crate::sessions::SessionEntry;
+use crate::state::PendingPermission;
 
 pub struct Decision {
     pub request_id: String,
@@ -91,7 +91,11 @@ pub async fn run(
             "capabilities": { "experimentalApi": true, "requiredHumanApproval": true }
         }
     });
-    if writer.send(Message::Text(initialize.to_string().into())).await.is_err() {
+    if writer
+        .send(Message::Text(initialize.to_string().into()))
+        .await
+        .is_err()
+    {
         return;
     }
 
@@ -122,10 +126,10 @@ pub async fn run(
     }
 }
 
-async fn connect(url: &str) -> Result<
-    tokio_tungstenite::WebSocketStream<
-        tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
-    >,
+async fn connect(
+    url: &str,
+) -> Result<
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>,
     (),
 > {
     for _ in 0..20 {

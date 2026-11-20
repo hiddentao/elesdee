@@ -21,7 +21,9 @@ test('adds an API-key provider and gives the session its environment', async ({
   const project = await createProject(request, label, repo);
 
   await openApp(page);
-  await page.getByRole('button', { name: 'Settings' }).click();
+  await page
+    .getByRole('button', { name: 'Settings', exact: true })
+    .click();
   const settings = page.getByRole('dialog', { name: 'Settings' });
   await settings.getByRole('button', { name: 'Add account' }).click();
   const add = page.getByRole('dialog', { name: 'Add account' });

@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -162,7 +163,12 @@ pub async fn ref_exists(repo_root: PathBuf, reference: String, timeout: Duration
         let revision = format!("{reference}^{{commit}}");
         run_git(
             &repo_root,
-            ["rev-parse", "--verify", "--end-of-options", revision.as_str()],
+            [
+                "rev-parse",
+                "--verify",
+                "--end-of-options",
+                revision.as_str(),
+            ],
             timeout,
         )
         .success()
@@ -513,5 +519,608 @@ where
             }
             Err(_) => return GitRun::Failed,
         }
+    }
+}
+
+const MAX_CHANGED_FILES: usize = 500;
+const MAX_DIFF_BYTES: usize = 512 * 1024;
+const EMPTY_TREE: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ChangeStatus {
+    Added,
+    Modified,
+    Deleted,
+    Renamed,
+    Untracked,
+    Conflicted,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChangedFile {
+    pub path: String,
+    pub old_path: Option<String>,
+    pub status: ChangeStatus,
+    pub additions: u64,
+    pub deletions: u64,
+    pub binary: bool,
+    pub diff: String,
+    pub diff_truncated: bool,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Changes {
+    pub git: bool,
+    pub base: Option<String>,
+    pub files: Vec<ChangedFile>,
+    pub truncated: bool,
+    pub error: Option<String>,
+}
+
+impl Changes {
+    fn not_git() -> Self {
+        Self {
+            git: false,
+            base: None,
+            files: Vec::new(),
+            truncated: false,
+            error: None,
+        }
+    }
+}
+
+/// Collects the differences between a session folder and its branch point.
+///
+/// Agent sessions compare against the fork point of their branch. Terminal
+/// sessions compare the working tree against `HEAD`.
+pub async fn changes(
+    folder: PathBuf,
+    agent_repo_root: Option<PathBuf>,
+    timeout: Duration,
+) -> Changes {
+    tokio::task::spawn_blocking(move || {
+        changes_blocking(&folder, agent_repo_root.as_deref(), timeout)
+    })
+    .await
+    .unwrap_or_else(|_| Changes {
+        git: true,
+        base: None,
+        files: Vec::new(),
+        truncated: false,
+        error: Some("The change check failed.".to_owned()),
+    })
+}
+
+fn changes_blocking(folder: &Path, agent_repo_root: Option<&Path>, timeout: Duration) -> Changes {
+    if !folder.is_dir() {
+        return Changes::not_git();
+    }
+
+    let Some(repo_root) = repo_root_blocking(folder, timeout) else {
+        return Changes::not_git();
+    };
+    let prefix = match run_git(folder, ["rev-parse", "--show-prefix"], timeout) {
+        GitRun::Output(output) if output.status.success() => {
+            String::from_utf8_lossy(&output.stdout).trim().to_owned()
+        }
+        _ => String::new(),
+    };
+    let base = choose_base(folder, agent_repo_root, timeout)
+        .or_else(|| resolve_commit(folder, "HEAD", timeout));
+    let base_rev = base.as_deref().unwrap_or(EMPTY_TREE);
+
+    let diff_status = match run_git(
+        folder,
+        ["diff", "--name-status", "-z", base_rev, "--", "."],
+        timeout,
+    ) {
+        GitRun::Output(output) if output.status.success() => output.stdout,
+        GitRun::Output(output) => {
+            return Changes {
+                git: true,
+                base,
+                files: Vec::new(),
+                truncated: false,
+                error: Some(git_error("diff", &output)),
+            };
+        }
+        GitRun::Timeout | GitRun::Failed => {
+            return Changes {
+                git: true,
+                base,
+                files: Vec::new(),
+                truncated: false,
+                error: Some("Git did not answer in time.".to_owned()),
+            };
+        }
+    };
+
+    let mut entries = parse_name_status(&diff_status);
+    if let GitRun::Output(output) = run_git(
+        folder,
+        ["status", "--porcelain=v1", "-z", "--", "."],
+        timeout,
+    ) && output.status.success()
+    {
+        for entry in parse_status(&output.stdout) {
+            if entry.status != ChangeStatus::Untracked
+                || entries
+                    .iter()
+                    .any(|known| known.repo_path == entry.repo_path)
+            {
+                continue;
+            }
+            entries.push(entry);
+        }
+    }
+
+    let stats = match run_git(
+        folder,
+        ["diff", "--numstat", "-z", base_rev, "--", "."],
+        timeout,
+    ) {
+        GitRun::Output(output) if output.status.success() => parse_numstat(&output.stdout),
+        _ => HashMap::new(),
+    };
+
+    let mut files = entries
+        .into_iter()
+        .filter_map(|entry| {
+            let display = strip_prefix(&entry.repo_path, &prefix)?;
+            let old_path = entry
+                .old_path
+                .as_deref()
+                .and_then(|old| strip_prefix(old, &prefix));
+            let stat = stats.get(&entry.repo_path).copied().unwrap_or_default();
+            Some(ChangedFile {
+                path: display,
+                old_path,
+                status: entry.status,
+                additions: stat.additions,
+                deletions: stat.deletions,
+                binary: stat.binary,
+                diff: String::new(),
+                diff_truncated: false,
+            })
+        })
+        .collect::<Vec<_>>();
+
+    files.sort_by(|left, right| left.path.cmp(&right.path));
+    let mut truncated = false;
+    if files.len() > MAX_CHANGED_FILES {
+        files.truncate(MAX_CHANGED_FILES);
+        truncated = true;
+    }
+
+    let mut diff_budget = MAX_DIFF_BYTES;
+    for file in &mut files {
+        let repo_path = if prefix.is_empty() {
+            file.path.clone()
+        } else {
+            format!("{prefix}{}", file.path)
+        };
+        if file.status == ChangeStatus::Untracked {
+            let untracked = untracked_file(&repo_root, &repo_path, &file.path);
+            file.additions = untracked.additions;
+            file.deletions = 0;
+            file.binary = untracked.binary;
+            file.diff = untracked.diff;
+            file.diff_truncated = untracked.truncated;
+            truncated |= untracked.truncated;
+        } else if !file.binary {
+            let diff = match run_git(
+                &repo_root,
+                [
+                    "diff",
+                    "--no-color",
+                    "--no-ext-diff",
+                    "--no-textconv",
+                    base_rev,
+                    "--",
+                    repo_path.as_str(),
+                ],
+                timeout,
+            ) {
+                GitRun::Output(output) if output.status.success() => {
+                    String::from_utf8_lossy(&output.stdout).into_owned()
+                }
+                GitRun::Output(output) => {
+                    return Changes {
+                        git: true,
+                        base,
+                        files: Vec::new(),
+                        truncated: false,
+                        error: Some(git_error("diff", &output)),
+                    };
+                }
+                GitRun::Timeout | GitRun::Failed => {
+                    return Changes {
+                        git: true,
+                        base,
+                        files: Vec::new(),
+                        truncated: false,
+                        error: Some("Git did not answer in time.".to_owned()),
+                    };
+                }
+            };
+            file.diff = diff;
+        }
+
+        let (diff, cut) = take_diff(&file.diff, &mut diff_budget);
+        file.diff = diff;
+        file.diff_truncated |= cut;
+        truncated |= cut;
+    }
+
+    Changes {
+        git: true,
+        base,
+        files,
+        truncated,
+        error: None,
+    }
+}
+
+fn repo_root_blocking(folder: &Path, timeout: Duration) -> Option<PathBuf> {
+    match run_git(folder, ["rev-parse", "--show-toplevel"], timeout) {
+        GitRun::Output(output) if output.status.success() => {
+            let root = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+            if root.is_empty() {
+                None
+            } else {
+                fs::canonicalize(root).ok()
+            }
+        }
+        _ => None,
+    }
+}
+
+fn choose_base(folder: &Path, agent_repo_root: Option<&Path>, timeout: Duration) -> Option<String> {
+    let repo_root = agent_repo_root?;
+    let mut candidates = Vec::new();
+    if let GitRun::Output(output) = run_git(repo_root, ["symbolic-ref", "--short", "HEAD"], timeout)
+        && output.status.success()
+    {
+        let branch = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+        if !branch.is_empty() {
+            candidates.push(branch);
+        }
+    }
+    if let GitRun::Output(output) = run_git(
+        repo_root,
+        ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
+        timeout,
+    ) && output.status.success()
+    {
+        let branch = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+        if !branch.is_empty() {
+            candidates.push(branch);
+        }
+    }
+    candidates.push("main".to_owned());
+    candidates.push("master".to_owned());
+    candidates.dedup();
+
+    for candidate in candidates {
+        if !commit_exists(folder, &candidate, timeout) {
+            continue;
+        }
+        if let Some(base) = merge_base(folder, &candidate, timeout) {
+            return Some(base);
+        }
+    }
+
+    match run_git(folder, ["rev-list", "--max-parents=0", "HEAD"], timeout) {
+        GitRun::Output(output) if output.status.success() => {
+            String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .next()
+                .map(str::trim)
+                .filter(|root| !root.is_empty())
+                .map(str::to_owned)
+        }
+        _ => None,
+    }
+}
+
+fn resolve_commit(dir: &Path, reference: &str, timeout: Duration) -> Option<String> {
+    match run_git(
+        dir,
+        ["rev-parse", "--verify", "--end-of-options", reference],
+        timeout,
+    ) {
+        GitRun::Output(output) if output.status.success() => {
+            let commit = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+            (!commit.is_empty()).then_some(commit)
+        }
+        _ => None,
+    }
+}
+
+fn commit_exists(dir: &Path, reference: &str, timeout: Duration) -> bool {
+    let revision = format!("{reference}^{{commit}}");
+    run_git(
+        dir,
+        [
+            "rev-parse",
+            "--verify",
+            "--end-of-options",
+            revision.as_str(),
+        ],
+        timeout,
+    )
+    .success()
+}
+
+fn merge_base(dir: &Path, reference: &str, timeout: Duration) -> Option<String> {
+    match run_git(dir, ["merge-base", "HEAD", reference], timeout) {
+        GitRun::Output(output) if output.status.success() => {
+            let base = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+            (!base.is_empty()).then_some(base)
+        }
+        _ => None,
+    }
+}
+
+struct StatusEntry {
+    repo_path: String,
+    old_path: Option<String>,
+    status: ChangeStatus,
+}
+
+fn parse_status(bytes: &[u8]) -> Vec<StatusEntry> {
+    let mut entries = Vec::new();
+    let mut tokens = bytes.split(|byte| *byte == 0);
+
+    while let Some(record) = tokens.next() {
+        if record.len() < 4 {
+            continue;
+        }
+        let index = record[0];
+        let worktree = record[1];
+        let path = String::from_utf8_lossy(&record[3..]).into_owned();
+        if path.is_empty() {
+            continue;
+        }
+        let status = classify(index, worktree);
+        let old_path = if status == ChangeStatus::Renamed
+            || (status == ChangeStatus::Added && (index == b'C' || worktree == b'C'))
+        {
+            tokens
+                .next()
+                .map(|old| String::from_utf8_lossy(old).into_owned())
+        } else {
+            None
+        };
+        entries.push(StatusEntry {
+            repo_path: path,
+            old_path,
+            status,
+        });
+    }
+
+    entries
+}
+
+fn parse_name_status(bytes: &[u8]) -> Vec<StatusEntry> {
+    let mut entries = Vec::new();
+    let mut tokens = bytes.split(|byte| *byte == 0);
+
+    while let Some(status) = tokens.next() {
+        let Some(letter) = status.first().copied() else {
+            continue;
+        };
+        let Some(path) = tokens.next() else {
+            break;
+        };
+        let path = String::from_utf8_lossy(path).into_owned();
+        if path.is_empty() {
+            continue;
+        }
+
+        let (status, repo_path, old_path) = match letter {
+            b'R' | b'C' => {
+                let Some(new) = tokens.next() else {
+                    break;
+                };
+                let new = String::from_utf8_lossy(new).into_owned();
+                if new.is_empty() {
+                    continue;
+                }
+                let kind = if letter == b'R' {
+                    ChangeStatus::Renamed
+                } else {
+                    ChangeStatus::Added
+                };
+                (kind, new, Some(path))
+            }
+            b'A' => (ChangeStatus::Added, path, None),
+            b'D' => (ChangeStatus::Deleted, path, None),
+            b'U' => (ChangeStatus::Conflicted, path, None),
+            _ => (ChangeStatus::Modified, path, None),
+        };
+
+        entries.push(StatusEntry {
+            repo_path,
+            old_path,
+            status,
+        });
+    }
+
+    entries
+}
+
+fn classify(index: u8, worktree: u8) -> ChangeStatus {
+    if index == b'?' && worktree == b'?' {
+        ChangeStatus::Untracked
+    } else if index == b'U'
+        || worktree == b'U'
+        || (index == b'A' && worktree == b'A')
+        || (index == b'D' && worktree == b'D')
+    {
+        ChangeStatus::Conflicted
+    } else if index == b'R' || worktree == b'R' {
+        ChangeStatus::Renamed
+    } else if index == b'C' || worktree == b'C' || index == b'A' {
+        ChangeStatus::Added
+    } else if index == b'D' || worktree == b'D' {
+        ChangeStatus::Deleted
+    } else {
+        ChangeStatus::Modified
+    }
+}
+
+#[derive(Clone, Copy, Default)]
+struct NumStat {
+    additions: u64,
+    deletions: u64,
+    binary: bool,
+}
+
+fn parse_numstat(bytes: &[u8]) -> HashMap<String, NumStat> {
+    let mut stats = HashMap::new();
+    let mut tokens = bytes.split(|byte| *byte == 0);
+
+    while let Some(record) = tokens.next() {
+        if record.is_empty() {
+            continue;
+        }
+        let text = String::from_utf8_lossy(record);
+        let mut parts = text.splitn(3, '\t');
+        let additions = parts.next().unwrap_or_default();
+        let deletions = parts.next().unwrap_or_default();
+        let path = parts.next().unwrap_or_default();
+        let stat = NumStat {
+            additions: additions.parse().unwrap_or(0),
+            deletions: deletions.parse().unwrap_or(0),
+            binary: additions == "-" && deletions == "-",
+        };
+
+        if path.is_empty() {
+            let _old = tokens.next();
+            if let Some(new) = tokens.next() {
+                stats.insert(String::from_utf8_lossy(new).into_owned(), stat);
+            }
+        } else {
+            stats.insert(path.to_owned(), stat);
+        }
+    }
+
+    stats
+}
+
+fn strip_prefix(path: &str, prefix: &str) -> Option<String> {
+    if prefix.is_empty() {
+        return Some(path.to_owned());
+    }
+    path.strip_prefix(prefix)
+        .filter(|rest| !rest.is_empty())
+        .map(str::to_owned)
+}
+
+struct UntrackedFile {
+    additions: u64,
+    binary: bool,
+    diff: String,
+    truncated: bool,
+}
+
+fn untracked_file(repo_root: &Path, repo_path: &str, display_path: &str) -> UntrackedFile {
+    let target = repo_root.join(repo_path);
+    let Ok(metadata) = fs::symlink_metadata(&target) else {
+        return UntrackedFile {
+            additions: 0,
+            binary: false,
+            diff: String::new(),
+            truncated: false,
+        };
+    };
+    if metadata.file_type().is_symlink() {
+        return UntrackedFile {
+            additions: 0,
+            binary: false,
+            diff: String::new(),
+            truncated: true,
+        };
+    }
+    if !metadata.is_file() || metadata.len() > crate::files::MAX_FILE_BYTES {
+        return UntrackedFile {
+            additions: 0,
+            binary: false,
+            diff: String::new(),
+            truncated: true,
+        };
+    }
+
+    let Ok(bytes) = fs::read(&target) else {
+        return UntrackedFile {
+            additions: 0,
+            binary: false,
+            diff: String::new(),
+            truncated: false,
+        };
+    };
+    if bytes.iter().take(8192).any(|byte| *byte == 0) {
+        return UntrackedFile {
+            additions: 0,
+            binary: true,
+            diff: String::new(),
+            truncated: false,
+        };
+    }
+    let Ok(content) = String::from_utf8(bytes) else {
+        return UntrackedFile {
+            additions: 0,
+            binary: true,
+            diff: String::new(),
+            truncated: false,
+        };
+    };
+
+    let lines = content.lines().collect::<Vec<_>>();
+    let mut diff = format!(
+        "--- /dev/null\n+++ b/{display_path}\n@@ -0,0 +1,{} @@\n",
+        lines.len()
+    );
+    for line in &lines {
+        diff.push('+');
+        diff.push_str(line);
+        diff.push('\n');
+    }
+    UntrackedFile {
+        additions: lines.len() as u64,
+        binary: false,
+        diff,
+        truncated: false,
+    }
+}
+
+fn take_diff(diff: &str, budget: &mut usize) -> (String, bool) {
+    if *budget == 0 {
+        return (String::new(), !diff.is_empty());
+    }
+    if diff.len() <= *budget {
+        *budget -= diff.len();
+        return (diff.to_owned(), false);
+    }
+
+    let mut end = *budget;
+    while end > 0 && !diff.is_char_boundary(end) {
+        end -= 1;
+    }
+    *budget = 0;
+    (format!("{}\n… diff truncated …", &diff[..end]), true)
+}
+
+fn git_error(command: &str, output: &Output) -> String {
+    let message = String::from_utf8_lossy(&output.stderr);
+    let message = message.trim();
+    if message.is_empty() {
+        format!("Git {command} failed.")
+    } else {
+        format!("Git {command} failed: {message}")
     }
 }
