@@ -2263,7 +2263,7 @@ async fn project_defaults_reject_an_unsafe_or_missing_branch() {
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
 
     assert!(run_git(&repo.path, &["tag", "release"]).status.success());
-    for revision in ["HEAD", "release", "main@{1}"] {
+    for revision in ["HEAD", "release"] {
         let (status, body) = call(
             &app,
             "PATCH",
@@ -2277,6 +2277,15 @@ async fn project_defaults_reject_an_unsafe_or_missing_branch() {
             "{revision} must not pass as a branch: {body}"
         );
     }
+
+    let (status, body) = call(
+        &app,
+        "PATCH",
+        "/api/projects/web",
+        Some(json!({ "defaultSourceBranch": "main@{1}" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
 
     let plain = TempDirectory::new("project-defaults-plain");
     let plain_app = router(AppState::ephemeral());

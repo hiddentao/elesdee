@@ -1109,6 +1109,10 @@ impl AppState {
         Ok(project)
     }
 
+    pub fn remove_project(&self, id: &str) {
+        lock(&self.inner.projects).retain(|project| project.id != id);
+    }
+
     pub fn update_project_defaults(
         &self,
         id: &str,

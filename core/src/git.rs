@@ -738,7 +738,7 @@ fn changes_blocking(folder: &Path, agent_repo_root: Option<&Path>, timeout: Dura
 
     let mut skipped = false;
     let mut entries = parse_name_status(&diff_status, &mut skipped);
-    if let GitRun::Output(output) = run_git(
+    match run_git(
         folder,
         [
             "status",
@@ -749,18 +749,21 @@ fn changes_blocking(folder: &Path, agent_repo_root: Option<&Path>, timeout: Dura
             ".",
         ],
         budget(),
-    ) && output.status.success()
-    {
-        for entry in parse_status(&output.stdout, &mut skipped) {
-            if entry.status != ChangeStatus::Untracked
-                || entries
-                    .iter()
-                    .any(|known| known.repo_path == entry.repo_path)
-            {
-                continue;
+    ) {
+        GitRun::Output(output) if output.status.success() => {
+            for entry in parse_status(&output.stdout, &mut skipped) {
+                if entry.status != ChangeStatus::Untracked
+                    || entries
+                        .iter()
+                        .any(|known| known.repo_path == entry.repo_path)
+                {
+                    continue;
+                }
+                entries.push(entry);
             }
-            entries.push(entry);
         }
+        GitRun::TooLarge => skipped = true,
+        _ => {}
     }
 
     let stats = match run_git(
@@ -779,6 +782,10 @@ fn changes_blocking(folder: &Path, agent_repo_root: Option<&Path>, timeout: Dura
     ) {
         GitRun::Output(output) if output.status.success() => {
             parse_numstat(&output.stdout, &mut skipped)
+        }
+        GitRun::TooLarge => {
+            skipped = true;
+            HashMap::new()
         }
         _ => HashMap::new(),
     };

@@ -773,9 +773,10 @@ async fn create_project(
     let project = state
         .add_project(name.to_owned(), path_string(&folder))
         .map_err(|_| ApiError::conflict("A project with this folder already exists."))?;
-    state
-        .try_save()
-        .map_err(|_| ApiError::internal("The project could not be saved."))?;
+    if state.try_save().is_err() {
+        state.remove_project(&project.id);
+        return Err(ApiError::internal("The project could not be saved."));
+    }
 
     Ok(Json(project))
 }
@@ -821,9 +822,14 @@ async fn update_project(
     let updated = state
         .update_project_defaults(&id, account_update, branch_update)
         .ok_or_else(|| ApiError::not_found("Unknown project."))?;
-    state
-        .try_save()
-        .map_err(|_| ApiError::internal("The project could not be saved."))?;
+    if state.try_save().is_err() {
+        state.update_project_defaults(
+            &id,
+            Some(project.default_account_id.clone()),
+            Some(project.default_source_branch.clone()),
+        );
+        return Err(ApiError::internal("The project could not be saved."));
+    }
 
     Ok(Json(updated))
 }
@@ -3224,6 +3230,7 @@ fn safe_branch_name(name: &str) -> bool {
                 || matches!(character, '~' | '^' | ':' | '?' | '*' | '[' | '\\')
         })
         && !name.contains("..")
+        && !name.contains("@{")
         && !name.ends_with('/')
         && !name.ends_with('.')
 }

@@ -185,7 +185,7 @@ pub fn write(root: &Path, relative: &str, content: &str) -> Result<FileContent, 
     }
     let target = resolved_parent.join(name);
 
-    match fs::symlink_metadata(&target) {
+    let permissions = match fs::symlink_metadata(&target) {
         Ok(metadata) => {
             if metadata.file_type().is_symlink() {
                 return Err(FileError::OutsideRoot);
@@ -194,10 +194,11 @@ pub fn write(root: &Path, relative: &str, content: &str) -> Result<FileContent, 
                 return Err(FileError::NotAFile);
             }
             reject_hard_link(&metadata)?;
+            Some(metadata.permissions())
         }
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) if error.kind() == io::ErrorKind::NotFound => None,
         Err(error) => return Err(error.into()),
-    }
+    };
 
     let temporary = resolved_parent.join(format!(".elesdee-{}.tmp", uuid::Uuid::new_v4()));
     let written = (|| -> io::Result<()> {
@@ -205,6 +206,9 @@ pub fn write(root: &Path, relative: &str, content: &str) -> Result<FileContent, 
             .write(true)
             .create_new(true)
             .open(&temporary)?;
+        if let Some(permissions) = &permissions {
+            file.set_permissions(permissions.clone())?;
+        }
         file.write_all(bytes)?;
         file.sync_all()?;
         fs::rename(&temporary, &target)
@@ -259,7 +263,7 @@ fn open_readonly(path: &Path) -> io::Result<fs::File> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
-        options.custom_flags(libc::O_NOFOLLOW);
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
     }
     options.open(path)
 }
@@ -401,6 +405,42 @@ mod tests {
             write(&root, "linked.txt", "changed\n"),
             Err(FileError::Linked)
         ));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_a_named_pipe() {
+        use std::ffi::CString;
+        use std::os::unix::ffi::OsStrExt;
+
+        let root = temp("named-pipe");
+        let path = root.join("pipe");
+        let name = CString::new(path.as_os_str().as_bytes()).unwrap();
+        // SAFETY: the path is a valid NUL-terminated string and the call owns no memory.
+        let created = unsafe { libc::mkfifo(name.as_ptr(), 0o600) };
+        assert_eq!(created, 0);
+
+        assert!(matches!(read(&root, "pipe"), Err(FileError::NotAFile)));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_keeps_the_file_mode() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = temp("mode");
+        fs::write(root.join("script.sh"), "echo old\n").unwrap();
+        fs::set_permissions(root.join("script.sh"), fs::Permissions::from_mode(0o755)).unwrap();
+
+        write(&root, "script.sh", "echo new\n").expect("write file");
+
+        let mode = fs::metadata(root.join("script.sh"))
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o777, 0o755);
         let _ = fs::remove_dir_all(root);
     }
 
