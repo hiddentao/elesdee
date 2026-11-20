@@ -43,9 +43,11 @@ test('a closed session replays its log without a disconnect banner', async ({
   };
 
   await expect(page.locator('.xterm')).toBeVisible();
-  await page.waitForTimeout(800);
+  await expect(page.locator('.xterm-accessibility')).toContainText(label, {
+    timeout: 15_000,
+  });
   await page.locator('.xterm-helper-textarea').focus();
-  await page.keyboard.type('echo e2e-ok');
+  await page.keyboard.type('echo e2e-ok', { delay: 20 });
   await page.keyboard.press('Enter');
   await waitForPreviewChange(request, created.id, created.preview);
   await expect(page.locator('.xterm-accessibility')).toContainText('e2e-ok', {

@@ -420,6 +420,7 @@ test('turns a public demo server off when the session pauses', async ({
     name,
     folder: repo,
     configId: account.configId,
+    allowedConfigIds: [account.configId],
   });
   const demo = await startDemoServer();
   const serverName = uniqueName('Pause server');
