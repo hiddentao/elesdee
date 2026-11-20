@@ -29,12 +29,16 @@ Branch: the session branch name.
 
 Add file paths only where they help the next agent find the work.
 
+## Save the note
+
+Call the `write_handoff_note` tool with the note text. The app keeps the note and gives it, with the end of the log, to the next agent that works on the session. Save the note before you commit, so a recovery after a crash still has it.
+
 ## Commit and push
 
 1. Commit all work on the session branch. Do not leave uncommitted changes.
 2. Use the note as the message of the last commit. Start the subject with `Handoff:` and put the note in the body.
 3. Push the session branch to its upstream remote. If no upstream is set, push to the only remote.
 
-Do not add the note as a file in the repository. The commit message carries it with the branch, and the next agent can read it with `git log -1`.
+Do not add the note as a file in the repository. The commit message carries it with the branch, and the next agent can read it with `git log -1`. At Close, if work is still uncommitted, the app commits it and puts the saved note in that commit message.
 
 If a check failed or a step was skipped, say so in the note. Do not describe unfinished work as done.

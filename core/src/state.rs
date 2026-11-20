@@ -177,6 +177,8 @@ pub struct Session {
     pub config: BTreeMap<String, String>,
     #[serde(default)]
     pub agent_session_id: Option<String>,
+    #[serde(default)]
+    pub handoff_note: Option<String>,
     pub started_at: String,
     pub shortcuts: Vec<Shortcut>,
 }

@@ -46,6 +46,7 @@ use crate::state::{
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const SSE_HEARTBEAT: Duration = Duration::from_secs(15);
+const STARTUP_INPUT_DELAY: Duration = Duration::from_millis(1200);
 const ALLOWED_ORIGINS: [&str; 5] = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
@@ -1586,7 +1587,7 @@ async fn create_session(
     if let Some(prompt) = startup_input {
         let entry = Arc::clone(&entry);
         tokio::spawn(async move {
-            tokio::time::sleep(Duration::from_millis(1200)).await;
+            tokio::time::sleep(STARTUP_INPUT_DELAY).await;
             let mut bytes = prompt.into_bytes();
             bytes.push(b'\n');
             let _ = entry.write_input(bytes).await;
@@ -1636,6 +1637,7 @@ async fn close_session(
                         PathBuf::from(&closing.folder),
                         branch.to_owned(),
                         closing.name.clone(),
+                        closing.handoff_note.clone(),
                         git::GitTimeouts {
                             local: state.git_timeout(),
                             push: state.git_push_timeout(),
@@ -1846,6 +1848,10 @@ async fn reopen_session(
         }
     }
 
+    let handoff_context = (suspended.kind == SessionKind::Agent
+        && suspended.agent_session_id.is_none())
+    .then(|| entry.handoff_context())
+    .flatten();
     state.reserve_activation().map_err(|_| {
         entry.remove_session_files();
         ApiError::too_many_requests("Session limit reached. Close a session first.")
@@ -1880,6 +1886,9 @@ async fn reopen_session(
 
     if let Some(base_url) = opencode_base {
         start_opencode_poller(state.clone(), Arc::clone(&entry), base_url);
+    }
+    if let Some(context) = handoff_context {
+        deliver_handoff_context(&entry, context);
     }
 
     let session = entry.session();
@@ -1994,6 +2003,7 @@ async fn relaunch_with_account(
     let mut environment = account_environment(state, account).await?;
     let folder = canonical_directory(PathBuf::from(&session.folder))?;
     let mut opencode_base = None;
+    let handoff_context = (!resume).then(|| entry.handoff_context()).flatten();
 
     let should_wait = entry
         .begin_close()
@@ -2112,10 +2122,23 @@ async fn relaunch_with_account(
     if let Some(base_url) = opencode_base {
         start_opencode_poller(state.clone(), Arc::clone(entry), base_url);
     }
+    if let Some(context) = handoff_context {
+        deliver_handoff_context(entry, context);
+    }
 
     state.emit(SessionEvent::updated(switched.clone()));
     state.save();
     Ok(Json(switched))
+}
+
+fn deliver_handoff_context(entry: &Arc<SessionEntry>, context: String) {
+    let entry = Arc::clone(entry);
+    tokio::spawn(async move {
+        tokio::time::sleep(STARTUP_INPUT_DELAY).await;
+        let mut bytes = context.into_bytes();
+        bytes.push(b'\n');
+        let _ = entry.write_input(bytes).await;
+    });
 }
 
 async fn relaunch_terminal(
@@ -3225,6 +3248,7 @@ fn prepare_terminal(
         model: None,
         config: BTreeMap::new(),
         agent_session_id: None,
+        handoff_note: None,
         started_at: timestamp(),
         shortcuts: Vec::new(),
     };
@@ -3314,6 +3338,7 @@ async fn prepare_agent(
         model: None,
         config: BTreeMap::new(),
         agent_session_id,
+        handoff_note: None,
         started_at: timestamp(),
         shortcuts: shortcuts::for_client(account.client),
     };

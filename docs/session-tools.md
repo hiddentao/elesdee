@@ -36,6 +36,10 @@ The **Notify me** tool sends a short message. The app shows it as a notification
 
 A session started this way shows the session it came from in the sidebar.
 
+## Handoff note
+
+**Write handoff note** saves a short note about the work. The agent writes one before a switch to a different client, a run out of usage, or a close. The app keeps the note and gives it, with the end of the log, to the next agent that takes over the session. The same skill also tells the agent to put the note in the last commit message and push the branch, so the note travels with the branch as well. See [Agents and providers](agents.md) for the skill.
+
 ## Usage
 
 **Check usage** shows the usage rows for the session's account.
