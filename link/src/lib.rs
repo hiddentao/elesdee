@@ -27,9 +27,9 @@ pub use app::{
     write_app_frame,
 };
 pub use client::{
-    AppConnection, BRIDGE_VERSION, ClientError, ComputerRecord, EventStream, LinkClient,
-    OutputStream, PairReply, PairingCancel, PairingConfirm, PairingMachine, PairingRejection,
-    PairingStart, PairingState, PhoneStore, StoreError, load_or_create_identity,
+    AppConnection, BRIDGE_VERSION, ClientError, ComputerRecord, EventStream, HistoryStream,
+    LinkClient, OutputStream, PairReply, PairingCancel, PairingConfirm, PairingMachine,
+    PairingRejection, PairingStart, PairingState, PhoneStore, StoreError, load_or_create_identity,
 };
 pub use error::{ErrorBody, ErrorCode, LinkError, PairingError};
 pub use forward::{

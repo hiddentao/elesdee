@@ -147,6 +147,9 @@ pub async fn run(
                 }
 
                 let Some(method) = value.get("method").and_then(Value::as_str) else { continue };
+                for change in crate::history::codex_changes(method, value.get("params")) {
+                    entry.record_history(change);
+                }
                 if method == "account/rateLimits/updated"
                     && let Some(provider_id) = provider_id.as_deref()
                 {
@@ -393,6 +396,7 @@ mod tests {
         let provider = state.provider("codex").expect("provider");
         let config = state.config("codex-codex").expect("config");
         let (events, _) = tokio::sync::broadcast::channel(8);
+        let (aux, _) = tokio::sync::broadcast::channel(8);
         let entry = Arc::new(SessionEntry::new(
             Session {
                 id: "codex-usage".to_owned(),
@@ -430,7 +434,7 @@ mod tests {
                 shortcuts: Vec::new(),
             },
             Arc::new(OutputBudget::new(1024 * 1024)),
-            SessionRuntimeConfig::new(events, Duration::from_secs(2)),
+            SessionRuntimeConfig::new(events, aux, Duration::from_secs(2)),
         ));
         let (sender, receiver) = mpsc::unbounded_channel();
         let url = format!("ws://{address}");

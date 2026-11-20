@@ -18,6 +18,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tower::ServiceExt;
 
 use elesdee_core::api::router;
+use elesdee_core::history::{HistoryChange, HistoryState};
 use elesdee_core::link::{PairReply, PairRequest, read_pair_frame, write_pair_frame};
 use elesdee_core::state::PairedDevice;
 use elesdee_core::{AppState, LinkService};
@@ -882,6 +883,160 @@ async fn events_and_output_replay_reach_the_phone() {
     })
     .await
     .expect("stream test timed out");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn session_history_replays_and_follows_versions() {
+    tokio::time::timeout(TIMEOUT, async {
+        let directory = TempDirectory::new("history");
+        let state = shell_state(&directory.path);
+        let app = router(state.clone());
+        let session = create_terminal(&app, &directory.path).await;
+        let session_id = session["id"].as_str().expect("session id").to_owned();
+
+        let entry = state.session(&session_id).expect("session entry");
+        entry.record_history(HistoryChange::Prompt {
+            id: "prompt-1".to_owned(),
+            text: "fix the test".to_owned(),
+        });
+        entry.record_history(HistoryChange::Tool {
+            id: "tool-1".to_owned(),
+            tool: "Bash".to_owned(),
+            text: "cargo test".to_owned(),
+            state: HistoryState::Running,
+        });
+
+        let service = LinkService::start_with_endpoint(state.clone(), loopback_endpoint().await);
+        let addr = service.addr();
+        let ticket = PairTicket::decode_string(
+            &state
+                .link()
+                .create_ticket_at(elesdee_core::link::now_unix() + 120, false)
+                .expect("ticket")
+                .ticket,
+        )
+        .expect("decode ticket");
+        let phone = loopback_endpoint().await;
+        let (pair_connection, _device) = approve_and_read(&app, &phone, &ticket).await;
+        pair_connection.close(0u32.into(), b"done");
+        let (connection, _welcome) = app_connect(&phone, &addr).await;
+
+        let (mut history_send, mut history_recv) =
+            connection.open_bi().await.expect("history stream");
+        write_request(
+            &mut history_send,
+            Request::new(
+                Method::HistorySubscribe,
+                Some(json!({"sessionId": session_id, "after": 0})),
+            ),
+        )
+        .await;
+        assert!(matches!(
+            read_response(&mut history_recv).await,
+            Response::StreamStart
+        ));
+
+        let status = read_stream_event(&mut history_recv)
+            .await
+            .expect("history status");
+        assert_eq!(status["type"], "history.state");
+        assert_eq!(status["structured"], false);
+
+        let prompt = read_stream_event(&mut history_recv)
+            .await
+            .expect("prompt item");
+        assert_eq!(prompt["kind"], "prompt");
+        assert_eq!(prompt["text"], "fix the test");
+
+        let tool = read_stream_event(&mut history_recv)
+            .await
+            .expect("tool item");
+        assert_eq!(tool["kind"], "tool");
+        assert_eq!(tool["tool"], "Bash");
+        assert_eq!(tool["state"], "running");
+        let tool_seq = tool["seq"].as_u64().expect("tool sequence");
+
+        let updated = entry
+            .record_history(HistoryChange::Tool {
+                id: "tool-1".to_owned(),
+                tool: "Bash".to_owned(),
+                text: "cargo test".to_owned(),
+                state: HistoryState::Done,
+            })
+            .expect("tool update");
+        let live = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                let event = read_stream_event(&mut history_recv)
+                    .await
+                    .expect("history stream ended early");
+                if event["kind"] == "tool" && event["state"] == "done" {
+                    break event;
+                }
+            }
+        })
+        .await
+        .expect("the live history version did not arrive");
+        assert_eq!(
+            live["seq"].as_u64().expect("live sequence"),
+            updated.seq,
+            "the live version did not carry its sequence"
+        );
+        assert!(
+            updated.seq > tool_seq,
+            "the version sequence did not increase"
+        );
+
+        let (mut replay_send, mut replay_recv) = connection.open_bi().await.expect("replay stream");
+        write_request(
+            &mut replay_send,
+            Request::new(
+                Method::HistorySubscribe,
+                Some(json!({"sessionId": session_id, "after": tool_seq})),
+            ),
+        )
+        .await;
+        assert!(matches!(
+            read_response(&mut replay_recv).await,
+            Response::StreamStart
+        ));
+        assert_eq!(
+            read_stream_event(&mut replay_recv)
+                .await
+                .expect("replay status")["type"],
+            "history.state"
+        );
+        let replayed = read_stream_event(&mut replay_recv)
+            .await
+            .expect("replayed version");
+        assert_eq!(replayed["seq"], json!(updated.seq));
+        assert_eq!(replayed["state"], "done");
+
+        let response = request_on(
+            &connection,
+            Request::new(
+                Method::SessionsClose,
+                Some(json!({"sessionId": session_id})),
+            ),
+        )
+        .await;
+        assert_eq!(response.result().expect("closed")["status"], "closed");
+        let ended = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                if read_stream_event(&mut history_recv).await.is_none() {
+                    break;
+                }
+            }
+        })
+        .await;
+        assert!(ended.is_ok(), "the history stream did not end on close");
+
+        connection.close(0u32.into(), b"done");
+        phone.close().await;
+        service.shutdown().await;
+        assert!(state.shutdown_all());
+    })
+    .await
+    .expect("history stream test timed out");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

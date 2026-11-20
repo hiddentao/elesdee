@@ -104,6 +104,35 @@ pub async fn sessions(base_url: &str) -> Result<Vec<SessionSummary>, String> {
     response.json().await.map_err(|error| error.to_string())
 }
 
+/// Reads the server's own message records for one session.
+///
+/// This is the local server API, not the client's on-disk files. The records
+/// hold the role, the text parts and the tool parts that the message view
+/// shows.
+pub async fn messages(base_url: &str, session_id: &str) -> Result<Value, String> {
+    if !safe_segment(session_id) {
+        return Err("invalid session id".to_owned());
+    }
+    let response = client()
+        .get(format!("{base_url}/session/{session_id}/message"))
+        .send()
+        .await
+        .map_err(|error| error.to_string())?;
+    if !response.status().is_success() {
+        return Err(format!("status {}", response.status()));
+    }
+    response.json().await.map_err(|error| error.to_string())
+}
+
+/// Keeps a session id inside one URL path segment.
+fn safe_segment(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 128
+        && value.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.')
+        })
+}
+
 pub async fn reply(base_url: &str, request_id: &str, allow: bool) -> Result<(), String> {
     let response = client()
         .post(format!("{base_url}/permission/{request_id}/reply"))
@@ -145,6 +174,14 @@ mod tests {
             ..command
         };
         assert_eq!(patterns.summary(), "*");
+    }
+
+    #[test]
+    fn a_session_id_stays_in_one_path_segment() {
+        assert!(safe_segment("ses_abc-123"));
+        assert!(!safe_segment("../secret"));
+        assert!(!safe_segment("ses/other"));
+        assert!(!safe_segment(""));
     }
 
     #[test]

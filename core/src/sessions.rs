@@ -15,8 +15,9 @@ use tokio::sync::{Mutex as AsyncMutex, broadcast, oneshot, watch};
 
 use crate::claude;
 use crate::demo::{DemoFailure, DemoServerState, MAX_DEMO_SERVERS};
+use crate::history::{HistoryChange, HistoryItem, HistoryLog, HistorySnapshot};
 use crate::state::{
-    Client, PendingPermission, PermissionDecision, Session, SessionEvent, SessionKind,
+    AuxEvent, Client, PendingPermission, PermissionDecision, Session, SessionEvent, SessionKind,
     SessionState, Shortcut, WaitingFor, WorkState, lock,
 };
 
@@ -132,13 +133,19 @@ pub enum SnapshotFailure {
 #[derive(Clone)]
 pub struct SessionRuntimeConfig {
     events: broadcast::Sender<SessionEvent>,
+    aux: broadcast::Sender<AuxEvent>,
     preview_throttle: Duration,
 }
 
 impl SessionRuntimeConfig {
-    pub fn new(events: broadcast::Sender<SessionEvent>, preview_throttle: Duration) -> Self {
+    pub fn new(
+        events: broadcast::Sender<SessionEvent>,
+        aux: broadcast::Sender<AuxEvent>,
+        preview_throttle: Duration,
+    ) -> Self {
         Self {
             events,
+            aux,
             preview_throttle,
         }
     }
@@ -155,6 +162,7 @@ pub struct SessionEntry {
     lifecycle: AsyncMutex<()>,
     output_tx: broadcast::Sender<OutputChunk>,
     events: broadcast::Sender<SessionEvent>,
+    aux: broadcast::Sender<AuxEvent>,
     close_tx: watch::Sender<bool>,
     reader_stopped: AtomicBool,
     output_budget: Arc<OutputBudget>,
@@ -189,6 +197,7 @@ struct ClaudeRuntime {
 struct SessionData {
     session: Session,
     output: OutputLog,
+    history: HistoryLog,
     runtime: Option<PtyRuntime>,
     process_exited: bool,
     closing: bool,
@@ -285,6 +294,14 @@ pub enum ReopenFailure {
     Closing,
 }
 
+/// The bounded terminal output and conversation history restored from disk.
+pub struct RestoredLogs {
+    pub output: Vec<(u64, String)>,
+    pub next_seq: u64,
+    pub history: Vec<HistoryItem>,
+    pub next_history_seq: u64,
+}
+
 impl SessionEntry {
     pub fn new(
         session: Session,
@@ -297,6 +314,7 @@ impl SessionEntry {
             config,
             TerminalSize::DEFAULT,
             OutputLog::new(),
+            HistoryLog::new(),
             false,
         )
     }
@@ -305,8 +323,7 @@ impl SessionEntry {
         session: Session,
         output_budget: Arc<OutputBudget>,
         size: TerminalSize,
-        output: Vec<(u64, String)>,
-        next_seq: u64,
+        logs: RestoredLogs,
         repo_root: Option<String>,
         config: SessionRuntimeConfig,
     ) -> Self {
@@ -327,9 +344,18 @@ impl SessionEntry {
         }
         session.pending_permission = None;
 
-        let log = OutputLog::restored(output, next_seq);
+        let log = OutputLog::restored(logs.output, logs.next_seq);
         let bytes = log.bytes;
-        let entry = Self::build(session, Arc::clone(&output_budget), config, size, log, true);
+        let history = HistoryLog::restored(logs.history, logs.next_history_seq);
+        let entry = Self::build(
+            session,
+            Arc::clone(&output_budget),
+            config,
+            size,
+            log,
+            history,
+            true,
+        );
         *lock(&entry.repo_root) = repo_root;
         output_budget.account(bytes as isize);
         entry
@@ -341,6 +367,7 @@ impl SessionEntry {
         config: SessionRuntimeConfig,
         size: TerminalSize,
         output: OutputLog,
+        history: HistoryLog,
         restored: bool,
     ) -> Self {
         let (output_tx, _) = broadcast::channel(OUTPUT_CHANNEL_CAPACITY);
@@ -349,6 +376,7 @@ impl SessionEntry {
             data: Mutex::new(SessionData {
                 session,
                 output,
+                history,
                 runtime: None,
                 process_exited: restored,
                 closing: false,
@@ -365,6 +393,7 @@ impl SessionEntry {
             lifecycle: AsyncMutex::new(()),
             output_tx,
             events: config.events,
+            aux: config.aux,
             close_tx,
             reader_stopped: AtomicBool::new(restored),
             output_budget,
@@ -434,6 +463,51 @@ impl SessionEntry {
                 .collect(),
             data.output.next_seq,
         )
+    }
+
+    pub fn persistence_history(&self) -> (Vec<HistoryItem>, u64) {
+        let data = lock(&self.data);
+        (data.history.items(), data.history.next_seq())
+    }
+
+    pub fn history_snapshot(&self, after: u64) -> Result<HistorySnapshot, SnapshotFailure> {
+        let data = lock(&self.data);
+        data.history.snapshot(after)
+    }
+
+    /// Returns true when this session has a structured conversation source.
+    pub fn history_supported(&self) -> bool {
+        let state = lock(&self.data);
+        state.session.kind == SessionKind::Agent
+            && state
+                .session
+                .client
+                .is_some_and(crate::history::client_supports_history)
+    }
+
+    pub fn clear_history(&self) {
+        let mut state = lock(&self.data);
+        state.history = HistoryLog::new();
+    }
+
+    /// Applies one parsed change to the bounded history and sends it to the
+    /// live streams. Kept text already has session secrets removed.
+    pub fn record_history(&self, change: HistoryChange) -> Option<HistoryItem> {
+        let change = {
+            let secrets = lock(&self.redactions);
+            change.redact(&secrets)
+        };
+        let (item, session_id) = {
+            let mut state = lock(&self.data);
+            let session_id = state.session.id.clone();
+            let item = state.history.apply(change)?;
+            (item, session_id)
+        };
+        let _ = self.aux.send(AuxEvent::History {
+            session_id,
+            item: item.clone(),
+        });
+        Some(item)
     }
 
     pub fn id(&self) -> String {
@@ -638,6 +712,7 @@ impl SessionEntry {
         agent_session_id: Option<String>,
     ) -> Session {
         let mut state = lock(&self.data);
+        let previous_client = state.session.client;
         state.closing = false;
         state.process_exited = false;
         state.session.status = SessionState::Active;
@@ -647,6 +722,11 @@ impl SessionEntry {
         state.session.config_id = Some(config_id);
         state.session.provider_id = Some(provider_id);
         state.session.client = Some(client);
+        // A switch to a different client starts a new conversation, so the
+        // earlier client's items no longer describe what the session shows.
+        if previous_client.is_some() && previous_client != Some(client) {
+            state.history = HistoryLog::new();
+        }
         state.session.agent_session_id = agent_session_id;
         state.session.shortcuts = shortcuts;
         state.session.context_left = None;
@@ -1800,13 +1880,8 @@ fn clear_permission_state(state: &mut SessionData) {
 const PREVIEW_TAIL_LIMIT: usize = 8192;
 const PREVIEW_MAX_CHARS: usize = 80;
 
-fn redact_secrets(mut data: String, secrets: &[String]) -> String {
-    for secret in secrets {
-        if secret.chars().count() >= 8 {
-            data = data.replace(secret, "[redacted]");
-        }
-    }
-    data
+fn redact_secrets(data: String, secrets: &[String]) -> String {
+    crate::text::redact_secrets(data, secrets)
 }
 
 fn append_preview_tail(tail: &mut String, data: &str) {
@@ -2063,16 +2138,142 @@ mod tests {
         };
         let (events, _) = broadcast::channel(8);
         let mut receiver = events.subscribe();
+        let (aux, _) = broadcast::channel(8);
         let entry = SessionEntry::new(
             session,
             Arc::new(OutputBudget::new(1024 * 1024)),
-            SessionRuntimeConfig::new(events, Duration::from_secs(2)),
+            SessionRuntimeConfig::new(events, aux, Duration::from_secs(2)),
         );
 
         entry.append_output("a newer line\n".to_owned());
 
         assert_eq!(entry.session().preview, "keep me");
         assert!(receiver.try_recv().is_err());
+    }
+
+    #[test]
+    fn history_redacts_injected_secrets() {
+        let session = Session {
+            id: "history-redact".to_owned(),
+            name: "History redact".to_owned(),
+            short: "history-redact".to_owned(),
+            project_id: "web".to_owned(),
+            kind: SessionKind::Terminal,
+            status: SessionState::Active,
+            work_state: Some(WorkState::Working),
+            client: None,
+            config_id: None,
+            allowed_config_ids: Vec::new(),
+            provider_id: None,
+            legacy_account_id: None,
+            legacy_allowed_account_ids: Vec::new(),
+            legacy_preset_id: None,
+            branch: None,
+            folder: "/tmp".to_owned(),
+            preview: String::new(),
+            waiting_for: None,
+            pending_permission: None,
+            first_prompt: None,
+            parent_session_id: None,
+            parent_session_name: None,
+            env_overrides: Vec::new(),
+            model: None,
+            effort: None,
+            args: Vec::new(),
+            config: BTreeMap::new(),
+            agent_session_id: None,
+            handoff_note: None,
+            context_left: None,
+            demo_servers: Vec::new(),
+            started_at: "2026-01-01T00:00:00Z".to_owned(),
+            shortcuts: Vec::new(),
+        };
+        let (events, _) = broadcast::channel(8);
+        let (aux, mut aux_receiver) = broadcast::channel(8);
+        let entry = SessionEntry::new(
+            session,
+            Arc::new(OutputBudget::new(1024 * 1024)),
+            SessionRuntimeConfig::new(events, aux, Duration::from_secs(2)),
+        );
+        entry.set_redactions(vec!["sk-secret-value".to_owned()]);
+
+        entry
+            .record_history(HistoryChange::Prompt {
+                id: "prompt-1".to_owned(),
+                text: "the key is sk-secret-value".to_owned(),
+            })
+            .expect("history item");
+
+        let (history, _) = entry.persistence_history();
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0].text, "the key is [redacted]");
+        assert!(!history[0].text.contains("sk-secret-value"));
+        assert!(matches!(
+            aux_receiver.try_recv(),
+            Ok(AuxEvent::History { .. })
+        ));
+    }
+
+    #[test]
+    fn history_replays_from_a_sequence() {
+        let session = Session {
+            id: "history-replay".to_owned(),
+            name: "History replay".to_owned(),
+            short: "history-replay".to_owned(),
+            project_id: "web".to_owned(),
+            kind: SessionKind::Terminal,
+            status: SessionState::Active,
+            work_state: Some(WorkState::Working),
+            client: None,
+            config_id: None,
+            allowed_config_ids: Vec::new(),
+            provider_id: None,
+            legacy_account_id: None,
+            legacy_allowed_account_ids: Vec::new(),
+            legacy_preset_id: None,
+            branch: None,
+            folder: "/tmp".to_owned(),
+            preview: String::new(),
+            waiting_for: None,
+            pending_permission: None,
+            first_prompt: None,
+            parent_session_id: None,
+            parent_session_name: None,
+            env_overrides: Vec::new(),
+            model: None,
+            effort: None,
+            args: Vec::new(),
+            config: BTreeMap::new(),
+            agent_session_id: None,
+            handoff_note: None,
+            context_left: None,
+            demo_servers: Vec::new(),
+            started_at: "2026-01-01T00:00:00Z".to_owned(),
+            shortcuts: Vec::new(),
+        };
+        let (events, _) = broadcast::channel(8);
+        let (aux, _) = broadcast::channel(8);
+        let entry = SessionEntry::new(
+            session,
+            Arc::new(OutputBudget::new(1024 * 1024)),
+            SessionRuntimeConfig::new(events, aux, Duration::from_secs(2)),
+        );
+        entry.record_history(HistoryChange::Prompt {
+            id: "prompt-1".to_owned(),
+            text: "first".to_owned(),
+        });
+        entry.record_history(HistoryChange::Tool {
+            id: "tool-1".to_owned(),
+            tool: "Bash".to_owned(),
+            text: "cargo test".to_owned(),
+            state: crate::history::HistoryState::Done,
+        });
+
+        let replay = entry.history_snapshot(1).expect("replay");
+        assert_eq!(replay.items.len(), 1);
+        assert!(replay.items[0].id.starts_with('h'));
+        assert_eq!(replay.newest_seq, 2);
+        assert!(entry.history_snapshot(3).is_err());
     }
 
     #[test]
@@ -2113,10 +2314,11 @@ mod tests {
             shortcuts: Vec::new(),
         };
         let (events, _) = broadcast::channel(8);
+        let (aux, _) = broadcast::channel(8);
         let entry = SessionEntry::new(
             session,
             Arc::new(OutputBudget::new(1024 * 1024)),
-            SessionRuntimeConfig::new(events, Duration::from_secs(2)),
+            SessionRuntimeConfig::new(events, aux, Duration::from_secs(2)),
         );
         entry.set_redactions(vec!["sk-secret-value".to_owned()]);
 

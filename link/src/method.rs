@@ -60,6 +60,8 @@ pub enum Method {
     EventsSubscribe,
     /// Subscribe to a session's output stream.
     OutputSubscribe,
+    /// Subscribe to a session's structured conversation.
+    HistorySubscribe,
     /// Return the UI package manifest.
     UiManifest,
     /// Download the UI package.
@@ -70,7 +72,7 @@ pub enum Method {
 
 impl Method {
     /// Every allowed method, in the order of the design table.
-    pub const ALL: [Method; 27] = [
+    pub const ALL: [Method; 28] = [
         Self::Bootstrap,
         Self::Health,
         Self::ProjectsList,
@@ -95,6 +97,7 @@ impl Method {
         Self::DiffRead,
         Self::EventsSubscribe,
         Self::OutputSubscribe,
+        Self::HistorySubscribe,
         Self::UiManifest,
         Self::UiDownload,
         Self::DemoServersList,
@@ -127,6 +130,7 @@ impl Method {
             Self::DiffRead => "diff.read",
             Self::EventsSubscribe => "events.subscribe",
             Self::OutputSubscribe => "output.subscribe",
+            Self::HistorySubscribe => "history.subscribe",
             Self::UiManifest => "ui.manifest",
             Self::UiDownload => "ui.download",
             Self::DemoServersList => "demoServers.list",
@@ -162,6 +166,7 @@ impl Method {
             "diff.read" => Some(Self::DiffRead),
             "events.subscribe" => Some(Self::EventsSubscribe),
             "output.subscribe" => Some(Self::OutputSubscribe),
+            "history.subscribe" => Some(Self::HistorySubscribe),
             "ui.manifest" => Some(Self::UiManifest),
             "ui.download" => Some(Self::UiDownload),
             "demoServers.list" => Some(Self::DemoServersList),
@@ -171,7 +176,10 @@ impl Method {
 
     /// Returns true when the method uses a streaming response.
     pub const fn is_streaming(self) -> bool {
-        matches!(self, Self::EventsSubscribe | Self::OutputSubscribe)
+        matches!(
+            self,
+            Self::EventsSubscribe | Self::OutputSubscribe | Self::HistorySubscribe
+        )
     }
 }
 
@@ -193,7 +201,7 @@ impl FromStr for Method {
 mod tests {
     use super::*;
 
-    const EXPECTED: [&str; 27] = [
+    const EXPECTED: [&str; 28] = [
         "bootstrap",
         "health",
         "projects.list",
@@ -218,6 +226,7 @@ mod tests {
         "diff.read",
         "events.subscribe",
         "output.subscribe",
+        "history.subscribe",
         "ui.manifest",
         "ui.download",
         "demoServers.list",
@@ -255,7 +264,10 @@ mod tests {
             .filter(|method| method.is_streaming())
             .map(|method| method.as_str())
             .collect();
-        assert_eq!(streaming, ["events.subscribe", "output.subscribe"]);
+        assert_eq!(
+            streaming,
+            ["events.subscribe", "output.subscribe", "history.subscribe"]
+        );
     }
 
     #[test]

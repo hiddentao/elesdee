@@ -10,6 +10,7 @@ pub mod diagnostics;
 pub mod files;
 mod git;
 pub mod github;
+pub mod history;
 pub mod link;
 mod mcp;
 mod model_list;

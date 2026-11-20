@@ -29,6 +29,7 @@ use crate::claude;
 use crate::clients;
 use crate::files;
 use crate::git;
+use crate::history::{ClaudeHookPayload as HookInput, HistoryStatus, claude_changes};
 use crate::link::{ApproveFailure, PairReject};
 use crate::overrides;
 use crate::seed;
@@ -40,10 +41,10 @@ use crate::shared;
 use crate::shortcuts;
 use crate::slug::slugify;
 use crate::state::{
-    AiConfig, AppSettings, AppState, Auth, Bootstrap, Client, DeleteSessionFailure, EnvOverride,
-    HealthResponse, PairedDevice, PendingPermission, PermissionDecision, Project, Provider,
-    ProviderView, Question, QuestionFailure, Session, SessionEvent, SessionKind, SessionState,
-    SettingsPatch, WorkState,
+    AiConfig, AppSettings, AppState, Auth, AuxEvent, Bootstrap, Client, DeleteSessionFailure,
+    EnvOverride, HealthResponse, PairedDevice, PendingPermission, PermissionDecision, Project,
+    Provider, ProviderView, Question, QuestionFailure, Session, SessionEvent, SessionKind,
+    SessionState, SettingsPatch, WorkState,
 };
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
@@ -458,26 +459,8 @@ struct HookQuery {
 }
 
 #[derive(Debug, Deserialize)]
-struct HookInput {
-    hook_event_name: String,
-    #[serde(default)]
-    session_id: Option<String>,
-    #[serde(default)]
-    tool_name: Option<String>,
-    #[serde(default)]
-    tool_input: Option<serde_json::Value>,
-    #[serde(default)]
-    tool_use_id: Option<String>,
-    #[serde(default)]
-    notification_type: Option<String>,
-    #[serde(default)]
-    message: Option<serde_json::Value>,
-    #[serde(default)]
-    content: Option<serde_json::Value>,
-    #[serde(default)]
-    text: Option<serde_json::Value>,
-    #[serde(default)]
-    last_assistant_message: Option<String>,
+struct OutputQuery {
+    after: Option<String>,
 }
 
 struct PreparedSession {
@@ -488,11 +471,6 @@ struct PreparedSession {
     antigravity_provider: Option<String>,
     environment: Vec<(String, String)>,
     startup_input: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct OutputQuery {
-    after: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -526,6 +504,7 @@ struct BrowserScreenshotQuery {
 pub fn router(state: AppState) -> Router {
     let streaming = Router::new()
         .route("/api/sessions/{id}/output", get(session_output))
+        .route("/api/sessions/{id}/history", get(session_history))
         .route("/api/events", get(events))
         .route("/api/questions/events", get(question_events))
         .route("/internal/hooks/claude/{id}", post(claude_hook));
@@ -2355,7 +2334,11 @@ async fn create_session(
     let entry = Arc::new(SessionEntry::new(
         prepared.session,
         Arc::clone(&output_budget),
-        sessions::SessionRuntimeConfig::new(state.event_sender(), state.preview_throttle()),
+        sessions::SessionRuntimeConfig::new(
+            state.event_sender(),
+            state.aux_sender(),
+            state.preview_throttle(),
+        ),
     ));
     state.insert_session(Arc::clone(&entry)).map_err(|_| {
         ApiError::too_many_requests("Session limit reached. Close a session first.")
@@ -4009,17 +3992,7 @@ async fn session_output(
     let Query(query) =
         query.map_err(|error| ApiError::bad_request(format!("Invalid output query: {error}")))?;
 
-    let after = match query
-        .after
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        Some(value) => value.parse::<u64>().map_err(|_| {
-            ApiError::bad_request("Query parameter after must be a non-negative integer.")
-        })?,
-        None => 0,
-    };
+    let after = parse_after(query.after.as_deref(), "output")?;
 
     let entry = state
         .session(&id)
@@ -4032,14 +4005,7 @@ async fn session_output(
     let mut close_receiver = entry.subscribe_close();
     let snapshot = entry
         .output_snapshot(after)
-        .map_err(|failure| match failure {
-            sessions::SnapshotFailure::AfterAhead { newest } => ApiError::bad_request(format!(
-                "Query parameter after is beyond the newest sequence ({newest})."
-            )),
-            sessions::SnapshotFailure::LogUnavailable => {
-                ApiError::bad_request("Output at that position is no longer retained.")
-            }
-        })?;
+        .map_err(|failure| history_snapshot_error(failure, "Output"))?;
     let last_seq = snapshot.newest_seq;
     let replay = snapshot.chunks;
 
@@ -4087,6 +4053,131 @@ async fn session_output(
     };
 
     Ok(Sse::new(stream))
+}
+
+/// Streams the structured conversation for one session.
+///
+/// The first event tells the phone whether the client has a structured source.
+/// The retained items follow, then live versions. An item update arrives as a
+/// new version with a higher sequence and the same id.
+async fn session_history(
+    State(state): State<AppState>,
+    UrlPath(id): UrlPath<String>,
+    query: Result<Query<OutputQuery>, QueryRejection>,
+) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, ApiError> {
+    let Query(query) =
+        query.map_err(|error| ApiError::bad_request(format!("Invalid history query: {error}")))?;
+    let after = parse_after(query.after.as_deref(), "history")?;
+
+    let entry = state
+        .session(&id)
+        .ok_or_else(|| ApiError::not_found("Unknown session."))?;
+    let permit = state
+        .try_acquire_events_sse()
+        .ok_or_else(|| ApiError::too_many_requests("Too many open event streams."))?;
+
+    let mut receiver = state.subscribe_aux();
+    let mut close_receiver = entry.subscribe_close();
+    let status = HistoryStatus::new(
+        entry.history_supported(),
+        entry
+            .session()
+            .client
+            .map(|client| client.display_name().to_owned()),
+    );
+    let snapshot = entry
+        .history_snapshot(after)
+        .map_err(|failure| history_snapshot_error(failure, "History"))?;
+    let mut last_seq = snapshot.newest_seq;
+    let replay = snapshot.items;
+    let session_id = id.clone();
+
+    let stream = async_stream::stream! {
+        let _permit = permit;
+        yield Ok(Event::default().comment("connected"));
+        if let Some(event) = json_event(&status) {
+            yield Ok(event);
+        }
+
+        for item in replay {
+            if let Some(event) = json_event(&item) {
+                yield Ok(event);
+            }
+        }
+
+        if !*close_receiver.borrow_and_update() {
+            let mut heartbeat = interval_at(
+                tokio::time::Instant::now() + SSE_HEARTBEAT,
+                SSE_HEARTBEAT,
+            );
+            heartbeat.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
+            loop {
+                tokio::select! {
+                    changed = close_receiver.changed() => {
+                        let _ = changed;
+                        break;
+                    }
+                    _ = heartbeat.tick() => {
+                        yield Ok(Event::default().comment("heartbeat"));
+                    }
+                    received = receiver.recv() => {
+                        match received {
+                            Ok(AuxEvent::History { session_id: event_session, item })
+                                if event_session == session_id =>
+                            {
+                                if item.seq > last_seq {
+                                    last_seq = item.seq;
+                                    if let Some(event) = json_event(&item) {
+                                        yield Ok(event);
+                                    }
+                                }
+                            }
+                            Ok(_) => {}
+                            Err(broadcast::error::RecvError::Lagged(_)) => {
+                                match entry.history_snapshot(last_seq) {
+                                    Ok(snapshot) => {
+                                        last_seq = snapshot.newest_seq;
+                                        for item in snapshot.items {
+                                            if let Some(event) = json_event(&item) {
+                                                yield Ok(event);
+                                            }
+                                        }
+                                    }
+                                    Err(_) => break,
+                                }
+                            }
+                            Err(broadcast::error::RecvError::Closed) => break,
+                        }
+                    }
+                }
+            }
+        }
+    };
+
+    Ok(Sse::new(stream))
+}
+
+fn parse_after(value: Option<&str>, label: &str) -> Result<u64, ApiError> {
+    match value.map(str::trim).filter(|value| !value.is_empty()) {
+        Some(value) => value.parse::<u64>().map_err(|_| {
+            ApiError::bad_request(format!(
+                "Query parameter after must be a non-negative integer ({label})."
+            ))
+        }),
+        None => Ok(0),
+    }
+}
+
+fn history_snapshot_error(failure: sessions::SnapshotFailure, label: &str) -> ApiError {
+    match failure {
+        sessions::SnapshotFailure::AfterAhead { newest } => ApiError::bad_request(format!(
+            "Query parameter after is beyond the newest sequence ({newest})."
+        )),
+        sessions::SnapshotFailure::LogUnavailable => {
+            ApiError::bad_request(format!("{label} at that position is no longer retained."))
+        }
+    }
 }
 
 async fn list_questions(State(state): State<AppState>) -> Json<Vec<Question>> {
@@ -4387,6 +4478,9 @@ async fn claude_hook(
 
     let Json(input) = body.map_err(|_| ApiError::bad_request("Invalid hook input."))?;
     record_claude_session_id(&state, &entry, input.session_id.as_deref());
+    for change in claude_changes(&input) {
+        entry.record_history(change);
+    }
 
     match input.hook_event_name.as_str() {
         "UserPromptSubmit" => {
@@ -4997,6 +5091,13 @@ pub(crate) fn start_opencode_poller(state: AppState, entry: Arc<SessionEntry>, b
                 && let Ok(sessions) = crate::opencode::sessions(&base_url).await
             {
                 capture_opencode_session(&state, &entry, &sessions);
+            }
+            if let Some(agent_session_id) = entry.session().agent_session_id
+                && let Ok(messages) = crate::opencode::messages(&base_url, &agent_session_id).await
+            {
+                for change in crate::history::opencode_changes(&messages) {
+                    entry.record_history(change);
+                }
             }
         }
     });

@@ -29,6 +29,7 @@ use tower::ServiceExt;
 use super::hub::LinkHub;
 use super::short_id;
 use super::wire::MIN_BRIDGE_VERSION;
+use crate::history::HistoryStatus;
 use crate::sessions::{OutputChunk, OutputSnapshot, SnapshotFailure};
 use crate::state::{AppState, AuxEvent, SessionEvent};
 
@@ -193,6 +194,9 @@ async fn handle_stream(
         }
         Method::OutputSubscribe => {
             let _ = stream_output(&state, &mut send, &request).await;
+        }
+        Method::HistorySubscribe => {
+            let _ = stream_history(&state, &mut send, &request).await;
         }
         _ => {
             let response = dispatch(&mut router, &request).await;
@@ -404,7 +408,7 @@ fn route_for(method: Method, params: Option<&Value>) -> Result<Route, Response> 
                 "This method is not available in this build.",
             ));
         }
-        Method::EventsSubscribe | Method::OutputSubscribe => {
+        Method::EventsSubscribe | Method::OutputSubscribe | Method::HistorySubscribe => {
             return Err(Response::error(
                 ErrorCode::BadRequest,
                 "This method needs a stream.",
@@ -608,32 +612,12 @@ async fn stream_output(
         );
         return write_response(send, &reply).await;
     };
-    let Some(session_id) = params
-        .get("sessionId")
-        .and_then(Value::as_str)
-        .filter(|value| !value.is_empty())
-    else {
-        let reply = Response::error(
-            ErrorCode::BadRequest,
-            "The output stream needs a session id.",
-        );
-        return write_response(send, &reply).await;
-    };
-    let after = match params.get("after") {
-        None | Some(Value::Null) => 0,
-        Some(value) => match value.as_u64() {
-            Some(after) => after,
-            None => {
-                let reply = Response::error(
-                    ErrorCode::BadRequest,
-                    "The output position must be a non-negative integer.",
-                );
-                return write_response(send, &reply).await;
-            }
-        },
+    let (session_id, after) = match stream_params(params, "output") {
+        Ok(params) => params,
+        Err(reply) => return write_response(send, &reply).await,
     };
 
-    let Some(entry) = state.session(session_id) else {
+    let Some(entry) = state.session(&session_id) else {
         let reply = Response::error(ErrorCode::NotFound, "Unknown session.");
         return write_response(send, &reply).await;
     };
@@ -703,6 +687,139 @@ async fn stream_output(
 
 fn output_value(chunk: &OutputChunk) -> Value {
     serde_json::to_value(chunk).unwrap_or(Value::Null)
+}
+
+/// Reads the session id and replay position shared by the two session streams.
+fn stream_params(params: &Map<String, Value>, label: &str) -> Result<(String, u64), Response> {
+    let Some(session_id) = params
+        .get("sessionId")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+    else {
+        return Err(Response::error(
+            ErrorCode::BadRequest,
+            format!("The {label} stream needs a session id."),
+        ));
+    };
+    let after = match params.get("after") {
+        None | Some(Value::Null) => 0,
+        Some(value) => value.as_u64().ok_or_else(|| {
+            Response::error(
+                ErrorCode::BadRequest,
+                "The replay position must be a non-negative integer.",
+            )
+        })?,
+    };
+    Ok((session_id.to_owned(), after))
+}
+
+async fn stream_history(
+    state: &AppState,
+    send: &mut SendStream,
+    request: &Request,
+) -> Result<(), ()> {
+    if !request.body().is_empty() {
+        let reply = Response::error(ErrorCode::BadRequest, "This method takes no binary body.");
+        return write_response(send, &reply).await;
+    }
+    let Some(params) = request.params().and_then(Value::as_object) else {
+        let reply = Response::error(
+            ErrorCode::BadRequest,
+            "The history stream needs a session id.",
+        );
+        return write_response(send, &reply).await;
+    };
+    let (session_id, after) = match stream_params(params, "history") {
+        Ok(params) => params,
+        Err(reply) => return write_response(send, &reply).await,
+    };
+
+    let Some(entry) = state.session(&session_id) else {
+        let reply = Response::error(ErrorCode::NotFound, "Unknown session.");
+        return write_response(send, &reply).await;
+    };
+    let Some(_permit) = state.try_acquire_events_sse() else {
+        let reply = Response::error(ErrorCode::RateLimited, "Too many open event streams.");
+        return write_response(send, &reply).await;
+    };
+
+    let mut receiver = state.subscribe_aux();
+    let mut close_receiver = entry.subscribe_close();
+    let status = HistoryStatus::new(
+        entry.history_supported(),
+        entry
+            .session()
+            .client
+            .map(|client| client.display_name().to_owned()),
+    );
+    let snapshot = match entry.history_snapshot(after) {
+        Ok(snapshot) => snapshot,
+        Err(SnapshotFailure::AfterAhead { newest }) => {
+            let reply = Response::error(
+                ErrorCode::BadRequest,
+                format!("The history position is beyond the newest sequence ({newest})."),
+            );
+            return write_response(send, &reply).await;
+        }
+        Err(SnapshotFailure::LogUnavailable) => {
+            let reply = Response::error(
+                ErrorCode::BadRequest,
+                "History at that position is no longer retained.",
+            );
+            return write_response(send, &reply).await;
+        }
+    };
+
+    write_frame(send, &Response::stream_start()).await?;
+    write_event(send, &serde_json::to_value(&status).unwrap_or(Value::Null)).await?;
+    let mut last_seq = snapshot.newest_seq;
+    for item in snapshot.items {
+        write_event(send, &serde_json::to_value(&item).unwrap_or(Value::Null)).await?;
+    }
+
+    if !*close_receiver.borrow_and_update() {
+        loop {
+            tokio::select! {
+                changed = close_receiver.changed() => {
+                    let _ = changed;
+                    break;
+                }
+                received = receiver.recv() => {
+                    match received {
+                        Ok(AuxEvent::History { session_id: event_session, item })
+                            if event_session == session_id =>
+                        {
+                            if item.seq > last_seq {
+                                last_seq = item.seq;
+                                write_event(
+                                    send,
+                                    &serde_json::to_value(&item).unwrap_or(Value::Null),
+                                )
+                                .await?;
+                            }
+                        }
+                        Ok(_) => {}
+                        Err(broadcast::error::RecvError::Lagged(_)) => {
+                            let Ok(snapshot) = entry.history_snapshot(last_seq) else {
+                                break;
+                            };
+                            last_seq = snapshot.newest_seq;
+                            for item in snapshot.items {
+                                write_event(
+                                    send,
+                                    &serde_json::to_value(&item).unwrap_or(Value::Null),
+                                )
+                                .await?;
+                            }
+                        }
+                        Err(broadcast::error::RecvError::Closed) => break,
+                    }
+                }
+            }
+        }
+    }
+    let _ = send.finish();
+    Ok(())
 }
 
 async fn write_frame(send: &mut SendStream, response: &Response) -> Result<(), ()> {
