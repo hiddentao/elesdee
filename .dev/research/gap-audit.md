@@ -77,7 +77,7 @@ feature is absent. P2 means completion, operations or polish.
 | — | Built: clients are found on PATH, in user npm/Node folders, in Homebrew on both architectures, in the app bundle and in the app's own data folder | Agent support | `core/src/clients.rs`, `core/src/state.rs` | Done |
 | P2 | A session cannot be dragged from one project to another | Projects | `app/src/components/Sidebar.tsx`, `app/src/App.tsx`, `core/src/api.rs`, `app/src/state/tabs.ts` | M — 3–5 days |
 | P2 | Antigravity gets no MCP server and no skills; the spec's introduction says every agent session gets them | Built-in tools and skills | `core/src/api.rs`, `mcp.rs`, `antigravity.rs` | S — 2–4 days after checking `agy` MCP support |
-| P2 | GitHub is not connected; there is no repository search or recent-repository picker | Sources; Git access | new `core/src/github.rs`, `api.rs`, `secrets.rs`, `app/src/components/NewSessionDialog.tsx` | L — 2–3 weeks |
+| — | Built: GitHub connects with a device code, searches the account's repositories and clones one into a project folder | Sources; Git access | `core/src/github.rs`, `api.rs`, `state.rs`, `app/src/components/AddProjectDialog.tsx` | Done |
 | P2 | A custom provider's model is not checked against the server's model list | Custom providers | `core/src/providers.rs`, `api.rs`, `app/src/components/AddAccountDialog.tsx` | S — 1–2 days |
 
 ## Detail
@@ -278,10 +278,10 @@ session gets the same tools and skills; the implementation gives them to Claude,
 OpenCode only. Check whether `agy` supports MCP before adding the server. Files: `core/src/api.rs`,
 `mcp.rs`, `antigravity.rs`. Size: S.
 
-**26. GitHub connection.** Spec: Sources; Git access. There is no GitHub device-code connection,
-token storage or repository search. The launch form uses the project folder and a branch combobox.
-Files: new `core/src/github.rs`, `api.rs`, `secrets.rs`, `app/src/components/NewSessionDialog.tsx`,
-`AddProjectDialog.tsx`. Size: L.
+**26. GitHub connection.** Built. Spec: Sources; Git access. The Add project form connects GitHub
+with a device code, keeps the token in the system keychain, lists and searches the account's
+repositories, and clones one into the chosen folder before adding it as a project. Files:
+`core/src/github.rs`, `api.rs`, `state.rs`, `app/src/components/AddProjectDialog.tsx`.
 
 **27. Custom model list check.** Spec: Custom providers. The model is free text. The app does not
 ask the server for its model list and accept the name when the server cannot answer. Files:
@@ -298,6 +298,9 @@ ask the server for its model list and accept the name when the server cannot ans
   session output.
 - Sessions: agent and terminal, branch and worktree, close/reopen/delete, rename, previews,
   persistence, the 64-session cap, and the first-launch flow with no projects.
+- GitHub: device-code connection, keychain token, repository search with a recent list and an
+  added mark, and a clone into a chosen folder that never overwrites and leaves no partial folder
+  on failure.
 - Sidebar: grouped and flat, filters, blots, questions and request chips, parent "from" marker.
   Per-project tabs. Session menu, including account switch.
 - Permissions: Claude mutating-only matcher; Codex app-server approvals; OpenCode permission

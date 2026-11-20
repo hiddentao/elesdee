@@ -13,11 +13,29 @@ A new install has no projects. Add one from the welcome screen.
 ## Add a project
 
 1. Choose **Add project**.
-2. Enter a name.
-3. Enter the folder path.
-4. Choose **Add project**.
+2. Choose **Local folder** or **From GitHub**.
+3. For a local folder, enter a name and the folder path.
+4. For GitHub, choose a repository and a clone folder.
+5. Choose **Add project**, or **Clone and add project** for GitHub.
 
-The folder must exist on this computer. The app does not create it for you. In the desktop app, choose **Browse…** to pick the folder, or type the path.
+The local folder must exist on this computer. The app does not create it for you. In the desktop app, choose **Browse…** to pick the folder, or type the path.
+
+## Add a project from GitHub
+
+The **From GitHub** choice connects to GitHub and clones one of your repositories. It does not add a second project button; it is the GitHub source in the same Add project form.
+
+1. Choose **Add project**.
+2. Choose **From GitHub**.
+3. Choose **Connect GitHub**.
+4. Open the GitHub page and enter the code the app shows. Then approve the sign-in.
+5. Type in the repository box to filter by owner or repository name. The list shows the clone address, whether the repository is private or public, and **Added** when a project already uses that repository.
+6. Choose a repository. The name fills in from the repository and you can change it.
+7. Choose the clone folder. The app clones the repository into a folder named after the repository inside that folder. Choose **Browse…** to pick another folder.
+8. Choose **Clone and add project**.
+
+The app clones with the GitHub token and adds the new folder as a project. It never overwrites an existing folder. If a clone fails, it removes the partial folder and adds no project. Git commands in the new project use the Git credentials and SSH keys on this computer, the same as a clone in a terminal.
+
+The token stays in the system keychain. It is never written to the app's state file, a log or an API response. Choose **Disconnect** in the GitHub form to delete it.
 
 ## Project settings
 
