@@ -35,8 +35,9 @@ use crate::limits::{
     UNARY_REQUEST_TIMEOUT,
 };
 use crate::{
-    APP_ALPN, CLOSE_NOT_PAIRED, CLOSE_REVOKED, DeviceIdentity, ErrorBody, LinkError, Method,
-    PAIR_ALPN, PROTOCOL_VERSION, PairTicket, Request, Response,
+    APP_ALPN, CLOSE_NOT_PAIRED, CLOSE_REVOKED, DeviceIdentity, ErrorBody, FORWARD_ALPN,
+    ForwardConnection, LinkError, Method, PAIR_ALPN, PROTOCOL_VERSION, PairTicket, Request,
+    Response,
 };
 
 /// The bridge version that this client implements.
@@ -688,7 +689,11 @@ impl LinkClient {
             .build();
         let endpoint = Endpoint::builder(presets::N0)
             .secret_key(identity.secret_key().clone())
-            .alpns(vec![PAIR_ALPN.to_vec(), APP_ALPN.to_vec()])
+            .alpns(vec![
+                PAIR_ALPN.to_vec(),
+                APP_ALPN.to_vec(),
+                FORWARD_ALPN.to_vec(),
+            ])
             .transport_config(transport)
             .bind()
             .await
@@ -699,7 +704,7 @@ impl LinkClient {
     /// Builds a client on an endpoint that is already bound.
     ///
     /// Tests use loopback endpoints. The endpoint must already carry the
-    /// identity key and the pair and app ALPNs.
+    /// identity key and the pair, app and forward ALPNs.
     pub fn from_endpoint(
         store: Arc<dyn PhoneStore>,
         identity: DeviceIdentity,
@@ -931,6 +936,37 @@ impl LinkClient {
         Ok(welcome)
     }
 
+    /// Opens a forward connection to a paired computer.
+    ///
+    /// The connection carries demo-server tunnels. It has no handshake: the
+    /// computer accepts it only from a paired phone, and it checks each port
+    /// against the active demo-server list.
+    ///
+    /// # Errors
+    ///
+    /// Returns a connect failure, a version mismatch or a timeout.
+    pub async fn forward(
+        &self,
+        computer: &ComputerRecord,
+    ) -> Result<ForwardConnection, ClientError> {
+        if computer.protocol_version != PROTOCOL_VERSION {
+            return Err(ClientError::Protocol(
+                "the computer protocol is not supported",
+            ));
+        }
+        if computer.min_bridge_version > BRIDGE_VERSION {
+            return Err(ClientError::Protocol("the phone app is too old"));
+        }
+        let connection = timeout(
+            UNARY_REQUEST_TIMEOUT,
+            self.endpoint.connect(computer.addr.clone(), FORWARD_ALPN),
+        )
+        .await
+        .map_err(|_| ClientError::Timeout)?
+        .map_err(|error| ClientError::Transport(error.to_string()))?;
+        Ok(ForwardConnection::new(connection))
+    }
+
     /// Closes the endpoint.
     pub async fn shutdown(self) {
         self.endpoint.close().await;
@@ -1090,7 +1126,7 @@ async fn read_response(recv: &mut RecvStream) -> Result<Response, ClientError> {
     Response::decode(&frame).map_err(ClientError::Link)
 }
 
-fn classify_closed(error: &ConnectionError) -> ClientError {
+pub(crate) fn classify_closed(error: &ConnectionError) -> ClientError {
     match error {
         ConnectionError::ApplicationClosed(close) => {
             let code = close.error_code.into_inner();

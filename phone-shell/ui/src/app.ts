@@ -1,4 +1,10 @@
-import { onConnection, openSubscription, phone, scanTicket } from './bridge';
+import {
+  onConnection,
+  openAddress,
+  openSubscription,
+  phone,
+  scanTicket,
+} from './bridge';
 import {
   appendOutput,
   mergeSession,
@@ -6,6 +12,13 @@ import {
   sessionFromEvent,
   type OutputState,
 } from './live';
+import {
+  demoServerRows,
+  demoStateClass,
+  forwardPhaseFor,
+  sessionDemoServers,
+  type ForwardView,
+} from './demo';
 import {
   createTranslator,
   htmlLanguage,
@@ -20,6 +33,8 @@ import type {
   ComputerRecord,
   ComputerView,
   ConnectionState,
+  DemoServer,
+  ForwardAddress,
   PairConfirm,
   PhoneInfo,
   Session,
@@ -56,6 +71,7 @@ type Screen =
       sessions: Session[];
       session: Session;
       output: OutputState;
+      demoServers: DemoServer[];
       loading: boolean;
       ended: boolean;
       error?: Notice;
@@ -214,6 +230,7 @@ export class ShellApp {
   private stopEvents: (() => Promise<void>) | null = null;
   private stopOutput: (() => Promise<void>) | null = null;
   private readonly connectionStates = new Map<string, ConnectionState>();
+  private readonly forwards = new Map<number, ForwardView>();
   private renderPending = false;
   private idCounter = 0;
 
@@ -789,7 +806,180 @@ export class ShellApp {
       );
     }
     main.append(panel);
+    const demoPanel = this.renderDemoServers(screen);
+    if (demoPanel) {
+      main.append(demoPanel);
+    }
     return main;
+  }
+
+  private renderDemoServers(
+    screen: Extract<Screen, { name: 'session' }>,
+  ): HTMLElement | null {
+    if (screen.demoServers.length === 0) {
+      return null;
+    }
+    const panel = el('section', {
+      class: 'session-demo-panel',
+      attrs: { 'aria-label': this.t('demoServer.title') },
+    });
+    panel.append(
+      el('h2', {
+        class: 'phone-section-title',
+        text: this.t('demoServer.title'),
+      }),
+    );
+    const list = el('ul', { class: 'demo-list' });
+    for (const row of demoServerRows(
+      screen.demoServers,
+      this.forwards,
+      screen.session.id,
+    )) {
+      const open = el('button', {
+        class: 'btn demo-open',
+        text: this.t('demoServer.open'),
+        attrs: {
+          type: 'button',
+          'aria-label': this.t('demoServer.openLabel', {
+            name: row.server.name,
+          }),
+        },
+        on: {
+          click: () => {
+            void this.openDemoServer(row.server);
+          },
+        },
+      });
+      if (row.state === 'demoServer.starting') {
+        open.disabled = true;
+      }
+      list.append(
+        el('li', { class: 'demo-row' }, [
+          el('div', { class: 'demo-text' }, [
+            el('span', { class: 'demo-name', text: row.server.name }),
+            el('span', {
+              class: 'demo-address',
+              text: row.address ?? this.t('demoServer.pending'),
+            }),
+          ]),
+          el('span', {
+            class: demoStateClass(row.state),
+            text: this.t(row.state),
+          }),
+          open,
+        ]),
+      );
+    }
+    panel.append(list);
+    return panel;
+  }
+
+  private async openDemoServer(server: DemoServer): Promise<void> {
+    const screen = this.screen;
+    if (
+      screen.name !== 'session' ||
+      screen.session.id !== server.sessionId
+    ) {
+      return;
+    }
+    const view = this.forwards.get(server.port);
+    if (view?.sessionId === screen.session.id) {
+      if (view.phase === 'starting') {
+        return;
+      }
+      if (view.phase === 'ready' && view.address) {
+        await this.openAddress(view.address);
+        return;
+      }
+    }
+    const address = await this.startForward(
+      screen.computer,
+      screen.session.id,
+      server.port,
+    );
+    if (address) {
+      await this.openAddress(address.address);
+    }
+  }
+
+  private async openAddress(address: string): Promise<void> {
+    try {
+      await openAddress(address);
+    } catch (error) {
+      this.showSessionError(error);
+    }
+  }
+
+  private async startForward(
+    computer: ComputerRecord,
+    sessionId: string,
+    port: number,
+  ): Promise<ForwardAddress | null> {
+    this.forwards.set(port, { phase: 'starting', sessionId });
+    this.scheduleRender();
+    try {
+      const address = await phone.forwardStart(computer.id, port);
+      if (this.forwards.get(port)?.phase !== 'starting') {
+        void phone.forwardStop(port).catch(() => undefined);
+        return null;
+      }
+      this.forwards.set(port, {
+        phase: 'ready',
+        address: address.address,
+        sessionId,
+      });
+      this.scheduleRender();
+      return address;
+    } catch (error) {
+      if (this.forwards.get(port)?.phase === 'starting') {
+        this.forwards.set(port, {
+          phase: forwardPhaseFor(asError(error).code),
+          sessionId,
+        });
+        this.scheduleRender();
+      }
+      return null;
+    }
+  }
+
+  private syncDemoServers(
+    computer: ComputerRecord,
+    sessionId: string,
+    servers: DemoServer[],
+    refresh = false,
+  ): void {
+    if (refresh) {
+      // The shell returns a live tunnel's address. The entry is dropped first
+      // so a tunnel that died since the last view is opened again.
+      for (const [port, view] of [...this.forwards]) {
+        if (view.sessionId === sessionId) {
+          this.forwards.delete(port);
+        }
+      }
+    }
+    const ports = new Set(servers.map((server) => server.port));
+    for (const [port, view] of [...this.forwards]) {
+      if (view.sessionId === sessionId && !ports.has(port)) {
+        this.forwards.delete(port);
+        void phone.forwardStop(port).catch(() => undefined);
+      }
+    }
+    for (const server of servers) {
+      const view = this.forwards.get(server.port);
+      if (!view || view.sessionId !== sessionId) {
+        void this.startForward(computer, sessionId, server.port);
+      }
+    }
+    this.scheduleRender();
+  }
+
+  private showSessionError(error: unknown): void {
+    const screen = this.screen;
+    if (screen.name !== 'session') {
+      return;
+    }
+    this.screen = { ...screen, error: noticeFor(asError(error)) };
+    this.scheduleRender();
   }
 
   private connectionNotice(state: ConnectionState): Notice | null {
@@ -824,6 +1014,16 @@ export class ShellApp {
         connection: state,
         error: state.state === 'connected' ? undefined : screen.error,
       };
+      if (state.state === 'connected' && previous?.state !== 'connected') {
+        // A live tunnel keeps its address. A dead one restarts when the
+        // session's servers are synced again.
+        this.forwards.clear();
+      }
+      if (state.state === 'stopped') {
+        for (const port of this.forwards.keys()) {
+          this.forwards.set(port, { phase: 'failed' });
+        }
+      }
       if (state.state === 'connected' && previous?.state !== 'connected') {
         await this.refreshBootstrap(screen.computer);
       } else {
@@ -862,7 +1062,12 @@ export class ShellApp {
         const session =
           sessions.find((current) => current.id === screen.session.id) ??
           screen.session;
-        this.screen = { ...screen, sessions, session };
+        const demoServers = sessionDemoServers(
+          session.demoServers ?? [],
+          session.id,
+        );
+        this.screen = { ...screen, sessions, session, demoServers };
+        this.syncDemoServers(computer, session.id, demoServers, true);
       } else {
         return;
       }
@@ -909,7 +1114,12 @@ export class ShellApp {
     if (screen.name === 'session') {
       const sessions = mergeSession(screen.sessions, session);
       if (screen.session.id === session.id) {
-        this.screen = { ...screen, sessions, session };
+        const demoServers = sessionDemoServers(
+          session.demoServers ?? [],
+          session.id,
+        );
+        this.screen = { ...screen, sessions, session, demoServers };
+        this.syncDemoServers(screen.computer, session.id, demoServers);
         this.scheduleRender();
       }
     }
@@ -1190,17 +1400,23 @@ export class ShellApp {
     sessions: Session[],
   ): Promise<void> {
     this.closeOutput();
+    const demoServers = sessionDemoServers(
+      session.demoServers ?? [],
+      session.id,
+    );
     this.screen = {
       name: 'session',
       computer,
       sessions,
       session,
       output: { text: '', lastSeq: 0, dropped: false },
+      demoServers,
       loading: true,
       ended: false,
       connection: this.connectionStates.get(computer.id),
     };
     this.render();
+    this.syncDemoServers(computer, session.id, demoServers, true);
     const id = this.nextId('output');
     try {
       const stop = await openSubscription(
@@ -1233,6 +1449,7 @@ export class ShellApp {
       this.closeOutput();
       this.closeEvents();
       this.connectionStates.delete(computerId);
+      this.forwards.clear();
       await phone.forget(computerId);
       await this.loadComputers();
     } catch (error) {

@@ -33,8 +33,9 @@ pub use client::{
 };
 pub use error::{ErrorBody, ErrorCode, LinkError, PairingError};
 pub use forward::{
-    FORWARD_OK, FORWARD_REFUSED, FORWARD_REQUEST_BYTES, FORWARD_UNAVAILABLE, MIN_DEMO_PORT,
-    decode_port, encode_port, local_address, port_allowed,
+    FORWARD_OK, FORWARD_REFUSED, FORWARD_REQUEST_BYTES, FORWARD_UNAVAILABLE, ForwardConnection,
+    ForwardError, ForwardTunnel, MIN_DEMO_PORT, decode_port, encode_port, local_address,
+    phone_address, port_allowed,
 };
 pub use framing::{Request, Response, StreamEvent};
 pub use identity::DeviceIdentity;

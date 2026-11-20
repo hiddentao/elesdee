@@ -1,10 +1,12 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { openUrl } from '@tauri-apps/plugin-opener';
 import type {
   CommandError,
   ComputerRecord,
   ComputerView,
   ConnectionState,
+  ForwardAddress,
   PairConfirm,
   PhoneInfo,
   SubscriptionOpened,
@@ -83,7 +85,20 @@ export const phone = {
     }),
   unsubscribe: (id: string) =>
     call<void>('phone_unsubscribe', { id }),
+  forwardStart: (computerId: string, port: number) =>
+    call<ForwardAddress>('phone_forward_start', { computerId, port }),
+  forwardStop: (port: number) =>
+    call<void>('phone_forward_stop', { port }),
 };
+
+/** Opens a demo-server address in the phone's browser. */
+export async function openAddress(address: string): Promise<void> {
+  try {
+    await openUrl(address);
+  } catch (error) {
+    throw normalizeError(error);
+  }
+}
 
 /**
  * Opens a live subscription and returns its close function.
