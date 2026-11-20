@@ -133,6 +133,21 @@ export const zhCN = {
   'settings.aboutVersion': '版本 {version}',
   'settings.languageLabel': '界面语言',
   'settings.languageNote': '应用的语言。日期和数字也遵循该语言。',
+  'settings.general': '常规',
+  'settings.generalNote': '这些选项应用于此计算机。',
+
+  'general.startAtLogin': '系统启动时启动 elesdee',
+  'general.startAtLoginNote':
+    'elesdee 在后台启动并恢复会话。点击应用时窗口才会打开。',
+  'general.keepAwake': '代理工作期间保持计算机唤醒',
+  'general.keepAwakeNote':
+    '代理会话运行期间计算机不会休眠，因此手机保持连接。',
+  'general.startAtLoginRefused': '此计算机未接受该更改：{message}',
+  'general.startAtLoginMismatch': '此计算机报告的系统启动状态不同。',
+  'general.keepAwakeRefused': '计算机未能保持唤醒：{message}',
+  'general.keepAwakeIdle': '代理会话运行期间计算机保持唤醒。',
+  'general.keepAwakeActive': '代理工作期间计算机保持唤醒。',
+  'general.saveError': '无法保存该设置。',
 
   'addAccount.title': '添加账户',
   'addAccount.subtitle': '将提供商账户连接到受支持的客户端之一。',

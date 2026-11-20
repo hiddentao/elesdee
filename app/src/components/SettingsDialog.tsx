@@ -2,11 +2,13 @@ import { useState } from 'react';
 import { ApiError } from '../api/client';
 import type {
   AiConfig,
+  AppSettings,
   CreateConfigInput,
   CreateProviderInput,
   Provider,
   ProviderOption,
   ProviderSignIn,
+  SettingsPatch,
   StartProviderSignInInput,
   UpdateConfigInput,
   UpdateProviderInput,
@@ -23,18 +25,29 @@ import {
   LayersIcon,
   PencilIcon,
   PlusIcon,
+  PowerIcon,
   PresetIcon,
   SparkIcon,
   TrashIcon,
 } from './icons';
 
-type SettingsSection = 'providers' | 'configs' | 'languages' | 'about';
+type SettingsSection =
+  | 'general'
+  | 'providers'
+  | 'configs'
+  | 'languages'
+  | 'about';
 
 interface SettingsDialogProps {
   providers: Provider[];
   configs: AiConfig[];
   options: ProviderOption[];
   version: string | null;
+  settings: AppSettings;
+  startAtLoginActual: boolean | null;
+  startAtLoginError: string | null;
+  keepAwakeActive: boolean | null;
+  keepAwakeError: string | null;
   onCreateProvider: (input: CreateProviderInput) => Promise<Provider>;
   onUpdateProvider: (
     id: string,
@@ -58,6 +71,7 @@ interface SettingsDialogProps {
   onDeleteConfig: (id: string) => Promise<void>;
   onProviderSaved: (provider: Provider) => void;
   onConfigSaved: (config: AiConfig) => void;
+  onChangeSettings: (patch: SettingsPatch) => Promise<void>;
   onClose: () => void;
 }
 
@@ -66,6 +80,11 @@ export function SettingsDialog({
   configs,
   options,
   version,
+  settings,
+  startAtLoginActual,
+  startAtLoginError,
+  keepAwakeActive,
+  keepAwakeError,
   onCreateProvider,
   onUpdateProvider,
   onRemoveProvider,
@@ -78,10 +97,13 @@ export function SettingsDialog({
   onDeleteConfig,
   onProviderSaved,
   onConfigSaved,
+  onChangeSettings,
   onClose,
 }: SettingsDialogProps) {
   const { t, language, setLanguage } = useLanguage();
   const [section, setSection] = useState<SettingsSection>('providers');
+  const [savingSettings, setSavingSettings] = useState(false);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
   const [addProviderOpen, setAddProviderOpen] = useState(false);
   const [editProvider, setEditProvider] = useState<Provider | null>(null);
   const [removeProviderTarget, setRemoveProviderTarget] =
@@ -118,6 +140,21 @@ export function SettingsDialog({
       );
     } finally {
       setRemovingProvider(false);
+    }
+  }
+
+
+  async function changeSetting(patch: SettingsPatch) {
+    setSavingSettings(true);
+    setSettingsError(null);
+    try {
+      await onChangeSettings(patch);
+    } catch (error) {
+      setSettingsError(
+        error instanceof ApiError ? error.message : t('general.saveError'),
+      );
+    } finally {
+      setSavingSettings(false);
     }
   }
 
@@ -180,6 +217,19 @@ export function SettingsDialog({
             <button
               type="button"
               className={
+                section === 'general'
+                  ? 'settings-nav-item is-on'
+                  : 'settings-nav-item'
+              }
+              aria-current={section === 'general' ? 'page' : undefined}
+              onClick={() => setSection('general')}
+            >
+              <PowerIcon />
+              <span>{t('settings.general')}</span>
+            </button>
+            <button
+              type="button"
+              className={
                 section === 'providers'
                   ? 'settings-nav-item is-on'
                   : 'settings-nav-item'
@@ -237,7 +287,124 @@ export function SettingsDialog({
           </nav>
 
           <div className="settings-content">
-            {section === 'providers' ? (
+            {section === 'general' ? (
+              <section
+                className="settings-section"
+                aria-labelledby="settings-general-title"
+              >
+                <h3
+                  className="settings-section-title"
+                  id="settings-general-title"
+                >
+                  {t('settings.general')}
+                </h3>
+                <p className="settings-section-note">
+                  {t('settings.generalNote')}
+                </p>
+
+                <div className="settings-toggle-row">
+                  <div className="settings-toggle-text">
+                    <span
+                      className="settings-toggle-label"
+                      id="general-start-label"
+                    >
+                      {t('general.startAtLogin')}
+                    </span>
+                    <p
+                      className="settings-toggle-note"
+                      id="general-start-note"
+                    >
+                      {t('general.startAtLoginNote')}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    className={
+                      settings.startAtLogin
+                        ? 'settings-switch is-on'
+                        : 'settings-switch'
+                    }
+                    aria-checked={settings.startAtLogin}
+                    aria-labelledby="general-start-label"
+                    aria-describedby="general-start-note"
+                    disabled={savingSettings}
+                    onClick={() =>
+                      void changeSetting({
+                        startAtLogin: !settings.startAtLogin,
+                      })
+                    }
+                  >
+                    <span className="settings-switch-thumb" />
+                  </button>
+                </div>
+                {startAtLoginError ? (
+                  <p className="form-error" role="alert">
+                    {t('general.startAtLoginRefused', {
+                      message: startAtLoginError,
+                    })}
+                  </p>
+                ) : startAtLoginActual !== null &&
+                  startAtLoginActual !== settings.startAtLogin ? (
+                  <p className="settings-status is-warn" role="status">
+                    {t('general.startAtLoginMismatch')}
+                  </p>
+                ) : null}
+
+                <div className="settings-toggle-row">
+                  <div className="settings-toggle-text">
+                    <span
+                      className="settings-toggle-label"
+                      id="general-awake-label"
+                    >
+                      {t('general.keepAwake')}
+                    </span>
+                    <p
+                      className="settings-toggle-note"
+                      id="general-awake-note"
+                    >
+                      {t('general.keepAwakeNote')}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    className={
+                      settings.keepAwake
+                        ? 'settings-switch is-on'
+                        : 'settings-switch'
+                    }
+                    aria-checked={settings.keepAwake}
+                    aria-labelledby="general-awake-label"
+                    aria-describedby="general-awake-note"
+                    disabled={savingSettings}
+                    onClick={() =>
+                      void changeSetting({ keepAwake: !settings.keepAwake })
+                    }
+                  >
+                    <span className="settings-switch-thumb" />
+                  </button>
+                </div>
+                {keepAwakeError ? (
+                  <p className="form-error" role="alert">
+                    {t('general.keepAwakeRefused', {
+                      message: keepAwakeError,
+                    })}
+                  </p>
+                ) : settings.keepAwake ? (
+                  <p className="settings-status" role="status">
+                    {keepAwakeActive
+                      ? t('general.keepAwakeActive')
+                      : t('general.keepAwakeIdle')}
+                  </p>
+                ) : null}
+                {settingsError ? (
+                  <p className="form-error" role="alert">
+                    {settingsError}
+                  </p>
+                ) : null}
+              </section>
+            ) : section === 'providers' ? (
               <section
                 className="settings-section"
                 aria-labelledby="settings-providers-title"

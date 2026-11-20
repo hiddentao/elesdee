@@ -145,6 +145,26 @@ interface PairedDevice {
 - `DELETE /api/devices/{id}` returns 404 for an unknown id. It saves state and closes the device's live connections with link close code 3.
 - The pairing handshake itself uses the pair ALPN, not these routes. It accepts one request and answers with a confirmation code, then a final `paired`, `denied` or `expired` message.
 
+## Settings
+
+```ts
+interface AppSettings {
+  startAtLogin: boolean;   // default false
+  keepAwake: boolean;      // default false
+}
+
+interface SettingsPatch {
+  startAtLogin?: boolean;
+  keepAwake?: boolean;
+}
+```
+
+| Method | Path | Body | Result |
+| --- | --- | --- | --- |
+| PATCH | `/api/settings` | `SettingsPatch` | `AppSettings` |
+
+- `PATCH /api/settings` applies only the fields in the body and saves `state.json`. The desktop shell applies `startAtLogin` through the autostart plugin and `keepAwake` through the keep-awake plugin; the core stores the preference. `bootstrap` includes the current `settings`.
+
 ## Link app protocol
 
 The routes above are local. A paired phone uses the `elesdee/app/1` transport. It opens one control stream and sends `hello` within five seconds. The computer answers `welcome` on the same stream. A connection that sends no compatible hello is closed.
@@ -294,7 +314,7 @@ interface DemoServerListEntry extends DemoServer {
 ## Persistence
 
 - State lives in `ELESDEE_DATA_DIR`, default `~/.elesdee`, in `state.json`. The directory is created with mode 0700 and files with mode 0600. Writes use a temporary file, fsync and rename.
-- Projects and their default AI config and source branch, providers, AI configs, sessions, each session's desired columns and rows, its output log, an agent's repository root, an agent's own conversation ID, the session's handoff note and last context-left figure, the session's allowed config ids, and the paired device list are saved. Provider keys and pairing secrets are not saved. No runtime handles are saved.
+- Projects and their default AI config and source branch, providers, AI configs, sessions, each session's desired columns and rows, its output log, an agent's repository root, an agent's own conversation ID, the session's handoff note and last context-left figure, the session's allowed config ids, the paired device list and the General settings are saved. Provider keys and pairing secrets are not saved. No runtime handles are saved.
 - The desktop link identity is a separate 32-byte key in `<data dir>/link.key`, with mode 0600, written once and reused. It is never in `state.json` and never logged. A missing key creates a new identity; every paired phone must pair again.
 - The paired device list is written on pair, removal and graceful shutdown. `lastSeen` updates in memory at most once a minute.
 - Shared files live in `<data dir>/shared/<session id>/`, directories 0700 and files 0600. Each copy has a metadata record beside it with the original relative path, name, caption, size and content type. The stored copy stays after the session closes. Provider keys are compared with the content and are never copied.
@@ -508,7 +528,7 @@ interface OutputEvent {
 | Method | Path | Body | Result |
 | --- | --- | --- | --- |
 | GET | `/api/health` | | `{ ok, version, agents: AgentCheck[] }` |
-| GET | `/api/bootstrap` | | `{ projects, providers, configs, sessions }` |
+| GET | `/api/bootstrap` | | `{ projects, providers, configs, sessions, questions, sessionRequests, settings }` |
 | GET | `/api/projects?q={text}` | | `Project[]` |
 | POST | `/api/projects` | `{ name, folder }` | `Project` |
 | PATCH | `/api/projects/{id}` | `{ defaultConfigId?, defaultSourceBranch? }` | `Project` |
@@ -535,6 +555,7 @@ interface OutputEvent {
 | DELETE | `/api/pairing` | | `204` |
 | GET | `/api/devices` | | `PairedDevice[]` |
 | DELETE | `/api/devices/{id}` | | `204` |
+| PATCH | `/api/settings` | `SettingsPatch` | `AppSettings` |
 | GET | `/api/configs?q={text}` | | `AiConfig[]` |
 | POST | `/api/configs` | `{ name?, providerId, client, model?, effort?, args?, env?, config? }` | `AiConfig` |
 | PATCH | `/api/configs/{id}` | `{ name?, providerId?, client?, model?, effort?, args?, env?, config? }` | `AiConfig` |

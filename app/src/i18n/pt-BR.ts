@@ -140,6 +140,27 @@ export const ptBR = {
   'settings.languageLabel': 'Idioma da interface',
   'settings.languageNote':
     'O idioma do aplicativo. Datas e números também o seguem.',
+  'settings.general': 'Geral',
+  'settings.generalNote': 'Estas opções se aplicam a este computador.',
+
+  'general.startAtLogin': 'Iniciar o elesdee quando o sistema iniciar',
+  'general.startAtLoginNote':
+    'O elesdee inicia em segundo plano e retoma as sessões. A janela abre quando você clica no aplicativo.',
+  'general.keepAwake':
+    'Manter o computador acordado enquanto os agentes trabalham',
+  'general.keepAwakeNote':
+    'Enquanto uma sessão de agente está em execução, o computador não suspende, então o telefone continua conectado.',
+  'general.startAtLoginRefused':
+    'Este computador não aceitou a mudança: {message}',
+  'general.startAtLoginMismatch':
+    'Este computador informa outro estado para o início na inicialização do sistema.',
+  'general.keepAwakeRefused':
+    'O computador não permaneceu acordado: {message}',
+  'general.keepAwakeIdle':
+    'O computador permanece acordado enquanto uma sessão de agente está em execução.',
+  'general.keepAwakeActive':
+    'O computador permanece acordado enquanto os agentes trabalham.',
+  'general.saveError': 'Não foi possível salvar a configuração.',
 
   'addAccount.title': 'Adicionar conta',
   'addAccount.subtitle':

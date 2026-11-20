@@ -139,6 +139,26 @@ export const nl = {
   'settings.languageLabel': 'Interfacetaal',
   'settings.languageNote':
     'De taal van de app. Datums en getallen volgen die ook.',
+  'settings.general': 'Algemeen',
+  'settings.generalNote': 'Deze opties gelden voor deze computer.',
+
+  'general.startAtLogin': 'elesdee starten bij het opstarten van het systeem',
+  'general.startAtLoginNote':
+    'elesdee start op de achtergrond en hervat sessies. Het venster opent wanneer je op de app klikt.',
+  'general.keepAwake':
+    'De computer wakker houden terwijl agents werken',
+  'general.keepAwakeNote':
+    'Zolang een agentsessie loopt, gaat de computer niet slapen, zodat de telefoon verbonden blijft.',
+  'general.startAtLoginRefused':
+    'Deze computer heeft de wijziging niet geaccepteerd: {message}',
+  'general.startAtLoginMismatch':
+    'Deze computer meldt een andere status voor starten bij het opstarten van het systeem.',
+  'general.keepAwakeRefused': 'De computer bleef niet wakker: {message}',
+  'general.keepAwakeIdle':
+    'De computer blijft wakker zolang een agentsessie loopt.',
+  'general.keepAwakeActive':
+    'De computer blijft wakker terwijl agents werken.',
+  'general.saveError': 'De instelling kon niet worden opgeslagen.',
 
   'addAccount.title': 'Account toevoegen',
   'addAccount.subtitle':

@@ -139,6 +139,26 @@ export const es = {
   'settings.languageLabel': 'Idioma de la interfaz',
   'settings.languageNote':
     'El idioma de la aplicación. Las fechas y los números también lo siguen.',
+  'settings.general': 'General',
+  'settings.generalNote': 'Estas opciones se aplican a este equipo.',
+
+  'general.startAtLogin': 'Iniciar elesdee al iniciar el sistema',
+  'general.startAtLoginNote':
+    'elesdee se inicia en segundo plano y reanuda las sesiones. La ventana se abre al hacer clic en la aplicación.',
+  'general.keepAwake':
+    'Mantener el equipo despierto mientras los agentes trabajan',
+  'general.keepAwakeNote':
+    'Mientras se ejecuta una sesión de agente, el equipo no se suspende, así que el teléfono sigue conectado.',
+  'general.startAtLoginRefused':
+    'Este equipo no aceptó el cambio: {message}',
+  'general.startAtLoginMismatch':
+    'Este equipo informa de otro estado para el inicio al iniciar el sistema.',
+  'general.keepAwakeRefused': 'El equipo no permaneció despierto: {message}',
+  'general.keepAwakeIdle':
+    'El equipo permanece despierto mientras se ejecuta una sesión de agente.',
+  'general.keepAwakeActive':
+    'El equipo permanece despierto mientras los agentes trabajan.',
+  'general.saveError': 'No se pudo guardar la opción.',
 
   'addAccount.title': 'Añadir cuenta',
   'addAccount.subtitle':

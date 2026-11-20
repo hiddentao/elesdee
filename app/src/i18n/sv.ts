@@ -139,6 +139,26 @@ export const sv = {
   'settings.languageLabel': 'Gränssnittsspråk',
   'settings.languageNote':
     'Appens språk. Datum och tal följer det också.',
+  'settings.general': 'Allmänt',
+  'settings.generalNote': 'De här alternativen gäller den här datorn.',
+
+  'general.startAtLogin': 'Starta elesdee när systemet startar',
+  'general.startAtLoginNote':
+    'elesdee startar i bakgrunden och återupptar sessioner. Fönstret öppnas när du klickar på appen.',
+  'general.keepAwake': 'Håll datorn vaken medan agenter arbetar',
+  'general.keepAwakeNote':
+    'Medan en agentsession körs går datorn inte i viloläge, så telefonen förblir ansluten.',
+  'general.startAtLoginRefused':
+    'Den här datorn accepterade inte ändringen: {message}',
+  'general.startAtLoginMismatch':
+    'Den här datorn rapporterar ett annat läge för start vid systemstart.',
+  'general.keepAwakeRefused':
+    'Datorn förblev inte vaken: {message}',
+  'general.keepAwakeIdle':
+    'Datorn förblir vaken medan en agentsession körs.',
+  'general.keepAwakeActive':
+    'Datorn förblir vaken medan agenter arbetar.',
+  'general.saveError': 'Det gick inte att spara inställningen.',
 
   'addAccount.title': 'Lägg till konto',
   'addAccount.subtitle':

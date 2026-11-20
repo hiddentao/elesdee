@@ -11219,3 +11219,34 @@ async fn a_signed_in_provider_receives_status_line_usage() {
     let (status, _) = close_session(&app, session_id).await;
     assert_eq!(status, StatusCode::OK);
 }
+
+#[tokio::test]
+async fn settings_default_off_and_survive_a_reload() {
+    let data_dir = TempDirectory::new("settings-persist");
+    let app = router(AppState::with_data_dir(data_dir.path.clone()));
+
+    let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    assert_eq!(bootstrap["settings"]["startAtLogin"], false);
+    assert_eq!(bootstrap["settings"]["keepAwake"], false);
+
+    let (status, settings) = call(
+        &app,
+        "PATCH",
+        "/api/settings",
+        Some(json!({ "startAtLogin": true, "keepAwake": true })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{settings}");
+    assert_eq!(settings["startAtLogin"], true);
+    assert_eq!(settings["keepAwake"], true);
+
+    drop(app);
+    let reloaded = router(AppState::with_data_dir(data_dir.path.clone()));
+    let (_, bootstrap) = call(&reloaded, "GET", "/api/bootstrap", None).await;
+    assert_eq!(bootstrap["settings"]["startAtLogin"], true);
+    assert_eq!(bootstrap["settings"]["keepAwake"], true);
+
+    let state = fs::read_to_string(data_dir.path.join("state.json")).expect("state file");
+    assert!(state.contains("\"startAtLogin\": true"));
+    assert!(state.contains("\"keepAwake\": true"));
+}

@@ -139,6 +139,27 @@ export const ja = {
   'settings.languageLabel': '表示言語',
   'settings.languageNote':
     'アプリの言語です。日付と数値もこの言語に従います。',
+  'settings.general': '一般',
+  'settings.generalNote': 'これらのオプションはこのコンピューターに適用されます。',
+
+  'general.startAtLogin': 'システム起動時に elesdee を開始',
+  'general.startAtLoginNote':
+    'elesdee はバックグラウンドで起動し、セッションを再開します。ウィンドウはアプリをクリックしたときに開きます。',
+  'general.keepAwake':
+    'エージェントの作業中にコンピューターをスリープさせない',
+  'general.keepAwakeNote':
+    'エージェントセッションの実行中はコンピューターがスリープしないため、電話は接続したままになります。',
+  'general.startAtLoginRefused':
+    'このコンピューターは変更を受け付けませんでした: {message}',
+  'general.startAtLoginMismatch':
+    'このコンピューターはシステム起動時の開始状態が異なると報告しています。',
+  'general.keepAwakeRefused':
+    'コンピューターはスリープを防げませんでした: {message}',
+  'general.keepAwakeIdle':
+    'エージェントセッションの実行中はコンピューターがスリープしません。',
+  'general.keepAwakeActive':
+    'エージェントの作業中はコンピューターがスリープしません。',
+  'general.saveError': '設定を保存できませんでした。',
 
   'addAccount.title': 'アカウントを追加',
   'addAccount.subtitle':

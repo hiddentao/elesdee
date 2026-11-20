@@ -2,6 +2,7 @@ import { API_BASE } from './base';
 import type {
   AiConfig,
   ApiErrorPayload,
+  AppSettings,
   ApproveSessionResult,
   BootstrapResponse,
   Branch,
@@ -25,6 +26,7 @@ import type {
   Session,
   SessionChanges,
   SessionRequest,
+  SettingsPatch,
   SharedFile,
   StartProviderSignInInput,
   SwitchOptions,
@@ -530,3 +532,12 @@ export function browserScreenshotUrl(
   const params = new URLSearchParams({ tab: tabId, v: String(seq) });
   return `${API_BASE}/api/sessions/${encodeURIComponent(id)}/browser/screenshot?${params.toString()}`;
 }
+
+export function updateSettings(input: SettingsPatch): Promise<AppSettings> {
+  return request<AppSettings>('/api/settings', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+}
+

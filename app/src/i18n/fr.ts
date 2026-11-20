@@ -139,6 +139,27 @@ export const fr = {
   'settings.languageLabel': 'Langue de l’interface',
   'settings.languageNote':
     'La langue de l’application. Les dates et les nombres la suivent aussi.',
+  'settings.general': 'Général',
+  'settings.generalNote': 'Ces options s’appliquent à cet ordinateur.',
+
+  'general.startAtLogin': 'Démarrer elesdee au démarrage du système',
+  'general.startAtLoginNote':
+    'elesdee démarre en arrière-plan et reprend les sessions. La fenêtre s’ouvre quand vous cliquez sur l’application.',
+  'general.keepAwake':
+    'Garder l’ordinateur éveillé pendant que les agents travaillent',
+  'general.keepAwakeNote':
+    'Tant qu’une session d’agent est en cours, l’ordinateur ne se met pas en veille, le téléphone reste donc connecté.',
+  'general.startAtLoginRefused':
+    'Cet ordinateur n’a pas accepté le changement : {message}',
+  'general.startAtLoginMismatch':
+    'Cet ordinateur signale un autre état pour le démarrage au démarrage du système.',
+  'general.keepAwakeRefused':
+    'L’ordinateur n’est pas resté éveillé : {message}',
+  'general.keepAwakeIdle':
+    'L’ordinateur reste éveillé tant qu’une session d’agent est en cours.',
+  'general.keepAwakeActive':
+    'L’ordinateur reste éveillé pendant que les agents travaillent.',
+  'general.saveError': 'Impossible d’enregistrer le réglage.',
 
   'addAccount.title': 'Ajouter un compte',
   'addAccount.subtitle':

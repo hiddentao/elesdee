@@ -139,6 +139,26 @@ export const de = {
   'settings.languageLabel': 'Oberflächensprache',
   'settings.languageNote':
     'Die Sprache der App. Datums- und Zahlenformate folgen ihr.',
+  'settings.general': 'Allgemein',
+  'settings.generalNote': 'Diese Optionen gelten für diesen Computer.',
+
+  'general.startAtLogin': 'elesdee beim Systemstart starten',
+  'general.startAtLoginNote':
+    'elesdee startet im Hintergrund und setzt Sitzungen fort. Das Fenster öffnet sich, wenn du auf die App klickst.',
+  'general.keepAwake': 'Den Computer wach halten, während Agenten arbeiten',
+  'general.keepAwakeNote':
+    'Solange eine Agent-Sitzung läuft, schläft der Computer nicht, sodass das Telefon verbunden bleibt.',
+  'general.startAtLoginRefused':
+    'Dieser Computer hat die Änderung nicht angenommen: {message}',
+  'general.startAtLoginMismatch':
+    'Dieser Computer meldet einen anderen Zustand für den Start beim Systemstart.',
+  'general.keepAwakeRefused':
+    'Der Computer ist nicht wach geblieben: {message}',
+  'general.keepAwakeIdle':
+    'Der Computer bleibt wach, solange eine Agent-Sitzung läuft.',
+  'general.keepAwakeActive':
+    'Der Computer bleibt wach, während Agenten arbeiten.',
+  'general.saveError': 'Die Einstellung konnte nicht gespeichert werden.',
 
   'addAccount.title': 'Konto hinzufügen',
   'addAccount.subtitle':

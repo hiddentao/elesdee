@@ -37,6 +37,7 @@ import {
   updateProjectDefaults,
   updateProvider,
   updateSessionAllowedConfigs,
+  updateSettings,
 } from './api/client';
 import { subscribeAux, subscribeEvents } from './api/events';
 import {
@@ -44,10 +45,18 @@ import {
   showDesktopNotification,
   subscribeNotificationClicks,
 } from './api/notifications';
-import { isTauri, openFolder, openTerminal } from './api/shell';
+import {
+  getStartAtLogin,
+  isTauri,
+  openFolder,
+  openTerminal,
+  setKeepAwake,
+  setStartAtLogin,
+} from './api/shell';
 import type {
   AgentCheck,
   AiConfig,
+  AppSettings,
   PermissionDecision,
   Project,
   Provider,
@@ -55,6 +64,7 @@ import type {
   Question,
   Session,
   SessionRequest,
+  SettingsPatch,
   UpdateConfigInput,
   UpdateProjectDefaultsInput,
   UpdateProviderInput,
@@ -155,6 +165,18 @@ export default function App() {
   const [branchMenu, setBranchMenu] = useState<BranchMenuState | null>(null);
   const [dialogProjectId, setDialogProjectId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settings, setSettings] = useState<AppSettings>({
+    startAtLogin: false,
+    keepAwake: false,
+  });
+  const [startAtLoginActual, setStartAtLoginActual] = useState<boolean | null>(
+    null,
+  );
+  const [startAtLoginError, setStartAtLoginError] = useState<string | null>(
+    null,
+  );
+  const [keepAwakeActive, setKeepAwakeActive] = useState<boolean | null>(null);
+  const [keepAwakeError, setKeepAwakeError] = useState<string | null>(null);
   const [quitOpen, setQuitOpen] = useState(false);
   const [toast, setToast] = useState<ToastState | null>(null);
   const [eventsPaused, setEventsPaused] = useState(false);
@@ -174,6 +196,9 @@ export default function App() {
   const activeSessionCount = sessions.filter(
     (session) => session.status === 'active',
   ).length;
+  const agentRunning = sessions.some(
+    (session) => session.status === 'active' && session.kind === 'agent',
+  );
 
   function notifyWaiting(session: Session) {
     const waiting = session.waitingFor;
@@ -227,6 +252,7 @@ export default function App() {
       setAgents(report?.agents ?? []);
       setAgentsChecked(report !== null);
       setVersion(report?.version ?? null);
+      setSettings(data.settings);
       setActiveProjectId(
         data.sessions[0]?.projectId ?? data.projects[0]?.id ?? null,
       );
@@ -250,6 +276,80 @@ export default function App() {
       // The event stream reports a broken connection.
     }
   }, []);
+
+  useEffect(() => {
+    if (!tauri) {
+      return;
+    }
+    let cancelled = false;
+    void getStartAtLogin()
+      .then((state) => {
+        if (!cancelled) {
+          setStartAtLoginActual(state.enabled);
+          setStartAtLoginError(null);
+        }
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setStartAtLoginActual(null);
+          setStartAtLoginError(messageFor(error, tRef.current));
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [tauri, settingsOpen]);
+
+  useEffect(() => {
+    if (!tauri) {
+      return;
+    }
+    let cancelled = false;
+    void setKeepAwake(settings.keepAwake && agentRunning)
+      .then((active) => {
+        if (!cancelled) {
+          setKeepAwakeActive(active);
+          setKeepAwakeError(null);
+        }
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setKeepAwakeActive(false);
+          setKeepAwakeError(messageFor(error, tRef.current));
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [tauri, settings.keepAwake, agentRunning]);
+
+  const changeSettings = useCallback(
+    async (patch: SettingsPatch) => {
+      const previous = settings.startAtLogin;
+      const next = await updateSettings(patch);
+      setSettings(next);
+      if (patch.startAtLogin !== undefined && tauri) {
+        setStartAtLoginError(null);
+        try {
+          const state = await setStartAtLogin(patch.startAtLogin);
+          setStartAtLoginActual(state.enabled);
+        } catch (error) {
+          setStartAtLoginActual(null);
+          setStartAtLoginError(messageFor(error, tRef.current));
+          // The system refused the request. Put the saved preference back.
+          try {
+            const corrected = await updateSettings({
+              startAtLogin: previous,
+            });
+            setSettings(corrected);
+          } catch {
+            // Keep the saved preference when the correction cannot be saved.
+          }
+        }
+      }
+    },
+    [tauri, settings.startAtLogin],
+  );
 
   const activeProject =
     projects.find((project) => project.id === activeProjectId) ?? null;
@@ -1251,6 +1351,12 @@ export default function App() {
           configs={configs}
           options={providerOptions}
           version={version}
+          settings={settings}
+          startAtLoginActual={startAtLoginActual}
+          startAtLoginError={startAtLoginError}
+          keepAwakeActive={keepAwakeActive}
+          keepAwakeError={keepAwakeError}
+          onChangeSettings={changeSettings}
           onCreateProvider={createProvider}
           onUpdateProvider={(id: string, input: UpdateProviderInput) =>
             updateProvider(id, input)

@@ -8,8 +8,8 @@ use serde::{Deserialize, Serialize};
 use crate::private_fs;
 use crate::seed;
 use crate::state::{
-    AiConfig, LegacyAccount, LegacyPreset, PairedDevice, Project, Provider, Question, Session,
-    SessionRequest,
+    AiConfig, AppSettings, LegacyAccount, LegacyPreset, PairedDevice, Project, Provider, Question,
+    Session, SessionRequest,
 };
 
 const STATE_VERSION: u32 = 2;
@@ -36,6 +36,8 @@ pub(crate) struct PersistedState {
     pub session_requests: Option<Vec<SessionRequest>>,
     #[serde(default)]
     pub paired_devices: Vec<PairedDevice>,
+    #[serde(default)]
+    pub settings: AppSettings,
     pub sessions: Vec<PersistedSession>,
 }
 
@@ -59,6 +61,7 @@ impl PersistedState {
             questions,
             session_requests,
             paired_devices,
+            settings: AppSettings::default(),
             sessions,
         }
     }

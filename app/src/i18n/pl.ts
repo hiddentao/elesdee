@@ -139,6 +139,27 @@ export const pl = {
   'settings.languageLabel': 'Język interfejsu',
   'settings.languageNote':
     'Język aplikacji. Daty i liczby również go używają.',
+  'settings.general': 'Ogólne',
+  'settings.generalNote': 'Te opcje dotyczą tego komputera.',
+
+  'general.startAtLogin': 'Uruchamiaj elesdee przy starcie systemu',
+  'general.startAtLoginNote':
+    'elesdee uruchamia się w tle i wznawia sesje. Okno otwiera się po kliknięciu aplikacji.',
+  'general.keepAwake':
+    'Utrzymuj komputer aktywny, gdy agenci pracują',
+  'general.keepAwakeNote':
+    'Gdy sesja agenta działa, komputer nie przechodzi w stan uśpienia, więc telefon pozostaje połączony.',
+  'general.startAtLoginRefused':
+    'Ten komputer nie zaakceptował zmiany: {message}',
+  'general.startAtLoginMismatch':
+    'Ten komputer zgłasza inny stan uruchamiania przy starcie systemu.',
+  'general.keepAwakeRefused':
+    'Komputer nie pozostał aktywny: {message}',
+  'general.keepAwakeIdle':
+    'Komputer pozostaje aktywny, gdy sesja agenta działa.',
+  'general.keepAwakeActive':
+    'Komputer pozostaje aktywny, gdy agenci pracują.',
+  'general.saveError': 'Nie udało się zapisać ustawienia.',
 
   'addAccount.title': 'Dodaj konto',
   'addAccount.subtitle':

@@ -228,3 +228,12 @@ export function GlobeIcon({ className }: IconProps) {
     </svg>
   );
 }
+
+export function PowerIcon({ className }: IconProps) {
+  return (
+    <svg {...base} className={className}>
+      <path d="M8 2.5v5" />
+      <path d="M5.2 4.3a5 5 0 1 0 5.6 0" />
+    </svg>
+  );
+}

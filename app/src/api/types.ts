@@ -243,6 +243,17 @@ export interface UpdateConfigInput {
   config?: Record<string, string>;
 }
 
+export interface AppSettings {
+  startAtLogin: boolean;
+  keepAwake: boolean;
+}
+
+export interface SettingsPatch {
+  startAtLogin?: boolean;
+  keepAwake?: boolean;
+}
+
+
 export interface BootstrapResponse {
   projects: Project[];
   providers: Provider[];
@@ -250,6 +261,7 @@ export interface BootstrapResponse {
   sessions: Session[];
   questions?: Question[];
   sessionRequests?: SessionRequest[];
+  settings: AppSettings;
 }
 
 export interface SessionRequest {

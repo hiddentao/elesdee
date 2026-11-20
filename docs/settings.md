@@ -1,12 +1,21 @@
 ---
 title: Settings
-description: Manage providers and AI configs, and read the app version.
+description: Set startup and sleep behavior, and manage providers and AI configs.
 order: 8
 ---
 
 # Settings
 
 Open **Settings** from the bottom of the sidebar. Settings opens over the session view. Close it to return to your work.
+
+## General
+
+The General page holds two options for this computer. Both are off by default. A change takes effect at once and stays after a restart.
+
+- **Start elesdee when the system starts** starts the core service in the background at login and resumes the saved sessions. The window opens only when you click the app. When another copy is already running, the system starts one copy.
+- **Keep the computer awake while agents work** stops the computer from sleeping while an agent session runs. The phone stays connected during that time. The app releases the computer when no agent session runs. Terminal sessions, closed sessions and paused work do not hold it awake.
+
+If the system does not accept a change, the page says so. The app does not claim the new state when the system refused it.
 
 ## Providers
 
@@ -43,6 +52,7 @@ The Languages page has one choice: the interface language. The app offers Englis
 On first launch the app uses the language of this computer. If the app does not support that language, it uses English. The app keeps your choice. Dates and numbers follow the language too; there are no separate format settings.
 
 Agent output, prompts, session logs and terminal content stay in the language they were written in. These pages are in English only.
+
 
 ## About
 

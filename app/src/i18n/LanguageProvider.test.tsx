@@ -141,6 +141,11 @@ describe('LanguageProvider', () => {
           configs={[]}
           options={[]}
           version="0.1.0"
+          settings={{ startAtLogin: false, keepAwake: false }}
+          startAtLoginActual={null}
+          startAtLoginError={null}
+          keepAwakeActive={null}
+          keepAwakeError={null}
           onCreateProvider={vi.fn()}
           onUpdateProvider={vi.fn()}
           onRemoveProvider={vi.fn()}
@@ -153,6 +158,7 @@ describe('LanguageProvider', () => {
           onDeleteConfig={vi.fn()}
           onProviderSaved={vi.fn()}
           onConfigSaved={vi.fn()}
+          onChangeSettings={vi.fn()}
           onClose={vi.fn()}
         />
       </LanguageProvider>,

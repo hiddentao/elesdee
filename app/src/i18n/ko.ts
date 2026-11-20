@@ -138,6 +138,26 @@ export const ko = {
   'settings.languageLabel': '인터페이스 언어',
   'settings.languageNote':
     '앱의 언어입니다. 날짜와 숫자도 이 언어를 따릅니다.',
+  'settings.general': '일반',
+  'settings.generalNote': '이 옵션은 이 컴퓨터에 적용됩니다.',
+
+  'general.startAtLogin': '시스템 시작 시 elesdee 시작',
+  'general.startAtLoginNote':
+    'elesdee는 백그라운드에서 시작하고 세션을 다시 엽니다. 앱을 클릭하면 창이 열립니다.',
+  'general.keepAwake':
+    '에이전트가 작업하는 동안 컴퓨터를 깨어 있게 유지',
+  'general.keepAwakeNote':
+    '에이전트 세션이 실행되는 동안 컴퓨터가 잠들지 않아 휴대폰 연결이 유지됩니다.',
+  'general.startAtLoginRefused':
+    '이 컴퓨터가 변경을 받아들이지 않았습니다: {message}',
+  'general.startAtLoginMismatch':
+    '이 컴퓨터는 시스템 시작 시 시작 상태가 다르다고 보고합니다.',
+  'general.keepAwakeRefused': '컴퓨터가 깨어 있지 않았습니다: {message}',
+  'general.keepAwakeIdle':
+    '에이전트 세션이 실행되는 동안 컴퓨터가 깨어 있습니다.',
+  'general.keepAwakeActive':
+    '에이전트가 작업하는 동안 컴퓨터가 깨어 있습니다.',
+  'general.saveError': '설정을 저장하지 못했습니다.',
 
   'addAccount.title': '계정 추가',
   'addAccount.subtitle':

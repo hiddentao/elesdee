@@ -40,9 +40,10 @@ use crate::shared;
 use crate::shortcuts;
 use crate::slug::slugify;
 use crate::state::{
-    AiConfig, AppState, Auth, Bootstrap, Client, DeleteSessionFailure, EnvOverride, HealthResponse,
-    PairedDevice, PendingPermission, PermissionDecision, Project, Provider, ProviderView, Question,
-    QuestionFailure, Session, SessionEvent, SessionKind, SessionState, WorkState,
+    AiConfig, AppSettings, AppState, Auth, Bootstrap, Client, DeleteSessionFailure, EnvOverride,
+    HealthResponse, PairedDevice, PendingPermission, PermissionDecision, Project, Provider,
+    ProviderView, Question, QuestionFailure, Session, SessionEvent, SessionKind, SessionState,
+    SettingsPatch, WorkState,
 };
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
@@ -571,6 +572,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/pairing/deny", post(deny_pairing))
         .route("/api/devices", get(list_devices))
         .route("/api/devices/{id}", delete(remove_device))
+        .route("/api/settings", patch(update_settings))
         .route("/api/demo-servers", get(list_demo_servers))
         .route(
             "/api/sessions/{id}/demo-servers/{server_id}/stop",
@@ -875,6 +877,14 @@ async fn remove_device(
     state.link().mark_revoked(&id);
     state.link().revoke_connections(&id);
     Ok(StatusCode::NO_CONTENT)
+}
+
+async fn update_settings(
+    State(state): State<AppState>,
+    body: Result<Json<SettingsPatch>, JsonRejection>,
+) -> Result<Json<AppSettings>, ApiError> {
+    let Json(patch) = body.map_err(invalid_json)?;
+    Ok(Json(state.update_settings(patch)))
 }
 
 #[derive(Serialize)]

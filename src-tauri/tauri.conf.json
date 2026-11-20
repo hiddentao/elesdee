@@ -12,6 +12,7 @@
       {
         "label": "main",
         "title": "elesdee",
+        "visible": false,
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
         "trafficLightPosition": {
