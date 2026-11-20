@@ -48,6 +48,13 @@ pub(crate) fn recover(state: &AppState) {
     }
 }
 
+fn worktree_is_registered(folder: &Path) -> bool {
+    let Ok(metadata) = std::fs::symlink_metadata(folder.join(".git")) else {
+        return false;
+    };
+    metadata.is_file()
+}
+
 fn restart(
     state: &AppState,
     entry: &Arc<SessionEntry>,
@@ -57,6 +64,9 @@ fn restart(
     let folder = PathBuf::from(&session.folder);
     if !folder.is_dir() {
         return Err("Paused. The session folder is missing.".to_owned());
+    }
+    if session.kind == SessionKind::Agent && !worktree_is_registered(&folder) {
+        return Err("Paused. The session worktree is no longer registered.".to_owned());
     }
 
     let mut command;
@@ -129,6 +139,12 @@ fn restart(
             .map_err(|_| "Paused. The session tools could not be prepared.".to_owned())?;
 
             if client == Client::Codex {
+                crate::api::apply_launch_arguments(
+                    client,
+                    session.model.as_deref(),
+                    &session.config,
+                    &mut command,
+                );
                 start_codex_runtime(state, entry, &mut command)
                     .map_err(|_| "Paused. The Codex app server could not start.".to_owned())?;
             }

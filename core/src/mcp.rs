@@ -615,7 +615,9 @@ pub fn prepare_codex_home(
     session_id: &str,
     user_codex_home: Option<&Path>,
 ) -> io::Result<PathBuf> {
-    let home = skill_kit_path(data_dir, session_id).join("codex");
+    let kit = skill_kit_path(data_dir, session_id);
+    crate::private_fs::create_private_dir_all(&kit)?;
+    let home = kit.join("codex");
     let _ = fs::remove_dir_all(&home);
     crate::private_fs::create_private_dir_all(&home)?;
     write_skills(&home.join("skills"))?;

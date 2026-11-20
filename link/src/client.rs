@@ -429,25 +429,27 @@ impl AppConnection {
         params: Option<Value>,
         body: Vec<u8>,
     ) -> Result<Response, ClientError> {
-        let (mut send, mut recv) = self
-            .connection
-            .open_bi()
-            .await
-            .map_err(|error| classify_closed(&error))?;
-        let request = Request::new(method, params);
-        let request = if body.is_empty() {
-            request
-        } else {
-            request.with_body(body)
-        };
-        let frame = request.encode()?;
-        send.write_all(&frame)
-            .await
-            .map_err(|_| ClientError::Transport("the request could not be sent".to_owned()))?;
-        let _ = send.finish();
-        timeout(UNARY_REQUEST_TIMEOUT, read_response(&mut recv))
-            .await
-            .map_err(|_| ClientError::Timeout)?
+        timeout(UNARY_REQUEST_TIMEOUT, async {
+            let (mut send, mut recv) = self
+                .connection
+                .open_bi()
+                .await
+                .map_err(|error| classify_closed(&error))?;
+            let request = Request::new(method, params);
+            let request = if body.is_empty() {
+                request
+            } else {
+                request.with_body(body)
+            };
+            let frame = request.encode()?;
+            send.write_all(&frame)
+                .await
+                .map_err(|_| ClientError::Transport("the request could not be sent".to_owned()))?;
+            let _ = send.finish();
+            read_response(&mut recv).await
+        })
+        .await
+        .map_err(|_| ClientError::Timeout)?
     }
 
     /// Checks a method name against the shared allowlist, then sends it.
@@ -474,7 +476,7 @@ impl AppConnection {
     }
 
     /// Closes the connection.
-    pub fn close(self) {
+    pub fn close(&self) {
         self.connection.close(VarInt::from_u32(0), b"closed");
     }
 }
@@ -633,15 +635,24 @@ impl LinkClient {
         .await
         .map_err(|_| ClientError::Timeout)??;
 
+        let expected_id = ticket.addr().id.to_z32();
         let mut machine = PairingMachine::new(ticket.addr().clone(), now);
         machine.accept_confirm(&reply)?;
         match machine.state() {
-            PairingState::AwaitingApproval(_) => Ok(PairingStart {
-                connection,
-                recv,
-                machine,
-                store: Arc::clone(&self.store),
-            }),
+            PairingState::AwaitingApproval(confirm) if confirm.computer.id == expected_id => {
+                Ok(PairingStart {
+                    connection,
+                    recv,
+                    machine,
+                    store: Arc::clone(&self.store),
+                })
+            }
+            PairingState::AwaitingApproval(_) => {
+                connection.close(VarInt::from_u32(0), b"rejected");
+                Err(ClientError::Protocol(
+                    "the computer id does not match the ticket",
+                ))
+            }
             PairingState::Rejected(rejection) => {
                 connection.close(VarInt::from_u32(0), b"rejected");
                 Err(ClientError::Rejected(rejection.clone()))
@@ -729,17 +740,25 @@ fn now_unix() -> u64 {
 }
 
 async fn write_json<T: Serialize>(send: &mut SendStream, value: &T) -> Result<(), ClientError> {
-    let bytes = serde_json::to_vec(value)
+    let mut bytes = serde_json::to_vec(value)
         .map_err(|_| ClientError::Protocol("the pairing message is not valid"))?;
     if bytes.is_empty() || bytes.len() > MAX_PAIR_FRAME_BYTES {
+        bytes.zeroize();
         return Err(ClientError::TooLarge);
     }
-    send.write_all(&(bytes.len() as u32).to_be_bytes())
-        .await
-        .map_err(|_| ClientError::Transport("the pairing message could not be sent".to_owned()))?;
-    send.write_all(&bytes)
-        .await
-        .map_err(|_| ClientError::Transport("the pairing message could not be sent".to_owned()))
+    let result = async {
+        send.write_all(&(bytes.len() as u32).to_be_bytes())
+            .await
+            .map_err(|_| {
+                ClientError::Transport("the pairing message could not be sent".to_owned())
+            })?;
+        send.write_all(&bytes)
+            .await
+            .map_err(|_| ClientError::Transport("the pairing message could not be sent".to_owned()))
+    }
+    .await;
+    bytes.zeroize();
+    result
 }
 
 async fn read_json<T: for<'de> Deserialize<'de>>(

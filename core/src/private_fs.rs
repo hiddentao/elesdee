@@ -3,7 +3,23 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 pub(crate) fn create_private_dir_all(path: &Path) -> io::Result<()> {
-    fs::create_dir_all(path)?;
+    let mut missing = Vec::new();
+    let mut current = Some(path);
+    while let Some(directory) = current {
+        if directory.exists() {
+            break;
+        }
+        missing.push(directory.to_path_buf());
+        current = directory.parent();
+    }
+    for directory in missing.iter().rev() {
+        match fs::create_dir(directory) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(error),
+        }
+        set_directory_permissions(directory)?;
+    }
     set_directory_permissions(path)
 }
 

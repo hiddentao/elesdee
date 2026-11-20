@@ -2449,6 +2449,32 @@ async fn preset_accounts_and_models_are_validated() {
     )
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+
+    let (status, body) = call(
+        &app,
+        "POST",
+        "/api/presets",
+        Some(json!({
+            "name": "Key in env",
+            "accountId": "max",
+            "env": [{ "name": "ANTHROPIC_API_KEY", "value": "secret" }]
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+
+    let (status, body) = call(
+        &app,
+        "POST",
+        "/api/presets",
+        Some(json!({
+            "name": "Key in config",
+            "accountId": "codex",
+            "config": { "providers.openai.apiKey": "secret" }
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
 }
 
 #[tokio::test]
@@ -3800,6 +3826,90 @@ async fn active_session_resumes_on_startup() {
 
     let (status, _) = close_session(&restarted, &id).await;
     assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn restart_keeps_a_codex_preset_model_and_config() {
+    let data_dir = TempDirectory::new("recover-codex-config-data");
+    let repo = TempDirectory::new("recover-codex-config-repo");
+    init_git_repo(&repo.path);
+    let args_file = data_dir.path.join("args.txt");
+    let script = format!(
+        "printf '%s\\n' \"$@\" > {}; sleep 30",
+        args_file.to_string_lossy()
+    );
+    let command = vec![
+        "/bin/sh".to_owned(),
+        "-c".to_owned(),
+        script,
+        "stub".to_owned(),
+    ];
+    let app = router(AppState::with_test_command_and_data_dir(
+        command.clone(),
+        data_dir.path.clone(),
+    ));
+    ensure_test_project(&app, &repo.path).await;
+
+    let (status, preset) = call(
+        &app,
+        "POST",
+        "/api/presets",
+        Some(json!({
+            "name": "Recovered Codex",
+            "accountId": "codex",
+            "model": "gpt-5.2",
+            "config": { "model_reasoning_effort": "high" }
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{preset}");
+    let preset_id = preset["id"].as_str().expect("preset id");
+
+    let (status, session) = call(
+        &app,
+        "POST",
+        "/api/sessions",
+        Some(json!({
+            "projectId": "web",
+            "kind": "agent",
+            "presetId": preset_id,
+            "name": "Recovered Codex",
+            "folder": repo.path.to_string_lossy()
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let id = session["id"].as_str().expect("session id").to_owned();
+    wait_for_args_file(&args_file).await;
+    drop(app);
+    let _ = fs::remove_file(&args_file);
+
+    let restarted = router(AppState::with_test_command_and_data_dir(
+        command,
+        data_dir.path.clone(),
+    ));
+    wait_for_args_file(&args_file).await;
+    let arguments = fs::read_to_string(&args_file).expect("read arguments");
+    assert!(
+        arguments.contains("model=\"gpt-5.2\""),
+        "the restarted Codex session lost its model: {arguments}"
+    );
+    assert!(
+        arguments.contains("model_reasoning_effort=\"high\""),
+        "the restarted Codex session lost its config: {arguments}"
+    );
+
+    let _ = close_session(&restarted, &id).await;
+}
+
+async fn wait_for_args_file(path: &Path) {
+    for _ in 0..200 {
+        if path.is_file() {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    }
+    panic!("{} was not written", path.display());
 }
 
 #[tokio::test]

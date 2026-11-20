@@ -29,6 +29,7 @@ The elesdee MCP server gives you these tools:
 | `send_message` | Send input to another session. |
 | `check_usage` | Show the account's remaining usage. |
 | `start_session` | Ask the user to start a helper session. |
+| `write_handoff_note` | Save the handoff note for the next agent before a client switch, a usage stop or a close. |
 
 The user must approve a new session. Only the user closes a session or switches its provider.
 

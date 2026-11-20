@@ -991,8 +991,28 @@ fn validated_config(
         if value.chars().count() > 2000 || value.contains('\0') {
             return Err(ApiError::bad_request("A config value is not valid."));
         }
+        if key.split('.').any(secret_like_name) {
+            return Err(ApiError::unprocessable(
+                "API keys belong in an account, not in a config value.",
+            ));
+        }
     }
     Ok(config)
+}
+
+fn secret_like_name(name: &str) -> bool {
+    let compact = name
+        .chars()
+        .filter(|character| character.is_ascii_alphanumeric())
+        .collect::<String>()
+        .to_ascii_uppercase();
+    compact.contains("APIKEY")
+        || compact.contains("AUTHTOKEN")
+        || compact.contains("ACCESSTOKEN")
+        || compact.contains("PRIVATEKEY")
+        || compact.contains("PASSWORD")
+        || compact == "SECRET"
+        || compact.ends_with("SECRET")
 }
 
 fn resolve_launch_preset(
@@ -1022,7 +1042,7 @@ fn merged_environment(preset: &[EnvOverride], launch: Vec<EnvOverride>) -> Vec<E
     merged
 }
 
-fn apply_launch_arguments(
+pub(crate) fn apply_launch_arguments(
     client: Client,
     model: Option<&str>,
     config: &BTreeMap<String, String>,
@@ -3682,6 +3702,11 @@ fn validated_env(
         if item.value.chars().count() > 2000 || item.value.contains('\0') {
             return Err(ApiError::bad_request(
                 "An environment variable value is not valid.",
+            ));
+        }
+        if secret_like_name(name) {
+            return Err(ApiError::unprocessable(
+                "API keys belong in an account, not in an environment value.",
             ));
         }
         if !seen.insert(name.to_owned()) {

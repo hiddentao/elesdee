@@ -77,27 +77,29 @@ impl From<ClientError> for CommandError {
 /// The live state of one shell process.
 pub struct ShellState {
     inner: Mutex<PhoneShell>,
+    pairing_gate: Mutex<()>,
     pairing_cancelled: AtomicBool,
 }
 
 struct PhoneShell {
-    client: Option<LinkClient>,
+    client: Option<Arc<LinkClient>>,
     startup_error: Option<CommandError>,
     pairing: Option<PairingStart>,
     pairing_cancel: Option<PairingCancel>,
-    connections: HashMap<String, AppConnection>,
+    connections: HashMap<String, Arc<AppConnection>>,
 }
 
 impl ShellState {
     fn ready(client: LinkClient) -> Self {
         Self {
             inner: Mutex::new(PhoneShell {
-                client: Some(client),
+                client: Some(Arc::new(client)),
                 startup_error: None,
                 pairing: None,
                 pairing_cancel: None,
                 connections: HashMap::new(),
             }),
+            pairing_gate: Mutex::new(()),
             pairing_cancelled: AtomicBool::new(false),
         }
     }
@@ -111,14 +113,15 @@ impl ShellState {
                 pairing_cancel: None,
                 connections: HashMap::new(),
             }),
+            pairing_gate: Mutex::new(()),
             pairing_cancelled: AtomicBool::new(false),
         }
     }
 }
 
 impl PhoneShell {
-    fn client(&self) -> Result<&LinkClient, CommandError> {
-        self.client.as_ref().ok_or_else(|| {
+    fn client(&self) -> Result<Arc<LinkClient>, CommandError> {
+        self.client.as_ref().map(Arc::clone).ok_or_else(|| {
             self.startup_error
                 .clone()
                 .unwrap_or_else(|| CommandError::new("startup", "The phone link did not start."))
@@ -227,19 +230,23 @@ pub async fn phone_pair_start(
     name: String,
     platform: String,
 ) -> Result<PairConfirm, CommandError> {
-    let mut shell = state.inner.lock().await;
-    if let Some(cancel) = shell.pairing_cancel.take() {
-        cancel.cancel();
-    }
-    shell.pairing = None;
+    let _gate = state.pairing_gate.lock().await;
     state.pairing_cancelled.store(false, Ordering::SeqCst);
+    let client = {
+        let mut shell = state.inner.lock().await;
+        if let Some(cancel) = shell.pairing_cancel.take() {
+            cancel.cancel();
+        }
+        shell.pairing = None;
+        shell.client()?
+    };
 
-    let client = shell.client()?;
     let pairing = client
         .pair(&ticket, &name, &platform)
         .await
         .map_err(CommandError::from)?;
     let confirm = pairing.confirm().map_err(CommandError::from)?.clone();
+    let mut shell = state.inner.lock().await;
     shell.pairing_cancel = Some(pairing.cancel_handle());
     shell.pairing = Some(pairing);
     Ok(PairConfirm {
@@ -253,6 +260,7 @@ pub async fn phone_pair_start(
 pub async fn phone_pair_finish(
     state: State<'_, ShellState>,
 ) -> Result<ComputerRecord, CommandError> {
+    let _gate = state.pairing_gate.lock().await;
     let pairing = {
         let mut shell = state.inner.lock().await;
         shell
@@ -308,8 +316,10 @@ pub async fn phone_connect(
     state: State<'_, ShellState>,
     computer_id: String,
 ) -> Result<ComputerRecord, CommandError> {
-    let mut shell = state.inner.lock().await;
-    let client = shell.client()?;
+    let client = {
+        let shell = state.inner.lock().await;
+        shell.client()?
+    };
     let record = client
         .computers()
         .map_err(CommandError::from)?
@@ -317,7 +327,11 @@ pub async fn phone_connect(
         .find(|computer| computer.id == computer_id)
         .ok_or_else(|| CommandError::new("not_found", "This computer is not in the list."))?;
     let connection = client.connect(&record).await.map_err(CommandError::from)?;
-    if let Some(previous) = shell.connections.insert(record.id.clone(), connection) {
+    let mut shell = state.inner.lock().await;
+    if let Some(previous) = shell
+        .connections
+        .insert(record.id.clone(), Arc::new(connection))
+    {
         previous.close();
     }
     Ok(record)
@@ -342,14 +356,17 @@ pub async fn phone_request(
     method: String,
     params: Option<Value>,
 ) -> Result<Value, CommandError> {
-    let shell = state.inner.lock().await;
     let method = Method::parse(&method).ok_or_else(|| {
         CommandError::new("forbidden", format!("The method is not allowed: {method}"))
     })?;
-    let connection = shell
-        .connections
-        .get(&computer_id)
-        .ok_or_else(|| CommandError::new("not_connected", "Connect to this computer first."))?;
+    let connection = {
+        let shell = state.inner.lock().await;
+        shell
+            .connections
+            .get(&computer_id)
+            .map(Arc::clone)
+            .ok_or_else(|| CommandError::new("not_connected", "Connect to this computer first."))?
+    };
     let response = connection
         .request(method, params, Vec::new())
         .await

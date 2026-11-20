@@ -1451,9 +1451,13 @@ impl AppState {
         budget.register(&entry);
 
         let id = entry.id();
+        let active = entry.is_active();
         let mut store = lock(&self.inner.sessions);
         store.order.push(id.clone());
         store.entries.insert(id, entry);
+        if active {
+            store.active += 1;
+        }
     }
 
     pub fn save(&self) {
