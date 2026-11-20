@@ -657,7 +657,17 @@ export const fr = {
     'Saisissez une adresse pour ouvrir une page dans le navigateur de cette session.',
   'panel.browserLoading': 'Chargement de la page…',
   'panel.browserUnavailable':
-    'Le navigateur n’est pas disponible. Installez Chrome ou Chromium, ou définissez la variable d’environnement CHROME.',
+    'Le navigateur intégré n’est pas disponible sur cet ordinateur.',
+  'panel.browserSetupChecking':
+    'Recherche d’un navigateur installé…',
+  'panel.browserSetupDownloading':
+    'Téléchargement de Chrome for Testing…',
+  'panel.browserSetupVerifying': 'Vérification du téléchargement…',
+  'panel.browserSetupUnpacking': 'Extraction du navigateur…',
+  'panel.browserSetupProgress': '{percent} % téléchargé',
+  'panel.browserSetupFailed':
+    'Le navigateur n’a pas pu être installé.',
+  'panel.browserSetupRetry': 'Réessayer',
   'panel.browserView': 'Vue en direct de {title}',
   'panel.browserTabLabel': 'Onglets du navigateur de la session',
   'panel.browserNoTitle': 'Page sans titre',

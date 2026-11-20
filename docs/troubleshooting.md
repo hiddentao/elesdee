@@ -62,6 +62,12 @@ The app refused the package and did not install it. Check for updates again. If 
 
 The app keeps running and stops the install before it replaces the app. Choose **Install and restart** again. The sessions stay saved.
 
+## The built-in browser did not download
+
+The app uses Chrome or Chromium when one is installed. Otherwise the first use of a session browser downloads a pinned Chrome for Testing build into the app's data folder. The Browser panel shows the step and the progress. If the download or its check fails, the panel shows the reason and a **Retry** button.
+
+Check the network connection and the free space on the disk, then choose **Retry**. A failed download is removed, so the retry starts clean. Installing Chrome or Chromium also works: the next use takes the installed copy and needs no download.
+
 ## Report a bug with diagnostics
 
 Open **Settings**, choose **Diagnostics**, and choose **Export diagnostics**. Pick a folder. The app writes one JSON file there, named `elesdee-diagnostics-<timestamp>.json`. Attach that file to a GitHub issue.
@@ -72,7 +78,7 @@ The same log is at `.elesdee/logs/core.log` under your home folder. The app keep
 
 ## Where the app keeps its data
 
-The core service stores its state under your home folder in `.elesdee`. The folder is private to your user account. Session logs and the state file live there.
+The core service stores its state under your home folder in `.elesdee`. The folder is private to your user account. Session logs and the state file live there. A downloaded browser build lives in the `chromium` folder there; delete that folder to make the next browser use download again.
 
 ## Next steps
 

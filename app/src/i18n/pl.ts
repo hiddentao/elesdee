@@ -658,7 +658,16 @@ export const pl = {
     'Wpisz adres, aby otworzyć stronę w przeglądarce tej sesji.',
   'panel.browserLoading': 'Ładowanie strony…',
   'panel.browserUnavailable':
-    'Przeglądarka jest niedostępna. Zainstaluj Chrome lub Chromium albo ustaw zmienną środowiskową CHROME.',
+    'Wbudowana przeglądarka nie jest dostępna na tym komputerze.',
+  'panel.browserSetupChecking':
+    'Sprawdzanie zainstalowanej przeglądarki…',
+  'panel.browserSetupDownloading': 'Pobieranie Chrome for Testing…',
+  'panel.browserSetupVerifying': 'Sprawdzanie pobrania…',
+  'panel.browserSetupUnpacking': 'Rozpakowywanie przeglądarki…',
+  'panel.browserSetupProgress': 'Pobrano {percent}%',
+  'panel.browserSetupFailed':
+    'Nie udało się zainstalować przeglądarki.',
+  'panel.browserSetupRetry': 'Spróbuj ponownie',
   'panel.browserView': 'Podgląd na żywo: {title}',
   'panel.browserTabLabel': 'Karty przeglądarki sesji',
   'panel.browserNoTitle': 'Strona bez tytułu',

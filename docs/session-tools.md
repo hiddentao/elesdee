@@ -87,7 +87,7 @@ Each session has its own browser. It has separate tabs, cookies, storage and log
 
 The agent can work through a form or check a UI change and then show you the result. The **Browser** tab of the session panel shows the same tabs and a live picture of the page. The tools are limited to the calling session, so an agent cannot read or control another session's tabs. The browser starts on first use. Closing or pausing the session stops the browser and keeps its logins.
 
-The browser uses an installed Chrome or Chromium. See [Sessions](sessions.md) for the panel controls.
+The browser uses an installed Chrome or Chromium when one exists. Otherwise the app downloads a pinned Chrome for Testing build on first use and shows the progress in the **Browser** tab. See [Sessions](sessions.md) for the panel controls.
 
 ## Usage
 

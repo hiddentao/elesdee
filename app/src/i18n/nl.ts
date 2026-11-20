@@ -653,7 +653,16 @@ export const nl = {
     'Voer een adres in om een pagina te openen in de browser van deze sessie.',
   'panel.browserLoading': 'Pagina wordt geladen…',
   'panel.browserUnavailable':
-    'De browser is niet beschikbaar. Installeer Chrome of Chromium, of stel de omgevingsvariabele CHROME in.',
+    'De ingebouwde browser is niet beschikbaar op deze computer.',
+  'panel.browserSetupChecking':
+    'Zoeken naar een geïnstalleerde browser…',
+  'panel.browserSetupDownloading': 'Chrome for Testing downloaden…',
+  'panel.browserSetupVerifying': 'Download controleren…',
+  'panel.browserSetupUnpacking': 'Browser uitpakken…',
+  'panel.browserSetupProgress': '{percent}% gedownload',
+  'panel.browserSetupFailed':
+    'De browser kon niet worden geïnstalleerd.',
+  'panel.browserSetupRetry': 'Opnieuw proberen',
   'panel.browserView': 'Live weergave van {title}',
   'panel.browserTabLabel': 'Browser-tabbladen van de sessie',
   'panel.browserNoTitle': 'Pagina zonder titel',

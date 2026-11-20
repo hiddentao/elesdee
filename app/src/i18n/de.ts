@@ -649,7 +649,15 @@ export const de = {
     'Geben Sie eine Adresse ein, um eine Seite im Browser dieser Sitzung zu öffnen.',
   'panel.browserLoading': 'Seite wird geladen…',
   'panel.browserUnavailable':
-    'Der Browser ist nicht verfügbar. Installieren Sie Chrome oder Chromium oder setzen Sie die Umgebungsvariable CHROME.',
+    'Der integrierte Browser ist auf diesem Computer nicht verfügbar.',
+  'panel.browserSetupChecking': 'Prüfe, ob ein Browser installiert ist…',
+  'panel.browserSetupDownloading': 'Chrome for Testing wird heruntergeladen…',
+  'panel.browserSetupVerifying': 'Download wird geprüft…',
+  'panel.browserSetupUnpacking': 'Browser wird entpackt…',
+  'panel.browserSetupProgress': '{percent} % heruntergeladen',
+  'panel.browserSetupFailed':
+    'Der Browser konnte nicht installiert werden.',
+  'panel.browserSetupRetry': 'Erneut versuchen',
   'panel.browserView': 'Live-Ansicht von {title}',
   'panel.browserTabLabel': 'Browser-Tabs der Sitzung',
   'panel.browserNoTitle': 'Seite ohne Titel',

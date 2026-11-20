@@ -24,13 +24,18 @@ pub(crate) fn create_private_dir_all(path: &Path) -> io::Result<()> {
 }
 
 pub(crate) fn write_private_file(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    let mut file = create_private_file(path)?;
+    file.write_all(bytes)?;
+    file.sync_all()
+}
+
+pub(crate) fn create_private_file(path: &Path) -> io::Result<File> {
     let mut options = OpenOptions::new();
     options.write(true).create(true).truncate(true);
     set_file_mode(&mut options);
-    let mut file = options.open(path)?;
+    let file = options.open(path)?;
     set_file_permissions(&file)?;
-    file.write_all(bytes)?;
-    file.sync_all()
+    Ok(file)
 }
 
 pub(crate) fn write_private_file_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {

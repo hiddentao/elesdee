@@ -843,6 +843,17 @@ pub struct CachedModels {
     pub models: Vec<crate::model_list::ModelChoice>,
 }
 
+/// A browser download source for tests.
+#[doc(hidden)]
+#[derive(Clone, Debug)]
+pub struct TestBrowserInstall {
+    pub root: PathBuf,
+    pub url: String,
+    pub version: String,
+    pub platform: String,
+    pub sha256: String,
+}
+
 #[derive(Clone)]
 pub struct AppState {
     inner: Arc<Inner>,
@@ -977,6 +988,34 @@ impl AppState {
             inner.agent_bin = Some(binary);
         }
         state.recover_after_load()
+    }
+
+    /// Points the browser installer at a fake download source. Tests use it
+    /// with a local server and a fake archive.
+    #[doc(hidden)]
+    pub fn with_test_browser_install(mut self, install: TestBrowserInstall) -> Self {
+        let profiles = self
+            .inner
+            .store
+            .as_ref()
+            .map(|store| store.directory().join("browsers"));
+        if let Some(inner) = Arc::get_mut(&mut self.inner) {
+            inner.browser = BrowserManager::new(
+                profiles,
+                false,
+                Some(crate::browser::install::Options {
+                    root: install.root,
+                    pinned: crate::browser::install::PinnedBrowser {
+                        version: install.version,
+                        platform: install.platform,
+                        url: install.url,
+                        sha256: install.sha256,
+                    },
+                    use_system: false,
+                }),
+            );
+        }
+        self
     }
 
     #[doc(hidden)]
@@ -1157,6 +1196,17 @@ impl AppState {
         let browser_profiles = store
             .as_ref()
             .map(|store| store.directory().join("browsers"));
+        let browser_install = if fake_browser {
+            None
+        } else {
+            store.as_ref().and_then(|store| {
+                crate::browser::install::pinned().map(|pinned| crate::browser::install::Options {
+                    root: store.directory().join("chromium"),
+                    pinned,
+                    use_system: true,
+                })
+            })
+        };
         Self {
             inner: Arc::new(Inner {
                 projects: Mutex::new(records.projects),
@@ -1198,7 +1248,7 @@ impl AppState {
                 sign_ins: crate::auth::SignInRegistry::default(),
                 github: GitHubInner::from_environment(),
                 link: crate::link::LinkHub::new(),
-                browser: BrowserManager::new(browser_profiles, fake_browser),
+                browser: BrowserManager::new(browser_profiles, fake_browser, browser_install),
             }),
         }
     }
@@ -1209,7 +1259,7 @@ impl AppState {
     }
 
     /// Returns the per-session browser manager.
-    pub fn browser(&self) -> &BrowserManager {
+    pub(crate) fn browser(&self) -> &BrowserManager {
         &self.inner.browser
     }
 

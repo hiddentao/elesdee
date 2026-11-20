@@ -11,6 +11,7 @@ import {
   createBrowserTab,
   getBrowserState,
   openBrowserUrl,
+  setupBrowser,
 } from '../api/client';
 import type { BrowserState, BrowserTab, Session } from '../api/types';
 import { makeSession } from '../test/fixtures';
@@ -26,6 +27,7 @@ vi.mock('../api/client', () => ({
   createBrowserTab: vi.fn(),
   getBrowserState: vi.fn(),
   openBrowserUrl: vi.fn(),
+  setupBrowser: vi.fn(),
 }));
 
 function emptyState(sessionId = 's1'): BrowserState {
@@ -37,6 +39,14 @@ function emptyState(sessionId = 's1'): BrowserState {
     activeTabId: null,
     screenshotSeq: 0,
     error: null,
+    setup: {
+      phase: 'idle',
+      downloaded: 0,
+      total: null,
+      version: null,
+      source: null,
+      error: null,
+    },
   };
 }
 
@@ -79,6 +89,13 @@ beforeEach(() => {
   vi.mocked(browserBack).mockResolvedValue(stateWith([tab()]));
   vi.mocked(browserForward).mockResolvedValue(stateWith([tab()]));
   vi.mocked(browserReload).mockResolvedValue(stateWith([tab()]));
+  vi.mocked(setupBrowser).mockResolvedValue({
+    ...emptyState(),
+    setup: {
+      ...emptyState().setup,
+      phase: 'checking',
+    },
+  });
 });
 
 describe('BrowserPanel', () => {
@@ -194,5 +211,56 @@ describe('BrowserPanel', () => {
       'The browser is not available.',
     );
     await waitFor(() => expect(getBrowserState).toHaveBeenCalledWith('s1'));
+  });
+
+  it('shows the browser download progress', async () => {
+    vi.mocked(getBrowserState).mockResolvedValue({
+      ...emptyState(),
+      available: false,
+      setup: {
+        phase: 'downloading',
+        downloaded: 50,
+        total: 200,
+        version: null,
+        source: null,
+        error: null,
+      },
+    });
+    render(<BrowserPanel session={makeSession()} />);
+
+    const status = await screen.findByRole('status');
+    expect(status).toHaveTextContent('Downloading Chrome for Testing…');
+    expect(status).toHaveTextContent('25% downloaded');
+    expect(screen.getByRole('progressbar')).toHaveAttribute('value', '50');
+    expect(screen.getByRole('button', { name: 'Open' })).toBeDisabled();
+  });
+
+  it('shows a failed browser download and retries it', async () => {
+    const user = userEvent.setup();
+    vi.mocked(getBrowserState).mockResolvedValue({
+      ...emptyState(),
+      available: false,
+      setup: {
+        phase: 'failed',
+        downloaded: 0,
+        total: null,
+        version: null,
+        source: null,
+        error: 'The browser download failed with status 500.',
+      },
+    });
+    render(<BrowserPanel session={makeSession()} />);
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('The browser could not be installed.');
+    expect(alert).toHaveTextContent(
+      'The browser download failed with status 500.',
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(setupBrowser).toHaveBeenCalledWith('s1');
+    expect(
+      await screen.findByText('Checking for an installed browser…'),
+    ).toBeInTheDocument();
   });
 });

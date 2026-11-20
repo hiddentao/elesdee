@@ -24,10 +24,7 @@ pub struct Chromium {
 }
 
 impl Chromium {
-    pub async fn launch(profile: &Path) -> Result<Self, BrowserError> {
-        let executable = super::chromium_path().ok_or_else(|| {
-            BrowserError::Unavailable("No Chrome or Chromium binary was found.".to_owned())
-        })?;
+    pub async fn launch(profile: &Path, executable: &Path) -> Result<Self, BrowserError> {
         crate::private_fs::create_private_dir_all(profile).map_err(|error| {
             BrowserError::Unavailable(format!(
                 "The browser profile folder could not be created: {error}"

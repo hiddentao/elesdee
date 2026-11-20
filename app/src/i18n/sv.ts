@@ -657,7 +657,16 @@ export const sv = {
     'Ange en adress för att öppna en sida i sessionens webbläsare.',
   'panel.browserLoading': 'Läser in sidan…',
   'panel.browserUnavailable':
-    'Webbläsaren är inte tillgänglig. Installera Chrome eller Chromium, eller ange miljövariabeln CHROME.',
+    'Den inbyggda webbläsaren är inte tillgänglig på den här datorn.',
+  'panel.browserSetupChecking':
+    'Söker efter en installerad webbläsare…',
+  'panel.browserSetupDownloading': 'Hämtar Chrome for Testing…',
+  'panel.browserSetupVerifying': 'Kontrollerar hämtningen…',
+  'panel.browserSetupUnpacking': 'Packar upp webbläsaren…',
+  'panel.browserSetupProgress': '{percent} % hämtat',
+  'panel.browserSetupFailed':
+    'Webbläsaren kunde inte installeras.',
+  'panel.browserSetupRetry': 'Försök igen',
   'panel.browserView': 'Livevy av {title}',
   'panel.browserTabLabel': 'Sessionens webbläsarflikar',
   'panel.browserNoTitle': 'Sida utan titel',

@@ -657,7 +657,15 @@ export const it = {
     'Inserisci un indirizzo per aprire una pagina nel browser di questa sessione.',
   'panel.browserLoading': 'Caricamento della pagina…',
   'panel.browserUnavailable':
-    'Il browser non è disponibile. Installa Chrome o Chromium, oppure imposta la variabile d’ambiente CHROME.',
+    'Il browser integrato non è disponibile su questo computer.',
+  'panel.browserSetupChecking': 'Ricerca di un browser installato…',
+  'panel.browserSetupDownloading': 'Download di Chrome for Testing…',
+  'panel.browserSetupVerifying': 'Verifica del download…',
+  'panel.browserSetupUnpacking': 'Estrazione del browser…',
+  'panel.browserSetupProgress': '{percent}% scaricato',
+  'panel.browserSetupFailed':
+    'Impossibile installare il browser.',
+  'panel.browserSetupRetry': 'Riprova',
   'panel.browserView': 'Vista dal vivo di {title}',
   'panel.browserTabLabel': 'Schede del browser della sessione',
   'panel.browserNoTitle': 'Pagina senza titolo',
