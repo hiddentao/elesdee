@@ -10,6 +10,7 @@
 //! new ALPN, so an old phone shows an update message instead of a parse error.
 #![deny(missing_docs)]
 
+mod client;
 mod error;
 mod framing;
 mod identity;
@@ -18,15 +19,20 @@ mod method;
 mod pairing;
 mod ticket;
 
+pub use client::{
+    AppConnection, BRIDGE_VERSION, ClientError, ComputerRecord, LinkClient, PairReply,
+    PairingCancel, PairingConfirm, PairingMachine, PairingRejection, PairingStart, PairingState,
+    PhoneStore, StoreError, load_or_create_identity,
+};
 pub use error::{ErrorBody, ErrorCode, LinkError, PairingError};
 pub use framing::{Request, Response, StreamEvent};
 pub use identity::DeviceIdentity;
 pub use limits::{
     CONFIRMATION_TTL_SECS, DESKTOP_NAME_MAX_CHARS, HELLO_TIMEOUT, MAX_CONNECTED_PHONES,
-    MAX_HEADER_BYTES, MAX_PAIRED_PHONES, MAX_STREAMS_PER_CONNECTION, MAX_STREAMS_TOTAL,
-    MAX_UI_PACKAGE_BYTES, MAX_UPLOAD_BYTES, PAIRING_MAX_ATTEMPTS, PAIRING_TICKET_TTL_SECS,
-    PHONE_NAME_MAX_CHARS, PHONE_NAME_MIN_CHARS, QUIC_IDLE_TIMEOUT, QUIC_KEEP_ALIVE,
-    UNARY_REQUEST_TIMEOUT,
+    MAX_HEADER_BYTES, MAX_PAIR_FRAME_BYTES, MAX_PAIRED_PHONES, MAX_STREAMS_PER_CONNECTION,
+    MAX_STREAMS_TOTAL, MAX_UI_PACKAGE_BYTES, MAX_UPLOAD_BYTES, PAIRING_MAX_ATTEMPTS,
+    PAIRING_TICKET_TTL_SECS, PHONE_NAME_MAX_CHARS, PHONE_NAME_MIN_CHARS, QUIC_IDLE_TIMEOUT,
+    QUIC_KEEP_ALIVE, UNARY_REQUEST_TIMEOUT,
 };
 pub use method::Method;
 pub use pairing::{PairingSession, pairing_code};
