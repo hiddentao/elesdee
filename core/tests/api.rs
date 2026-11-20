@@ -5624,6 +5624,8 @@ async fn file_endpoints_reject_unsafe_and_oversized_content() {
     )
     .expect("write large file");
     fs::write(outside.path.join("secret.txt"), "secret\n").expect("write secret");
+    fs::create_dir_all(folder.path.join(".git")).expect("create git folder");
+    fs::write(folder.path.join(".git").join("config"), "[remote]\n").expect("write git config");
 
     let app = router(AppState::ephemeral());
     let session = create_terminal(&app, &folder.path).await;
@@ -5652,6 +5654,42 @@ async fn file_endpoints_reject_unsafe_and_oversized_content() {
     )
     .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+
+    let (status, body) = call(
+        &app,
+        "GET",
+        &format!("/api/sessions/{id}/file?path=.git/config"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+
+    let (status, body) = call(
+        &app,
+        "POST",
+        &format!("/api/sessions/{id}/file"),
+        Some(json!({ "path": ".git/config", "content": "changed\n" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert_eq!(
+        fs::read_to_string(folder.path.join(".git").join("config")).expect("read git config"),
+        "[remote]\n"
+    );
+
+    #[cfg(unix)]
+    {
+        fs::hard_link(folder.path.join("note.txt"), folder.path.join("linked.txt"))
+            .expect("hard link");
+        let (status, body) = call(
+            &app,
+            "GET",
+            &format!("/api/sessions/{id}/file?path=linked.txt"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    }
 
     for route in ["file", "files"] {
         let (status, body) = call(
