@@ -572,6 +572,7 @@ export const zhCN = {
   'phone.noProjects': '在电脑上添加项目后即可开始会话。',
   'phone.everythingElse': '其他',
   'phone.noSessions': '暂无会话。',
+  'phone.noFilterMatches': '没有符合此筛选条件的会话。',
   'phone.allTabsLabel': '所有标签页，{count}',
   'phone.closeTabs': '关闭标签页',
   'phone.closeTabLabel': '关闭标签页，{name}',

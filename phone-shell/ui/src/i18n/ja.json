@@ -25,6 +25,7 @@
   "sessions.title": "セッション",
   "sessions.loading": "セッションを読み込み中…",
   "sessions.empty": "セッションはまだありません。",
+  "sessions.emptyFilter": "このフィルターに一致するセッションはありません。",
   "sessions.waiting": "対応待ち",
   "sessions.other": "その他",
   "sessions.refresh": "更新",

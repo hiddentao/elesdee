@@ -242,6 +242,13 @@ body {
   background: var(--surface);
 }
 
+/* The tab strip scrolls, so the ring is drawn inside the tab. */
+.phone-tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -4px;
+  box-shadow: none;
+}
+
 .phone-tab-name {
   font-size: 13px;
   font-weight: 600;
@@ -317,10 +324,23 @@ body {
   line-height: 1.45;
 }
 
+/* An action that cannot run yet keeps the disabled look but stays focusable. */
+.btn[aria-disabled="true"] {
+  opacity: 0.55;
+  cursor: default;
+}
+
 .phone-swipe-row {
   position: relative;
   overflow: hidden;
   border-bottom: 1px solid var(--border);
+}
+
+/* The swipe row clips its content, so the ring is drawn inside the row. */
+.phone-swipe-row .phone-sheet-row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -4px;
+  box-shadow: none;
 }
 
 .phone-swipe-close {

@@ -257,6 +257,7 @@ export default function PhoneApp() {
     readSavedKeys(keyStorage()),
   );
   const [actionNotice, setActionNotice] = useState('');
+  const [switchError, setSwitchError] = useState('');
   const [activeId, setActiveId] = useState<string | null>(sessionHashId);
   const [screen, setScreen] = useState<'list' | 'session'>(
     sessionHashId() ? 'session' : 'list',
@@ -276,6 +277,9 @@ export default function PhoneApp() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const tabStripRef = useRef<HTMLDivElement>(null);
+  const sessionTitleRef = useRef<HTMLHeadingElement>(null);
+  const focusTitleRef = useRef(false);
+  const dialogReturnRef = useRef(false);
   const activeIdRef = useRef(activeId);
   activeIdRef.current = activeId;
 
@@ -382,17 +386,35 @@ export default function PhoneApp() {
     : -1;
 
   useEffect(() => {
-    if (active) {
+    if (loading || active) {
       return;
     }
     const fromHash = sessionHashId();
     const target =
       openSessions.find((session) => session.id === fromHash) ??
       openSessions[0];
-    if (target && target.id !== activeId) {
-      setActiveId(target.id);
+    if (target) {
+      if (target.id !== activeId) {
+        setActiveId(target.id);
+      }
+      return;
     }
-  }, [active, openSessions, activeId]);
+    setActiveId(null);
+    setScreen('list');
+    window.history.replaceState(null, '', window.location.pathname);
+  }, [loading, active, openSessions, activeId]);
+
+  useEffect(() => {
+    if (active) {
+      return;
+    }
+    setActionsOpen(false);
+    setSwitchOpen(false);
+    setKeysOpen(false);
+    setUsageOpen(false);
+    setCloseOpen(false);
+    setSwitchError('');
+  }, [active]);
 
   useEffect(() => {
     if (activeIndex < 0 || !tabStripRef.current) {
@@ -403,6 +425,38 @@ export default function PhoneApp() {
       behavior: 'instant',
     });
   }, [activeIndex]);
+
+  useEffect(() => {
+    if (!focusTitleRef.current || screen !== 'session' || !active) {
+      return;
+    }
+    focusTitleRef.current = false;
+    sessionTitleRef.current?.focus();
+  }, [screen, active]);
+
+  useEffect(() => {
+    const open = usageOpen || closeOpen;
+    if (open) {
+      dialogReturnRef.current = true;
+      return;
+    }
+    if (!dialogReturnRef.current) {
+      return;
+    }
+    dialogReturnRef.current = false;
+    queueMicrotask(() => {
+      const current = document.activeElement;
+      if (
+        current instanceof HTMLElement &&
+        current !== document.body &&
+        current.isConnected &&
+        !current.closest('[inert]')
+      ) {
+        return;
+      }
+      document.getElementById('phone-actions-trigger')?.focus();
+    });
+  }, [usageOpen, closeOpen]);
 
   const activeStatusRef = useRef(active?.status ?? 'closed');
   activeStatusRef.current = active?.status ?? 'closed';
@@ -603,13 +657,14 @@ export default function PhoneApp() {
     if (!active) {
       return;
     }
+    setSwitchError('');
     try {
       const updated = await switchSessionConfig(active.id, configId);
       mergeSession(updated);
       setSwitchOpen(false);
       setActionNotice('');
     } catch {
-      setActionNotice(tRef.current('switchAccount.errorSwitch'));
+      setSwitchError(tRef.current('switchAccount.errorSwitch'));
     }
   }
 
@@ -680,22 +735,30 @@ export default function PhoneApp() {
   useEffect(() => {
     if (!cardKey) {
       announcedCardRef.current = null;
+      setCardAnnouncement('');
       return;
     }
     if (announcedCardRef.current === cardKey) {
       return;
     }
     announcedCardRef.current = cardKey;
-    setCardAnnouncement(cardNotice);
+    setCardAnnouncement('');
+    const timer = window.setTimeout(() => setCardAnnouncement(cardNotice), 0);
+    return () => window.clearTimeout(timer);
   }, [cardKey, cardNotice]);
 
+  const hasActiveSessions = sessions.some(
+    (session) => session.status === 'active',
+  );
   const anySheetOpen =
     sheetOpen ||
     languageSheetOpen ||
     startOpen ||
-    actionsOpen ||
-    switchOpen ||
-    keysOpen;
+    (actionsOpen && active !== null) ||
+    (switchOpen && active !== null) ||
+    (keysOpen && active !== null) ||
+    usageOpen ||
+    (closeOpen && active !== null);
 
   return (
     <div className="phone" inert={anySheetOpen}>
@@ -711,7 +774,9 @@ export default function PhoneApp() {
               ‹
             </button>
             <div className="phone-head-text">
-              <h1 className="phone-title">{active.name}</h1>
+              <h1 className="phone-title" ref={sessionTitleRef} tabIndex={-1}>
+                {active.name}
+              </h1>
               <span className="phone-sub">
                 {workLabel(active, t) ?? t('status.active')} ·{' '}
                 {active.projectId}
@@ -813,6 +878,7 @@ export default function PhoneApp() {
                       key={session.id}
                       session={session}
                       onSelect={selectSession}
+                      active={session.id === activeId}
                       t={t}
                     />
                   ))}
@@ -826,7 +892,13 @@ export default function PhoneApp() {
                   </h2>
                 ) : null}
                 {rest.length === 0 && waiting.length === 0 ? (
-                  <p className="phone-empty">{t('phone.noSessions')}</p>
+                  <p className="phone-empty">
+                    {t(
+                      hasActiveSessions
+                        ? 'phone.noFilterMatches'
+                        : 'phone.noSessions',
+                    )}
+                  </p>
                 ) : (
                   rest.map((session) => (
                     <SessionRow
@@ -858,7 +930,7 @@ export default function PhoneApp() {
                     session.id === activeId ? 'phone-tab is-on' : 'phone-tab'
                   }
                   aria-current={
-                    session.id === activeId ? 'page' : undefined
+                    session.id === activeId ? 'true' : undefined
                   }
                   onClick={() => selectSession(session.id)}
                 >
@@ -1176,6 +1248,7 @@ export default function PhoneApp() {
                 : [...current, session],
             );
             selectSession(session.id);
+            focusTitleRef.current = true;
           }}
         />
       ) : null}
@@ -1186,6 +1259,7 @@ export default function PhoneApp() {
           t={t}
           onSwitch={() => {
             setActionsOpen(false);
+            setSwitchError('');
             setSwitchOpen(true);
           }}
           onUsage={() => {
@@ -1206,8 +1280,12 @@ export default function PhoneApp() {
           configs={configs}
           providers={providers}
           t={t}
+          error={switchError}
           onChoose={(configId) => void chooseConfig(configId)}
-          onClose={() => setSwitchOpen(false)}
+          onClose={() => {
+            setSwitchError('');
+            setSwitchOpen(false);
+          }}
         />
       ) : null}
 
@@ -1222,20 +1300,26 @@ export default function PhoneApp() {
         />
       ) : null}
 
-      {usageOpen ? (
-        <UsageDialog
-          providers={providers}
-          onClose={() => setUsageOpen(false)}
-        />
-      ) : null}
+      {usageOpen
+        ? createPortal(
+            <UsageDialog
+              providers={providers}
+              onClose={() => setUsageOpen(false)}
+            />,
+            document.body,
+          )
+        : null}
 
-      {closeOpen && active ? (
-        <CloseSessionDialog
-          session={active}
-          onConfirm={confirmClose}
-          onClose={() => setCloseOpen(false)}
-        />
-      ) : null}
+      {closeOpen && active
+        ? createPortal(
+            <CloseSessionDialog
+              session={active}
+              onConfirm={confirmClose}
+              onClose={() => setCloseOpen(false)}
+            />,
+            document.body,
+          )
+        : null}
       {createPortal(
         <p className="sr-only phone-live" role="status" aria-live="polite">
           {cardAnnouncement}
@@ -1782,7 +1866,10 @@ function StartSessionSheet({
               <button
                 type="submit"
                 className="btn btn-primary"
-                disabled={submitting || blocker !== null}
+                disabled={submitting}
+                aria-disabled={
+                  submitting || blocker !== null ? 'true' : undefined
+                }
               >
                 {submitting
                   ? t('newSession.submitting')
@@ -1858,6 +1945,7 @@ function SwitchConfigSheet({
   configs,
   providers,
   t,
+  error,
   onChoose,
   onClose,
 }: {
@@ -1865,6 +1953,7 @@ function SwitchConfigSheet({
   configs: AiConfig[];
   providers: Provider[];
   t: Translate;
+  error: string;
   onChoose: (configId: string) => void;
   onClose: () => void;
 }) {
@@ -1894,6 +1983,11 @@ function SwitchConfigSheet({
             ×
           </button>
         </div>
+        {error ? (
+          <p className="phone-card-error" role="alert">
+            {error}
+          </p>
+        ) : null}
         {choices.length === 0 ? (
           <p className="phone-sheet-note">{t('phone.switchNone')}</p>
         ) : (
@@ -1958,6 +2052,7 @@ function SessionRow({
     <button
       type="button"
       className={active ? 'phone-row is-on' : 'phone-row'}
+      aria-current={active ? 'true' : undefined}
       onClick={() => onSelect(session.id)}
     >
       <span className="phone-row-main">
@@ -2078,7 +2173,7 @@ function SheetRow({
       <button
         type="button"
         className={active ? 'phone-sheet-row is-on' : 'phone-sheet-row'}
-        aria-current={active ? 'page' : undefined}
+        aria-current={active ? 'true' : undefined}
         style={{ transform: `translateX(${offset}px)` }}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}

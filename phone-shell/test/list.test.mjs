@@ -69,6 +69,15 @@ test('the waiting filter keeps only sessions that need me', () => {
   assert.equal(list.matchesPhoneFilter(session(), 'all'), true);
 });
 
+test('the all and waiting filters drop closed sessions', () => {
+  const closed = session({ status: 'closed', workState: null });
+  assert.equal(list.matchesPhoneFilter(closed, 'all'), false);
+  assert.equal(
+    list.matchesPhoneFilter({ ...closed, waitingFor: 'input' }, 'waiting'),
+    false,
+  );
+});
+
 test('a waiting row keeps its preview instead of repeating the heading', () => {
   assert.equal(
     list.rowPreview(

@@ -306,11 +306,14 @@ function focusableIn(container: HTMLElement): HTMLElement[] {
   );
 }
 
-function titleEl(text: string): HTMLElement {
+function titleEl(
+  text: string,
+  attrs: Record<string, string> = {},
+): HTMLElement {
   return el('h1', {
     class: 'phone-title',
     text,
-    attrs: { style: 'margin: 0' },
+    attrs: { style: 'margin: 0', ...attrs },
   });
 }
 
@@ -375,6 +378,7 @@ export class ShellApp {
   private focusSheetOnRender = false;
   private focusAfterRenderId: string | null = null;
   private announcedCard: string | null = null;
+  private announceTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly liveRegion: HTMLElement;
   private usageLoading = false;
   private usageError: Notice | null = null;
@@ -538,8 +542,22 @@ export class ShellApp {
     if (key === this.announcedCard) {
       return;
     }
+    if (this.announceTimer !== null) {
+      clearTimeout(this.announceTimer);
+      this.announceTimer = null;
+    }
     this.announcedCard = key;
-    this.liveRegion.textContent = text;
+    // Clear first so the same wording is a new announcement next time.
+    this.liveRegion.textContent = '';
+    if (!key) {
+      return;
+    }
+    this.announceTimer = setTimeout(() => {
+      this.announceTimer = null;
+      if (this.announcedCard === key) {
+        this.liveRegion.textContent = text;
+      }
+    }, 0);
   }
 
   private async loadComputers(notice?: Notice): Promise<void> {
@@ -631,7 +649,10 @@ export class ShellApp {
       head.append(this.backButton(() => this.goSessions(screen.computer)));
       head.append(
         el('div', { class: 'phone-head-text' }, [
-          titleEl(screen.session.name),
+          titleEl(screen.session.name, {
+            id: 'session-title',
+            tabindex: '-1',
+          }),
           el('span', { class: 'phone-sub', text: screen.computer.name }),
         ]),
       );
@@ -1103,8 +1124,16 @@ export class ShellApp {
     );
 
     if (waiting.length === 0 && rest.length === 0) {
+      const hasSessions = screen.sessions.some(
+        (session) => session.status === 'active',
+      );
       main.append(
-        el('p', { class: 'phone-empty', text: this.t('sessions.empty') }),
+        el('p', {
+          class: 'phone-empty',
+          text: this.t(
+            hasSessions ? 'sessions.emptyFilter' : 'sessions.empty',
+          ),
+        }),
       );
       return main;
     }
@@ -2689,6 +2718,8 @@ export class ShellApp {
       )) as Session;
       this.sessionCache = mergeSession(this.sessionCache, created);
       await this.openSession(screen.computer, created, this.sessionCache);
+      // The launch form is gone, so the new session title takes focus.
+      document.getElementById('session-title')?.focus();
     } catch (error) {
       const current = this.screen;
       if (current.name !== 'newSession') {
@@ -2752,7 +2783,15 @@ export class ShellApp {
       const blocked =
         startBlocker(this.projects, formState.projectId, formState.configId) !==
         null;
-      submitButton.disabled = screen.busy || blocked;
+      // A blocked launch stays focusable so the form can point at the field
+      // that is missing.
+      submitButton.disabled = screen.busy;
+      submitButton.setAttribute(
+        'aria-disabled',
+        screen.busy || blocked ? 'true' : 'false',
+      );
+      submitButton.style.opacity = blocked && !screen.busy ? '0.55' : '';
+      submitButton.style.cursor = blocked && !screen.busy ? 'default' : '';
       if (incompleteNote) {
         incompleteNote.hidden = !blocked;
       }

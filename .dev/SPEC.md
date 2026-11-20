@@ -592,7 +592,7 @@ The mobile app is the only way to control the IDE remotely. It is for iOS and An
 
 From the mobile app I can:
 
-- See all sessions, updated in real time, and filter to running sessions (working or waiting) or to sessions that need me.
+- See all active sessions, updated in real time, and filter to running sessions (working or waiting) or to sessions that need me. Closed sessions do not appear on the phone, and a filter with no match says so.
 - Swipe a tab left to reveal Close. The swipe stops at the Close action and never closes the tab by itself. Close hides the tab; the session keeps running and can be opened again from the session list.
 - Type and send input to any session.
 - Upload files into a session. An uploaded file goes in elesdee's own folder for that session, outside the repo, and the agent is told its path. Nothing is added to the repo unless the agent copies it in.

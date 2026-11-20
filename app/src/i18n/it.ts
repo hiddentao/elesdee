@@ -630,6 +630,7 @@ export const it = {
   'phone.noProjects': 'Aggiungi un progetto sul computer per avviare una sessione.',
   'phone.everythingElse': 'Tutto il resto',
   'phone.noSessions': 'Nessuna sessione per ora.',
+  'phone.noFilterMatches': 'Nessuna sessione corrisponde a questo filtro.',
   'phone.allTabsLabel': 'Tutte le schede, {count}',
   'phone.closeTabs': 'Chiudi schede',
   'phone.closeTabLabel': 'Chiudi scheda, {name}',

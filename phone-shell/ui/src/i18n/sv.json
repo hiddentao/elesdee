@@ -25,6 +25,7 @@
   "sessions.title": "Sessioner",
   "sessions.loading": "Läser in sessioner…",
   "sessions.empty": "Inga sessioner ännu.",
+  "sessions.emptyFilter": "Inga sessioner matchar det här filtret.",
   "sessions.waiting": "Väntar på dig",
   "sessions.other": "Allt annat",
   "sessions.refresh": "Uppdatera",

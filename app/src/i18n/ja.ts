@@ -627,6 +627,7 @@ export const ja = {
   'phone.noProjects': 'コンピューターでプロジェクトを追加すると、セッションを開始できます。',
   'phone.everythingElse': 'その他',
   'phone.noSessions': 'セッションはまだありません。',
+  'phone.noFilterMatches': 'このフィルターに一致するセッションはありません。',
   'phone.allTabsLabel': 'すべてのタブ、{count}',
   'phone.closeTabs': 'タブを閉じる',
   'phone.closeTabLabel': 'タブを閉じる、{name}',

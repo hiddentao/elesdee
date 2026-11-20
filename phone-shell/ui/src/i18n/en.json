@@ -25,6 +25,7 @@
   "sessions.title": "Sessions",
   "sessions.loading": "Loading sessions…",
   "sessions.empty": "No sessions yet.",
+  "sessions.emptyFilter": "No sessions match this filter.",
   "sessions.waiting": "Waiting for you",
   "sessions.other": "Everything else",
   "sessions.refresh": "Refresh",

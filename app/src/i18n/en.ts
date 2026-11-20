@@ -602,6 +602,7 @@ export const en = {
   'phone.noProjects': 'Add a project on the computer to start a session.',
   'phone.everythingElse': 'Everything else',
   'phone.noSessions': 'No sessions yet.',
+  'phone.noFilterMatches': 'No sessions match this filter.',
   'phone.allTabsLabel': 'All tabs, {count}',
   'phone.closeTabs': 'Close tabs',
   'phone.closeTabLabel': 'Close tab, {name}',

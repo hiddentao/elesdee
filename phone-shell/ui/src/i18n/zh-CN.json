@@ -25,6 +25,7 @@
   "sessions.title": "会话",
   "sessions.loading": "正在加载会话…",
   "sessions.empty": "暂无会话。",
+  "sessions.emptyFilter": "没有符合此筛选条件的会话。",
   "sessions.waiting": "等待你处理",
   "sessions.other": "其他",
   "sessions.refresh": "刷新",

@@ -25,6 +25,7 @@
   "sessions.title": "Sessies",
   "sessions.loading": "Sessies laden…",
   "sessions.empty": "Nog geen sessies.",
+  "sessions.emptyFilter": "Geen sessies komen overeen met dit filter.",
   "sessions.waiting": "Wacht op jou",
   "sessions.other": "Al het andere",
   "sessions.refresh": "Vernieuwen",

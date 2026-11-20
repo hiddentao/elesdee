@@ -626,6 +626,7 @@ export const ko = {
   'phone.noProjects': '컴퓨터에서 프로젝트를 추가하면 세션을 시작할 수 있습니다.',
   'phone.everythingElse': '기타',
   'phone.noSessions': '아직 세션이 없습니다.',
+  'phone.noFilterMatches': '이 필터와 일치하는 세션이 없습니다.',
   'phone.allTabsLabel': '모든 탭, {count}',
   'phone.closeTabs': '탭 닫기',
   'phone.closeTabLabel': '탭 닫기, {name}',

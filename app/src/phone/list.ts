@@ -35,10 +35,10 @@ export function matchesPhoneFilter(
   filter: PhoneFilter,
 ): boolean {
   if (filter === 'waiting') {
-    return isWaiting(session);
+    return session.status === 'active' && isWaiting(session);
   }
   if (filter === 'all') {
-    return true;
+    return session.status === 'active';
   }
   return (
     session.status === 'active' &&

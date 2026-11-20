@@ -138,7 +138,7 @@ test('the session actions sheet is inert behind, traps Tab and closes on Escape'
   }
 });
 
-test('the active tab carries aria-current and the trigger points at the sheet', async ({
+test('the active view is current and the trigger points at the sheet', async ({
   page,
   request,
 }) => {
@@ -149,8 +149,8 @@ test('the active tab carries aria-current and the trigger points at the sheet', 
 
     const firstTab = page.locator('.phone-tab', { hasText: first.name });
     const secondTab = page.locator('.phone-tab', { hasText: second.name });
-    await expect(page.locator('.phone-tab[aria-current="page"]')).toHaveCount(1);
-    await expect(firstTab).toHaveAttribute('aria-current', 'page');
+    await expect(page.locator('.phone-tab[aria-current="true"]')).toHaveCount(1);
+    await expect(firstTab).toHaveAttribute('aria-current', 'true');
     await expect(secondTab).not.toHaveAttribute('aria-current');
 
     const trigger = page.getByRole('button', { name: /All tabs/ });
@@ -167,8 +167,8 @@ test('the active tab carries aria-current and the trigger points at the sheet', 
       .locator('.phone-sheet-row', { hasText: second.name })
       .click();
     await expect(page.locator('.phone-title')).toHaveText(second.name);
-    await expect(page.locator('.phone-tab[aria-current="page"]')).toHaveCount(1);
-    await expect(secondTab).toHaveAttribute('aria-current', 'page');
+    await expect(page.locator('.phone-tab[aria-current="true"]')).toHaveCount(1);
+    await expect(secondTab).toHaveAttribute('aria-current', 'true');
     await expect(firstTab).not.toHaveAttribute('aria-current');
   } finally {
     await closeFixture(request, fixture.sessions);
@@ -191,10 +191,11 @@ test('an incomplete new session focuses the first missing field and links its er
   const sheet = page.getByRole('dialog', { name: 'New session' });
   await expect(sheet).toBeVisible();
 
-  // docs/phone.md keeps the button disabled until both fields are chosen, so
-  // an incomplete submit is raised through the form element itself.
+  // The button keeps the disabled look but stays actionable, so the form can
+  // point at the first missing field.
   const submit = sheet.getByRole('button', { name: 'Start session' });
-  await expect(submit).toBeDisabled();
+  await expect(submit).not.toHaveAttribute('disabled');
+  await expect(submit).toHaveAttribute('aria-disabled', 'true');
 
   const project = sheet.getByRole('combobox', { name: 'Project' });
   const config = sheet.getByRole('combobox', { name: 'AI config' });
@@ -203,9 +204,8 @@ test('an incomplete new session focuses the first missing field and links its er
   await config.focus();
   await expect(config).toBeFocused();
 
-  await sheet.locator('form').evaluate((form) => {
-    (form as HTMLFormElement).requestSubmit();
-  });
+  // Enter in the closed combobox submits the form, as a keyboard user would.
+  await page.keyboard.press('Enter');
 
   await expect(project).toBeFocused();
   await expect(project).toHaveAttribute('aria-invalid', 'true');

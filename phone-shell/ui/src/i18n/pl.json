@@ -25,6 +25,7 @@
   "sessions.title": "Sesje",
   "sessions.loading": "Ładowanie sesji…",
   "sessions.empty": "Brak sesji.",
+  "sessions.emptyFilter": "Żadna sesja nie pasuje do tego filtra.",
   "sessions.waiting": "Czeka na Ciebie",
   "sessions.other": "Wszystko inne",
   "sessions.refresh": "Odśwież",

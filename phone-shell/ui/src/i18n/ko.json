@@ -25,6 +25,7 @@
   "sessions.title": "세션",
   "sessions.loading": "세션을 불러오는 중…",
   "sessions.empty": "아직 세션이 없습니다.",
+  "sessions.emptyFilter": "이 필터와 일치하는 세션이 없습니다.",
   "sessions.waiting": "처리 대기 중",
   "sessions.other": "그 외",
   "sessions.refresh": "새로 고침",

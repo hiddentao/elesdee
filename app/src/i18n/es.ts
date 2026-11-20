@@ -629,6 +629,7 @@ export const es = {
   'phone.noProjects': 'Añade un proyecto en el ordenador para iniciar una sesión.',
   'phone.everythingElse': 'Todo lo demás',
   'phone.noSessions': 'Aún no hay sesiones.',
+  'phone.noFilterMatches': 'Ninguna sesión coincide con este filtro.',
   'phone.allTabsLabel': 'Todas las pestañas, {count}',
   'phone.closeTabs': 'Cerrar pestañas',
   'phone.closeTabLabel': 'Cerrar pestaña, {name}',

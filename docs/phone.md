@@ -28,7 +28,7 @@ The globe button in the header opens **Languages**. Pick one of the 12 interface
 
 ## Session list
 
-The list shows every session with its project, status and recent output. **Waiting for you** sits above the other sessions. The filters show all sessions, running sessions or sessions that need you. Running means a session is working or waiting; paused and finished sessions stay out of it. A paired phone app updates the list from the computer's event stream.
+The list shows every active session with its project, status and recent output. Closed sessions do not appear. **Waiting for you** sits above the other sessions. The filters show all active sessions, running sessions or sessions that need you. Running means a session is working or waiting; paused and finished sessions stay out of it. When a filter finds no session, the list says so. A paired phone app updates the list from the computer's event stream.
 
 When the computer has no projects, the list says so and explains that a project must be added on the computer first. The New session action is disabled until a project exists, because the phone cannot add one.
 
@@ -54,7 +54,7 @@ The session actions sit in one overflow menu in the header: switch the AI config
 - The **+** on the rail opens **Keyboard keys**. It lists the agent's keys and your saved keys. Name a key such as `C`, `F5` or `PageUp`, add Shift, Control or Alt, and add it to the rail. You can save up to eight keys. They belong to the phone, not to one session.
 - The conversation and the output follow the session as it runs. If the connection drops, the app reconnects and continues from the last item it saw.
 - A session created from the phone starts in its project folder. The phone cannot choose another folder.
-- **New session** on the session list asks for a project, an AI config, an optional source branch, an optional name and an optional first prompt. **Start session** stays disabled until a project and an AI config are chosen.
+- **New session** on the session list asks for a project, an AI config, an optional source branch, an optional name and an optional first prompt. **Start session** looks disabled until a project and an AI config are chosen; choosing it shows which field is missing.
 - Approval requests, agent questions and session requests appear as cards. Answer or approve them there.
 - The back button returns to the session list.
 
