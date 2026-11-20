@@ -23,7 +23,7 @@ pub(crate) fn recover(state: &AppState) {
         return;
     };
 
-    let mut changed = false;
+    let mut changed = turn_off_saved_funnels(state);
     for entry in state.sessions() {
         let session = entry.session();
         if session.status != SessionState::Active || session.work_state != Some(WorkState::Paused) {
@@ -46,6 +46,36 @@ pub(crate) fn recover(state: &AppState) {
     if changed {
         state.save();
     }
+}
+
+/// Turns off public demo addresses that survived an app restart.
+///
+/// Funnel is a setting on the Tailscale daemon, so it stays on when the app
+/// stops. No server runs after a restart, so every saved public address is
+/// turned off and cleared before sessions restart.
+fn turn_off_saved_funnels(state: &AppState) -> bool {
+    let mut changed = false;
+    for entry in state.sessions() {
+        let session = entry.session();
+        if !session
+            .demo_servers
+            .iter()
+            .any(|server| server.funnel_address.is_some())
+        {
+            continue;
+        }
+        state.disable_demo_funnels(&session);
+        for server in &session.demo_servers {
+            if server.funnel_address.is_none() {
+                continue;
+            }
+            if let Ok(updated) = entry.set_funnel(&server.id, None) {
+                state.emit(SessionEvent::updated(updated));
+                changed = true;
+            }
+        }
+    }
+    changed
 }
 
 fn worktree_is_registered(folder: &Path) -> bool {

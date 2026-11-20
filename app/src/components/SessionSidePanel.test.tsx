@@ -1,14 +1,17 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   activateBrowserTab,
+  ApiError,
   browserBack,
   browserForward,
   browserReload,
   browserScreenshotUrl,
   closeBrowserTab,
   createBrowserTab,
+  disableDemoFunnel,
+  enableDemoFunnel,
   getBrowserState,
   listFiles,
   listSharedFiles,
@@ -35,6 +38,15 @@ vi.mock('../api/shell', () => ({
 }));
 
 vi.mock('../api/client', () => ({
+  ApiError: class ApiError extends Error {
+    readonly status: number;
+
+    constructor(status: number, message: string) {
+      super(message);
+      this.name = 'ApiError';
+      this.status = status;
+    }
+  },
   activateBrowserTab: vi.fn(),
   browserBack: vi.fn(),
   browserForward: vi.fn(),
@@ -42,6 +54,8 @@ vi.mock('../api/client', () => ({
   browserScreenshotUrl: vi.fn(),
   closeBrowserTab: vi.fn(),
   createBrowserTab: vi.fn(),
+  disableDemoFunnel: vi.fn(),
+  enableDemoFunnel: vi.fn(),
   getBrowserState: vi.fn(),
   listFiles: vi.fn(),
   listSharedFiles: vi.fn(),
@@ -385,6 +399,104 @@ describe('SessionSidePanel demo servers', () => {
     expect(
       screen.getByRole('link', { name: 'Open http://localhost:3000 for Preview' }),
     ).toBeInTheDocument();
+  });
+
+  it('asks before making a server public and shows the public address', async () => {
+    const publicAddress = 'https://studio.tailnet.ts.net/';
+    vi.mocked(enableDemoFunnel).mockResolvedValue(
+      makeSession({
+        demoServers: [{ ...preview, funnelAddress: publicAddress }],
+      }),
+    );
+    const user = userEvent.setup();
+    renderPanel('files', vi.fn(), vi.fn(), makeSession({ demoServers: [preview] }));
+
+    await user.click(
+      await screen.findByRole('button', {
+        name: 'Make Preview public on the internet',
+      }),
+    );
+
+    const dialog = screen.getByRole('dialog', { name: 'Make this server public?' });
+    expect(dialog).toHaveTextContent(
+      'Anyone on the internet can open Preview',
+    );
+    expect(enableDemoFunnel).not.toHaveBeenCalled();
+
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Make public' }),
+    );
+
+    expect(enableDemoFunnel).toHaveBeenCalledWith('s1', 'demo-1');
+    expect(
+      await screen.findByRole('link', {
+        name: `Open public address ${publicAddress} for Preview`,
+      }),
+    ).toHaveAttribute('href', publicAddress);
+    expect(
+      screen.getByRole('button', { name: 'Stop the public address for Preview' }),
+    ).toBeInTheDocument();
+  });
+
+  it('stops the public address and keeps the server local', async () => {
+    const publicAddress = 'https://studio.tailnet.ts.net/';
+    vi.mocked(disableDemoFunnel).mockResolvedValue(
+      makeSession({ demoServers: [preview] }),
+    );
+    const user = userEvent.setup();
+    renderPanel(
+      'files',
+      vi.fn(),
+      vi.fn(),
+      makeSession({
+        demoServers: [{ ...preview, funnelAddress: publicAddress }],
+      }),
+    );
+
+    await user.click(
+      await screen.findByRole('button', {
+        name: 'Stop the public address for Preview',
+      }),
+    );
+
+    expect(disableDemoFunnel).toHaveBeenCalledWith('s1', 'demo-1');
+    expect(
+      await screen.findByRole('button', {
+        name: 'Make Preview public on the internet',
+      }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(publicAddress)).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('link', { name: 'Open http://localhost:3000 for Preview' }),
+    ).toBeInTheDocument();
+  });
+
+  it('leaves the server local when Tailscale refuses', async () => {
+    vi.mocked(enableDemoFunnel).mockRejectedValue(
+      new ApiError(422, 'Tailscale is not installed, not running or not signed in. The server stays local.'),
+    );
+    const user = userEvent.setup();
+    renderPanel('files', vi.fn(), vi.fn(), makeSession({ demoServers: [preview] }));
+
+    await user.click(
+      await screen.findByRole('button', {
+        name: 'Make Preview public on the internet',
+      }),
+    );
+    const dialog = screen.getByRole('dialog', { name: 'Make this server public?' });
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Make public' }),
+    );
+
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent(
+      'Tailscale is not installed, not running or not signed in.',
+    );
+    expect(
+      screen.getByRole('link', { name: 'Open http://localhost:3000 for Preview' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('link', { name: /Open public address/ }),
+    ).not.toBeInTheDocument();
   });
 });
 

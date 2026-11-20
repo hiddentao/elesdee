@@ -621,6 +621,10 @@ pub fn router(state: AppState) -> Router {
             "/api/sessions/{id}/demo-servers/{server_id}/stop",
             post(stop_demo_server),
         )
+        .route(
+            "/api/sessions/{id}/demo-servers/{server_id}/funnel",
+            post(enable_demo_funnel).delete(disable_demo_funnel),
+        )
         .route("/api/sessions", post(create_session))
         .route(
             "/api/sessions/{id}",
@@ -1124,6 +1128,49 @@ async fn stop_demo_server(
     state.emit(SessionEvent::updated(session.clone()));
     state.save();
     Ok(Json(session))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FunnelRequest {
+    confirmed: Option<bool>,
+}
+
+async fn enable_demo_funnel(
+    State(state): State<AppState>,
+    UrlPath((id, server_id)): UrlPath<(String, String)>,
+    body: Result<Json<FunnelRequest>, JsonRejection>,
+) -> Result<Json<Session>, ApiError> {
+    let Json(request) = body.map_err(invalid_json)?;
+    let (session, _address) = state
+        .enable_funnel(&id, &server_id, request.confirmed.unwrap_or(false))
+        .map_err(funnel_error)?;
+    state.emit(SessionEvent::updated(session.clone()));
+    state.save();
+    Ok(Json(session))
+}
+
+async fn disable_demo_funnel(
+    State(state): State<AppState>,
+    UrlPath((id, server_id)): UrlPath<(String, String)>,
+) -> Result<Json<Session>, ApiError> {
+    let session = state
+        .disable_funnel(&id, &server_id)
+        .map_err(funnel_error)?;
+    state.emit(SessionEvent::updated(session.clone()));
+    state.save();
+    Ok(Json(session))
+}
+
+fn funnel_error(error: crate::demo::FunnelFailure) -> ApiError {
+    use crate::demo::FunnelFailure;
+    match error {
+        FunnelFailure::Demo(failure) => demo_error(failure),
+        FunnelFailure::NotConfirmed => {
+            ApiError::bad_request(FunnelFailure::NotConfirmed.to_string())
+        }
+        FunnelFailure::Unavailable(reason) => ApiError::unprocessable(reason),
+    }
 }
 
 fn demo_error(error: crate::demo::DemoFailure) -> ApiError {
@@ -2788,6 +2835,7 @@ async fn close_session(
         None
     };
 
+    state.disable_demo_funnels(&closing);
     let session = entry.finish_close(preview.as_deref());
     state.close_demo_tunnels(&session);
     state.withdraw_questions_for_session(&id);
@@ -3702,6 +3750,7 @@ async fn run_pause(state: AppState, entry: Arc<SessionEntry>, reason: String) {
     } else {
         format!("{reason} The agent was not running. {}", outcome.preview())
     };
+    state.disable_demo_funnels(&entry.session());
     let session = entry.pause(&reason);
     state.close_demo_tunnels(&session);
     state.emit(SessionEvent::updated(session.clone()));

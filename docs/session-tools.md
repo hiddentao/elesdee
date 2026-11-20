@@ -72,7 +72,14 @@ Limits and rules:
 - Only an active registered port can be forwarded to a phone. Another port is refused.
 - The record is kept with the session. After an app restart it shows as stopped, because the server no longer runs.
 
-The optional Tailscale address is not built yet.
+## Making a demo server public
+
+The session's Files panel has a **Make public** action for an active server. It asks first and says that anyone on the internet can open the server. Choose **Make public** to confirm. The panel then shows the public HTTPS address, such as `https://machine.tailnet.ts.net/`, with one **Stop public** action.
+
+- This needs Tailscale, installed, running and signed in, and Funnel allowed for the tailnet. Without it the server stays local and the panel shows the reason.
+- Only one demo server is public at a time. Making another server public turns the first one off.
+- **Stop public**, closing the session and pausing the session turn it off. An app restart also turns off an address that was left on.
+- The app uses the Tailscale client it found. It never exposes another port and never takes an address from the agent.
 
 ## Browser
 

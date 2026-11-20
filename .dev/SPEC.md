@@ -544,6 +544,14 @@ If Tailscale runs, the IDE also gives each demo server a Tailscale address. This
 
 The IDE changes no Tailscale setting. To share a demo with people outside my Tailscale network, Tailscale Funnel can make it public ([Tailscale docs](https://tailscale.com/docs/use-cases/application-testing/share-local-dev-server-with-internet)). The IDE does this only when I ask.
 
+**Public through Tailscale Funnel**
+
+- The session's Files panel offers a Make public action for an active demo server. The action first asks me to confirm and says that anyone on the internet can open the server.
+- On confirmation, the IDE runs `tailscale funnel <port>` for that registered loopback port with the Tailscale client it already found. It never exposes another port and never takes an executable path from the agent.
+- The public address is `https://<machine>.<tailnet>.ts.net/`. The Files panel shows it only while the server is active, with one Stop action that turns Funnel off.
+- One demo server is public at a time. Making another server public turns the first one off.
+- Stop, close, pause and an app restart turn Funnel off. If Tailscale is missing, stopped or refuses the command, the server stays local and the panel shows the reason.
+
 ## Mobile companion app
 
 The mobile app is the only way to control the IDE remotely. It is for iOS and Android. The Android app ships first (see Releases and updates). There is no web interface. The app talks to the desktop app in real time.

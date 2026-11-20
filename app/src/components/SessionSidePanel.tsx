@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
+  disableDemoFunnel,
+  enableDemoFunnel,
   listFiles,
   listSharedFiles,
   readFile,
@@ -23,6 +25,7 @@ import { useLanguage } from '../i18n/LanguageProvider';
 import { openUrl } from '../api/shell';
 import { BrowserPanel } from './BrowserPanel';
 import { isOpenableDemoAddress } from './demoAddress';
+import { DemoFunnelDialog } from './DemoFunnelDialog';
 import { FileEditor } from './FileEditor';
 import {
   ChevronDownIcon,
@@ -109,6 +112,8 @@ export function SessionSidePanel({
     session.demoServers ?? [],
   );
   const [stoppingServer, setStoppingServer] = useState<string | null>(null);
+  const [funnelTarget, setFunnelTarget] = useState<DemoServer | null>(null);
+  const [stoppingFunnel, setStoppingFunnel] = useState<string | null>(null);
   const [demoError, setDemoError] = useState<string | null>(null);
 
   const request = useRef(0);
@@ -170,6 +175,25 @@ export function SessionSidePanel({
       setDemoError(messageFor(error, t));
     } finally {
       setStoppingServer(null);
+    }
+  }
+
+  async function makePublic(server: DemoServer) {
+    const updated = await enableDemoFunnel(session.id, server.id);
+    setDemoServers(updated.demoServers ?? []);
+    setFunnelTarget(null);
+  }
+
+  async function stopPublic(server: DemoServer) {
+    setStoppingFunnel(server.id);
+    setDemoError(null);
+    try {
+      const updated = await disableDemoFunnel(session.id, server.id);
+      setDemoServers(updated.demoServers ?? []);
+    } catch (error) {
+      setDemoError(messageFor(error, t));
+    } finally {
+      setStoppingFunnel(null);
     }
   }
 
@@ -506,66 +530,130 @@ export function SessionSidePanel({
               >
                 {demoServers.map((server) => {
                   const active = server.state === 'active';
+                  const publicAddress = server.funnelAddress;
                   const addresses = [
                     server.address,
                     server.tailscaleAddress,
                   ].filter((value): value is string => Boolean(value));
                   return (
-                    <li key={server.id} className="demo-row">
-                      <span className="demo-name" title={server.name}>
-                        {server.name}
-                      </span>
-                      <span
-                        className={`demo-state is-${server.state}`}
-                      >
-                        {active
-                          ? t('panel.demoServerActive')
-                          : t('panel.demoServerStopped')}
-                      </span>
-                      <span className="demo-addresses">
-                        {addresses.map((address) =>
-                          active && isOpenableDemoAddress(address) ? (
-                            <a
-                              key={address}
-                              className="demo-address"
-                              href={address}
-                              target="_blank"
-                              rel="noreferrer"
-                              aria-label={t('panel.demoServerOpenLabel', {
-                                name: server.name,
-                                address,
-                              })}
-                              onClick={(event) => {
-                                event.preventDefault();
-                                void openUrl(address);
-                              }}
-                            >
-                              {address}
-                            </a>
-                          ) : (
-                            <span
-                              key={address}
-                              className="demo-address is-inert"
-                            >
-                              {address}
-                            </span>
-                          ),
-                        )}
-                      </span>
-                      {active ? (
-                        <button
-                          type="button"
-                          className="btn btn-ghost dock-action"
-                          disabled={stoppingServer === server.id}
-                          aria-label={t('panel.demoServerStopLabel', {
-                            name: server.name,
-                          })}
-                          onClick={() => void stopServer(server)}
+                    <li key={server.id} className="demo-item">
+                      <div className="demo-row">
+                        <span className="demo-name" title={server.name}>
+                          {server.name}
+                        </span>
+                        <span
+                          className={`demo-state is-${server.state}`}
                         >
-                          {stoppingServer === server.id
-                            ? t('panel.demoServerStopping')
-                            : t('panel.demoServerStop')}
-                        </button>
+                          {active
+                            ? t('panel.demoServerActive')
+                            : t('panel.demoServerStopped')}
+                        </span>
+                        <span className="demo-addresses">
+                          {addresses.map((address) =>
+                            active && isOpenableDemoAddress(address) ? (
+                              <a
+                                key={address}
+                                className="demo-address"
+                                href={address}
+                                target="_blank"
+                                rel="noreferrer"
+                                aria-label={t('panel.demoServerOpenLabel', {
+                                  name: server.name,
+                                  address,
+                                })}
+                                onClick={(event) => {
+                                  event.preventDefault();
+                                  void openUrl(address);
+                                }}
+                              >
+                                {address}
+                              </a>
+                            ) : (
+                              <span
+                                key={address}
+                                className="demo-address is-inert"
+                              >
+                                {address}
+                              </span>
+                            ),
+                          )}
+                        </span>
+                        {active ? (
+                          <button
+                            type="button"
+                            className="btn btn-ghost dock-action"
+                            disabled={stoppingServer === server.id}
+                            aria-label={t('panel.demoServerStopLabel', {
+                              name: server.name,
+                            })}
+                            onClick={() => void stopServer(server)}
+                          >
+                            {stoppingServer === server.id
+                              ? t('panel.demoServerStopping')
+                              : t('panel.demoServerStop')}
+                          </button>
+                        ) : null}
+                      </div>
+                      {active ? (
+                        <div className="demo-funnel-row">
+                          {publicAddress ? (
+                            <>
+                              <span className="demo-funnel-label">
+                                {t('panel.demoServerPublic')}
+                              </span>
+                              {isOpenableDemoAddress(publicAddress) ? (
+                                <a
+                                  className="demo-address"
+                                  href={publicAddress}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  aria-label={t(
+                                    'panel.demoServerPublicOpenLabel',
+                                    {
+                                      name: server.name,
+                                      address: publicAddress,
+                                    },
+                                  )}
+                                  onClick={(event) => {
+                                    event.preventDefault();
+                                    void openUrl(publicAddress);
+                                  }}
+                                >
+                                  {publicAddress}
+                                </a>
+                              ) : (
+                                <span className="demo-address is-inert">
+                                  {publicAddress}
+                                </span>
+                              )}
+                              <button
+                                type="button"
+                                className="btn btn-ghost dock-action"
+                                disabled={stoppingFunnel === server.id}
+                                aria-label={t(
+                                  'panel.demoServerFunnelStopLabel',
+                                  { name: server.name },
+                                )}
+                                onClick={() => void stopPublic(server)}
+                              >
+                                {stoppingFunnel === server.id
+                                  ? t('panel.demoServerFunnelStopping')
+                                  : t('panel.demoServerFunnelStop')}
+                              </button>
+                            </>
+                          ) : (
+                            <button
+                              type="button"
+                              className="btn btn-ghost dock-action"
+                              aria-label={t('panel.demoServerFunnelLabel', {
+                                name: server.name,
+                              })}
+                              onClick={() => setFunnelTarget(server)}
+                            >
+                              {t('panel.demoServerFunnel')}
+                            </button>
+                          )}
+                        </div>
                       ) : null}
                     </li>
                   );
@@ -807,6 +895,13 @@ export function SessionSidePanel({
           {tab === 'browser' ? <BrowserPanel session={session} /> : null}
         </section>
       </div>
+      {funnelTarget ? (
+        <DemoFunnelDialog
+          server={funnelTarget}
+          onConfirm={() => makePublic(funnelTarget)}
+          onClose={() => setFunnelTarget(null)}
+        />
+      ) : null}
     </aside>
   );
 }

@@ -701,7 +701,7 @@ Both phone surfaces put **Files** and **Changes** beside the session actions.
 | `core/src/link/hub.rs` | One permit per port and tunnel cancellation. |
 | `core/src/api.rs` | `GET /api/demo-servers` and the stop route. |
 | `core/src/demo.rs` | Demo-server records and validation. |
-| `core/src/tailscale.rs` | Tailscale client discovery, the cached status read, and the tailnet address. |
+| `core/src/tailscale.rs` | Tailscale client discovery, the cached status read, the tailnet address, and Funnel on and off. |
 | `core/src/mcp.rs` | The `register_demo_server` tool. |
 | `phone-shell/src-tauri/src/forward.rs` | Loopback listener, same-or-free port choice, the 8-tunnel registry, and the socket-to-stream bridge. |
 | `phone-shell/src-tauri/src/commands.rs` | `phone_forward_start` and `phone_forward_stop`, the registered-port check, and teardown on disconnect, forget and exit. |

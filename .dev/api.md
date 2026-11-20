@@ -365,6 +365,7 @@ interface DemoServer {
   port: number;
   address: string;          // "http://localhost:3000"
   tailscaleAddress?: string; // "https://machine.tailnet.ts.net:3000" or "http://100.x.y.z:3000"
+  funnelAddress?: string;   // "https://machine.tailnet.ts.net/" while Funnel is on
   state: DemoServerState;
   createdAt: string;   // RFC 3339
 }
@@ -378,9 +379,13 @@ interface DemoServerListEntry extends DemoServer {
 | --- | --- | --- | --- |
 | GET | `/api/demo-servers` | | `DemoServerListEntry[]` for active servers |
 | POST | `/api/sessions/{id}/demo-servers/{serverId}/stop` | `{}` | `Session` |
+| POST | `/api/sessions/{id}/demo-servers/{serverId}/funnel` | `{ confirmed: true }` | `Session` |
+| DELETE | `/api/sessions/{id}/demo-servers/{serverId}/funnel` | | `Session` |
 
 - `register_demo_server` is an MCP tool, not a local route. It takes a name and a port and returns the local address, plus a tailnet address when Tailscale is installed and running. The tool refuses with `isError` when the session is closed, the name is empty, the port is outside 1024–65535, the port is the core service's port, another active session registered the port, or the session already holds 8 servers.
 - The tailnet address is read once per registration from the local Tailscale client. The MagicDNS name gives `https://<machine>.<tailnet>.ts.net:<port>`; without a usable name, the tailnet IPv4 gives `http://100.x.y.z:<port>`. A missing, stopped or failing client leaves the field out. A failed read never blocks the registration. The record holds the address that the registration saw; a repeated port refreshes it.
+- The Funnel enable route takes `{ confirmed: true }`. Without it the route returns 400 and runs nothing. The route accepts only a demo-server id, never a port or a path, and the server must be active in an active session; a stopped server returns 422. The app runs the discovered Tailscale client as `tailscale funnel <port>` and records `https://<machine>.<tailnet>.ts.net/` in `funnelAddress`. Only one demo server in the app is public at a time; enabling another first turns the previous one off. A missing, stopped or failing client returns 422 with the reason and leaves the records unchanged.
+- The Funnel disable route runs `tailscale funnel --https=443 localhost:<port> off` and clears `funnelAddress`. Stop, close, pause, delete and app startup turn Funnel off before the record changes. Stop clears `funnelAddress` with the stopped state. Close, pause and startup log a refused disable command and do not block the session change.
 - The name is cleaned of control and invisible characters and capped at 64 characters. A repeated port in the same session updates its name and makes it active again. The record id and creation time stay.
 - `GET /api/demo-servers` returns only active records. The array is empty when no server is registered. Records are ordered by session order and then registration order.
 - The stop route returns the updated session with `state: "stopped"`, emits `session.updated`, and closes that port's forward tunnels. A second stop returns the same stopped record.

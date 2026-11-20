@@ -427,6 +427,30 @@ export function stopDemoServer(
   );
 }
 
+export function enableDemoFunnel(
+  sessionId: string,
+  serverId: string,
+): Promise<Session> {
+  return request<Session>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/demo-servers/${encodeURIComponent(serverId)}/funnel`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ confirmed: true }),
+    },
+  );
+}
+
+export function disableDemoFunnel(
+  sessionId: string,
+  serverId: string,
+): Promise<Session> {
+  return request<Session>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/demo-servers/${encodeURIComponent(serverId)}/funnel`,
+    { method: 'DELETE' },
+  );
+}
+
 export function sendInput(id: string, data: string): Promise<void> {
   return transport.request<void>('sessions.input', { sessionId: id, data });
 }

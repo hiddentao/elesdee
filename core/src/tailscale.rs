@@ -9,6 +9,7 @@
 //! the local address in every case.
 
 use std::env;
+use std::fmt;
 use std::net::Ipv4Addr;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -24,11 +25,25 @@ const CACHE_TTL: Duration = Duration::from_secs(30);
 /// How long the status command may run.
 const STATUS_TIMEOUT: Duration = Duration::from_secs(2);
 
-/// How often the status command is polled.
+/// How often the command is polled.
 const STATUS_POLL: Duration = Duration::from_millis(25);
+
+/// How long one Funnel change may run.
+const FUNNEL_TIMEOUT: Duration = Duration::from_secs(15);
+
+/// How long a test client may run. Test executables finish at once; the
+/// longer bound keeps a busy test machine from turning a slow start into a
+/// failed read.
+const TEST_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// HTTPS port that a Funnel address uses.
+const FUNNEL_HTTPS_PORT: u16 = 443;
 
 /// Maximum characters in a MagicDNS name.
 const MAX_DNS_NAME_CHARS: usize = 253;
+
+/// Maximum characters in a command reason shown to the user.
+const MAX_REASON_CHARS: usize = 240;
 
 /// The part of the device status that the app uses.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -53,6 +68,31 @@ impl Device {
     }
 }
 
+/// Why a Funnel change failed.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum FunnelError {
+    /// The client is missing, stopped or not signed in.
+    Unavailable,
+    /// The client refused the command.
+    Command(String),
+}
+
+impl fmt::Display for FunnelError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Unavailable => formatter.write_str(
+                "Tailscale is not installed, not running or not signed in. The server stays local.",
+            ),
+            Self::Command(reason) => {
+                write!(
+                    formatter,
+                    "Tailscale could not change the public address: {reason}"
+                )
+            }
+        }
+    }
+}
+
 /// The cached result of one status read.
 struct Cached {
     read_at: Instant,
@@ -63,6 +103,8 @@ struct Cached {
 pub(crate) struct Resolver {
     /// A fixed executable used by tests in place of discovery.
     binary: Option<PathBuf>,
+    status_timeout: Duration,
+    funnel_timeout: Duration,
     cache: Mutex<Option<Cached>>,
 }
 
@@ -70,6 +112,8 @@ impl Resolver {
     pub(crate) fn new() -> Self {
         Self {
             binary: None,
+            status_timeout: STATUS_TIMEOUT,
+            funnel_timeout: FUNNEL_TIMEOUT,
             cache: Mutex::new(None),
         }
     }
@@ -78,6 +122,8 @@ impl Resolver {
     pub(crate) fn with_binary(binary: PathBuf) -> Self {
         Self {
             binary: Some(binary),
+            status_timeout: TEST_TIMEOUT,
+            funnel_timeout: TEST_TIMEOUT,
             cache: Mutex::new(None),
         }
     }
@@ -86,6 +132,43 @@ impl Resolver {
     /// not installed, not running or not readable.
     pub(crate) fn address(&self, port: u16) -> Option<String> {
         self.device().and_then(|device| device.address(port))
+    }
+
+    /// Makes a loopback port public through Tailscale Funnel.
+    ///
+    /// Returns the public HTTPS address. The status is read fresh so a client
+    /// that started after the last read is used. A missing client, a stopped
+    /// backend or a refused command returns an error and changes nothing.
+    pub(crate) fn enable_funnel(&self, port: u16) -> Result<String, FunnelError> {
+        let device = self.fresh_device().ok_or(FunnelError::Unavailable)?;
+        let name = device.dns_name.ok_or(FunnelError::Unavailable)?;
+        let binary = self.binary_path().ok_or(FunnelError::Unavailable)?;
+        run_funnel(&binary, &["funnel", &port.to_string()], self.funnel_timeout)?;
+        Ok(format!("https://{name}/"))
+    }
+
+    /// Turns off the public address for a loopback port.
+    pub(crate) fn disable_funnel(&self, port: u16) -> Result<(), FunnelError> {
+        let binary = self.binary_path().ok_or(FunnelError::Unavailable)?;
+        let target = format!("localhost:{port}");
+        run_funnel(
+            &binary,
+            &[
+                "funnel",
+                &format!("--https={FUNNEL_HTTPS_PORT}"),
+                &target,
+                "off",
+            ],
+            self.funnel_timeout,
+        )?;
+        Ok(())
+    }
+
+    fn binary_path(&self) -> Option<PathBuf> {
+        match &self.binary {
+            Some(path) => Some(path.clone()),
+            None => find_cli(),
+        }
     }
 
     fn device(&self) -> Option<Device> {
@@ -98,11 +181,21 @@ impl Resolver {
             }
         }
         let device = self.read();
+        self.cache_device(device.clone());
+        device
+    }
+
+    fn fresh_device(&self) -> Option<Device> {
+        let device = self.read();
+        self.cache_device(device.clone());
+        device
+    }
+
+    fn cache_device(&self, device: Option<Device>) {
         *self.lock_cache() = Some(Cached {
             read_at: Instant::now(),
-            device: device.clone(),
+            device,
         });
-        device
     }
 
     fn lock_cache(&self) -> std::sync::MutexGuard<'_, Option<Cached>> {
@@ -112,11 +205,8 @@ impl Resolver {
     }
 
     fn read(&self) -> Option<Device> {
-        let binary = match &self.binary {
-            Some(path) => path.clone(),
-            None => find_cli()?,
-        };
-        let output = run_status(&binary)?;
+        let binary = self.binary_path()?;
+        let output = run_status(&binary, self.status_timeout)?;
         parse_status(&output)
     }
 }
@@ -180,7 +270,7 @@ fn usable_executable(path: PathBuf) -> Option<PathBuf> {
 }
 
 /// Runs the read-only status command and returns its standard output.
-fn run_status(binary: &Path) -> Option<Vec<u8>> {
+fn run_status(binary: &Path, timeout: Duration) -> Option<Vec<u8>> {
     let mut child = Command::new(binary)
         .arg("status")
         .arg("--json")
@@ -189,7 +279,7 @@ fn run_status(binary: &Path) -> Option<Vec<u8>> {
         .stderr(Stdio::null())
         .spawn()
         .ok()?;
-    let deadline = Instant::now() + STATUS_TIMEOUT;
+    let deadline = Instant::now() + timeout;
     loop {
         match child.try_wait() {
             Ok(Some(status)) => {
@@ -204,6 +294,53 @@ fn run_status(binary: &Path) -> Option<Vec<u8>> {
             }
         }
     }
+}
+
+/// Runs one Funnel command and returns its standard output.
+fn run_funnel(
+    binary: &Path,
+    arguments: &[&str],
+    timeout: Duration,
+) -> Result<Vec<u8>, FunnelError> {
+    let mut child = Command::new(binary)
+        .args(arguments)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|_| FunnelError::Unavailable)?;
+    let deadline = Instant::now() + timeout;
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                let output = child
+                    .wait_with_output()
+                    .map_err(|_| FunnelError::Unavailable)?;
+                if status.success() {
+                    return Ok(output.stdout);
+                }
+                return Err(FunnelError::Command(command_reason(&output.stderr)));
+            }
+            Ok(None) if Instant::now() < deadline => thread::sleep(STATUS_POLL),
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(FunnelError::Command(
+                    "Tailscale did not answer in time.".to_owned(),
+                ));
+            }
+        }
+    }
+}
+
+/// Turns the client's error output into one short user-facing sentence.
+fn command_reason(stderr: &[u8]) -> String {
+    let text = String::from_utf8_lossy(stderr);
+    text.lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .and_then(|line| crate::text::clean_label(line, MAX_REASON_CHARS))
+        .unwrap_or_else(|| "Tailscale refused the request.".to_owned())
 }
 
 #[derive(Deserialize)]
@@ -423,6 +560,109 @@ mod tests {
         let written = fs::read_to_string(&calls).expect("read calls");
         assert_eq!(written.lines().count(), 1, "the status read is cached");
         let _ = fs::remove_file(&calls);
+    }
+
+    #[cfg(unix)]
+    fn calls_path(label: &str) -> (PathBuf, String) {
+        let path = env::temp_dir().join(format!(
+            "elesdee-tailscale-funnel-{label}-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("time")
+                .as_nanos()
+        ));
+        let text = path.to_string_lossy().into_owned();
+        (path, text)
+    }
+
+    #[cfg(unix)]
+    const RUNNING_STATUS: &str = "printf '{\"BackendState\":\"Running\",\"Self\":{\"DNSName\":\"studio.tailnet.ts.net.\",\"TailscaleIPs\":[\"100.100.100.100\"]}}'";
+
+    #[cfg(unix)]
+    #[test]
+    fn funnel_is_enabled_for_a_registered_port() {
+        let (calls, calls_text) = calls_path("enable");
+        let cli = FakeCli::new(
+            "funnel-enable",
+            &format!(
+                "case \"$1\" in\nstatus) {RUNNING_STATUS} ;;\nfunnel) printf '%s\\n' \"$@\" >> '{calls_text}' ;;\nesac"
+            ),
+        );
+        let resolver = Resolver::with_binary(cli.binary.clone());
+
+        let address = resolver.enable_funnel(3000).expect("public address");
+        assert_eq!(address, "https://studio.tailnet.ts.net/");
+        let written = fs::read_to_string(&calls).expect("read calls");
+        assert_eq!(written.lines().collect::<Vec<_>>(), ["funnel", "3000"]);
+        let _ = fs::remove_file(&calls);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn funnel_needs_a_running_client() {
+        let (calls, calls_text) = calls_path("stopped");
+        let cli = FakeCli::new(
+            "funnel-stopped",
+            &format!(
+                "case \"$1\" in\nstatus) printf '{{\"BackendState\":\"Stopped\",\"Self\":{{\"DNSName\":\"studio.tailnet.ts.net.\",\"TailscaleIPs\":[]}}}}' ;;\nfunnel) printf '%s\\n' \"$@\" >> '{calls_text}' ;;\nesac"
+            ),
+        );
+        let resolver = Resolver::with_binary(cli.binary.clone());
+
+        assert_eq!(resolver.enable_funnel(3000), Err(FunnelError::Unavailable));
+        assert!(
+            !calls.exists(),
+            "the funnel command ran without a running client"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_refused_funnel_command_keeps_its_reason() {
+        let cli = FakeCli::new(
+            "funnel-refused",
+            &format!(
+                "case \"$1\" in\nstatus) {RUNNING_STATUS} ;;\nfunnel) echo 'Funnel is not enabled for your tailnet.' >&2; exit 1 ;;\nesac"
+            ),
+        );
+        let resolver = Resolver::with_binary(cli.binary.clone());
+
+        assert_eq!(
+            resolver.enable_funnel(3000),
+            Err(FunnelError::Command(
+                "Funnel is not enabled for your tailnet.".to_owned()
+            ))
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn funnel_is_turned_off_for_a_registered_port() {
+        let (calls, calls_text) = calls_path("disable");
+        let cli = FakeCli::new(
+            "funnel-disable",
+            &format!(
+                "case \"$1\" in\nstatus) {RUNNING_STATUS} ;;\nfunnel) printf '%s\\n' \"$@\" >> '{calls_text}' ;;\nesac"
+            ),
+        );
+        let resolver = Resolver::with_binary(cli.binary.clone());
+
+        resolver.disable_funnel(4000).expect("turn off");
+        let written = fs::read_to_string(&calls).expect("read calls");
+        assert_eq!(
+            written.lines().collect::<Vec<_>>(),
+            ["funnel", "--https=443", "localhost:4000", "off"]
+        );
+        let _ = fs::remove_file(&calls);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_missing_client_cannot_change_funnel() {
+        let resolver = Resolver::with_binary(PathBuf::from("/nonexistent/tailscale"));
+        assert_eq!(resolver.enable_funnel(3000), Err(FunnelError::Unavailable));
+        assert_eq!(resolver.disable_funnel(3000), Err(FunnelError::Unavailable));
     }
 
     #[cfg(unix)]

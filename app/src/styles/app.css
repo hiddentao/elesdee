@@ -3550,12 +3550,39 @@ button:disabled {
   font-size: var(--fs-small);
 }
 
+.demo-item {
+  padding: 1px 0;
+}
+
 .demo-row {
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 3px 7px;
   color: var(--text-2);
+}
+
+.demo-funnel-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 7px 4px;
+  color: var(--text-3);
+  font-size: var(--fs-small);
+}
+
+.demo-funnel-label {
+  flex: 0 0 auto;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.demo-funnel-row .demo-address {
+  margin-left: auto;
+}
+
+.demo-funnel-row .dock-action {
+  margin-left: 0;
 }
 
 .demo-name {

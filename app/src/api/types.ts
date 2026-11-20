@@ -34,6 +34,7 @@ export interface DemoServer {
   port: number;
   address: string;
   tailscaleAddress?: string;
+  funnelAddress?: string;
   state: DemoServerState;
   createdAt: string;
 }

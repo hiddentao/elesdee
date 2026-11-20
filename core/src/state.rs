@@ -12,7 +12,7 @@ use tokio::sync::{Mutex as AsyncMutex, broadcast};
 
 use crate::browser::BrowserManager;
 use crate::clients;
-use crate::demo::{DemoFailure, DemoServer, clean_name, port_is_allowed};
+use crate::demo::{DemoFailure, DemoServer, FunnelFailure, clean_name, port_is_allowed};
 use crate::github::GitHubInner;
 use crate::persist::{LoadResult, PersistedOutput, PersistedSession, PersistedState, StateStore};
 use crate::secrets::{KeyringStore, MemorySecretStore, SecretStore};
@@ -2146,24 +2146,164 @@ impl AppState {
         Ok((session, server))
     }
 
+    /// Makes one registered demo server public through Tailscale Funnel.
+    ///
+    /// The caller must send the user's confirmation. Only one server in the
+    /// app is public at a time, because Funnel serves the public HTTPS port
+    /// on the device from one local target. A failure leaves every server
+    /// local and returns the reason.
+    pub fn enable_funnel(
+        &self,
+        session_id: &str,
+        server_id: &str,
+        confirmed: bool,
+    ) -> Result<(Session, String), FunnelFailure> {
+        if !confirmed {
+            return Err(FunnelFailure::NotConfirmed);
+        }
+        let _guard = lock(&self.inner.demo_lock);
+        let entry = self
+            .session(session_id)
+            .ok_or(DemoFailure::UnknownSession)?;
+        let session = entry.session();
+        if session.status != SessionState::Active {
+            return Err(DemoFailure::Closed.into());
+        }
+        let server = session
+            .demo_servers
+            .iter()
+            .find(|server| server.id == server_id)
+            .cloned()
+            .ok_or(DemoFailure::NotFound)?;
+        if !server.is_active() {
+            return Err(DemoFailure::Stopped.into());
+        }
+        if let Some(address) = &server.funnel_address {
+            return Ok((session, address.clone()));
+        }
+        for (public_entry, public_id, port) in self.public_demo_servers() {
+            if public_entry.id() == session_id && public_id == server_id {
+                continue;
+            }
+            self.inner
+                .tailscale
+                .disable_funnel(port)
+                .map_err(|error| FunnelFailure::Unavailable(error.to_string()))?;
+            let updated = public_entry
+                .set_funnel(&public_id, None)
+                .map_err(FunnelFailure::Demo)?;
+            self.emit(SessionEvent::updated(updated));
+        }
+        let address = self
+            .inner
+            .tailscale
+            .enable_funnel(server.port)
+            .map_err(|error| FunnelFailure::Unavailable(error.to_string()))?;
+        let session = entry
+            .set_funnel(server_id, Some(address.clone()))
+            .map_err(FunnelFailure::Demo)?;
+        Ok((session, address))
+    }
+
+    /// Turns off the public address of one demo server.
+    pub fn disable_funnel(
+        &self,
+        session_id: &str,
+        server_id: &str,
+    ) -> Result<Session, FunnelFailure> {
+        let _guard = lock(&self.inner.demo_lock);
+        let entry = self
+            .session(session_id)
+            .ok_or(DemoFailure::UnknownSession)?;
+        let session = entry.session();
+        if session.status != SessionState::Active {
+            return Err(DemoFailure::Closed.into());
+        }
+        let server = session
+            .demo_servers
+            .iter()
+            .find(|server| server.id == server_id)
+            .cloned()
+            .ok_or(DemoFailure::NotFound)?;
+        if server.funnel_address.is_none() {
+            return Ok(session);
+        }
+        self.inner
+            .tailscale
+            .disable_funnel(server.port)
+            .map_err(|error| FunnelFailure::Unavailable(error.to_string()))?;
+        let session = entry
+            .set_funnel(server_id, None)
+            .map_err(FunnelFailure::Demo)?;
+        Ok(session)
+    }
+
+    /// Returns every demo server that is public, with its entry and port.
+    fn public_demo_servers(&self) -> Vec<(Arc<SessionEntry>, String, u16)> {
+        self.sessions()
+            .iter()
+            .flat_map(|entry| {
+                let session = entry.session();
+                if session.status != SessionState::Active {
+                    return Vec::new();
+                }
+                session
+                    .demo_servers
+                    .iter()
+                    .filter(|server| server.funnel_address.is_some())
+                    .map(|server| (Arc::clone(entry), server.id.clone(), server.port))
+                    .collect()
+            })
+            .collect()
+    }
+
+    /// Turns off every public address in a session.
+    ///
+    /// Close, pause and stop call this before the server records change. A
+    /// refused command is logged and does not block the session change.
+    pub fn disable_demo_funnels(&self, session: &Session) {
+        for server in &session.demo_servers {
+            if server.funnel_address.is_none() {
+                continue;
+            }
+            if let Err(error) = self.inner.tailscale.disable_funnel(server.port) {
+                tracing::warn!(
+                    port = server.port,
+                    %error,
+                    "could not turn off the public demo address"
+                );
+            }
+        }
+    }
+
     /// Stops one demo server in a session and returns its port.
     pub fn stop_demo_server(
         &self,
         session_id: &str,
         server_id: &str,
     ) -> Result<(Session, u16), DemoFailure> {
+        let _guard = lock(&self.inner.demo_lock);
         let entry = self
             .session(session_id)
             .ok_or(DemoFailure::UnknownSession)?;
-        let port = entry
+        let server = entry
             .session()
             .demo_servers
             .iter()
             .find(|server| server.id == server_id)
-            .map(|server| server.port)
+            .cloned()
             .ok_or(DemoFailure::NotFound)?;
+        if server.funnel_address.is_some()
+            && let Err(error) = self.inner.tailscale.disable_funnel(server.port)
+        {
+            tracing::warn!(
+                port = server.port,
+                %error,
+                "could not turn off the public demo address"
+            );
+        }
         let session = entry.stop_demo_server(server_id)?;
-        Ok((session, port))
+        Ok((session, server.port))
     }
 
     /// Returns the active demo server on a port, from any session.
@@ -2351,6 +2491,7 @@ impl AppState {
     }
 
     pub fn close_session(&self, entry: &SessionEntry) -> Result<Session, CloseFailure> {
+        self.disable_demo_funnels(&entry.session());
         let result = sessions::close_entry(entry, &self.inner.events);
         if result.is_ok() {
             let mut store = lock(&self.inner.sessions);
@@ -2376,11 +2517,22 @@ impl AppState {
     }
 
     pub fn delete_session(&self, id: &str) -> Result<(), DeleteSessionFailure> {
+        let entry = {
+            let store = lock(&self.inner.sessions);
+            let Some(entry) = store.entries.get(id).cloned() else {
+                return Err(DeleteSessionFailure::NotFound);
+            };
+            if entry.is_active() {
+                return Err(DeleteSessionFailure::Active);
+            }
+            entry
+        };
+        self.disable_demo_funnels(&entry.session());
         let mut store = lock(&self.inner.sessions);
-        let Some(entry) = store.entries.get(id).cloned() else {
+        let Some(current) = store.entries.get(id) else {
             return Err(DeleteSessionFailure::NotFound);
         };
-        if entry.is_active() {
+        if current.is_active() {
             return Err(DeleteSessionFailure::Active);
         }
         store.entries.remove(id);

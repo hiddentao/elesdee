@@ -45,6 +45,9 @@ pub struct DemoServer {
     /// The tailnet address, when Tailscale was running at registration.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tailscale_address: Option<String>,
+    /// The public HTTPS address while Tailscale Funnel exposes the port.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub funnel_address: Option<String>,
     pub state: DemoServerState,
     pub created_at: String,
 }
@@ -53,6 +56,11 @@ impl DemoServer {
     /// Returns true when the port may be opened or forwarded.
     pub fn is_active(&self) -> bool {
         self.state == DemoServerState::Active
+    }
+
+    /// Returns true when Tailscale Funnel exposes the port to the internet.
+    pub fn is_public(&self) -> bool {
+        self.funnel_address.is_some()
     }
 }
 
@@ -73,6 +81,8 @@ pub enum DemoFailure {
     PortInUse,
     /// The session reached its demo-server limit.
     TooMany,
+    /// The demo server is stopped.
+    Stopped,
     /// No demo server has that id in this session.
     NotFound,
 }
@@ -89,8 +99,37 @@ impl fmt::Display for DemoFailure {
             Self::ReservedPort => "That port belongs to the elesdee service.",
             Self::PortInUse => "Another session registered that port.",
             Self::TooMany => "A session may register at most 8 demo servers.",
+            Self::Stopped => "The demo server is stopped. Register it again first.",
             Self::NotFound => "Unknown demo server.",
         })
+    }
+}
+
+/// Why a public address change failed.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum FunnelFailure {
+    /// The demo-server rule refused the change.
+    Demo(DemoFailure),
+    /// The request did not carry the user's confirmation.
+    NotConfirmed,
+    /// Tailscale could not make the server public.
+    Unavailable(String),
+}
+
+impl fmt::Display for FunnelFailure {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Demo(failure) => failure.fmt(formatter),
+            Self::NotConfirmed => formatter
+                .write_str("The public address needs your confirmation. The server stays local."),
+            Self::Unavailable(reason) => formatter.write_str(reason),
+        }
+    }
+}
+
+impl From<DemoFailure> for FunnelFailure {
+    fn from(failure: DemoFailure) -> Self {
+        Self::Demo(failure)
     }
 }
 
@@ -119,6 +158,7 @@ pub fn new_server(
         port,
         address: local_address(port),
         tailscale_address,
+        funnel_address: None,
         state: DemoServerState::Active,
         created_at: now.to_owned(),
     }
@@ -158,6 +198,8 @@ mod tests {
         );
         assert_eq!(server.address, "http://localhost:3000");
         assert_eq!(server.tailscale_address, None);
+        assert_eq!(server.funnel_address, None);
         assert!(server.is_active());
+        assert!(!server.is_public());
     }
 }

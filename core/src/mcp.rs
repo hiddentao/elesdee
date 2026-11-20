@@ -855,6 +855,9 @@ fn register_demo_server(state: &AppState, session_id: &str, arguments: Value) ->
             if let Some(tailscale_address) = &server.tailscale_address {
                 text.push_str(&format!(" On Tailscale, open {tailscale_address}."));
             }
+            if let Some(funnel_address) = &server.funnel_address {
+                text.push_str(&format!(" The public address is {funnel_address}."));
+            }
             text.push_str(
                 " Open the local address on this computer, or the same port on a paired phone.",
             );

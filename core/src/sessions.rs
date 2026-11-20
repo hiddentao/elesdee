@@ -926,6 +926,25 @@ impl SessionEntry {
         Ok(state.session.clone())
     }
 
+    /// Sets or clears the public address of one demo server.
+    pub fn set_funnel(
+        &self,
+        server_id: &str,
+        funnel_address: Option<String>,
+    ) -> Result<Session, DemoFailure> {
+        let mut state = lock(&self.data);
+        let Some(server) = state
+            .session
+            .demo_servers
+            .iter_mut()
+            .find(|server| server.id == server_id)
+        else {
+            return Err(DemoFailure::NotFound);
+        };
+        server.funnel_address = funnel_address;
+        Ok(state.session.clone())
+    }
+
     /// Stops one demo server in this session.
     pub fn stop_demo_server(&self, server_id: &str) -> Result<Session, DemoFailure> {
         let mut state = lock(&self.data);
@@ -938,6 +957,7 @@ impl SessionEntry {
             return Err(DemoFailure::NotFound);
         };
         server.state = DemoServerState::Stopped;
+        server.funnel_address = None;
         Ok(state.session.clone())
     }
 
@@ -1905,6 +1925,9 @@ fn configure_environment(command: &mut CommandBuilder) {
 fn mark_demo_servers_stopped(session: &mut Session) {
     for server in &mut session.demo_servers {
         server.state = DemoServerState::Stopped;
+        // A public address belongs to a running server. Stop clears it with
+        // the server, and the caller turns the Funnel mapping off first.
+        server.funnel_address = None;
     }
 }
 
