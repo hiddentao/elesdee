@@ -1932,6 +1932,11 @@ async fn switch_options_list_every_account_and_the_next_automatic_target() {
     .await;
     assert_eq!(status, StatusCode::OK, "{options}");
     assert_eq!(options["nextAccountId"], second);
+    assert_eq!(
+        options["allowedAccountIds"],
+        json!([&first, &second]),
+        "the default allows the starting client"
+    );
     let ids = options["accounts"]
         .as_array()
         .expect("accounts")
@@ -2043,7 +2048,7 @@ async fn usage_near_the_limit_switches_then_pauses_without_room() {
     assert!(
         paused["preview"]
             .as_str()
-            .is_some_and(|preview| preview.contains("No account"))
+            .is_some_and(|preview| preview.contains("No allowed account"))
     );
 
     let (status, _) = call(
@@ -2058,6 +2063,388 @@ async fn usage_near_the_limit_switches_then_pauses_without_room() {
     assert_eq!(resumed["accountId"], first);
 
     let (status, _) = close_session(&app, id).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn allowed_accounts_are_saved_and_guard_the_switch() {
+    let data_dir = TempDirectory::new("allowed-data");
+    let repo = TempDirectory::new("allowed-repo");
+    init_git_repo(&repo.path);
+    let app = router(AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    ));
+    ensure_test_project(&app, &repo.path).await;
+    let first = create_test_account(&app, "Allowed A", "sk-allowed-a").await;
+    let second = create_test_account(&app, "Allowed B", "sk-allowed-b").await;
+
+    let (status, session) = call(
+        &app,
+        "POST",
+        "/api/sessions",
+        Some(json!({
+            "projectId": "web",
+            "kind": "agent",
+            "accountId": &first,
+            "allowedAccountIds": [&first],
+            "name": "Allowed list",
+            "folder": repo.path.to_string_lossy()
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let id = session["id"].as_str().expect("session id").to_owned();
+    assert_eq!(session["allowedAccountIds"], json!([&first]));
+
+    let (status, body) = call(
+        &app,
+        "PATCH",
+        &format!("/api/sessions/{id}"),
+        Some(json!({ "allowedAccountIds": [&second] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+
+    let (status, body) = call(
+        &app,
+        "PATCH",
+        &format!("/api/sessions/{id}"),
+        Some(json!({ "allowedAccountIds": [] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+
+    let (status, body) = call(
+        &app,
+        "PATCH",
+        &format!("/api/sessions/{id}"),
+        Some(json!({ "allowedAccountIds": ["missing"] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+
+    let (status, updated) = call(
+        &app,
+        "PATCH",
+        &format!("/api/sessions/{id}"),
+        Some(json!({ "allowedAccountIds": [&first, &second] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{updated}");
+    assert_eq!(updated["allowedAccountIds"], json!([&first, &second]));
+
+    let (status, switched) = call(
+        &app,
+        "POST",
+        &format!("/api/sessions/{id}/account"),
+        Some(json!({ "accountId": &second })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{switched}");
+    assert_eq!(switched["accountId"], second);
+
+    let (status, updated) = call(
+        &app,
+        "PATCH",
+        &format!("/api/sessions/{id}"),
+        Some(json!({ "allowedAccountIds": [&second] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{updated}");
+
+    let (status, refused) = call(
+        &app,
+        "POST",
+        &format!("/api/sessions/{id}/account"),
+        Some(json!({ "accountId": &first })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{refused}");
+    assert!(
+        refused["error"]
+            .as_str()
+            .is_some_and(|error| error.contains("not allowed"))
+    );
+
+    let state_text = fs::read_to_string(data_dir.path.join("state.json")).expect("state file");
+    let state: Value = serde_json::from_str(&state_text).expect("state json");
+    let stored = state["sessions"]
+        .as_array()
+        .and_then(|sessions| {
+            sessions
+                .iter()
+                .find(|session| session["session"]["id"] == id)
+        })
+        .expect("stored session");
+    assert_eq!(stored["session"]["allowedAccountIds"], json!([&second]));
+
+    let (status, _) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn auto_switch_prefers_subscriptions_then_crosses_to_pay_per_use() {
+    let data_dir = TempDirectory::new("order-data");
+    let repo = TempDirectory::new("order-repo");
+    init_git_repo(&repo.path);
+    let app = router(AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    ));
+    ensure_test_project(&app, &repo.path).await;
+    let claude = create_test_subscription_account(&app, "Order Claude", "anthropic").await;
+    let codex = create_test_subscription_account(&app, "Order Codex", "openai").await;
+    let deepseek = create_test_account_for(&app, "Order DeepSeek", "deepseek", "sk-order").await;
+
+    for (account, used) in [(&codex, 50), (&deepseek, 5)] {
+        let (status, _) = call(
+            &app,
+            "POST",
+            &format!("/api/accounts/{account}/usage"),
+            Some(json!({ "rows": [{ "label": "Weekly", "used": used }] })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+    }
+
+    let (status, session) = call(
+        &app,
+        "POST",
+        "/api/sessions",
+        Some(json!({
+            "projectId": "web",
+            "kind": "agent",
+            "accountId": &claude,
+            "allowedAccountIds": [&claude, &codex, &deepseek],
+            "name": "Order switch",
+            "folder": repo.path.to_string_lossy()
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let id = session["id"].as_str().expect("session id").to_owned();
+
+    let (status, _) = call(
+        &app,
+        "POST",
+        &format!("/api/accounts/{claude}/usage"),
+        Some(json!({ "rows": [{ "label": "Weekly", "used": 95 }] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    let switched = wait_for_session(&app, &id, |session| session["accountId"] == codex).await;
+    assert_eq!(
+        switched["client"], "Codex",
+        "a subscription account beats a pay-per-use account"
+    );
+
+    let (status, _) = call(
+        &app,
+        "POST",
+        &format!("/api/accounts/{codex}/usage"),
+        Some(json!({ "rows": [{ "label": "Weekly", "used": 95 }] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    let switched = wait_for_session(&app, &id, |session| session["accountId"] == deepseek).await;
+    assert_eq!(switched["client"], "Claude Code");
+
+    let (status, _) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn auto_switch_keeps_the_current_client_when_subscriptions_tie() {
+    let data_dir = TempDirectory::new("tie-data");
+    let repo = TempDirectory::new("tie-repo");
+    init_git_repo(&repo.path);
+    let app = router(AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    ));
+    ensure_test_project(&app, &repo.path).await;
+    let starter = create_test_subscription_account(&app, "Tie Starter", "anthropic").await;
+    let same = create_test_subscription_account(&app, "Tie Same", "anthropic").await;
+    let other = create_test_subscription_account(&app, "Tie Other", "openai").await;
+
+    for account in [&same, &other] {
+        let (status, _) = call(
+            &app,
+            "POST",
+            &format!("/api/accounts/{account}/usage"),
+            Some(json!({ "rows": [{ "label": "Weekly", "used": 60 }] })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+    }
+
+    let (status, session) = call(
+        &app,
+        "POST",
+        "/api/sessions",
+        Some(json!({
+            "projectId": "web",
+            "kind": "agent",
+            "accountId": &starter,
+            "allowedAccountIds": [&starter, &same, &other],
+            "name": "Tie switch",
+            "folder": repo.path.to_string_lossy()
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let id = session["id"].as_str().expect("session id").to_owned();
+
+    let (status, _) = call(
+        &app,
+        "POST",
+        &format!("/api/accounts/{starter}/usage"),
+        Some(json!({ "rows": [{ "label": "Weekly", "used": 95 }] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    let switched = wait_for_session(&app, &id, |session| session["accountId"] == same).await;
+    assert_eq!(switched["client"], "Claude Code");
+
+    let (status, _) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn auto_switch_to_another_client_delivers_the_handoff_note() {
+    let data_dir = TempDirectory::new("auto-handoff-data");
+    let repo = TempDirectory::new("auto-handoff-repo");
+    init_git_repo(&repo.path);
+    let app = router(AppState::with_test_command_and_data_dir(
+        vec![
+            "/bin/sh".to_owned(),
+            "-c".to_owned(),
+            "cat >> handoff-input.txt".to_owned(),
+        ],
+        data_dir.path.clone(),
+    ));
+    ensure_test_project(&app, &repo.path).await;
+    let claude = create_test_subscription_account(&app, "Auto handoff Claude", "anthropic").await;
+    let codex = create_test_subscription_account(&app, "Auto handoff Codex", "openai").await;
+    let (status, _) = call(
+        &app,
+        "POST",
+        &format!("/api/accounts/{codex}/usage"),
+        Some(json!({ "rows": [{ "label": "Weekly", "used": 20 }] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    let (status, session) = call(
+        &app,
+        "POST",
+        "/api/sessions",
+        Some(json!({
+            "projectId": "web",
+            "kind": "agent",
+            "accountId": &claude,
+            "allowedAccountIds": [&claude, &codex],
+            "name": "Auto handoff",
+            "folder": repo.path.to_string_lossy()
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let id = session["id"].as_str().expect("session id").to_owned();
+    let input_file =
+        PathBuf::from(session["folder"].as_str().expect("folder")).join("handoff-input.txt");
+    let note = "Goal: move the session to Codex.";
+    write_handoff_note(&app, &id, note).await;
+
+    let (status, _) = call(
+        &app,
+        "POST",
+        &format!("/api/accounts/{claude}/usage"),
+        Some(json!({ "rows": [{ "label": "Weekly", "used": 95 }] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    let switched = wait_for_session(&app, &id, |session| session["accountId"] == codex).await;
+    assert_eq!(switched["client"], "Codex");
+    let text = wait_for_file_contains(&input_file, "Handoff from the previous agent").await;
+    assert!(text.contains(note), "{text}");
+
+    let (status, _) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn auto_switch_pauses_when_only_disallowed_accounts_have_room() {
+    let data_dir = TempDirectory::new("allowed-pause-data");
+    let repo = TempDirectory::new("allowed-pause-repo");
+    init_git_repo(&repo.path);
+    let app = router(AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    ));
+    ensure_test_project(&app, &repo.path).await;
+    let first = create_test_account(&app, "Pause allowed", "sk-pause-allowed").await;
+    let second = create_test_account(&app, "Pause refused", "sk-pause-refused").await;
+    let (status, _) = call(
+        &app,
+        "POST",
+        &format!("/api/accounts/{second}/usage"),
+        Some(json!({ "rows": [{ "label": "Weekly", "used": 20 }] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    let (status, session) = call(
+        &app,
+        "POST",
+        "/api/sessions",
+        Some(json!({
+            "projectId": "web",
+            "kind": "agent",
+            "accountId": &first,
+            "allowedAccountIds": [&first],
+            "name": "Allowed pause",
+            "folder": repo.path.to_string_lossy()
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let id = session["id"].as_str().expect("session id").to_owned();
+
+    let (status, _) = call(
+        &app,
+        "POST",
+        &format!("/api/accounts/{first}/usage"),
+        Some(json!({ "rows": [{ "label": "Weekly", "used": 95 }] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    let paused = wait_for_session(&app, &id, |session| session["workState"] == "paused").await;
+    assert_eq!(paused["accountId"], first);
+    assert!(
+        paused["preview"]
+            .as_str()
+            .is_some_and(|preview| preview.contains("No allowed account"))
+    );
+
+    let (status, _) = call(
+        &app,
+        "POST",
+        &format!("/api/accounts/{first}/usage"),
+        Some(json!({ "rows": [{ "label": "Weekly", "used": 30 }] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let resumed = wait_for_session(&app, &id, |session| session["workState"] == "working").await;
+    assert_eq!(resumed["accountId"], first);
+
+    let (status, _) = close_session(&app, &id).await;
     assert_eq!(status, StatusCode::OK);
 }
 
@@ -2086,6 +2473,7 @@ async fn cross_client_switch_gives_the_note_and_the_end_of_the_log() {
             "projectId": "web",
             "kind": "agent",
             "accountId": claude,
+            "allowedAccountIds": [claude, codex],
             "name": "Handoff switch",
             "folder": repo.path.to_string_lossy()
         })),
@@ -2318,6 +2706,22 @@ async fn handoff_note_survives_a_reload() {
 
 async fn create_test_account(app: &Router, name: &str, key: &str) -> String {
     create_test_account_for(app, name, "anthropic", key).await
+}
+
+async fn create_test_subscription_account(app: &Router, name: &str, provider: &str) -> String {
+    let (status, account) = call(
+        app,
+        "POST",
+        "/api/accounts",
+        Some(json!({
+            "name": name,
+            "providerId": provider,
+            "auth": "subscription"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{account}");
+    account["id"].as_str().expect("account id").to_owned()
 }
 
 async fn create_test_account_for(app: &Router, name: &str, provider: &str, key: &str) -> String {

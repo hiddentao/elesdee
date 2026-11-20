@@ -26,12 +26,13 @@ Runs a plain shell. It has no agent, branch or worktree. The folder can be a Git
 2. Choose a project. Its default account, client and source branch fill in when the project has them. See [Projects](projects.md).
 3. Choose **Agent** or **Terminal**.
 4. For an agent session, choose a client and a preset. Every connected account is a preset. A stored preset also brings its model, environment variables and config settings into this launch. You can change the filled-in default. The closed field keeps the account's remaining usage visible.
-5. Set the folder if you want a different one.
-6. For an agent session, optionally choose a source branch. The app fetches the remote first, so the new session branch starts from the latest commit. When the branch tracks a remote branch, the app also moves that local branch forward when it is not checked out. It never changes your own checkout and never forces a branch. With no choice, the session starts from the current branch.
-7. Optionally enter a first prompt. The app passes it to the agent at launch.
-8. Optionally enter a name.
-9. Open **Additional settings** to add environment variables for this session. Use one `NAME=value` per line. When the repository has uncommitted changes, it also asks whether to copy them into the new session or leave them out. The choice applies to this launch only.
-10. Choose **Start**.
+5. Choose the accounts the session may use. The accounts of the starting client are selected by default. Add accounts of other clients, or remove any account except the one in use. The app switches automatically only between these accounts.
+6. Set the folder if you want a different one.
+7. For an agent session, optionally choose a source branch. The app fetches the remote first, so the new session branch starts from the latest commit. When the branch tracks a remote branch, the app also moves that local branch forward when it is not checked out. It never changes your own checkout and never forces a branch. With no choice, the session starts from the current branch.
+8. Optionally enter a first prompt. The app passes it to the agent at launch.
+9. Optionally enter a name.
+10. Open **Additional settings** to add environment variables for this session. Use one `NAME=value` per line. When the repository has uncommitted changes, it also asks whether to copy them into the new session or leave them out. The choice applies to this launch only.
+11. Choose **Start**.
 
 If you leave the name empty, an agent session is named from the first prompt, or after its client when there is no prompt. A terminal session is named after its folder.
 
@@ -76,13 +77,15 @@ A session can ask to start another session. The request appears in the parent se
 
 ## Switch account
 
-Click the provider pill in the session header. The chooser lists every account on this computer with its remaining usage and marks the account the automatic switch would use next. Choose an account and confirm. The session keeps its worktree and restarts with the new account. The same client continues its conversation. A different client starts again in the same worktree, and it gets the handoff note and the end of the previous log as its first message.
+Click the provider pill in the session header. The chooser lists the accounts allowed for this session with their remaining usage and marks the account the automatic switch would use next. Choose an account and confirm. The session keeps its worktree and restarts with the new account. The same client continues its conversation. A different client starts again in the same worktree, and it gets the handoff note and the end of the previous log as its first message.
+
+The chooser also edits the allowed list while the session runs. Add an account from the filterable list, or remove one. The account in use always stays allowed. A switch to an account outside the list is refused, and the app never switches to one by itself.
 
 You can also open the session menu and choose **Switch account…**.
 
 Hover the usage bar in the pill for the current account's limits and the session's context left. The context left comes from Claude Code. Other clients show **Context left unknown**. Context compacts automatically, and the app shows no context warning.
 
-The app switches by itself when an account is near its usage limit and another account has room. It uses the latest usage it read from the provider. If a read fails, the last numbers stay visible and the account says the reading is stale; the failure does not stop a session. If no account has room, the session pauses. A pause keeps the handoff note, and a later switch to a different client passes it on. Choose **Resume** when an account has room, or wait for the app to resume it.
+The app switches by itself when an account is near its usage limit and an allowed account has room. It uses the latest usage it read from the provider. If a read fails, the last numbers stay visible and the account says the reading is stale; the failure does not stop a session. Subscription accounts come first, then pay-per-use accounts; within each group it takes the account with the most room, and a tie keeps the current client. If no allowed account has room, the session pauses. A pause keeps the handoff note, and a switch to a different client passes it on. Choose **Resume** when an allowed account has room, or wait for the app to resume it.
 
 ## Rename
 

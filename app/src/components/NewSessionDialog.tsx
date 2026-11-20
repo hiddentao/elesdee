@@ -20,6 +20,7 @@ import { CLIENTS } from '../api/types';
 import { type Language } from '../i18n';
 import { useLanguage } from '../i18n/LanguageProvider';
 import { accountUsage } from '../state/usage';
+import { AccountMultiSelect } from './AccountMultiSelect';
 import { Dialog } from './Dialog';
 import { AlertIcon } from './icons';
 import {
@@ -41,6 +42,7 @@ interface FormErrors {
   project?: string;
   client?: string;
   account?: string;
+  allowed?: string;
   folder?: string;
   env?: string;
   form?: string;
@@ -130,6 +132,22 @@ function defaultAccount(
   return accounts.find((account) => account.id === id) ?? null;
 }
 
+function defaultAllowedAccounts(
+  account: Account | null,
+  accounts: Account[],
+): string[] {
+  if (!account) {
+    return [];
+  }
+  const ids = accounts
+    .filter((candidate) => !candidate.sample && candidate.client === account.client)
+    .map((candidate) => candidate.id);
+  if (!ids.includes(account.id)) {
+    ids.push(account.id);
+  }
+  return ids;
+}
+
 export function NewSessionDialog({
   projects,
   accounts,
@@ -153,6 +171,10 @@ export function NewSessionDialog({
   const [preset, setPreset] = useState<LaunchPreset | null>(
     initialAccount ? presetFromAccount(initialAccount) : null,
   );
+  const [allowedIds, setAllowedIds] = useState<string[]>(() =>
+    defaultAllowedAccounts(initialAccount, accounts),
+  );
+  const [allowedTouched, setAllowedTouched] = useState(false);
   const presetCache = useRef(new Map<string, LaunchPreset>());
   const [sourceBranch, setSourceBranch] = useState<string | null>(
     initialProject?.defaultSourceBranch ?? null,
@@ -279,6 +301,20 @@ export function NewSessionDialog({
     ? accounts.filter((account) => account.client === client)
     : [];
 
+  function applyAllowedForAccount(account: Account | null) {
+    setAllowedIds((current) => {
+      if (!allowedTouched) {
+        return defaultAllowedAccounts(account, accounts);
+      }
+      if (!account) {
+        return current;
+      }
+      return current.includes(account.id)
+        ? current
+        : [...current, account.id];
+    });
+  }
+
   function chooseProject(id: string | null) {
     const nextProject = projects.find((project) => project.id === id);
     const account = defaultAccount(nextProject, accounts);
@@ -287,12 +323,14 @@ export function NewSessionDialog({
     setClient(account?.client ?? null);
     setAccountId(account?.id ?? null);
     setPreset(account ? presetFromAccount(account) : null);
+    applyAllowedForAccount(account);
     setSourceBranch(nextProject?.defaultSourceBranch ?? null);
     setErrors((current) => ({
       ...current,
       project: undefined,
       client: undefined,
       account: undefined,
+      allowed: undefined,
     }));
 
     if (nextProject && (!folderEdited || folder === '')) {
@@ -304,13 +342,20 @@ export function NewSessionDialog({
     setClient(nextClient);
     setAccountId(null);
     setPreset(null);
-    setErrors((current) => ({ ...current, client: undefined, account: undefined }));
+    applyAllowedForAccount(null);
+    setErrors((current) => ({
+      ...current,
+      client: undefined,
+      account: undefined,
+      allowed: undefined,
+    }));
   }
 
   function choosePreset(id: string | null) {
     if (!id) {
       setAccountId(null);
       setPreset(null);
+      applyAllowedForAccount(null);
       return;
     }
     const next = presetCache.current.get(id) ?? null;
@@ -321,10 +366,16 @@ export function NewSessionDialog({
       accounts.find((candidate) => candidate.id === next.accountId) ?? null;
     setPreset(next);
     setAccountId(next.accountId);
+    applyAllowedForAccount(account);
     if (account) {
       setClient(account.client);
     }
-    setErrors((current) => ({ ...current, client: undefined, account: undefined }));
+    setErrors((current) => ({
+      ...current,
+      client: undefined,
+      account: undefined,
+      allowed: undefined,
+    }));
   }
 
   async function browse() {
@@ -362,6 +413,8 @@ export function NewSessionDialog({
         nextErrors.account = t('newSession.errorClientAccount');
       } else if (!accountId) {
         nextErrors.account = t('newSession.errorAccount');
+      } else if (allowedIds.length === 0) {
+        nextErrors.allowed = t('allowedAccounts.errorEmpty');
       }
     }
 
@@ -393,11 +446,13 @@ export function NewSessionDialog({
           ? 'new-session-client'
           : nextErrors.account
             ? 'new-session-preset'
-            : nextErrors.folder
-              ? 'new-session-folder'
-              : nextErrors.env
-                ? 'new-session-env'
-                : null;
+            : nextErrors.allowed
+              ? 'new-session-allowed'
+              : nextErrors.folder
+                ? 'new-session-folder'
+                : nextErrors.env
+                  ? 'new-session-env'
+                  : null;
 
       setErrors(nextErrors);
       setFocusTarget(firstInvalid);
@@ -413,6 +468,7 @@ export function NewSessionDialog({
 
     if (kind === 'agent') {
       input.accountId = accountId as string;
+      input.allowedAccountIds = allowedIds;
       if (preset?.stored) {
         input.presetId = preset.id;
       }
@@ -603,6 +659,25 @@ export function NewSessionDialog({
                   ) : null}
                 </div>
               ) : null}
+
+              <AccountMultiSelect
+                id="new-session-allowed"
+                label={t('allowedAccounts.label')}
+                accounts={accounts}
+                value={allowedIds}
+                requiredId={accountId}
+                onChange={(ids) => {
+                  setAllowedIds(ids);
+                  setAllowedTouched(true);
+                  setErrors((current) => ({
+                    ...current,
+                    allowed: undefined,
+                  }));
+                }}
+                hint={t('allowedAccounts.hint')}
+                error={errors.allowed}
+                disabled={!accountId}
+              />
             </>
           ) : null}
 

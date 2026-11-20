@@ -393,6 +393,17 @@ export const ja = {
   'switchAccount.busyLabel': 'アカウントを切り替えています…',
   'switchAccount.submitting': '切り替えています…',
   'switchAccount.submit': 'アカウントを切り替え',
+
+  'allowedAccounts.label': "このセッションで許可するアカウント",
+  'allowedAccounts.add': "アカウントを追加",
+  'allowedAccounts.placeholder': "アカウントを検索",
+  'allowedAccounts.remove': "{name} を削除",
+  'allowedAccounts.current': "現在",
+  'allowedAccounts.hint':
+    "自動切り替えはこれらのアカウントのみを使用します。現在のアカウントは常に許可されます。",
+  'allowedAccounts.errorEmpty': "少なくとも 1 つのアカウントを許可してください。",
+  'allowedAccounts.saveFailed':
+    "許可するアカウントを保存できませんでした。もう一度お試しください。",
   'switchAccount.nextAuto': '次回の自動切り替え',
   'switchAccount.handoffSame':
       '{client} 内の切り替えでは会話が続きます。',

@@ -156,6 +156,8 @@ pub struct Session {
     pub work_state: Option<WorkState>,
     pub client: Option<Client>,
     pub account_id: Option<String>,
+    #[serde(default)]
+    pub allowed_account_ids: Vec<String>,
     pub branch: Option<String>,
     pub folder: String,
     pub preview: String,
@@ -757,7 +759,14 @@ impl AppState {
             store,
         );
         *lock(&state.inner.presets) = presets;
-        for session in sessions {
+        for mut session in sessions {
+            if session.session.allowed_account_ids.is_empty() {
+                session.session.allowed_account_ids = crate::providers::default_allowed_accounts(
+                    &state.accounts(),
+                    session.session.client,
+                    session.session.account_id.as_deref(),
+                );
+            }
             state.restore_session(session);
         }
         let pending = questions

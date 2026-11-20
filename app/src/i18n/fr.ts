@@ -396,6 +396,17 @@ export const fr = {
   'switchAccount.busyLabel': 'Changement de compte…',
   'switchAccount.submitting': 'Changement…',
   'switchAccount.submit': 'Changer de compte',
+
+  'allowedAccounts.label': "Autorisé pour cette session",
+  'allowedAccounts.add': "Ajouter un compte",
+  'allowedAccounts.placeholder': "Rechercher un compte",
+  'allowedAccounts.remove': "Retirer {name}",
+  'allowedAccounts.current': "Actuel",
+  'allowedAccounts.hint':
+    "Le basculement automatique n'utilise que ces comptes. Le compte actuel reste toujours autorisé.",
+  'allowedAccounts.errorEmpty': "Autorisez au moins un compte.",
+  'allowedAccounts.saveFailed':
+    "Les comptes autorisés n'ont pas été enregistrés. Réessayez.",
   'switchAccount.nextAuto': 'Prochain basculement automatique',
   'switchAccount.handoffSame':
       'Un changement dans {client} poursuit la conversation.',

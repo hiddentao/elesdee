@@ -374,6 +374,17 @@ export const en = {
   'switchAccount.busyLabel': 'Switching account…',
   'switchAccount.submitting': 'Switching…',
   'switchAccount.submit': 'Switch account',
+
+  'allowedAccounts.label': 'Allowed for this session',
+  'allowedAccounts.add': 'Add an account',
+  'allowedAccounts.placeholder': 'Type to find an account',
+  'allowedAccounts.remove': 'Remove {name}',
+  'allowedAccounts.current': 'Current',
+  'allowedAccounts.hint':
+    'Automatic switching uses only these accounts. The current account always stays allowed.',
+  'allowedAccounts.errorEmpty': 'Allow at least one account.',
+  'allowedAccounts.saveFailed':
+    'The allowed accounts were not saved. Try again.',
   'switchAccount.nextAuto': 'Next auto-switch',
   'switchAccount.handoffSame':
     'Switching inside {client} continues the conversation.',

@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../api/client';
@@ -148,6 +148,20 @@ function pickerResponse(input: RequestInfo | URL): Promise<Response> {
     );
   }
 
+  if (url.pathname === '/api/accounts') {
+    return Promise.resolve(
+      jsonResponse(
+        accounts.filter(
+          (account) =>
+            matches(account.name, query) ||
+            matches(account.client, query) ||
+            matches(account.plan, query) ||
+            matches(account.provider, query),
+        ),
+      ),
+    );
+  }
+
   return Promise.reject(new Error(`Unexpected request: ${String(input)}`));
 }
 
@@ -163,13 +177,14 @@ function renderDialog(
   onCreate = vi.fn(),
   initialProjectId: string | null = null,
   dialogProjects: Project[] = projects,
+  dialogAccounts: Account[] = accounts,
 ) {
   const onCreated = vi.fn();
   const onClose = vi.fn();
   render(
     <NewSessionDialog
       projects={dialogProjects}
-      accounts={accounts}
+      accounts={dialogAccounts}
       initialProjectId={initialProjectId}
       onCreate={onCreate}
       onCreated={onCreated}
@@ -536,5 +551,81 @@ describe('NewSessionDialog', () => {
       screen.queryByRole('option', { name: /Google work/ }),
     ).not.toBeInTheDocument();
     expect(fetch).toHaveBeenCalledWith('/api/presets?q=', expect.anything());
+  });
+
+  it('allows the accounts of the starting client by default', async () => {
+    const user = userEvent.setup();
+    const onCreate = vi.fn().mockResolvedValue(createdSession);
+    const sameClient: Account[] = [
+      {
+        ...accounts[0],
+        id: 'c1',
+        name: 'Claude Work',
+        sample: false,
+      },
+      {
+        ...accounts[0],
+        id: 'c2',
+        name: 'Claude Backup',
+        sample: false,
+      },
+      {
+        ...accounts[1],
+        id: 'c3',
+        name: 'Codex Backup',
+        client: 'Codex',
+        sample: false,
+      },
+    ];
+    const dialogProjects: Project[] = [
+      {
+        id: 'p1',
+        name: 'core',
+        folder: '/dev/core',
+        defaultAccountId: 'c1',
+      },
+    ];
+    renderDialog(onCreate, 'p1', dialogProjects, sameClient);
+
+    const allowedList = screen.getByRole('list', {
+      name: 'Allowed for this session',
+    });
+    expect(within(allowedList).getByText('Claude Work')).toBeInTheDocument();
+    expect(
+      within(allowedList).getByText('Claude Backup'),
+    ).toBeInTheDocument();
+    expect(
+      within(allowedList).queryByText('Codex Backup'),
+    ).not.toBeInTheDocument();
+    expect(within(allowedList).getByText('Current')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Start session' }));
+
+    await waitFor(() => expect(onCreate).toHaveBeenCalledTimes(1));
+    expect(onCreate.mock.calls[0][0]).toMatchObject({
+      projectId: 'p1',
+      accountId: 'c1',
+      allowedAccountIds: ['c1', 'c2'],
+    });
+  });
+
+  it('adds an allowed account from another client and sends the list', async () => {
+    const user = userEvent.setup();
+    const onCreate = vi.fn().mockResolvedValue(createdSession);
+    renderDialog(onCreate, 'p1', defaultProjects);
+
+    const combo = screen.getByRole('combobox', { name: 'Add an account' });
+    await user.click(combo);
+    await user.type(combo, 'Personal');
+    await user.click(await screen.findByRole('option', { name: /Personal/ }));
+
+    await user.click(screen.getByRole('button', { name: 'Start session' }));
+
+    await waitFor(() => expect(onCreate).toHaveBeenCalledTimes(1));
+    expect(onCreate.mock.calls[0][0]).toMatchObject({
+      projectId: 'p1',
+      accountId: 'a1',
+      allowedAccountIds: ['a1', 'a2'],
+    });
   });
 });

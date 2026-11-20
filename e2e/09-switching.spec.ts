@@ -41,7 +41,7 @@ test('switches the account of a running session', async ({ page, request }) => {
   await page.getByRole('button', { name: 'Session actions' }).click();
   await page.getByRole('menuitem', { name: 'Switch account…' }).click();
   const dialog = page.getByRole('dialog', { name: 'Switch account' });
-  const combo = dialog.getByRole('combobox', { name: 'Account' });
+  const combo = dialog.getByRole('combobox', { name: 'Account', exact: true });
   await combo.click();
   await combo.fill(second.name);
   await page.getByRole('option', { name: new RegExp(second.name) }).click();
@@ -153,7 +153,7 @@ test('switches from the usage pill and shows the context left', async ({
   await pill.click();
   const dialog = page.getByRole('dialog', { name: 'Switch account' });
   await expect(dialog).toBeVisible();
-  const combo = dialog.getByRole('combobox', { name: 'Account' });
+  const combo = dialog.getByRole('combobox', { name: 'Account', exact: true });
   await combo.click();
   await combo.fill(second.name);
   const option = page.getByRole('option', { name: new RegExp(second.name) });

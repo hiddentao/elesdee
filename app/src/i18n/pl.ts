@@ -395,6 +395,17 @@ export const pl = {
   'switchAccount.busyLabel': 'Zmienianie konta…',
   'switchAccount.submitting': 'Zmienianie…',
   'switchAccount.submit': 'Zmień konto',
+
+  'allowedAccounts.label': "Dozwolone dla tej sesji",
+  'allowedAccounts.add': "Dodaj konto",
+  'allowedAccounts.placeholder': "Szukaj konta",
+  'allowedAccounts.remove': "Usuń {name}",
+  'allowedAccounts.current': "Bieżące",
+  'allowedAccounts.hint':
+    "Automatyczne przełączanie używa tylko tych kont. Bieżące konto zawsze pozostaje dozwolone.",
+  'allowedAccounts.errorEmpty': "Zezwól na co najmniej jedno konto.",
+  'allowedAccounts.saveFailed':
+    "Dozwolone konta nie zostały zapisane. Spróbuj ponownie.",
   'switchAccount.nextAuto': 'Następne automatyczne przełączenie',
   'switchAccount.handoffSame':
       'Przełączenie w ramach {client} kontynuuje rozmowę.',

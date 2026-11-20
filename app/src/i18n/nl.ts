@@ -393,6 +393,17 @@ export const nl = {
   'switchAccount.busyLabel': 'Account wordt gewisseld…',
   'switchAccount.submitting': 'Wisselen…',
   'switchAccount.submit': 'Account wisselen',
+
+  'allowedAccounts.label': "Toegestaan voor deze sessie",
+  'allowedAccounts.add': "Een account toevoegen",
+  'allowedAccounts.placeholder': "Een account zoeken",
+  'allowedAccounts.remove': "Verwijder {name}",
+  'allowedAccounts.current': "Huidig",
+  'allowedAccounts.hint':
+    "Automatisch wisselen gebruikt alleen deze accounts. Het huidige account blijft altijd toegestaan.",
+  'allowedAccounts.errorEmpty': "Sta ten minste één account toe.",
+  'allowedAccounts.saveFailed':
+    "De toegestane accounts zijn niet opgeslagen. Probeer het opnieuw.",
   'switchAccount.nextAuto': 'Volgende automatische wissel',
   'switchAccount.handoffSame':
       'Een wissel binnen {client} zet het gesprek voort.',

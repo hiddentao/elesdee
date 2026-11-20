@@ -76,20 +76,25 @@ const session: Session = {
   shortcuts: [],
 };
 
-function renderDialog(onSwitch = vi.fn().mockResolvedValue(undefined)) {
+function renderDialog(
+  onSwitch = vi.fn().mockResolvedValue(undefined),
+  onAllowedChange = vi.fn().mockResolvedValue(undefined),
+) {
   render(
     <SwitchAccountDialog
       session={session}
       onSwitch={onSwitch}
+      onAllowedChange={onAllowedChange}
       onClose={vi.fn()}
     />,
   );
-  return { onSwitch };
+  return { onSwitch, onAllowedChange };
 }
 
 beforeEach(() => {
   vi.mocked(getSwitchOptions).mockResolvedValue({
     accounts: [current, next, otherClient],
+    allowedAccountIds: ['a1', 'a2', 'a3'],
     nextAccountId: 'a2',
   });
   vi.mocked(listAccounts).mockImplementation(async (query) => {
@@ -145,6 +150,42 @@ describe('SwitchAccountDialog', () => {
     expect(
       screen.getByText(/Switching to Codex writes a handoff note first/),
     ).toBeInTheDocument();
+  });
+
+  it('offers only allowed accounts and saves an allowed-list change', async () => {
+    const user = userEvent.setup();
+    vi.mocked(getSwitchOptions).mockResolvedValueOnce({
+      accounts: [current, next, otherClient],
+      allowedAccountIds: ['a1', 'a2'],
+      nextAccountId: 'a2',
+    });
+    const { onAllowedChange } = renderDialog();
+
+    const combo = await screen.findByRole('combobox', { name: 'Account' });
+    await user.click(combo);
+    await user.type(combo, 'Codex');
+    expect(
+      screen.queryByRole('option', { name: /Codex account/ }),
+    ).not.toBeInTheDocument();
+    await user.clear(combo);
+
+    expect(
+      screen.getByRole('button', { name: 'Remove Room account' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Remove Current' }),
+    ).not.toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole('button', { name: 'Remove Room account' }),
+    );
+
+    await waitFor(() =>
+      expect(onAllowedChange).toHaveBeenCalledWith(['a1']),
+    );
+    expect(
+      screen.queryByRole('button', { name: 'Remove Room account' }),
+    ).not.toBeInTheDocument();
   });
 
   it('shows a retry when the account list does not load', async () => {

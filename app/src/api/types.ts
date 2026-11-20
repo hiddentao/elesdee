@@ -35,6 +35,7 @@ export interface Session {
   workState: WorkState | null;
   client: Client | null;
   accountId: string | null;
+  allowedAccountIds?: string[];
   branch: string | null;
   handoffNote?: string | null;
   contextLeft?: number | null;
@@ -104,6 +105,7 @@ export interface Account {
 
 export interface SwitchOptions {
   accounts: Account[];
+  allowedAccountIds: string[];
   nextAccountId: string | null;
 }
 
@@ -291,6 +293,7 @@ export interface CreateSessionInput {
   projectId: string;
   kind: SessionKind;
   accountId?: string;
+  allowedAccountIds?: string[];
   presetId?: string;
   name?: string;
   folder?: string;

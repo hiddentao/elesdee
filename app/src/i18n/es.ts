@@ -396,6 +396,17 @@ export const es = {
   'switchAccount.busyLabel': 'Cambiando de cuenta…',
   'switchAccount.submitting': 'Cambiando…',
   'switchAccount.submit': 'Cambiar de cuenta',
+
+  'allowedAccounts.label': "Permitido para esta sesión",
+  'allowedAccounts.add': "Añadir una cuenta",
+  'allowedAccounts.placeholder': "Buscar una cuenta",
+  'allowedAccounts.remove': "Quitar {name}",
+  'allowedAccounts.current': "Actual",
+  'allowedAccounts.hint':
+    "El cambio automático usa solo estas cuentas. La cuenta actual siempre sigue permitida.",
+  'allowedAccounts.errorEmpty': "Permite al menos una cuenta.",
+  'allowedAccounts.saveFailed':
+    "No se guardaron las cuentas permitidas. Inténtalo de nuevo.",
   'switchAccount.nextAuto': 'Próximo cambio automático',
   'switchAccount.handoffSame':
       'Un cambio dentro de {client} continúa la conversación.',

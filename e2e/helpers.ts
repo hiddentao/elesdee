@@ -200,6 +200,7 @@ export async function createAgentSession(
     name?: string;
     folder: string;
     accountId?: string;
+    allowedAccountIds?: string[];
     sourceBranch?: string;
     firstPrompt?: string;
   },
@@ -209,6 +210,7 @@ export async function createAgentSession(
       projectId: input.projectId,
       kind: 'agent',
       accountId: input.accountId ?? 'max',
+      allowedAccountIds: input.allowedAccountIds,
       name: input.name,
       folder: input.folder,
       sourceBranch: input.sourceBranch,

@@ -259,22 +259,100 @@ pub fn remaining_percent(account: &Account) -> Option<u8> {
         .min()
 }
 
-/// Picks the account the automatic switch moves to next. It stays inside the
-/// session's client and skips samples, the current account and accounts
-/// without a known usage figure. The account with the most usage left wins.
+/// The accounts a session may use when the launch does not name a list.
+///
+/// The default keeps the session on its starting client, so an automatic
+/// switch continues the same conversation. The starting account is always
+/// included, even when it is a sample.
+pub fn default_allowed_accounts(
+    accounts: &[Account],
+    client: Option<Client>,
+    account_id: Option<&str>,
+) -> Vec<String> {
+    let mut ids = Vec::new();
+    if let Some(client) = client {
+        for account in accounts {
+            if !account.sample && account.client == client {
+                ids.push(account.id.clone());
+            }
+        }
+    }
+    if let Some(account_id) = account_id
+        && !ids.iter().any(|id| id == account_id)
+    {
+        ids.push(account_id.to_owned());
+    }
+    ids
+}
+
+fn subscription_rank(account: &Account) -> u8 {
+    if account.auth == Auth::Subscription {
+        1
+    } else {
+        0
+    }
+}
+
+fn balance_above_min(account: &Account) -> Option<i64> {
+    account
+        .rows
+        .iter()
+        .filter_map(|row| {
+            let value = row.value.as_deref().and_then(parse_number)?;
+            let min = row.min.as_deref().and_then(parse_number)?;
+            Some(((value - min) * 100.0).round() as i64)
+        })
+        .min()
+}
+
+/// The room left in an account, for ordering candidates.
+///
+/// Plan limits use the smallest remaining percentage. A prepaid balance uses
+/// the smallest amount above its minimum. The two values never mix for one
+/// account.
+pub fn remaining_room(account: &Account) -> (u8, i64) {
+    (
+        remaining_percent(account).unwrap_or(0),
+        balance_above_min(account).unwrap_or(0),
+    )
+}
+
+/// Picks the account the automatic switch moves to next.
+///
+/// It skips samples, the current account and accounts without room, and it
+/// stays inside the session's allowed list. Subscription accounts come first,
+/// then pay-per-use accounts. Within a group the account with the most room
+/// wins. A tie keeps the session on its current client, then falls back to the
+/// account id for a stable result.
 pub fn auto_switch_target(
     accounts: &[Account],
-    client: Client,
-    current_account_id: Option<&str>,
+    allowed: &[String],
+    current_client: Option<Client>,
+    exclude_id: Option<&str>,
 ) -> Option<Account> {
-    accounts
+    let mut candidates = accounts
         .iter()
-        .filter(|candidate| Some(candidate.id.as_str()) != current_account_id)
-        .filter(|candidate| !candidate.sample)
-        .filter(|candidate| candidate.client == client)
-        .filter(|candidate| usage_state(candidate) == UsageState::Room)
-        .max_by_key(|candidate| remaining_percent(candidate))
-        .cloned()
+        .filter(|account| {
+            !account.sample
+                && usage_state(account) == UsageState::Room
+                && allowed.iter().any(|id| id == &account.id)
+                && exclude_id != Some(account.id.as_str())
+        })
+        .collect::<Vec<_>>();
+
+    candidates.sort_by(|a, b| {
+        subscription_rank(b)
+            .cmp(&subscription_rank(a))
+            .then_with(|| remaining_room(b).cmp(&remaining_room(a)))
+            .then_with(|| {
+                let same_a = current_client == Some(a.client);
+                let same_b = current_client == Some(b.client);
+                same_b.cmp(&same_a)
+            })
+            .then_with(|| a.id.cmp(&b.id))
+    });
+
+    candidates.first().map(|account| (*account).clone())
 }
 
 #[cfg(test)]
@@ -327,7 +405,7 @@ mod tests {
     }
 
     #[test]
-    fn auto_switch_target_prefers_the_most_room_inside_the_client() {
+    fn auto_switch_target_prefers_a_subscription_over_a_roomier_key_account() {
         let mut current = account("anthropic", Client::ClaudeCode, Auth::Subscription);
         current.id = "current".to_owned();
         let mut roomy = account("deepseek", Client::ClaudeCode, Auth::Key);
@@ -379,11 +457,42 @@ mod tests {
         unknown.id = "unknown".to_owned();
 
         let accounts = vec![current, roomy, tighter, sample, other_client, unknown];
-        let target = auto_switch_target(&accounts, Client::ClaudeCode, Some("current"))
-            .expect("a target account");
-        assert_eq!(target.id, "roomy");
+        let allowed = vec![
+            "current".to_owned(),
+            "roomy".to_owned(),
+            "tighter".to_owned(),
+        ];
+        let target = auto_switch_target(
+            &accounts,
+            &allowed,
+            Some(Client::ClaudeCode),
+            Some("current"),
+        )
+        .expect("a target account");
+        assert_eq!(target.id, "tighter");
 
-        assert!(auto_switch_target(&accounts, Client::Codex, Some("codex")).is_none());
+        let all = vec![
+            "current".to_owned(),
+            "roomy".to_owned(),
+            "tighter".to_owned(),
+            "codex".to_owned(),
+        ];
+        let target = auto_switch_target(&accounts, &all, Some(Client::ClaudeCode), Some("current"))
+            .expect("a target account");
+        assert_eq!(
+            target.id, "codex",
+            "the subscription with the most room wins"
+        );
+
+        assert!(
+            auto_switch_target(
+                &accounts,
+                &["codex".to_owned()],
+                Some(Client::Codex),
+                Some("codex")
+            )
+            .is_none()
+        );
     }
 
     #[test]
@@ -426,5 +535,176 @@ mod tests {
         )));
         assert!(values.contains(&("OPENAI_API_KEY".to_owned(), "sk-custom".to_owned())));
         assert!(values.contains(&("OPENAI_MODEL".to_owned(), "gpt-test".to_owned())));
+    }
+
+    fn with_used(mut account: Account, used: u8) -> Account {
+        account.rows = vec![crate::state::UsageRow {
+            label: "Weekly".to_owned(),
+            window: None,
+            used: Some(used),
+            value: None,
+            min: None,
+            warn: None,
+            resets_at: None,
+        }];
+        account
+    }
+
+    fn with_balance(mut account: Account, value: &str, min: &str) -> Account {
+        account.rows = vec![crate::state::UsageRow {
+            label: "Balance".to_owned(),
+            window: None,
+            used: None,
+            value: Some(value.to_owned()),
+            min: Some(min.to_owned()),
+            warn: None,
+            resets_at: None,
+        }];
+        account
+    }
+
+    #[test]
+    fn default_allowed_accounts_keep_the_starting_client() {
+        let mut claude = account("anthropic", Client::ClaudeCode, Auth::Subscription);
+        claude.id = "claude".to_owned();
+        claude.sample = false;
+        let mut deepseek = account("deepseek", Client::ClaudeCode, Auth::Key);
+        deepseek.id = "deepseek".to_owned();
+        deepseek.sample = false;
+        let mut codex = account("openai", Client::Codex, Auth::Subscription);
+        codex.id = "codex".to_owned();
+        codex.sample = false;
+        let mut sample = account("anthropic", Client::ClaudeCode, Auth::Subscription);
+        sample.id = "sample".to_owned();
+        sample.sample = true;
+        let accounts = vec![claude, deepseek, codex, sample];
+
+        assert_eq!(
+            default_allowed_accounts(&accounts, Some(Client::ClaudeCode), Some("claude")),
+            vec!["claude".to_owned(), "deepseek".to_owned()]
+        );
+        assert_eq!(
+            default_allowed_accounts(&accounts, Some(Client::ClaudeCode), Some("sample")),
+            vec![
+                "claude".to_owned(),
+                "deepseek".to_owned(),
+                "sample".to_owned()
+            ]
+        );
+        assert_eq!(
+            default_allowed_accounts(&accounts, None, None),
+            Vec::<String>::new()
+        );
+    }
+
+    #[test]
+    fn auto_switch_prefers_subscriptions_then_the_most_room() {
+        let mut claude = with_used(
+            account("anthropic", Client::ClaudeCode, Auth::Subscription),
+            95,
+        );
+        claude.id = "claude".to_owned();
+        claude.sample = false;
+        let mut codex = with_used(account("openai", Client::Codex, Auth::Subscription), 50);
+        codex.id = "codex".to_owned();
+        codex.sample = false;
+        let mut deepseek = with_used(account("deepseek", Client::ClaudeCode, Auth::Key), 5);
+        deepseek.id = "deepseek".to_owned();
+        deepseek.sample = false;
+        let accounts = vec![claude.clone(), codex, deepseek];
+
+        let allowed = vec![
+            "claude".to_owned(),
+            "codex".to_owned(),
+            "deepseek".to_owned(),
+        ];
+        let target = auto_switch_target(
+            &accounts,
+            &allowed,
+            Some(Client::ClaudeCode),
+            Some("claude"),
+        )
+        .expect("a target");
+        assert_eq!(target.id, "codex", "a subscription account wins");
+    }
+
+    #[test]
+    fn auto_switch_breaks_a_tie_toward_the_current_client() {
+        let mut claude = with_used(
+            account("anthropic", Client::ClaudeCode, Auth::Subscription),
+            95,
+        );
+        claude.id = "claude".to_owned();
+        claude.sample = false;
+        let mut same = with_used(
+            account("anthropic", Client::ClaudeCode, Auth::Subscription),
+            60,
+        );
+        same.id = "same-client".to_owned();
+        same.sample = false;
+        let mut other = with_used(account("openai", Client::Codex, Auth::Subscription), 60);
+        other.id = "other-client".to_owned();
+        other.sample = false;
+        let accounts = vec![claude, same, other];
+
+        let allowed = vec!["same-client".to_owned(), "other-client".to_owned()];
+        let target = auto_switch_target(&accounts, &allowed, Some(Client::ClaudeCode), None)
+            .expect("a target");
+        assert_eq!(target.id, "same-client");
+    }
+
+    #[test]
+    fn auto_switch_never_leaves_the_allowed_list() {
+        let mut claude = with_used(
+            account("anthropic", Client::ClaudeCode, Auth::Subscription),
+            95,
+        );
+        claude.id = "claude".to_owned();
+        claude.sample = false;
+        let mut backup = with_used(account("anthropic", Client::ClaudeCode, Auth::Key), 10);
+        backup.id = "backup".to_owned();
+        backup.sample = false;
+        let accounts = vec![claude.clone(), backup];
+
+        let allowed = vec!["claude".to_owned()];
+        assert!(
+            auto_switch_target(
+                &accounts,
+                &allowed,
+                Some(Client::ClaudeCode),
+                Some("claude"),
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn auto_switch_orders_prepaid_balances_by_the_amount_above_the_minimum() {
+        let mut claude = with_used(
+            account("anthropic", Client::ClaudeCode, Auth::Subscription),
+            95,
+        );
+        claude.id = "claude".to_owned();
+        claude.sample = false;
+        let mut low = with_balance(
+            account("deepseek", Client::ClaudeCode, Auth::Key),
+            "7.00",
+            "5.00",
+        );
+        low.id = "low".to_owned();
+        low.sample = false;
+        let mut high = with_balance(
+            account("deepseek", Client::ClaudeCode, Auth::Key),
+            "20.00",
+            "5.00",
+        );
+        high.id = "high".to_owned();
+        high.sample = false;
+        let accounts = vec![claude, low, high];
+
+        let allowed = vec!["low".to_owned(), "high".to_owned()];
+        let target = auto_switch_target(&accounts, &allowed, Some(Client::ClaudeCode), None)
+            .expect("a target");
+        assert_eq!(target.id, "high");
     }
 }

@@ -371,6 +371,8 @@ Usage belongs to the computer, not to a session. The sidebar shows a compact sum
 **Allowed providers per session**
 
 - For each session, I choose which providers and accounts it may use.
+- A new session allows the accounts of its starting client. I can add accounts of other clients, and remove any account except the one in use.
+- I can change the list while the session runs.
 - Auto-switch uses only providers from this list.
 
 **Auto-switch**
@@ -407,7 +409,7 @@ Rules from the providers:
 
 - Subscriptions (Claude, Codex): "near the limit" means 90% of any limit of the plan, the 5-hour limit or the weekly limit, whichever comes first. The margin leaves room for the agent to commit and hand off.
 - DeepSeek: each account has a minimum balance that I set, for example 5 USD. Below it, auto-switch moves the session away and the app tells me to top up.
-- Order: auto-switch picks subscription accounts first, then pay-per-use accounts such as DeepSeek. Among subscription accounts, it picks the one with the most usage left.
+- Order: auto-switch picks subscription accounts first, then pay-per-use accounts such as DeepSeek. Among the accounts in a group, it picks the one with the most usage left. On a tie, it keeps the session on its current client.
 
 ## Settings
 

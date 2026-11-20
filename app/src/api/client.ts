@@ -246,6 +246,17 @@ export function getSwitchOptions(id: string): Promise<SwitchOptions> {
   );
 }
 
+export function updateSessionAllowedAccounts(
+  id: string,
+  accountIds: string[],
+): Promise<Session> {
+  return request<Session>(`/api/sessions/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ allowedAccountIds: accountIds }),
+  });
+}
+
 export function resumeSession(id: string): Promise<Session> {
   return request<Session>(`/api/sessions/${encodeURIComponent(id)}/resume`, post({}));
 }
