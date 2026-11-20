@@ -6,7 +6,9 @@ import {
   useState,
   type FormEvent,
   type PointerEvent as ReactPointerEvent,
+  type ReactNode,
 } from 'react';
+import { createPortal } from 'react-dom';
 import {
   answerQuestion,
   approveSessionRequest,
@@ -94,6 +96,144 @@ function keyStorage(): Storage | null {
   }
 }
 
+const SHEET_FOCUSABLE =
+  'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])';
+
+function sheetFocusables(sheet: HTMLElement): HTMLElement[] {
+  return Array.from(
+    sheet.querySelectorAll<HTMLElement>(SHEET_FOCUSABLE),
+  ).filter(
+    (element) =>
+      !element.closest('[hidden], [inert]') &&
+      element.getAttribute('aria-hidden') !== 'true',
+  );
+}
+
+/**
+ * A bottom sheet that takes focus, keeps Tab inside, closes on Escape and
+ * returns focus to its trigger. The sheet renders beside the app root so the
+ * rest of the screen can be inert while it is open.
+ */
+function PhoneSheet({
+  id,
+  label,
+  labelledBy,
+  closeLabel,
+  initialFocus,
+  returnFocus,
+  onClose,
+  children,
+}: {
+  id?: string;
+  label?: string;
+  labelledBy?: string;
+  closeLabel: string;
+  initialFocus?: string;
+  returnFocus?: string;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const openerRef = useRef<HTMLElement | null>(
+    document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null,
+  );
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+
+  useEffect(() => {
+    const sheet = sheetRef.current;
+    if (!sheet) {
+      return;
+    }
+
+    if (!sheet.contains(document.activeElement)) {
+      const preferred =
+        (initialFocus
+          ? sheet.querySelector<HTMLElement>(initialFocus)
+          : null) ??
+        sheet.querySelector<HTMLElement>('[aria-pressed="true"]') ??
+        sheet.querySelector<HTMLElement>('.phone-sheet-row:not(.is-danger)') ??
+        sheetFocusables(sheet)[0] ??
+        sheet;
+      preferred.focus();
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        closeRef.current();
+        return;
+      }
+      if (event.key !== 'Tab' || !sheetRef.current) {
+        return;
+      }
+      const items = sheetFocusables(sheetRef.current);
+      if (items.length === 0) {
+        event.preventDefault();
+        sheetRef.current.focus();
+        return;
+      }
+      const first = items[0];
+      const last = items[items.length - 1];
+      const active = document.activeElement;
+      const inside =
+        active instanceof HTMLElement && sheetRef.current.contains(active);
+      if (!inside) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+        return;
+      }
+      if (event.shiftKey && active === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && active === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      const target = returnFocus
+        ? document.querySelector<HTMLElement>(returnFocus)
+        : openerRef.current;
+      if (target?.isConnected && !target.closest('[inert]')) {
+        target.focus();
+      }
+    };
+  }, [initialFocus, returnFocus]);
+
+  return createPortal(
+    <div className="phone-sheet-layer">
+      <button
+        type="button"
+        className="phone-sheet-scrim"
+        aria-label={closeLabel}
+        aria-hidden="true"
+        tabIndex={-1}
+        onClick={() => closeRef.current()}
+      />
+      <div
+        id={id}
+        ref={sheetRef}
+        className="phone-sheet"
+        role="dialog"
+        aria-modal="true"
+        aria-label={labelledBy ? undefined : label}
+        aria-labelledby={labelledBy}
+        tabIndex={-1}
+      >
+        {children}
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 export default function PhoneApp() {
   const { t, language, setLanguage } = useLanguage();
   const tRef = useRef(t);
@@ -131,11 +271,11 @@ export default function PhoneApp() {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [dismissedTabs, setDismissedTabs] = useState<Set<string>>(new Set());
   const [languageSheetOpen, setLanguageSheetOpen] = useState(false);
+  const [cardAnnouncement, setCardAnnouncement] = useState('');
+  const announcedCardRef = useRef<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const tabStripRef = useRef<HTMLDivElement>(null);
-  const languageButtonRef = useRef<HTMLButtonElement>(null);
-  const languageSheetRef = useRef<HTMLDivElement>(null);
   const activeIdRef = useRef(activeId);
   activeIdRef.current = activeId;
 
@@ -301,50 +441,8 @@ export default function PhoneApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active?.id]);
 
-  useEffect(() => {
-    if (!languageSheetOpen) {
-      return;
-    }
-    const dialog = languageSheetRef.current;
-    const current = dialog?.querySelector<HTMLButtonElement>(
-      '[aria-pressed="true"]',
-    );
-    (current ?? dialog)?.focus();
-
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        setLanguageSheetOpen(false);
-        languageButtonRef.current?.focus();
-        return;
-      }
-      if (event.key !== 'Tab' || !dialog) {
-        return;
-      }
-      const items = Array.from(
-        dialog.querySelectorAll<HTMLElement>('button:not([disabled])'),
-      );
-      if (items.length === 0) {
-        return;
-      }
-      const first = items[0];
-      const last = items[items.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    }
-
-    document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
-  }, [languageSheetOpen]);
-
   function closeLanguageSheet() {
     setLanguageSheetOpen(false);
-    languageButtonRef.current?.focus();
   }
 
   function selectSession(id: string) {
@@ -564,9 +662,43 @@ export default function PhoneApp() {
     : null;
   const countLabel = openSessions.length;
   const canStart = hasProjects(projects);
+  const cardKey = active?.pendingPermission
+    ? `permission:${active.pendingPermission.requestId}`
+    : activeRequest
+      ? `request:${activeRequest.id}`
+      : activeQuestion
+        ? `question:${activeQuestion.id}`
+        : null;
+  const cardNotice = active?.pendingPermission
+    ? `${t('permission.needed')}: ${active.pendingPermission.tool}`
+    : activeRequest
+      ? t('requests.title')
+      : activeQuestion
+        ? t('phone.question')
+        : '';
+
+  useEffect(() => {
+    if (!cardKey) {
+      announcedCardRef.current = null;
+      return;
+    }
+    if (announcedCardRef.current === cardKey) {
+      return;
+    }
+    announcedCardRef.current = cardKey;
+    setCardAnnouncement(cardNotice);
+  }, [cardKey, cardNotice]);
+
+  const anySheetOpen =
+    sheetOpen ||
+    languageSheetOpen ||
+    startOpen ||
+    actionsOpen ||
+    switchOpen ||
+    keysOpen;
 
   return (
-    <div className="phone">
+    <div className="phone" inert={anySheetOpen}>
       <header className="phone-head">
         {screen === 'session' && active ? (
           <>
@@ -579,7 +711,7 @@ export default function PhoneApp() {
               ‹
             </button>
             <div className="phone-head-text">
-              <span className="phone-title">{active.name}</span>
+              <h1 className="phone-title">{active.name}</h1>
               <span className="phone-sub">
                 {workLabel(active, t) ?? t('status.active')} ·{' '}
                 {active.projectId}
@@ -588,13 +720,14 @@ export default function PhoneApp() {
           </>
         ) : (
           <div className="phone-head-text">
-            <span className="phone-title">{t('phone.sessions')}</span>
+            <h1 className="phone-title">{t('phone.sessions')}</h1>
             <span className="phone-sub">{t('phone.thisComputer')}</span>
           </div>
         )}
         {screen === 'list' ? (
           <button
             type="button"
+            id="phone-start-trigger"
             className="phone-icon"
             aria-label={t('phone.startSession')}
             aria-haspopup="dialog"
@@ -608,6 +741,7 @@ export default function PhoneApp() {
         ) : screen === 'session' && active ? (
           <button
             type="button"
+            id="phone-actions-trigger"
             className="phone-icon"
             aria-label={t('phone.sessionActions')}
             aria-haspopup="dialog"
@@ -619,8 +753,8 @@ export default function PhoneApp() {
         ) : null}
         <button
           type="button"
+          id="phone-language-trigger"
           className="phone-icon"
-          ref={languageButtonRef}
           aria-label={t('settings.languages')}
           aria-haspopup="dialog"
           aria-expanded={languageSheetOpen}
@@ -723,6 +857,9 @@ export default function PhoneApp() {
                   className={
                     session.id === activeId ? 'phone-tab is-on' : 'phone-tab'
                   }
+                  aria-current={
+                    session.id === activeId ? 'page' : undefined
+                  }
                   onClick={() => selectSession(session.id)}
                 >
                   <span className="phone-tab-name">{session.name}</span>
@@ -734,10 +871,13 @@ export default function PhoneApp() {
             </div>
             <button
               type="button"
+              id="phone-tabs-trigger"
               className="phone-tab-count"
               aria-label={t('phone.allTabsLabel', {
                 count: formatNumber(language, countLabel),
               })}
+              aria-haspopup="dialog"
+              aria-controls="phone-tabs-sheet"
               aria-expanded={sheetOpen}
               onClick={() => setSheetOpen((open) => !open)}
             >
@@ -746,49 +886,28 @@ export default function PhoneApp() {
           </div>
 
           {sheetOpen ? (
-            <div className="phone-sheet-layer">
-              <button
-                type="button"
-                className="phone-sheet-scrim"
-                aria-label={t('phone.closeTabs')}
-                onClick={() => setSheetOpen(false)}
-              />
-              <div
-                className="phone-sheet"
-                role="dialog"
-                aria-label={t('phone.sheetAllTabs')}
-              >
-                <h2 className="phone-sheet-title">
-                  {t(
-                    countLabel === 1
-                      ? 'phone.sheetTitleOne'
-                      : 'phone.sheetTitleMany',
-                    { count: formatNumber(language, countLabel) },
-                  )}
-                </h2>
-                {openSessions.some(isWaiting) ? (
-                  <>
-                    <h3 className="phone-section-title">
-                      {t('status.waitingForYou')}
-                    </h3>
-                    {openSessions.filter(isWaiting).map((session) => (
-                      <SheetRow
-                        key={session.id}
-                        session={session}
-                        active={session.id === activeId}
-                        onSelect={selectSession}
-                        onClose={closeTab}
-                        t={t}
-                      />
-                    ))}
-                  </>
-                ) : null}
-                <h3 className="phone-section-title">
-                  {t('phone.everythingElse')}
-                </h3>
-                {openSessions
-                  .filter((session) => !isWaiting(session))
-                  .map((session) => (
+            <PhoneSheet
+              id="phone-tabs-sheet"
+              label={t('phone.sheetAllTabs')}
+              closeLabel={t('phone.closeTabs')}
+              initialFocus=".phone-sheet-row.is-on"
+              returnFocus="#phone-tabs-trigger"
+              onClose={() => setSheetOpen(false)}
+            >
+              <h2 className="phone-sheet-title">
+                {t(
+                  countLabel === 1
+                    ? 'phone.sheetTitleOne'
+                    : 'phone.sheetTitleMany',
+                  { count: formatNumber(language, countLabel) },
+                )}
+              </h2>
+              {openSessions.some(isWaiting) ? (
+                <>
+                  <h3 className="phone-section-title">
+                    {t('status.waitingForYou')}
+                  </h3>
+                  {openSessions.filter(isWaiting).map((session) => (
                     <SheetRow
                       key={session.id}
                       session={session}
@@ -798,8 +917,24 @@ export default function PhoneApp() {
                       t={t}
                     />
                   ))}
-              </div>
-            </div>
+                </>
+              ) : null}
+              <h3 className="phone-section-title">
+                {t('phone.everythingElse')}
+              </h3>
+              {openSessions
+                .filter((session) => !isWaiting(session))
+                .map((session) => (
+                  <SheetRow
+                    key={session.id}
+                    session={session}
+                    active={session.id === activeId}
+                    onSelect={selectSession}
+                    onClose={closeTab}
+                    t={t}
+                  />
+                ))}
+            </PhoneSheet>
           ) : null}
 
           {actionNotice ? (
@@ -985,54 +1120,46 @@ export default function PhoneApp() {
       )}
 
       {languageSheetOpen ? (
-        <div className="phone-sheet-layer">
-          <button
-            type="button"
-            className="phone-sheet-scrim"
-            aria-label={t('common.close')}
-            onClick={closeLanguageSheet}
-          />
-          <div
-            className="phone-sheet"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="phone-language-title"
-            ref={languageSheetRef}
-            tabIndex={-1}
-          >
-            <h2 className="phone-sheet-title" id="phone-language-title">
-              {t('settings.languages')}
-            </h2>
-            <span className="phone-sheet-label">
-              {t('settings.languageLabel')}
-            </span>
-            {LANGUAGES.map((item) => {
-              const current = item.code === language;
-              return (
-                <button
-                  key={item.code}
-                  type="button"
-                  className={
-                    current ? 'phone-sheet-row is-on' : 'phone-sheet-row'
-                  }
-                  aria-pressed={current}
-                  onClick={() => {
-                    setLanguage(item.code);
-                    closeLanguageSheet();
-                  }}
-                >
-                  <span className="phone-sheet-row-name">{item.label}</span>
-                  {current ? (
-                    <span className="phone-language-check" aria-hidden="true">
-                      ✓
-                    </span>
-                  ) : null}
-                </button>
-              );
-            })}
-            <p className="phone-sheet-note">{t('settings.languageNote')}</p>
-          </div>
-        </div>
+        <PhoneSheet
+          id="phone-language-sheet"
+          labelledBy="phone-language-title"
+          closeLabel={t('common.close')}
+          initialFocus='[aria-pressed="true"]'
+          returnFocus="#phone-language-trigger"
+          onClose={closeLanguageSheet}
+        >
+          <h2 className="phone-sheet-title" id="phone-language-title">
+            {t('settings.languages')}
+          </h2>
+          <span className="phone-sheet-label">
+            {t('settings.languageLabel')}
+          </span>
+          {LANGUAGES.map((item) => {
+            const current = item.code === language;
+            return (
+              <button
+                key={item.code}
+                type="button"
+                className={
+                  current ? 'phone-sheet-row is-on' : 'phone-sheet-row'
+                }
+                aria-pressed={current}
+                onClick={() => {
+                  setLanguage(item.code);
+                  closeLanguageSheet();
+                }}
+              >
+                <span className="phone-sheet-row-name">{item.label}</span>
+                {current ? (
+                  <span className="phone-language-check" aria-hidden="true">
+                    ✓
+                  </span>
+                ) : null}
+              </button>
+            );
+          })}
+          <p className="phone-sheet-note">{t('settings.languageNote')}</p>
+        </PhoneSheet>
       ) : null}
 
       {startOpen ? (
@@ -1109,6 +1236,12 @@ export default function PhoneApp() {
           onClose={() => setCloseOpen(false)}
         />
       ) : null}
+      {createPortal(
+        <p className="sr-only phone-live" role="status" aria-live="polite">
+          {cardAnnouncement}
+        </p>,
+        document.body,
+      )}
     </div>
   );
 }
@@ -1271,6 +1404,7 @@ function PhoneKeyRail({
         })}
         <button
           type="button"
+          id="phone-add-key-trigger"
           className="key-chip add-key"
           aria-label={t('phone.keyAdd')}
           onClick={onAddKey}
@@ -1320,25 +1454,25 @@ function KeysSheet({
   }
 
   return (
-    <div className="phone-sheet-layer">
-      <button
-        type="button"
-        className="phone-sheet-scrim"
-        aria-label={t('common.close')}
-        onClick={onClose}
-      />
-      <div className="phone-sheet" role="dialog" aria-label={t('phone.keys')}>
-        <div className="phone-sheet-head">
-          <h2 className="phone-sheet-title">{t('phone.keys')}</h2>
-          <button
-            type="button"
-            className="phone-sheet-close"
-            aria-label={t('common.close')}
-            onClick={onClose}
-          >
-            ×
-          </button>
-        </div>
+    <PhoneSheet
+      id="phone-keys-sheet"
+      label={t('phone.keys')}
+      closeLabel={t('common.close')}
+      initialFocus='input[type="text"]'
+      returnFocus="#phone-add-key-trigger"
+      onClose={onClose}
+    >
+      <div className="phone-sheet-head">
+        <h2 className="phone-sheet-title">{t('phone.keys')}</h2>
+        <button
+          type="button"
+          className="phone-sheet-close"
+          aria-label={t('common.close')}
+          onClick={onClose}
+        >
+          ×
+        </button>
+      </div>
         {(session.shortcuts ?? []).length > 0 ? (
           <>
             <h3 className="phone-sheet-label">{t('phone.keyAgent')}</h3>
@@ -1436,8 +1570,7 @@ function KeysSheet({
             {t('phone.keyAdd')}
           </button>
         </form>
-      </div>
-    </div>
+    </PhoneSheet>
   );
 }
 
@@ -1460,6 +1593,7 @@ function StartSessionSheet({
   const [name, setName] = useState('');
   const [prompt, setPrompt] = useState('');
   const [error, setError] = useState('');
+  const [invalid, setInvalid] = useState<'project' | 'config' | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   const project = projects.find((entry) => entry.id === projectId) ?? null;
@@ -1497,6 +1631,7 @@ function StartSessionSheet({
       configs.find((entry) => entry.id === next?.defaultConfigId) ?? null;
     setConfigId(config?.id ?? null);
     setBranch(next?.defaultSourceBranch ?? null);
+    setInvalid(null);
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -1509,9 +1644,19 @@ function StartSessionSheet({
       firstPrompt: prompt,
     });
     if (!input) {
-      setError(t('phone.startIncomplete'));
+      const field = !projectId ? 'project' : 'config';
+      setInvalid(field);
+      setError('');
+      document
+        .getElementById(
+          field === 'project'
+            ? 'phone-start-project'
+            : 'phone-start-config',
+        )
+        ?.focus();
       return;
     }
+    setInvalid(null);
     setSubmitting(true);
     setError('');
     try {
@@ -1526,18 +1671,14 @@ function StartSessionSheet({
   }
 
   return (
-    <div className="phone-sheet-layer">
-      <button
-        type="button"
-        className="phone-sheet-scrim"
-        aria-label={t('common.close')}
-        onClick={onClose}
-      />
-      <div
-        className="phone-sheet"
-        role="dialog"
-        aria-label={t('newSession.title')}
-      >
+    <PhoneSheet
+      id="phone-start-sheet"
+      label={t('newSession.title')}
+      closeLabel={t('common.close')}
+      initialFocus="#phone-start-project"
+      returnFocus="#phone-start-trigger"
+      onClose={onClose}
+    >
         <div className="phone-sheet-head">
           <h2 className="phone-sheet-title">{t('newSession.title')}</h2>
           <button
@@ -1563,6 +1704,11 @@ function StartSessionSheet({
               placeholder={t('newSession.projectPlaceholder')}
               required
               autoFocus
+              error={
+                invalid === 'project'
+                  ? t('phone.startIncomplete')
+                  : undefined
+              }
             />
             <Combobox
               id="phone-start-config"
@@ -1570,9 +1716,15 @@ function StartSessionSheet({
               value={configId}
               options={configOptions}
               selectedOption={configOptions.find((option) => option.id === configId) ?? null}
-              onChange={setConfigId}
+              onChange={(id) => {
+                setConfigId(id);
+                setInvalid(null);
+              }}
               placeholder={t('newSession.configPlaceholder')}
               required
+              error={
+                invalid === 'config' ? t('phone.startIncomplete') : undefined
+              }
             />
             <Combobox
               key={projectId ?? 'no-project'}
@@ -1639,8 +1791,7 @@ function StartSessionSheet({
             </div>
           </form>
         )}
-      </div>
-    </div>
+    </PhoneSheet>
   );
 }
 
@@ -1660,50 +1811,45 @@ function SessionActionsSheet({
   onClose: () => void;
 }) {
   return (
-    <div className="phone-sheet-layer">
-      <button
-        type="button"
-        className="phone-sheet-scrim"
-        aria-label={t('common.close')}
-        onClick={onClose}
-      />
-      <div
-        className="phone-sheet"
-        role="dialog"
-        aria-label={t('phone.sessionActions')}
-      >
-        <div className="phone-sheet-head">
-          <h2 className="phone-sheet-title">{t('phone.sessionActions')}</h2>
-          <button
-            type="button"
-            className="phone-sheet-close"
-            aria-label={t('common.close')}
-            onClick={onClose}
-          >
-            ×
-          </button>
-        </div>
-        {canSwitch(session) ? (
-          <button type="button" className="phone-sheet-row" onClick={onSwitch}>
-            <span className="phone-sheet-row-name">
-              {t('session.switchAccountMenu')}
-            </span>
-          </button>
-        ) : null}
-        <button type="button" className="phone-sheet-row" onClick={onUsage}>
-          <span className="phone-sheet-row-name">{t('usage.title')}</span>
-        </button>
+    <PhoneSheet
+      id="phone-actions-sheet"
+      label={t('phone.sessionActions')}
+      closeLabel={t('common.close')}
+      initialFocus=".phone-sheet-row:not(.is-danger)"
+      returnFocus="#phone-actions-trigger"
+      onClose={onClose}
+    >
+      <div className="phone-sheet-head">
+        <h2 className="phone-sheet-title">{t('phone.sessionActions')}</h2>
         <button
           type="button"
-          className="phone-sheet-row is-danger"
-          onClick={onCloseSession}
+          className="phone-sheet-close"
+          aria-label={t('common.close')}
+          onClick={onClose}
         >
-          <span className="phone-sheet-row-name">
-            {t('session.closeMenuAction')}
-          </span>
+          ×
         </button>
       </div>
-    </div>
+      {canSwitch(session) ? (
+        <button type="button" className="phone-sheet-row" onClick={onSwitch}>
+          <span className="phone-sheet-row-name">
+            {t('session.switchAccountMenu')}
+          </span>
+        </button>
+      ) : null}
+      <button type="button" className="phone-sheet-row" onClick={onUsage}>
+        <span className="phone-sheet-row-name">{t('usage.title')}</span>
+      </button>
+      <button
+        type="button"
+        className="phone-sheet-row is-danger"
+        onClick={onCloseSession}
+      >
+        <span className="phone-sheet-row-name">
+          {t('session.closeMenuAction')}
+        </span>
+      </button>
+    </PhoneSheet>
   );
 }
 
@@ -1729,18 +1875,14 @@ function SwitchConfigSheet({
   );
 
   return (
-    <div className="phone-sheet-layer">
-      <button
-        type="button"
-        className="phone-sheet-scrim"
-        aria-label={t('common.close')}
-        onClick={onClose}
-      />
-      <div
-        className="phone-sheet"
-        role="dialog"
-        aria-label={t('switchAccount.title')}
-      >
+    <PhoneSheet
+      id="phone-switch-sheet"
+      label={t('switchAccount.title')}
+      closeLabel={t('common.close')}
+      initialFocus='input[type="text"]'
+      returnFocus="#phone-actions-trigger"
+      onClose={onClose}
+    >
         <div className="phone-sheet-head">
           <h2 className="phone-sheet-title">{t('switchAccount.title')}</h2>
           <button
@@ -1797,8 +1939,7 @@ function SwitchConfigSheet({
             </ul>
           </>
         )}
-      </div>
-    </div>
+    </PhoneSheet>
   );
 }
 
@@ -1937,6 +2078,7 @@ function SheetRow({
       <button
         type="button"
         className={active ? 'phone-sheet-row is-on' : 'phone-sheet-row'}
+        aria-current={active ? 'page' : undefined}
         style={{ transform: `translateX(${offset}px)` }}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
