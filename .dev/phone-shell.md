@@ -653,7 +653,7 @@ Both phone surfaces put **Files** and **Changes** beside the session actions.
 | `phone-shell/ui/src/demo.ts` | Session server selection and the listener state of each row. |
 | `phone-shell/ui/src/app.ts` | The demo-server list on the session screen, with the local and tailnet addresses, state and Open action. |
 
-### 6.5 Logging and storage
+### 6.6 Logging and storage
 
 Never log:
 
