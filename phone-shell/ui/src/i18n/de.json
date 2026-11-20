@@ -211,5 +211,10 @@
   "notifications.doneBody": "Die Aufgabe ist abgeschlossen.",
   "notifications.messageTitle": "{name} sagt",
   "notifications.denied": "Benachrichtigungen sind aus. Erlaube elesdee-Benachrichtigungen in den Einstellungen des Telefons.",
-  "notifications.unavailable": "Benachrichtigungen sind auf diesem Telefon nicht verfügbar."
+  "notifications.unavailable": "Benachrichtigungen sind auf diesem Telefon nicht verfügbar.",
+  "update.title": "Update nötig",
+  "update.computer": "Aktualisiere elesdee auf diesem Computer.",
+  "update.phone": "Aktualisiere die Telefon-App.",
+  "ui.missing": "Dieser Computer hat keine Telefonoberfläche. Aktualisiere elesdee auf diesem Computer.",
+  "ui.loadFailed": "Die Telefonoberfläche konnte nicht geladen werden. Dieses Telefon behält seine eigenen Bildschirme."
 }

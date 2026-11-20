@@ -7,8 +7,10 @@
   ],
   "scripts": {
     "dev": "npm --workspace app run dev",
-    "build": "npm --workspace app run build",
+    "build": "npm --workspace app run build && npm run build:phone",
+    "build:phone": "npm --workspace app run build:phone && node scripts/package-phone-ui.mjs",
     "test": "npm --workspace app run test",
+    "test:phone-package": "node --test scripts/package-phone-ui.test.mjs",
     "typecheck": "npm --workspace app run typecheck",
     "check:ui": "npm --workspace app run typecheck && npm --workspace app run test",
     "check:core": "cargo test --manifest-path core/Cargo.toml && cargo clippy --manifest-path core/Cargo.toml --all-targets -- -D warnings",
@@ -23,6 +25,8 @@
   },
   "devDependencies": {
     "@commitlint/cli": "^21.2.4",
+    "@noble/hashes": "^2.4.0",
+    "fflate": "^0.8.2",
     "@commitlint/config-conventional": "^21.2.4",
     "@playwright/test": "^1.65.1",
     "@tauri-apps/cli": "^2.12.6",

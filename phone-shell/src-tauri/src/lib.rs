@@ -8,16 +8,19 @@ mod commands;
 mod forward;
 mod notifications;
 mod store;
+mod ui;
 
 use commands::{
     phone_computers, phone_connect, phone_disconnect, phone_forget, phone_forward_start,
     phone_forward_stop, phone_info, phone_pair_cancel, phone_pair_finish, phone_pair_start,
-    phone_pick_upload, phone_read_image, phone_request, phone_subscribe, phone_unsubscribe,
+    phone_pick_upload, phone_read_image, phone_request, phone_subscribe, phone_ui_state,
+    phone_unsubscribe,
 };
 use notifications::{
     phone_notification_request, phone_notification_show, phone_notification_state,
 };
 use tauri::Manager;
+use ui::UiStore;
 
 /// Starts the phone shell.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -33,8 +36,17 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
+        // The stored UI package is served on its own origin. Only the active
+        // build for the opened computer is reachable.
+        .register_uri_scheme_protocol("elesdee", |context, request| {
+            match context.app_handle().try_state::<UiStore>() {
+                Some(store) => store.handle(request),
+                None => ui::not_found_response(),
+            }
+        })
         .setup(|app| {
             let state = commands::init_state(app.handle());
+            app.manage(state.ui.clone());
             app.manage(state);
             app.manage(notifications::NotificationRoutes::default());
             notifications::register_click_handler(app.handle());
@@ -53,6 +65,7 @@ pub fn run() {
             phone_read_image,
             phone_pick_upload,
             phone_subscribe,
+            phone_ui_state,
             phone_unsubscribe,
             phone_forward_start,
             phone_forward_stop,

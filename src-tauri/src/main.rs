@@ -169,7 +169,7 @@ pub(crate) fn start_core_after_update(app: &tauri::AppHandle) {
         Err(_) => return,
     };
     if guard.is_none() {
-        *guard = start_core();
+        *guard = start_core(app);
     }
 }
 
@@ -198,14 +198,32 @@ fn core_binary() -> PathBuf {
     PathBuf::from("core/target/debug/elesdee-core")
 }
 
-fn start_core() -> Option<Child> {
+/// Returns the phone UI package folder that the core serves.
+///
+/// A bundled app reads it from the resources. Development falls back to the
+/// build output at the repository root.
+fn phone_ui_dir(app: &tauri::AppHandle) -> Option<PathBuf> {
+    if let Ok(resources) = app.path().resource_dir() {
+        let bundled = resources.join("phone-ui");
+        if bundled.is_dir() {
+            return Some(bundled);
+        }
+    }
+    let fallback = PathBuf::from("app/dist-phone-package");
+    fallback.is_dir().then_some(fallback)
+}
+
+fn start_core(app: &tauri::AppHandle) -> Option<Child> {
     let path = core_binary();
-    match Command::new(&path)
+    let mut command = Command::new(&path);
+    command
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::inherit())
-        .spawn()
-    {
+        .stderr(Stdio::inherit());
+    if let Some(ui) = phone_ui_dir(app) {
+        command.arg("--phone-ui").arg(ui);
+    }
+    match command.spawn() {
         Ok(child) => Some(child),
         Err(error) => {
             eprintln!(
@@ -351,7 +369,7 @@ fn main() {
         ])
         .setup(move |app| {
             notifications::register_click_handler(app.handle());
-            app.manage(CoreProcess(Mutex::new(start_core())));
+            app.manage(CoreProcess(Mutex::new(start_core(app.handle()))));
             updater::setup(app.handle());
             if !at_login {
                 show_main_window(app.handle());

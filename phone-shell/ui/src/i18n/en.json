@@ -211,5 +211,10 @@
   "notifications.doneBody": "The task is complete.",
   "notifications.messageTitle": "{name} says",
   "notifications.denied": "Notifications are off. Allow elesdee notifications in the phone settings.",
-  "notifications.unavailable": "Notifications are not available on this phone."
+  "notifications.unavailable": "Notifications are not available on this phone.",
+  "update.title": "Update needed",
+  "update.computer": "Update elesdee on this computer.",
+  "update.phone": "Update the phone app.",
+  "ui.missing": "This computer has no phone interface. Update elesdee on this computer.",
+  "ui.loadFailed": "The phone interface could not be loaded. This phone keeps its own screens."
 }

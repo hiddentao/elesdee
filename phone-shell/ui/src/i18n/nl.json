@@ -211,5 +211,10 @@
   "notifications.doneBody": "De taak is voltooid.",
   "notifications.messageTitle": "{name} zegt",
   "notifications.denied": "Meldingen staan uit. Sta meldingen van elesdee toe in de instellingen van de telefoon.",
-  "notifications.unavailable": "Meldingen zijn niet beschikbaar op deze telefoon."
+  "notifications.unavailable": "Meldingen zijn niet beschikbaar op deze telefoon.",
+  "update.title": "Update nodig",
+  "update.computer": "Werk elesdee bij op deze computer.",
+  "update.phone": "Werk de telefoonapp bij.",
+  "ui.missing": "Deze computer heeft geen telefooninterface. Werk elesdee bij op deze computer.",
+  "ui.loadFailed": "De telefooninterface kon niet worden geladen. Deze telefoon houdt zijn eigen schermen."
 }

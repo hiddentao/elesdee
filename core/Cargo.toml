@@ -16,6 +16,7 @@ path = "src/main.rs"
 [dependencies]
 async-stream = "0.3"
 axum = "0.8"
+blake3 = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 chromiumoxide = { version = "0.9", default-features = false }
 data-encoding = "2"

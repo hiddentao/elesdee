@@ -211,5 +211,10 @@
   "notifications.doneBody": "La tâche est terminée.",
   "notifications.messageTitle": "{name} dit",
   "notifications.denied": "Les notifications sont désactivées. Autorisez les notifications elesdee dans les réglages du téléphone.",
-  "notifications.unavailable": "Les notifications ne sont pas disponibles sur ce téléphone."
+  "notifications.unavailable": "Les notifications ne sont pas disponibles sur ce téléphone.",
+  "update.title": "Mise à jour requise",
+  "update.computer": "Mettez à jour elesdee sur cet ordinateur.",
+  "update.phone": "Mettez à jour l’application du téléphone.",
+  "ui.missing": "Cet ordinateur n’a pas d’interface pour téléphone. Mettez à jour elesdee sur cet ordinateur.",
+  "ui.loadFailed": "L’interface du téléphone n’a pas pu être chargée. Ce téléphone garde ses propres écrans."
 }

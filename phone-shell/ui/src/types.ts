@@ -229,6 +229,21 @@ export interface NotificationTarget {
   sessionId: string;
 }
 
+export type UiState =
+  | 'none'
+  | 'ready'
+  | 'update_phone'
+  | 'update_computer'
+  | 'failed';
+
+export interface UiStatus {
+  computerId: string;
+  state: UiState;
+  url?: string;
+  code?: string;
+  message?: string;
+}
+
 export interface UploadedFile {
   name: string;
   path: string;

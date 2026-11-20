@@ -15,6 +15,7 @@ pub mod hub;
 pub mod identity;
 mod pair;
 pub mod qr;
+pub mod ui;
 pub mod wire;
 
 use std::env;
@@ -39,6 +40,10 @@ pub use forward::ForwardHandler;
 pub use hub::{ApproveFailure, DesktopInfo, LinkHub, PairingSnapshot, TicketCreated};
 pub use identity::{IDENTITY_FILE, identity_path, load_or_create_identity};
 pub use pair::PairHandler;
+pub use ui::{
+    UI_ARCHIVE_FILE, UI_MANIFEST_FILE, UI_SCHEMA, UiManifest, UiPackage, UiPackageError,
+    UiPackageState, build_hash, check_entry_name,
+};
 pub use wire::{
     MAX_PAIR_FRAME_BYTES, PairDecision, PairReject, PairReply, PairRequest, read_pair_frame,
     write_pair_frame,
@@ -82,7 +87,7 @@ impl LinkService {
     ///
     /// Returns an error when the identity cannot be saved or the UDP socket
     /// cannot bind. The caller keeps the local API running in that case.
-    pub async fn start(state: AppState) -> Result<Self, LinkStartError> {
+    pub async fn start(state: AppState, ui: UiPackageState) -> Result<Self, LinkStartError> {
         let identity = match state.data_dir() {
             Some(directory) => load_or_create_identity(directory).map_err(|error| {
                 LinkStartError::new(format!("could not load the device identity: {error}"))
@@ -102,13 +107,25 @@ impl LinkService {
             .map_err(|error| {
                 LinkStartError::new(format!("could not bind the link endpoint: {error}"))
             })?;
-        Ok(Self::start_endpoint(state, endpoint, desktop, true))
+        Ok(Self::start_endpoint(state, endpoint, desktop, ui, true))
     }
 
     /// Starts the handlers on an endpoint that is already bound.
     ///
     /// Tests use this with loopback endpoints. Production uses [`start`].
     pub fn start_with_endpoint(state: AppState, endpoint: Endpoint) -> Self {
+        Self::start_with_endpoint_and_ui(state, endpoint, UiPackageState::empty())
+    }
+
+    /// Starts the handlers on an endpoint that is already bound and serves one
+    /// phone UI package.
+    ///
+    /// Tests use this with loopback endpoints.
+    pub fn start_with_endpoint_and_ui(
+        state: AppState,
+        endpoint: Endpoint,
+        ui: UiPackageState,
+    ) -> Self {
         persist_endpoint_identity(&state, &endpoint);
         let id = endpoint.id();
         let desktop = DesktopInfo {
@@ -116,13 +133,14 @@ impl LinkService {
             id_string: id.to_z32(),
             name: computer_name(),
         };
-        Self::start_endpoint(state, endpoint, desktop, false)
+        Self::start_endpoint(state, endpoint, desktop, ui, false)
     }
 
     fn start_endpoint(
         state: AppState,
         endpoint: Endpoint,
         desktop: DesktopInfo,
+        ui: UiPackageState,
         wait_relay: bool,
     ) -> Self {
         tracing::info!(
@@ -139,6 +157,7 @@ impl LinkService {
             state.clone(),
             state.link().clone(),
             crate::api::router(state.clone()),
+            ui,
         );
         let forward = ForwardHandler::new(state.clone(), state.link().clone());
         let router = Router::builder(endpoint.clone())

@@ -211,5 +211,10 @@
   "notifications.doneBody": "Uppgiften är klar.",
   "notifications.messageTitle": "{name} säger",
   "notifications.denied": "Aviseringar är avstängda. Tillåt elesdee-aviseringar i telefonens inställningar.",
-  "notifications.unavailable": "Aviseringar är inte tillgängliga på den här telefonen."
+  "notifications.unavailable": "Aviseringar är inte tillgängliga på den här telefonen.",
+  "update.title": "Uppdatering krävs",
+  "update.computer": "Uppdatera elesdee på den här datorn.",
+  "update.phone": "Uppdatera telefonappen.",
+  "ui.missing": "Den här datorn har inget telefongränssnitt. Uppdatera elesdee på den här datorn.",
+  "ui.loadFailed": "Telefongränssnittet kunde inte läsas in. Den här telefonen behåller sina egna skärmar."
 }

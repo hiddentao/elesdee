@@ -29,6 +29,7 @@ use tower::ServiceExt;
 
 use super::hub::LinkHub;
 use super::short_id;
+use super::ui::{UiPackageError, UiPackageState};
 use super::wire::MIN_BRIDGE_VERSION;
 use crate::history::HistoryStatus;
 use crate::sessions::{OutputChunk, OutputSnapshot, SnapshotFailure};
@@ -42,6 +43,7 @@ pub struct AppHandler {
     state: AppState,
     hub: LinkHub,
     router: Router,
+    ui: UiPackageState,
 }
 
 impl std::fmt::Debug for AppHandler {
@@ -52,8 +54,13 @@ impl std::fmt::Debug for AppHandler {
 
 impl AppHandler {
     /// Builds a handler that dispatches safe methods through the local router.
-    pub fn new(state: AppState, hub: LinkHub, router: Router) -> Self {
-        Self { state, hub, router }
+    pub fn new(state: AppState, hub: LinkHub, router: Router, ui: UiPackageState) -> Self {
+        Self {
+            state,
+            hub,
+            router,
+            ui,
+        }
     }
 }
 
@@ -79,7 +86,7 @@ impl ProtocolHandler for AppHandler {
         self.state.touch_paired_device(&endpoint_id);
         tracing::info!(phone = %short_id(&endpoint_id), "phone link opened");
 
-        if let Err(reason) = handshake(&self.state, &connection).await {
+        if let Err(reason) = handshake(&self.state, &connection, &self.ui).await {
             connection.close(VarInt::from_u32(0), reason.as_bytes());
             return Ok(());
         }
@@ -113,10 +120,11 @@ impl ProtocolHandler for AppHandler {
                     };
                     let router = self.router.clone();
                     let state = self.state.clone();
+                    let ui = self.ui.clone();
                     tasks.spawn(async move {
                         let _permit = permit;
                         let _stream = stream_permit;
-                        handle_stream(state, router, send, recv).await;
+                        handle_stream(state, router, ui, send, recv).await;
                     });
                 }
             }
@@ -129,7 +137,11 @@ impl ProtocolHandler for AppHandler {
     }
 }
 
-async fn handshake(state: &AppState, connection: &Connection) -> Result<(), &'static str> {
+async fn handshake(
+    state: &AppState,
+    connection: &Connection,
+    ui: &UiPackageState,
+) -> Result<(), &'static str> {
     let accepted = tokio::time::timeout(HELLO_TIMEOUT, connection.accept_bi())
         .await
         .map_err(|_| "hello timeout")?
@@ -145,7 +157,7 @@ async fn handshake(state: &AppState, connection: &Connection) -> Result<(), &'st
     if !hello.is_compatible() {
         return Err("protocol");
     }
-    let welcome = welcome_for(state)?;
+    let welcome = welcome_for(state, ui)?;
     tokio::time::timeout(
         HELLO_TIMEOUT,
         write_app_frame(&mut send, &welcome, MAX_APP_FRAME_BYTES),
@@ -157,7 +169,7 @@ async fn handshake(state: &AppState, connection: &Connection) -> Result<(), &'st
     Ok(())
 }
 
-fn welcome_for(state: &AppState) -> Result<Welcome, &'static str> {
+fn welcome_for(state: &AppState, ui: &UiPackageState) -> Result<Welcome, &'static str> {
     let desktop = state.link().desktop().ok_or("link not ready")?;
     Ok(Welcome {
         v: PROTOCOL_VERSION,
@@ -166,13 +178,16 @@ fn welcome_for(state: &AppState) -> Result<Welcome, &'static str> {
         app_version: env!("CARGO_PKG_VERSION").to_owned(),
         protocol_version: PROTOCOL_VERSION,
         min_bridge_version: MIN_BRIDGE_VERSION,
-        ui: None,
+        ui: ui
+            .manifest()
+            .and_then(|manifest| serde_json::to_value(manifest).ok()),
     })
 }
 
 async fn handle_stream(
     state: AppState,
     mut router: Router,
+    ui: UiPackageState,
     mut send: SendStream,
     mut recv: RecvStream,
 ) {
@@ -200,7 +215,7 @@ async fn handle_stream(
             let _ = stream_history(&state, &mut send, &request).await;
         }
         _ => {
-            let response = dispatch(&mut router, &request).await;
+            let response = dispatch(&mut router, &request, &ui).await;
             let _ = write_response(&mut send, &response).await;
         }
     }
@@ -288,10 +303,11 @@ pub fn link_params(method: Method, params: Option<&Value>) -> Option<Value> {
     params
 }
 
-async fn dispatch(router: &mut Router, request: &Request) -> Response {
+async fn dispatch(router: &mut Router, request: &Request, ui: &UiPackageState) -> Response {
     match request.method() {
         Method::SessionsUpload => return dispatch_upload(router, request).await,
         Method::FilesImage => return dispatch_image(router, request).await,
+        Method::UiManifest | Method::UiDownload => return dispatch_ui(ui, request),
         _ => {}
     }
     if !request.body().is_empty() {
@@ -313,6 +329,55 @@ async fn dispatch(router: &mut Router, request: &Request) -> Response {
             "The computer could not answer the request.",
         ),
     }
+}
+
+/// Answers one phone UI package request from the cached package.
+///
+/// The package is served as one archive. A path parameter is refused, so a
+/// caller cannot ask for a file outside the package.
+fn dispatch_ui(ui: &UiPackageState, request: &Request) -> Response {
+    if !request.body().is_empty() {
+        return Response::error(ErrorCode::BadRequest, "This method takes no binary body.");
+    }
+    if let Some(params) = request.params() {
+        match params {
+            Value::Null => {}
+            Value::Object(object) if object.is_empty() => {}
+            Value::Object(object) if object.contains_key("path") => {
+                return Response::error(
+                    ErrorCode::BadRequest,
+                    "The phone interface is served as one archive, not a path.",
+                );
+            }
+            Value::Object(_) => {
+                return Response::error(ErrorCode::BadRequest, "This method takes no parameters.");
+            }
+            _ => {
+                return Response::error(
+                    ErrorCode::BadRequest,
+                    "The method parameters must be an object.",
+                );
+            }
+        }
+    }
+
+    let Some(package) = ui.package() else {
+        let error = ui.error().cloned().unwrap_or(UiPackageError::Missing);
+        return Response::error(error.code(), error.message());
+    };
+    let manifest = match serde_json::to_value(package.manifest()) {
+        Ok(manifest) => manifest,
+        Err(_) => {
+            return Response::error(
+                ErrorCode::Internal,
+                "The phone interface manifest could not be read.",
+            );
+        }
+    };
+    if request.method() == Method::UiManifest {
+        return Response::ok(manifest);
+    }
+    Response::ok_with_body(manifest, package.archive().to_vec())
 }
 
 /// Sends one uploaded file with its body to the local upload route.
@@ -507,8 +572,8 @@ fn route_for(method: Method, params: Option<&Value>) -> Result<Route, Response> 
         }
         Method::UiManifest | Method::UiDownload => {
             return Err(Response::error(
-                ErrorCode::Unsupported,
-                "This method is not available in this build.",
+                ErrorCode::Internal,
+                "The UI package method is handled before routing.",
             ));
         }
         Method::EventsSubscribe | Method::OutputSubscribe | Method::HistorySubscribe => {
@@ -1055,14 +1120,43 @@ mod tests {
     }
 
     #[test]
-    fn an_unbuilt_method_is_unsupported() {
-        let error = match route_for(Method::UiManifest, None) {
-            Ok(_) => panic!("the route was accepted"),
-            Err(error) => error,
-        };
+    fn the_ui_methods_never_become_local_routes() {
+        for method in [Method::UiManifest, Method::UiDownload] {
+            let error = match route_for(method, None) {
+                Ok(_) => panic!("{method} produced a local route"),
+                Err(error) => error,
+            };
+            assert_eq!(
+                error.error_body().expect("error body").code(),
+                ErrorCode::Internal
+            );
+        }
+    }
+
+    #[test]
+    fn a_missing_ui_package_returns_a_clear_code() {
+        let request = Request::new(Method::UiManifest, None);
+        let response = dispatch_ui(&UiPackageState::empty(), &request);
         assert_eq!(
-            error.error_body().expect("error body").code(),
-            ErrorCode::Unsupported
+            response.error_body().expect("error body").code(),
+            ErrorCode::NotFound
+        );
+
+        let request = Request::new(Method::UiDownload, None);
+        let response = dispatch_ui(&UiPackageState::failed(UiPackageError::TooLarge), &request);
+        assert_eq!(
+            response.error_body().expect("error body").code(),
+            ErrorCode::TooLarge
+        );
+    }
+
+    #[test]
+    fn the_ui_methods_refuse_a_path() {
+        let request = Request::new(Method::UiDownload, Some(json!({"path": "../outside.js"})));
+        let response = dispatch_ui(&UiPackageState::empty(), &request);
+        assert_eq!(
+            response.error_body().expect("error body").code(),
+            ErrorCode::BadRequest
         );
     }
 

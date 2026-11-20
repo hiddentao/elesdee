@@ -1,7 +1,9 @@
 use std::env;
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::process::ExitCode;
 
+use elesdee_core::link::UiPackageState;
 use elesdee_core::{AppState, LinkService, diagnostics, router, start_usage_poller};
 use tokio::net::TcpListener;
 use tracing_subscriber::EnvFilter;
@@ -22,7 +24,11 @@ async fn main() -> ExitCode {
 
     init_tracing();
     let state = AppState::new_with_port(port);
-    let link = match LinkService::start(state.clone()).await {
+    let ui = UiPackageState::from_directory(phone_ui_directory().as_deref());
+    if let Some(error) = ui.error() {
+        tracing::warn!(%error, "the phone UI package is not served");
+    }
+    let link = match LinkService::start(state.clone(), ui).await {
         Ok(link) => Some(link),
         Err(error) => {
             tracing::error!(%error, "the phone link is unavailable; pairing returns 503");
@@ -119,14 +125,20 @@ fn port_from_environment() -> Result<u16, String> {
                     .ok_or_else(|| "--port needs a value.".to_owned())?;
                 command_line = Some(parse_port(&value)?);
             }
+            "--phone-ui" => {
+                arguments
+                    .next()
+                    .ok_or_else(|| "--phone-ui needs a folder.".to_owned())?;
+            }
             "--help" | "-h" => {
-                println!("Usage: elesdee-core [--port PORT]");
+                println!("Usage: elesdee-core [--port PORT] [--phone-ui DIR]");
                 println!("The service binds 127.0.0.1 only.");
                 std::process::exit(0);
             }
             other => {
                 if let Some(value) = other.strip_prefix("--port=") {
                     command_line = Some(parse_port(value)?);
+                } else if other.starts_with("--phone-ui=") {
                 } else {
                     return Err(format!("Unknown argument: {other}"));
                 }
@@ -142,6 +154,27 @@ fn port_from_environment() -> Result<u16, String> {
         Ok(value) if !value.trim().is_empty() => parse_port(value.trim()),
         _ => Ok(DEFAULT_PORT),
     }
+}
+
+/// Returns the phone UI package folder.
+///
+/// The desktop shell passes it on the command line. Development falls back to
+/// the environment and then to the build output.
+fn phone_ui_directory() -> Option<PathBuf> {
+    let mut arguments = env::args().skip(1);
+    while let Some(argument) = arguments.next() {
+        if argument == "--phone-ui" {
+            return arguments.next().map(PathBuf::from);
+        }
+        if let Some(value) = argument.strip_prefix("--phone-ui=") {
+            return Some(PathBuf::from(value));
+        }
+    }
+    if let Some(value) = env::var_os("ELESDEE_PHONE_UI").filter(|value| !value.is_empty()) {
+        return Some(PathBuf::from(value));
+    }
+    let fallback = PathBuf::from("app/dist-phone-package");
+    fallback.is_dir().then_some(fallback)
 }
 
 fn parse_port(value: &str) -> Result<u16, String> {

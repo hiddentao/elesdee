@@ -211,5 +211,10 @@
   "notifications.doneBody": "L’attività è completata.",
   "notifications.messageTitle": "{name} dice",
   "notifications.denied": "Le notifiche sono disattivate. Consenti le notifiche di elesdee nelle impostazioni del telefono.",
-  "notifications.unavailable": "Le notifiche non sono disponibili su questo telefono."
+  "notifications.unavailable": "Le notifiche non sono disponibili su questo telefono.",
+  "update.title": "Aggiornamento necessario",
+  "update.computer": "Aggiorna elesdee su questo computer.",
+  "update.phone": "Aggiorna l’app del telefono.",
+  "ui.missing": "Questo computer non ha un’interfaccia per telefono. Aggiorna elesdee su questo computer.",
+  "ui.loadFailed": "Non è stato possibile caricare l’interfaccia del telefono. Questo telefono mantiene le proprie schermate."
 }

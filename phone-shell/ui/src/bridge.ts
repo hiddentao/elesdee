@@ -14,6 +14,7 @@ import type {
   PhoneInfo,
   SubscriptionOpened,
   SubscriptionValue,
+  UiStatus,
   UploadedFile,
 } from './types';
 
@@ -113,6 +114,8 @@ export const phone = {
       title,
       body,
     }),
+  uiState: (computerId: string) =>
+    call<UiStatus>('phone_ui_state', { computerId }),
 };
 
 /** Opens a demo-server address in the phone's browser. */

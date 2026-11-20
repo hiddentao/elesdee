@@ -34,6 +34,8 @@ jobs:
         run: npm run check:ui
       - name: UI build
         run: npm run build
+      - name: Phone UI package tests
+        run: npm run test:phone-package
       - name: Format
         run: cargo fmt --manifest-path core/Cargo.toml --check
       - name: Clippy
