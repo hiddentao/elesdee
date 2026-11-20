@@ -15,6 +15,15 @@ Scope notes:
   tests landed in `74c105c`; they are not part of this audit. This report judges the committed
   feature set.
 
+## Update after the first fixes
+
+The list below is a snapshot at `a33b77a`. These items have since closed and are no
+longer gaps: crash recovery, the handoff note, the skill pack, Wait for session and
+Share file, real usage sources for Claude Code, Codex and DeepSeek, launch fetch and
+pull with the uncommitted-changes choice, launch presets, the phone Languages sheet,
+the phone shell skeleton, and the phone app connection step in progress. Register demo
+server stays open until demo servers exist.
+
 ## Verdict
 
 The Mac session core is strong. Four clients, branches and worktrees, session lifecycle, the
