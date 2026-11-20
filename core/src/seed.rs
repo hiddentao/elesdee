@@ -23,6 +23,7 @@ pub fn providers() -> Vec<Provider> {
             usage_checked_at: None,
             usage_status: None,
             usage_source: None,
+            limit_reported_at: None,
         },
         Provider {
             id: "codex".to_owned(),
@@ -40,6 +41,7 @@ pub fn providers() -> Vec<Provider> {
             usage_checked_at: None,
             usage_status: None,
             usage_source: None,
+            limit_reported_at: None,
         },
         Provider {
             id: "deepseek".to_owned(),
@@ -57,6 +59,7 @@ pub fn providers() -> Vec<Provider> {
             usage_checked_at: None,
             usage_status: None,
             usage_source: None,
+            limit_reported_at: None,
         },
         Provider {
             id: "litellm".to_owned(),
@@ -74,6 +77,7 @@ pub fn providers() -> Vec<Provider> {
             usage_checked_at: None,
             usage_status: None,
             usage_source: None,
+            limit_reported_at: None,
         },
     ]
 }

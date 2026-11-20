@@ -631,6 +631,12 @@ impl SessionEntry {
         self.lifecycle.try_lock().ok()
     }
 
+    /// Waits for the lifecycle lock. A pause holds it while it asks the agent
+    /// to finish and saves the worktree.
+    pub async fn lock_lifecycle(&self) -> tokio::sync::MutexGuard<'_, ()> {
+        self.lifecycle.lock().await
+    }
+
     pub fn is_closing(&self) -> bool {
         lock(&self.data).closing
     }

@@ -93,6 +93,8 @@ The browser uses an installed Chrome or Chromium when one exists. Otherwise the 
 
 **Check usage** shows the usage rows for the session's provider.
 
+**Report limit** tells the app that the provider hit a usage limit. The app switches the session to an allowed config with room or pauses it at once, instead of waiting for the next usage read. Use it when a request is refused because of a limit. A pause asks the agent to commit, write the handoff note and push before it stops; the app commits and pushes any leftover work and keeps the worktree.
+
 ## Where the tools come from
 
 The core service runs one MCP server. Each session gets a private skill folder under the app's data directory, and the folder is removed when the session closes. Claude Code gets a launch-only MCP config and loads the folder as a plugin. Codex gets the server through a launch config override and reads the skills from a private Codex home for the session. OpenCode 2 gets a launch-only config file that adds the server and the skill folder and merges with your own OpenCode config. None of these changes your repository or your global agent settings.

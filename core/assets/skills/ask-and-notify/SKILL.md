@@ -17,6 +17,12 @@ Call `ask_me` with one clear question. Add up to eight short `options` when the 
 
 The question stays visible in the app until the user answers it, you withdraw it, or the session closes.
 
+## Report a provider limit
+
+Call `report_limit` when a request fails because the provider's usage or rate limit is reached. The app treats the provider as out of usage at once and switches the session to an allowed config with room or pauses it.
+
+Do not wait for the next usage poll and do not retry the request until the app moves the session.
+
 ## Notify
 
 Call `notify_me` for a short message that needs the user's attention now, such as a login that a build needs, a long job that finished, or a decision that unblocks other work.

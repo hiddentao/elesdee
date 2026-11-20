@@ -2057,10 +2057,13 @@ async fn usage_near_the_limit_switches_then_pauses_without_room() {
     let data_dir = TempDirectory::new("auto-data");
     let repo = TempDirectory::new("auto-repo");
     init_git_repo(&repo.path);
-    let app = router(AppState::with_test_command_and_data_dir(
-        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
-        data_dir.path.clone(),
-    ));
+    let app = router(
+        AppState::with_test_command_and_data_dir(
+            vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+            data_dir.path.clone(),
+        )
+        .with_test_pause_grace(Duration::from_millis(50)),
+    );
     ensure_test_project(&app, &repo.path).await;
     let first = create_test_account(&app, "Auto A", "sk-auto-a").await;
     let second = create_test_account(&app, "Auto B", "sk-auto-b").await;
@@ -2460,10 +2463,13 @@ async fn auto_switch_pauses_when_only_disallowed_accounts_have_room() {
     let data_dir = TempDirectory::new("allowed-pause-data");
     let repo = TempDirectory::new("allowed-pause-repo");
     init_git_repo(&repo.path);
-    let app = router(AppState::with_test_command_and_data_dir(
-        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
-        data_dir.path.clone(),
-    ));
+    let app = router(
+        AppState::with_test_command_and_data_dir(
+            vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+            data_dir.path.clone(),
+        )
+        .with_test_pause_grace(Duration::from_millis(50)),
+    );
     ensure_test_project(&app, &repo.path).await;
     let first = create_test_account(&app, "Pause allowed", "sk-pause-allowed").await;
     let second = create_test_account(&app, "Pause refused", "sk-pause-refused").await;
@@ -2520,6 +2526,414 @@ async fn auto_switch_pauses_when_only_disallowed_accounts_have_room() {
     assert_eq!(status, StatusCode::OK);
     let resumed = wait_for_session(&app, &id, |session| session["workState"] == "working").await;
     assert_eq!(resumed["providerId"], first);
+
+    let (status, _) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn pause_tells_the_agent_to_finish_and_saves_the_work() {
+    let data_dir = TempDirectory::new("pause-finish-data");
+    let repo = TempDirectory::new("pause-finish-repo");
+    let remote_dir = TempDirectory::new("pause-finish-remote");
+    init_git_repo(&repo.path);
+    let remote = remote_dir.path.join("remote.git");
+    init_bare_repo(&remote);
+    add_origin(&repo.path, &remote);
+
+    let app = router(
+        AppState::with_test_command_and_data_dir(
+            vec![
+                "/bin/sh".to_owned(),
+                "-c".to_owned(),
+                "cat >> pause-input.txt".to_owned(),
+            ],
+            data_dir.path.clone(),
+        )
+        .with_test_pause_grace(Duration::from_millis(300)),
+    );
+    ensure_test_project(&app, &repo.path).await;
+    let only = create_test_account(&app, "Pause finish", "sk-pause-finish").await;
+
+    let (status, session) = call(
+        &app,
+        "POST",
+        "/api/sessions",
+        Some(json!({
+            "projectId": "web",
+            "kind": "agent",
+            "accountId": &only,
+            "allowedAccountIds": [&only],
+            "name": "Pause finish",
+            "folder": repo.path.to_string_lossy()
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let id = session["id"].as_str().expect("session id").to_owned();
+    let branch = session["branch"].as_str().expect("branch").to_owned();
+    let worktree = PathBuf::from(session["folder"].as_str().expect("folder"));
+    fs::write(worktree.join("new.txt"), "saved work\n").expect("write worktree file");
+
+    let (status, _) = call(
+        &app,
+        "POST",
+        &format!("/api/providers/{only}/usage"),
+        Some(json!({ "rows": [{ "label": "Weekly", "used": 95 }] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    let paused = wait_for_session(&app, &id, |session| session["workState"] == "paused").await;
+    assert_eq!(paused["status"], "active");
+    assert!(worktree.exists(), "a pause must keep the worktree");
+    assert!(
+        paused["preview"]
+            .as_str()
+            .is_some_and(|preview| preview.contains("committed and pushed")),
+        "{}",
+        paused["preview"]
+    );
+
+    let instruction = fs::read_to_string(worktree.join("pause-input.txt")).expect("pause input");
+    assert!(
+        instruction.contains("commit all your work"),
+        "{instruction}"
+    );
+    assert!(
+        instruction.contains("write the handoff note"),
+        "{instruction}"
+    );
+    assert!(instruction.contains("push the branch"), "{instruction}");
+
+    assert_eq!(
+        git_stdout(&worktree, &["status", "--porcelain"]),
+        "",
+        "the pause left uncommitted work"
+    );
+    assert_eq!(
+        git_stdout(&repo.path, &["show", &format!("{branch}:new.txt")]),
+        "saved work"
+    );
+    assert!(remote_ref_exists(&remote, &format!("refs/heads/{branch}")));
+
+    let (status, _) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn pause_keeps_the_worktree_when_the_push_fails() {
+    let data_dir = TempDirectory::new("pause-push-fail-data");
+    let repo = TempDirectory::new("pause-push-fail-repo");
+    init_git_repo(&repo.path);
+    add_origin(&repo.path, &repo.path.join("missing-remote.git"));
+
+    let app = router(
+        AppState::with_test_command_and_data_dir(
+            vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+            data_dir.path.clone(),
+        )
+        .with_test_pause_grace(Duration::from_millis(50)),
+    );
+    ensure_test_project(&app, &repo.path).await;
+    let only = create_test_account(&app, "Pause push fail", "sk-pause-push-fail").await;
+
+    let (status, session) = call(
+        &app,
+        "POST",
+        "/api/sessions",
+        Some(json!({
+            "projectId": "web",
+            "kind": "agent",
+            "accountId": &only,
+            "allowedAccountIds": [&only],
+            "name": "Pause push fail",
+            "folder": repo.path.to_string_lossy()
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let id = session["id"].as_str().expect("session id").to_owned();
+    let worktree = PathBuf::from(session["folder"].as_str().expect("folder"));
+    fs::write(worktree.join("new.txt"), "kept work\n").expect("write worktree file");
+
+    let (status, _) = call(
+        &app,
+        "POST",
+        &format!("/api/providers/{only}/usage"),
+        Some(json!({ "rows": [{ "label": "Weekly", "used": 95 }] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    let paused = wait_for_session(&app, &id, |session| session["workState"] == "paused").await;
+    assert!(worktree.exists(), "a failed push must keep the worktree");
+    assert_eq!(
+        fs::read_to_string(worktree.join("new.txt")).expect("kept file"),
+        "kept work\n"
+    );
+    assert!(
+        paused["preview"]
+            .as_str()
+            .is_some_and(|preview| preview.contains("push failed")),
+        "{}",
+        paused["preview"]
+    );
+
+    let (status, _) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn agent_reported_limit_switches_at_once() {
+    let data_dir = TempDirectory::new("reported-limit-data");
+    let repo = TempDirectory::new("reported-limit-repo");
+    init_git_repo(&repo.path);
+    let app = router(
+        AppState::with_test_command_and_data_dir(
+            vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+            data_dir.path.clone(),
+        )
+        .with_test_pause_grace(Duration::from_millis(50)),
+    );
+    ensure_test_project(&app, &repo.path).await;
+    let first = create_test_account(&app, "Report A", "sk-report-a").await;
+    let second = create_test_account(&app, "Report B", "sk-report-b").await;
+    let second_config = config_for_account(&app, &second).await;
+    let (status, _) = call(
+        &app,
+        "POST",
+        &format!("/api/providers/{second}/usage"),
+        Some(json!({ "rows": [{ "label": "Weekly", "used": 20 }] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    let (status, session) = call(
+        &app,
+        "POST",
+        "/api/sessions",
+        Some(json!({
+            "projectId": "web",
+            "kind": "agent",
+            "accountId": &first,
+            "allowedAccountIds": [&first, &second],
+            "name": "Reported limit",
+            "folder": repo.path.to_string_lossy()
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let id = session["id"].as_str().expect("session id").to_owned();
+
+    let (failed, text) = mcp_text(&app, &id, "report_limit", json!({})).await;
+    assert!(!failed, "{text}");
+    assert!(text.contains("switch or pause"), "{text}");
+
+    let switched =
+        wait_for_session(&app, &id, |session| session["configId"] == second_config).await;
+    assert_eq!(switched["status"], "active");
+    assert_eq!(switched["workState"], "working");
+
+    let (_, providers) = call(&app, "GET", "/api/providers", None).await;
+    let reported = providers
+        .as_array()
+        .expect("providers")
+        .iter()
+        .find(|provider| provider["id"] == first)
+        .expect("reported provider");
+    assert!(
+        reported["limitReportedAt"].is_string(),
+        "the report was not stored: {reported}"
+    );
+
+    let (status, _) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn agent_reported_limit_pauses_when_no_config_has_room() {
+    let data_dir = TempDirectory::new("reported-pause-data");
+    let repo = TempDirectory::new("reported-pause-repo");
+    init_git_repo(&repo.path);
+    let app = router(
+        AppState::with_test_command_and_data_dir(
+            vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+            data_dir.path.clone(),
+        )
+        .with_test_pause_grace(Duration::from_millis(50)),
+    );
+    ensure_test_project(&app, &repo.path).await;
+    let only = create_test_account(&app, "Report only", "sk-report-only").await;
+
+    let (status, session) = call(
+        &app,
+        "POST",
+        "/api/sessions",
+        Some(json!({
+            "projectId": "web",
+            "kind": "agent",
+            "accountId": &only,
+            "allowedAccountIds": [&only],
+            "name": "Reported pause",
+            "folder": repo.path.to_string_lossy()
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let id = session["id"].as_str().expect("session id").to_owned();
+
+    let (failed, text) = mcp_text(&app, &id, "report_limit", json!({})).await;
+    assert!(!failed, "{text}");
+
+    let paused = wait_for_session(&app, &id, |session| session["workState"] == "paused").await;
+    assert_eq!(paused["status"], "active");
+    assert!(
+        paused["preview"]
+            .as_str()
+            .is_some_and(|preview| preview.contains("No allowed AI config")),
+        "{}",
+        paused["preview"]
+    );
+
+    let (status, _) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn a_manual_resume_overrides_a_reported_limit() {
+    let data_dir = TempDirectory::new("reported-resume-data");
+    let repo = TempDirectory::new("reported-resume-repo");
+    init_git_repo(&repo.path);
+    let app = router(
+        AppState::with_test_command_and_data_dir(
+            vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+            data_dir.path.clone(),
+        )
+        .with_test_pause_grace(Duration::from_millis(50)),
+    );
+    ensure_test_project(&app, &repo.path).await;
+    let only = create_test_account(&app, "Resume only", "sk-resume-only").await;
+    let config = config_for_account(&app, &only).await;
+
+    let (status, session) = call(
+        &app,
+        "POST",
+        "/api/sessions",
+        Some(json!({
+            "projectId": "web",
+            "kind": "agent",
+            "accountId": &only,
+            "allowedAccountIds": [&only],
+            "name": "Resume reported",
+            "folder": repo.path.to_string_lossy()
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let id = session["id"].as_str().expect("session id").to_owned();
+
+    let (failed, text) = mcp_text(&app, &id, "report_limit", json!({})).await;
+    assert!(!failed, "{text}");
+    wait_for_session(&app, &id, |session| session["workState"] == "paused").await;
+
+    let (status, resumed) = call(
+        &app,
+        "POST",
+        &format!("/api/sessions/{id}/resume"),
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{resumed}");
+    assert_eq!(resumed["workState"], "working");
+    assert_eq!(resumed["configId"], config);
+
+    let (_, providers) = call(&app, "GET", "/api/providers", None).await;
+    let provider = providers
+        .as_array()
+        .expect("providers")
+        .iter()
+        .find(|provider| provider["id"] == only)
+        .expect("provider");
+    assert!(
+        provider["limitReportedAt"].is_null(),
+        "the manual resume did not clear the report: {provider}"
+    );
+
+    let (status, _) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn a_paused_session_resumes_on_another_client_with_the_note() {
+    let data_dir = TempDirectory::new("pause-resume-data");
+    let repo = TempDirectory::new("pause-resume-repo");
+    init_git_repo(&repo.path);
+    let app = router(
+        AppState::with_test_command_and_data_dir(
+            vec![
+                "/bin/sh".to_owned(),
+                "-c".to_owned(),
+                "cat >> resume-input.txt".to_owned(),
+            ],
+            data_dir.path.clone(),
+        )
+        .with_test_pause_grace(Duration::from_millis(100)),
+    );
+    ensure_test_project(&app, &repo.path).await;
+    let claude = create_test_account(&app, "Resume Claude", "sk-resume-claude").await;
+    let codex = create_test_account_for(&app, "Resume Codex", "openai", "sk-resume-codex").await;
+
+    let (status, session) = call(
+        &app,
+        "POST",
+        "/api/sessions",
+        Some(json!({
+            "projectId": "web",
+            "kind": "agent",
+            "accountId": &claude,
+            "allowedAccountIds": [&claude, &codex],
+            "name": "Resume note",
+            "folder": repo.path.to_string_lossy()
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let id = session["id"].as_str().expect("session id").to_owned();
+    let worktree = PathBuf::from(session["folder"].as_str().expect("folder"));
+    let note = "Goal: resume on another client.";
+    write_handoff_note(&app, &id, note).await;
+
+    let (status, _) = call(
+        &app,
+        "POST",
+        &format!("/api/providers/{claude}/usage"),
+        Some(json!({ "rows": [{ "label": "Weekly", "used": 95 }] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let paused = wait_for_session(&app, &id, |session| session["workState"] == "paused").await;
+    assert_eq!(paused["handoffNote"], note);
+
+    let (status, _) = call(
+        &app,
+        "POST",
+        &format!("/api/providers/{codex}/usage"),
+        Some(json!({ "rows": [{ "label": "Weekly", "used": 20 }] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let resumed = wait_for_session(&app, &id, |session| {
+        session["client"] == "Codex" && session["workState"] == "working"
+    })
+    .await;
+    assert_eq!(resumed["handoffNote"], note);
+
+    let text = wait_for_file_contains(&worktree.join("resume-input.txt"), note).await;
+    assert!(
+        text.contains("Handoff from the previous agent"),
+        "the cross-client resume did not deliver the handoff: {text}"
+    );
 
     let (status, _) = close_session(&app, &id).await;
     assert_eq!(status, StatusCode::OK);
@@ -2659,10 +3073,13 @@ async fn pause_keeps_the_handoff_note_and_resume_keeps_it() {
     let data_dir = TempDirectory::new("handoff-pause-data");
     let repo = TempDirectory::new("handoff-pause-repo");
     init_git_repo(&repo.path);
-    let app = router(AppState::with_test_command_and_data_dir(
-        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
-        data_dir.path.clone(),
-    ));
+    let app = router(
+        AppState::with_test_command_and_data_dir(
+            vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+            data_dir.path.clone(),
+        )
+        .with_test_pause_grace(Duration::from_millis(50)),
+    );
     ensure_test_project(&app, &repo.path).await;
     let first = create_test_account(&app, "Pause A", "sk-pause-a").await;
     let second = create_test_account(&app, "Pause B", "sk-pause-b").await;
@@ -3059,6 +3476,7 @@ async fn opencode_sessions_get_the_full_skill_set() {
         usage_checked_at: None,
         usage_status: None,
         usage_source: None,
+        limit_reported_at: None,
     });
     let config = state.add_config(AiConfig {
         id: String::new(),
@@ -3247,6 +3665,7 @@ async fn mcp_session_tools_ask_answer_notify_and_report_done() {
         "notify_me",
         "report_done",
         "write_handoff_note",
+        "report_limit",
         "list_sessions",
         "read_session",
         "send_message",
