@@ -6,7 +6,7 @@ order: 6
 
 # Session tools
 
-Claude Code, Codex and OpenCode 2 sessions get the elesdee tools and the same skill pack: **elesdee**, **Ask and notify**, **Coordinate sessions**, **Handoff** and **Frontend design**. The tools let the agent talk to you and to other sessions without parsing its output.
+Claude Code, Codex and OpenCode 2 sessions get the elesdee tools and the same skill pack: **elesdee**, **Ask and notify**, **Coordinate sessions**, **Handoff**, **Frontend design** and **Browser checks**. The tools let the agent talk to you, work with other sessions and check a page without parsing its output.
 
 The tools are local to this computer. They use the core service and the same trust as the rest of the app.
 
@@ -51,6 +51,21 @@ A session started this way shows the session it came from in the sidebar.
 
 **Register demo server** will arrive with demo servers. Until then, a session does not get that tool.
 
+## Browser
+
+Each session has its own browser. It has separate tabs, cookies, storage and logins from every other session and from your personal browser. The agent uses these tools:
+
+- **Open page** opens an http or https address and returns its title and visible text.
+- **Read page** returns the visible text of the open page.
+- **Click** selects an element by CSS selector and clicks it.
+- **Type** focuses an element and types text into it.
+- **Wait** returns when a selector or text appears, or when a short timeout ends.
+- **Take screenshot** captures the page and shares the image with you.
+
+The agent can work through a form or check a UI change and then show you the result. The **Browser** tab of the session panel shows the same tabs and a live picture of the page. The tools are limited to the calling session, so an agent cannot read or control another session's tabs. The browser starts on first use. Closing or pausing the session stops the browser and keeps its logins.
+
+The browser uses an installed Chrome or Chromium. See [Sessions](sessions.md) for the panel controls.
+
 ## Usage
 
 **Check usage** shows the usage rows for the session's account.
@@ -59,7 +74,7 @@ A session started this way shows the session it came from in the sidebar.
 
 The core service runs one MCP server. Each session gets a private skill folder under the app's data directory, and the folder is removed when the session closes. Claude Code gets a launch-only MCP config and loads the folder as a plugin. Codex gets the server through a launch config override and reads the skills from a private Codex home for the session. OpenCode 2 gets a launch-only config file that adds the server and the skill folder and merges with your own OpenCode config. None of these changes your repository or your global agent settings.
 
-The **Demo servers** and **Browser checks** skills arrive when those features do. Until then, a session gets the five skills listed above.
+The **Demo servers** skill arrives when that feature does. Until then, a session gets the six skills listed above.
 
 ## Next steps
 

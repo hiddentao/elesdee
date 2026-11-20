@@ -18,6 +18,7 @@ import type {
 } from '../api/types';
 import type { Translate } from '../i18n';
 import { useLanguage } from '../i18n/LanguageProvider';
+import { BrowserPanel } from './BrowserPanel';
 import { FileEditor } from './FileEditor';
 import {
   ChevronDownIcon,
@@ -27,7 +28,7 @@ import {
   FolderIcon,
 } from './icons';
 
-export type DockTab = 'files' | 'changes';
+export type DockTab = 'files' | 'changes' | 'browser';
 
 interface SessionSidePanelProps {
   session: Session;
@@ -411,6 +412,17 @@ export function SessionSidePanel({
         </button>
         <button
           type="button"
+          role="tab"
+          id="dock-tab-browser"
+          aria-selected={tab === 'browser'}
+          aria-controls="dock-panel-browser"
+          className={`dock-tab${tab === 'browser' ? ' is-on' : ''}`}
+          onClick={() => onSelectTab('browser')}
+        >
+          {t('panel.browser')}
+        </button>
+        <button
+          type="button"
           className="icon-btn dock-close"
           aria-label={t('panel.close')}
           title={t('panel.close')}
@@ -672,6 +684,16 @@ export function SessionSidePanel({
               ) : null}
             </div>
           ) : null}
+        </section>
+
+        <section
+          role="tabpanel"
+          id="dock-panel-browser"
+          aria-labelledby="dock-tab-browser"
+          className="dock-view"
+          hidden={tab !== 'browser'}
+        >
+          {tab === 'browser' ? <BrowserPanel session={session} /> : null}
         </section>
       </div>
     </aside>

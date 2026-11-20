@@ -133,10 +133,6 @@ pub fn share(
 
     let id = uuid::Uuid::new_v4().to_string();
     let directory = shared_dir(data_dir, session_id)?;
-    private_fs::create_private_dir_all(&directory)?;
-    let stored_name = stored_name(&id, &name);
-    private_fs::write_private_file_atomic(&directory.join(&stored_name), &bytes)?;
-
     let (content_type, image) = classify(&name, &bytes);
     let file = SharedFile {
         id,
@@ -153,6 +149,53 @@ pub fn share(
         image,
         created_at: Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
     };
+    store_record(&directory, file, &bytes)
+}
+
+/// Stores bytes that the app produced itself, such as a browser screenshot.
+pub fn share_bytes(
+    data_dir: &Path,
+    session_id: &str,
+    session_name: &str,
+    name: &str,
+    caption: Option<String>,
+    bytes: &[u8],
+) -> Result<SharedFile, ShareError> {
+    let name = name.trim();
+    if name.is_empty() || name.chars().count() > 120 || name.contains(['/', '\\']) {
+        return Err(ShareError::InvalidPath);
+    }
+    if bytes.len() as u64 > MAX_SHARED_BYTES {
+        return Err(ShareError::TooLarge(bytes.len() as u64));
+    }
+    let directory = shared_dir(data_dir, session_id)?;
+    let (content_type, image) = classify(name, bytes);
+    let file = SharedFile {
+        id: uuid::Uuid::new_v4().to_string(),
+        session_id: session_id.to_owned(),
+        session_name: session_name.to_owned(),
+        name: name.to_owned(),
+        path: name.to_owned(),
+        caption: caption.and_then(|value| {
+            let value = value.trim();
+            (!value.is_empty()).then(|| value.chars().take(200).collect())
+        }),
+        size: bytes.len() as u64,
+        content_type,
+        image,
+        created_at: Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+    };
+    store_record(&directory, file, bytes)
+}
+
+fn store_record(
+    directory: &Path,
+    file: SharedFile,
+    bytes: &[u8],
+) -> Result<SharedFile, ShareError> {
+    private_fs::create_private_dir_all(directory)?;
+    let stored_name = stored_name(&file.id, &file.name);
+    private_fs::write_private_file_atomic(&directory.join(&stored_name), bytes)?;
     let encoded = serde_json::to_vec(&file).map_err(|error| {
         tracing::error!(%error, "could not encode the shared file record");
         ShareError::Unavailable

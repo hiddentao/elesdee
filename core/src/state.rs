@@ -10,6 +10,7 @@ use chrono::{SecondsFormat, Utc};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{Mutex as AsyncMutex, broadcast};
 
+use crate::browser::BrowserManager;
 use crate::clients;
 use crate::persist::{LoadResult, PersistedOutput, PersistedSession, PersistedState, StateStore};
 use crate::secrets::{KeyringStore, MemorySecretStore, SecretStore};
@@ -558,6 +559,7 @@ struct Inner {
     usage_last_save: Mutex<HashMap<String, Instant>>,
     usage_base_override: Option<String>,
     link: crate::link::LinkHub,
+    browser: BrowserManager,
 }
 
 #[derive(Clone)]
@@ -582,6 +584,7 @@ impl AppState {
             None,
             MAX_ACTIVE_SESSIONS,
             false,
+            false,
         );
         if let Some(inner) = Arc::get_mut(&mut state.inner) {
             inner.port = port;
@@ -602,6 +605,7 @@ impl AppState {
             MAX_ACTIVE_SESSIONS,
             false,
             None,
+            true,
         )
     }
 
@@ -620,6 +624,7 @@ impl AppState {
             None,
             MAX_ACTIVE_SESSIONS,
             false,
+            true,
         )
         .recover_after_load()
     }
@@ -634,6 +639,7 @@ impl AppState {
             MAX_ACTIVE_SESSIONS,
             false,
             None,
+            true,
         )
     }
 
@@ -655,6 +661,7 @@ impl AppState {
             Some(argv),
             MAX_ACTIVE_SESSIONS,
             false,
+            true,
         )
         .recover_after_load()
     }
@@ -677,6 +684,7 @@ impl AppState {
             None,
             MAX_ACTIVE_SESSIONS,
             false,
+            true,
         );
         if let Some(inner) = Arc::get_mut(&mut state.inner) {
             inner.agent_bin = Some(binary);
@@ -694,6 +702,7 @@ impl AppState {
             session_cap,
             false,
             None,
+            true,
         )
     }
 
@@ -707,6 +716,7 @@ impl AppState {
             MAX_ACTIVE_SESSIONS,
             true,
             None,
+            true,
         )
     }
 
@@ -723,6 +733,7 @@ impl AppState {
         command_override: Option<Vec<String>>,
         session_cap: usize,
         stall_writer: bool,
+        fake_browser: bool,
     ) -> Self {
         let (projects, accounts, presets, sessions, questions, session_requests, paired_devices) =
             match store.as_ref().map(|store| store.load()) {
@@ -753,6 +764,7 @@ impl AppState {
             session_cap,
             stall_writer,
             store,
+            fake_browser,
         );
         *lock(&state.inner.presets) = presets;
         for mut session in sessions {
@@ -794,6 +806,7 @@ impl AppState {
         state
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn from_parts(
         projects: Vec<Project>,
         accounts: Vec<Account>,
@@ -802,9 +815,13 @@ impl AppState {
         session_cap: usize,
         stall_writer: bool,
         store: Option<Arc<StateStore>>,
+        fake_browser: bool,
     ) -> Self {
         let (events, _) = broadcast::channel(EVENT_CHANNEL_CAPACITY);
         let (aux_events, _) = broadcast::channel(EVENT_CHANNEL_CAPACITY);
+        let browser_profiles = store
+            .as_ref()
+            .map(|store| store.directory().join("browsers"));
         Self {
             inner: Arc::new(Inner {
                 projects: Mutex::new(projects),
@@ -838,6 +855,7 @@ impl AppState {
                 usage_last_save: Mutex::new(HashMap::new()),
                 usage_base_override: None,
                 link: crate::link::LinkHub::new(),
+                browser: BrowserManager::new(browser_profiles, fake_browser),
             }),
         }
     }
@@ -845,6 +863,21 @@ impl AppState {
     /// Returns the shared remote-link state.
     pub fn link(&self) -> &crate::link::LinkHub {
         &self.inner.link
+    }
+
+    /// Returns the per-session browser manager.
+    pub fn browser(&self) -> &BrowserManager {
+        &self.inner.browser
+    }
+
+    /// Stops one session's browser and closes its tabs. The profile stays.
+    pub async fn stop_browser(&self, session_id: &str) {
+        self.inner.browser.stop(session_id).await;
+    }
+
+    /// Stops every session browser at shutdown.
+    pub async fn stop_all_browsers(&self) {
+        self.inner.browser.stop_all().await;
     }
 
     pub fn paired_devices(&self) -> Vec<PairedDevice> {

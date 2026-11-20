@@ -57,6 +57,7 @@ async fn main() -> ExitCode {
                 if !state.shutdown_all() {
                     tracing::warn!("session shutdown timed out");
                 }
+                state.stop_all_browsers().await;
                 return ExitCode::FAILURE;
             }
         }
@@ -68,6 +69,7 @@ async fn main() -> ExitCode {
     if let Some(link) = link {
         link.shutdown().await;
     }
+    state.stop_all_browsers().await;
     if !state.shutdown_all() {
         tracing::warn!("session shutdown timed out");
     }
