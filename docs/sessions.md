@@ -93,7 +93,9 @@ You can also open the session menu and choose **Switch AI config…**.
 
 Hover the usage bar in the pill for the current provider's limits and the session's context left. The context left comes from Claude Code. Other clients show **Context left unknown**. Context compacts automatically, and the app shows no context warning.
 
-The app switches by itself when a provider is near its usage limit and an allowed config has room. It uses the latest usage it read from the provider. If a read fails, the last numbers stay visible and the provider says the reading is stale; the failure does not stop a session. Subscription providers come first, then pay-per-use providers; within each group it takes the provider with the most room, and a tie keeps the current client. If no allowed config has room, the session pauses. A pause keeps the handoff note, and a switch to a different client passes it on. Choose **Resume** when an allowed config has room, or wait for the app to resume it.
+The app switches by itself when a provider is near its usage limit and an allowed config has room. It uses the latest usage it read from the provider. If a read fails, the last numbers stay visible and the provider says the reading is stale; the failure does not stop a session. Subscription providers come first, then pay-per-use providers; within each group it takes the provider with the most room, and a tie keeps the current client. If no allowed config has room, the app asks the agent to commit its work, write the handoff note and push the branch. It then pauses the session. If the agent does not finish, the app commits and pushes what it can. A failed commit or push keeps the worktree, and the reason appears in the paused session. A pause keeps the handoff note, and a switch to a different client passes it on. Choose **Resume** at any time, or wait for the app to resume the session when an allowed config has room.
+
+An agent can also report that it hit a provider limit. The app acts on the report at once, without waiting for the next usage read.
 
 ## Rename
 

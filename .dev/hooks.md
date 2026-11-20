@@ -83,3 +83,7 @@ The core service listens on loopback only. The Host and Origin checks stop web p
 Any program running as the same user can call the local API without an Origin. This includes the permission answer endpoint: a local program can read a pending request from `/api/bootstrap` and post the answer. Code that the agent runs inside its session has the same ability.
 
 The permission card is a convenience and a phone approval path. It is not a security boundary against local code or a prompt-injected agent. The hook token protects the internal hook route. It is not a credential for the public API.
+
+## Reported provider limits
+
+An agent reports a provider limit through the elesdee MCP tool `report_limit`, not through a hook. The core adds no hook event for it. The tool uses the calling session's provider and runs the same switch or pause path as a usage reading. See `.dev/api.md` under "Usage sources" and "Session tools and skills".

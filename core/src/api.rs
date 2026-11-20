@@ -50,6 +50,7 @@ use crate::state::{
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const SSE_HEARTBEAT: Duration = Duration::from_secs(15);
 const STARTUP_INPUT_DELAY: Duration = Duration::from_millis(1200);
+const PAUSE_INSTRUCTION: &str = "elesdee: This session is out of usage and will pause. Finish safely now: commit all your work to the session branch, write the handoff note with the write_handoff_note tool when it is available, and push the branch to the remote. Then stop and do not start new work.";
 const ALLOWED_ORIGINS: [&str; 5] = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
@@ -1287,6 +1288,7 @@ async fn create_provider(
         usage_checked_at: None,
         usage_status: None,
         usage_source: None,
+        limit_reported_at: None,
     });
     if fields.auth == Auth::Key
         && let Some(key) = key
@@ -1362,6 +1364,7 @@ async fn update_provider(
         usage_checked_at: existing.usage_checked_at.clone(),
         usage_status: existing.usage_status,
         usage_source: existing.usage_source.clone(),
+        limit_reported_at: existing.limit_reported_at.clone(),
     };
     let supported = crate::providers::supported_clients(&candidate);
     if let Some(config) = state
@@ -1393,6 +1396,7 @@ async fn update_provider(
         updated.usage_checked_at = None;
         updated.usage_status = None;
         updated.usage_source = None;
+        updated.limit_reported_at = None;
     }
     let updated = state
         .replace_provider(updated)
@@ -3076,14 +3080,34 @@ async fn resume_session(
     let Some(client) = session.client else {
         return Err(ApiError::unprocessable("The session has no client."));
     };
-    let config = crate::providers::auto_switch_target(
-        &state.configs(),
+    let configs = state.configs();
+    let config = match crate::providers::auto_switch_target(
+        &configs,
         &state.providers(),
         &session.allowed_config_ids,
         Some(client),
         None,
-    )
-    .ok_or_else(|| ApiError::unprocessable("No allowed AI config has usage left."))?;
+    ) {
+        Some(config) => config,
+        None => {
+            // A manual Resume works at any time. When no config reports room,
+            // keep the session on its current config and clear a reported
+            // limit that no official source can replace.
+            let current = session.config_id.as_deref();
+            let config = configs
+                .iter()
+                .find(|config| {
+                    Some(config.id.as_str()) == current
+                        && session.allowed_config_ids.iter().any(|id| id == &config.id)
+                })
+                .cloned()
+                .ok_or_else(|| ApiError::unprocessable("No allowed AI config has usage left."))?;
+            if let Some(provider) = state.clear_provider_limit_report(&config.provider_id) {
+                state.publish_provider(provider);
+            }
+            config
+        }
+    };
     let provider = state
         .provider(&config.provider_id)
         .ok_or_else(|| ApiError::unprocessable("The provider is no longer available."))?;
@@ -3378,12 +3402,11 @@ pub(crate) async fn auto_switch_provider(state: &AppState, provider: &Provider) 
             {
                 continue;
             }
-            let _ = pause_session(
+            pause_session(
                 state,
                 &entry,
                 "Paused. No allowed AI config has usage left.",
-            )
-            .await;
+            );
             continue;
         };
         let Some(target_provider) = state.provider(&target.provider_id) else {
@@ -3404,7 +3427,7 @@ pub(crate) async fn auto_switch_provider(state: &AppState, provider: &Provider) 
             .await
             .is_err()
         {
-            let _ = pause_session(state, &entry, "Paused. The AI config switch failed.").await;
+            pause_session(state, &entry, "Paused. The AI config switch failed.");
         }
     }
 }
@@ -3441,27 +3464,90 @@ async fn resume_paused_sessions(state: &AppState) {
             .await
             .is_err()
         {
-            let _ = pause_session(state, &entry, "Paused. The AI config switch failed.").await;
+            pause_session(state, &entry, "Paused. The AI config switch failed.");
         }
     }
 }
 
-async fn pause_session(
-    state: &AppState,
-    entry: &Arc<SessionEntry>,
-    reason: &str,
-) -> Result<Session, ()> {
+/// Asks the agent to finish safely, then pauses the session in the background.
+///
+/// The usage paths that call this must not wait for the agent: the same task
+/// may also deliver the agent's own completion events.
+fn pause_session(state: &AppState, entry: &Arc<SessionEntry>, reason: &str) {
+    let state = state.clone();
+    let entry = Arc::clone(entry);
+    let reason = reason.to_owned();
+    tokio::spawn(async move {
+        run_pause(state, entry, reason).await;
+    });
+}
+
+async fn run_pause(state: AppState, entry: Arc<SessionEntry>, reason: String) {
+    let _guard = entry.lock_lifecycle().await;
+    let current = entry.session();
+    if current.status != SessionState::Active {
+        return;
+    }
+    if current.work_state == Some(WorkState::Paused) {
+        // A failed resume reports its reason on a session that is already
+        // paused. Keep the reason without repeating the pause sequence.
+        let session = entry.pause(&reason);
+        state.emit(SessionEvent::updated(session.clone()));
+        state.save();
+        return;
+    }
+    if entry.is_closing() {
+        return;
+    }
+
+    let mut instruction = PAUSE_INSTRUCTION.as_bytes().to_vec();
+    instruction.push(b'\n');
+    let told = entry.write_input(instruction).await.is_ok();
+
+    // Give the agent a bounded time to commit, write the note and push.
+    let deadline = tokio::time::Instant::now() + state.pause_grace();
+    while tokio::time::Instant::now() < deadline {
+        if entry.process_exited() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+
     state.stop_browser(&entry.id()).await;
-    let should_wait = entry.begin_close().map_err(|_| ())?;
+    let Ok(should_wait) = entry.begin_close().map_err(|_| ()) else {
+        return;
+    };
     if should_wait {
-        let _ = wait_for_process_exit(entry, Duration::from_secs(2)).await;
+        let _ = wait_for_process_exit(&entry, Duration::from_secs(2)).await;
     }
     entry.remove_session_files();
-    let session = entry.pause(reason);
+
+    let current = entry.session();
+    let outcome = match current.branch {
+        Some(branch) => {
+            git::pause_worktree(
+                PathBuf::from(&current.folder),
+                branch,
+                current.name.clone(),
+                current.handoff_note.clone(),
+                git::GitTimeouts {
+                    local: state.git_timeout(),
+                    push: state.git_push_timeout(),
+                },
+            )
+            .await
+        }
+        None => git::PauseOutcome::Unavailable,
+    };
+    let reason = if told {
+        format!("{reason} {}", outcome.preview())
+    } else {
+        format!("{reason} The agent was not running. {}", outcome.preview())
+    };
+    let session = entry.pause(&reason);
     state.close_demo_tunnels(&session);
     state.emit(SessionEvent::updated(session.clone()));
     state.save();
-    Ok(session)
 }
 
 async fn answer_permission(

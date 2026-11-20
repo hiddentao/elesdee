@@ -228,6 +228,22 @@ pub async fn apply_usage(
     Some(provider)
 }
 
+/// Marks a provider as out of usage after the agent reports a limit and runs
+/// auto-switch at once, without waiting for the next usage poll.
+pub async fn report_limit(state: &AppState, provider_id: &str) -> Option<Provider> {
+    let provider = state.set_provider_limit_reported(provider_id, &timestamp())?;
+    state.publish_provider(provider.clone());
+    state.save();
+    // The agent is waiting on this tool call. Let the reply return before the
+    // switch restarts its process.
+    let switch_state = state.clone();
+    let switch_provider = provider.clone();
+    tokio::spawn(async move {
+        crate::api::auto_switch_provider(&switch_state, &switch_provider).await;
+    });
+    Some(provider)
+}
+
 /// Marks a failed read. The last successful values stay visible and keep
 /// their read time; sessions are not touched.
 pub fn mark_failed(state: &AppState, provider_id: &str, source: &str) -> Option<Provider> {

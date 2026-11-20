@@ -406,14 +406,14 @@ Usage belongs to the computer, not to a session. The sidebar shows a compact sum
 
 1. The IDE watches the usage of the current provider.
 2. When usage nears its limit, the IDE switches the session to an allowed config whose provider has usage left (see the rules below).
-3. If no allowed provider has usage left, the IDE tells the agent to commit all its work to the session branch, write a handoff note, and push the branch to the remote.
-4. The IDE then pauses the session. A paused session keeps its worktree and stays in the sidebar as Active, with a paused note in the session. This is not a Close.
+3. If no allowed provider has usage left, the IDE tells the agent to commit all its work to the session branch, write a handoff note, and push the branch to the remote. The agent has a short time to do this.
+4. The IDE then pauses the session. If the agent did not finish, or left new work, the app commits and pushes what it can. A failed commit or push keeps the worktree and puts the reason in the paused note, so no work is lost. A paused session keeps its worktree and stays in the sidebar as Active, with a paused note in the session. This is not a Close.
 5. The session resumes by itself when an allowed config has usage again. I can also click Resume at any time.
 
 **Where usage numbers come from**
 
 - The app uses only official sources for usage numbers. Where a provider has no official source, the usage panel hides that number.
-- Without a number, auto-switch acts when the agent reports that it hit a limit.
+- Without a number, auto-switch acts when the agent reports that it hit a limit. The agent reports through the elesdee session tool, and the app switches or pauses the session at once instead of waiting for the next usage poll. A new official reading replaces the report.
 
 Official sources:
 

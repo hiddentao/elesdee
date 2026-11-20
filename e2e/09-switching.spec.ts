@@ -94,6 +94,9 @@ test('auto-switches near the limit and pauses when no account has room', async (
     .poll(async () => (await getSession(request, session.id))?.workState)
     .toBe('paused');
   await expect(page.locator('.status-badge')).toContainText('Paused');
+  await expect(page.locator('.waiting-note')).toContainText(
+    'The work is committed, but the branch has no remote.',
+  );
 
   await setUsage(request, first.id, [{ label: 'Weekly', used: 30 }]);
   await expect

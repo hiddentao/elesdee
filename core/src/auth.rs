@@ -800,6 +800,7 @@ fn connect(state: &AppState, attempt: &Arc<Mutex<Attempt>>) -> Result<Provider, 
             usage_checked_at: None,
             usage_status: None,
             usage_source: None,
+            limit_reported_at: None,
         })
     };
 

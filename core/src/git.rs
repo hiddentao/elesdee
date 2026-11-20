@@ -56,6 +56,36 @@ impl CloseOutcome {
     }
 }
 
+/// The result of saving a paused session's work. A pause always keeps the
+/// worktree, so the text says whether the work left the computer.
+#[derive(Debug)]
+pub enum PauseOutcome {
+    Committed { pushed: bool },
+    WorktreeMissing,
+    Unavailable,
+    StatusFailed,
+    CommitFailed,
+    PushFailed,
+    Timeout,
+}
+
+impl PauseOutcome {
+    pub fn preview(&self) -> &'static str {
+        match self {
+            PauseOutcome::Committed { pushed: true } => "The work is committed and pushed.",
+            PauseOutcome::Committed { pushed: false } => {
+                "The work is committed, but the branch has no remote."
+            }
+            PauseOutcome::WorktreeMissing => "The worktree folder was already missing.",
+            PauseOutcome::Unavailable => "The worktree information is unavailable.",
+            PauseOutcome::StatusFailed => "The worktree was kept because Git status failed.",
+            PauseOutcome::CommitFailed => "The worktree was kept because the commit failed.",
+            PauseOutcome::PushFailed => "The worktree was kept because the push failed.",
+            PauseOutcome::Timeout => "The worktree was kept because Git timed out.",
+        }
+    }
+}
+
 enum GitRun {
     Output(Output),
     Timeout,
@@ -722,6 +752,21 @@ pub async fn close_worktree(
     .unwrap_or(CloseOutcome::Timeout)
 }
 
+/// Commits and pushes a paused session's work and keeps the worktree.
+pub async fn pause_worktree(
+    worktree: PathBuf,
+    branch: String,
+    name: String,
+    handoff_note: Option<String>,
+    timeouts: GitTimeouts,
+) -> PauseOutcome {
+    tokio::task::spawn_blocking(move || {
+        pause_blocking(&worktree, &branch, &name, handoff_note.as_deref(), timeouts)
+    })
+    .await
+    .unwrap_or(PauseOutcome::Timeout)
+}
+
 pub async fn ensure_worktree(
     repo_root: PathBuf,
     worktrees_root: PathBuf,
@@ -756,6 +801,15 @@ pub async fn remove_worktree(repo_root: PathBuf, worktree: PathBuf, timeout: Dur
     .unwrap_or(false)
 }
 
+enum Prepared {
+    Ready { pushed: bool },
+    WorktreeMissing,
+    StatusFailed,
+    CommitFailed,
+    PushFailed,
+    Timeout,
+}
+
 fn close_blocking(
     repo_root: &Path,
     worktree: &Path,
@@ -764,29 +818,66 @@ fn close_blocking(
     handoff_note: Option<&str>,
     timeouts: GitTimeouts,
 ) -> CloseOutcome {
+    let note = handoff_note.map(str::trim).filter(|note| !note.is_empty());
+    let message = worktree_commit_message("close", name, note);
+    match prepare_worktree(worktree, branch, note, &message, timeouts) {
+        Prepared::Ready { .. } => remove_closed_worktree(repo_root, worktree, timeouts.local),
+        Prepared::WorktreeMissing => CloseOutcome::WorktreeMissing,
+        Prepared::StatusFailed => CloseOutcome::StatusFailed,
+        Prepared::CommitFailed => CloseOutcome::CommitFailed,
+        Prepared::PushFailed => CloseOutcome::PushFailed,
+        Prepared::Timeout => CloseOutcome::Timeout,
+    }
+}
+
+fn pause_blocking(
+    worktree: &Path,
+    branch: &str,
+    name: &str,
+    handoff_note: Option<&str>,
+    timeouts: GitTimeouts,
+) -> PauseOutcome {
+    let note = handoff_note.map(str::trim).filter(|note| !note.is_empty());
+    let message = worktree_commit_message("pause", name, note);
+    match prepare_worktree(worktree, branch, note, &message, timeouts) {
+        Prepared::Ready { pushed } => PauseOutcome::Committed { pushed },
+        Prepared::WorktreeMissing => PauseOutcome::WorktreeMissing,
+        Prepared::StatusFailed => PauseOutcome::StatusFailed,
+        Prepared::CommitFailed => PauseOutcome::CommitFailed,
+        Prepared::PushFailed => PauseOutcome::PushFailed,
+        Prepared::Timeout => PauseOutcome::Timeout,
+    }
+}
+
+/// Commits leftover work, keeps the handoff note on the last commit and pushes
+/// the branch when it has a remote.
+fn prepare_worktree(
+    worktree: &Path,
+    branch: &str,
+    note: Option<&str>,
+    message: &str,
+    timeouts: GitTimeouts,
+) -> Prepared {
     if !worktree.exists() {
-        return CloseOutcome::WorktreeMissing;
+        return Prepared::WorktreeMissing;
     }
 
     let status = match run_git(worktree, ["status", "--porcelain"], timeouts.local) {
         GitRun::Output(output) if output.status.success() => output,
-        GitRun::Timeout => return CloseOutcome::Timeout,
-        _ => return CloseOutcome::StatusFailed,
+        GitRun::Timeout => return Prepared::Timeout,
+        _ => return Prepared::StatusFailed,
     };
-
-    let note = handoff_note.map(str::trim).filter(|note| !note.is_empty());
-    let message = close_commit_message(name, note);
 
     if !status.stdout.is_empty() {
         match run_git(worktree, ["add", "-A"], timeouts.local) {
             GitRun::Output(output) if output.status.success() => {}
-            GitRun::Timeout => return CloseOutcome::Timeout,
-            _ => return CloseOutcome::CommitFailed,
+            GitRun::Timeout => return Prepared::Timeout,
+            _ => return Prepared::CommitFailed,
         }
-        match run_git(worktree, ["commit", "-m", message.as_str()], timeouts.local) {
+        match run_git(worktree, ["commit", "-m", message], timeouts.local) {
             GitRun::Output(output) if output.status.success() => {}
-            GitRun::Timeout => return CloseOutcome::Timeout,
-            _ => return CloseOutcome::CommitFailed,
+            GitRun::Timeout => return Prepared::Timeout,
+            _ => return Prepared::CommitFailed,
         }
     } else if let Some(note) = note
         && !last_commit_has_note(worktree, note, timeouts.local)
@@ -795,32 +886,35 @@ fn close_blocking(
         // without putting the note into a commit of its own.
         match run_git(
             worktree,
-            ["commit", "--allow-empty", "-m", message.as_str()],
+            ["commit", "--allow-empty", "-m", message],
             timeouts.local,
         ) {
             GitRun::Output(output) if output.status.success() => {}
-            GitRun::Timeout => return CloseOutcome::Timeout,
-            _ => return CloseOutcome::CommitFailed,
+            GitRun::Timeout => return Prepared::Timeout,
+            _ => return Prepared::CommitFailed,
         }
     }
 
     let remote = match remote_for_branch(worktree, timeouts.local) {
         Ok(remote) => remote,
-        Err(RemoteFailure::Timeout) => return CloseOutcome::Timeout,
-        Err(RemoteFailure::Failed) => return CloseOutcome::PushFailed,
+        Err(RemoteFailure::Timeout) => return Prepared::Timeout,
+        Err(RemoteFailure::Failed) => return Prepared::PushFailed,
     };
-    if let Some(remote) = remote {
-        match run_git(
+    match remote {
+        Some(remote) => match run_git(
             worktree,
             ["push", "-u", remote.as_str(), branch],
             timeouts.push,
         ) {
-            GitRun::Output(output) if output.status.success() => {}
-            GitRun::Timeout => return CloseOutcome::Timeout,
-            _ => return CloseOutcome::PushFailed,
-        }
+            GitRun::Output(output) if output.status.success() => Prepared::Ready { pushed: true },
+            GitRun::Timeout => Prepared::Timeout,
+            _ => Prepared::PushFailed,
+        },
+        None => Prepared::Ready { pushed: false },
     }
+}
 
+fn remove_closed_worktree(repo_root: &Path, worktree: &Path, timeout: Duration) -> CloseOutcome {
     match run_git(
         repo_root,
         [
@@ -828,7 +922,7 @@ fn close_blocking(
             OsStr::new("remove"),
             worktree.as_os_str(),
         ],
-        timeouts.local,
+        timeout,
     ) {
         GitRun::Output(output) if output.status.success() => CloseOutcome::Cleaned,
         GitRun::Timeout => CloseOutcome::Timeout,
@@ -836,10 +930,10 @@ fn close_blocking(
     }
 }
 
-fn close_commit_message(name: &str, note: Option<&str>) -> String {
+fn worktree_commit_message(action: &str, name: &str, note: Option<&str>) -> String {
     match note {
-        Some(note) => format!("elesdee: close {name}\n\n{note}"),
-        None => format!("elesdee: close {name}"),
+        Some(note) => format!("elesdee: {action} {name}\n\n{note}"),
+        None => format!("elesdee: {action} {name}"),
     }
 }
 

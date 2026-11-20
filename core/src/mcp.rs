@@ -101,6 +101,11 @@ fn tools() -> Vec<Value> {
             }
         }),
         json!({
+            "name": "report_limit",
+            "description": "Tell the app that this session's provider hit a usage limit. The app switches the session to an allowed config with room or pauses it now, without waiting for the next usage poll.",
+            "inputSchema": { "type": "object", "properties": {} }
+        }),
+        json!({
             "name": "list_sessions",
             "description": "List the sessions on this computer with their project, status and branch.",
             "inputSchema": { "type": "object", "properties": {} }
@@ -267,6 +272,7 @@ pub async fn call_tool(
         "notify_me" => notify_me(state, session_id, arguments),
         "report_done" => report_done(state, session_id),
         "write_handoff_note" => write_handoff_note(state, session_id, arguments),
+        "report_limit" => report_limit(state, session_id).await,
         "list_sessions" => list_sessions(state),
         "read_session" => read_session(state, arguments),
         "send_message" => send_message(state, arguments).await,
@@ -427,6 +433,26 @@ fn write_handoff_note(state: &AppState, session_id: &str, arguments: Value) -> (
             ("Handoff note saved.".to_owned(), false)
         }
         None => ("The session is closed.".to_owned(), true),
+    }
+}
+
+async fn report_limit(state: &AppState, session_id: &str) -> (String, bool) {
+    let Some(entry) = state.session(session_id) else {
+        return ("Unknown session.".to_owned(), true);
+    };
+    let session = entry.session();
+    if session.status != SessionState::Active {
+        return ("The session is closed.".to_owned(), true);
+    }
+    let Some(provider_id) = session.provider_id else {
+        return ("The session has no provider.".to_owned(), true);
+    };
+    match crate::usage::report_limit(state, &provider_id).await {
+        Some(_) => (
+            "Reported the limit. The app will switch or pause the session.".to_owned(),
+            false,
+        ),
+        None => ("Unknown provider.".to_owned(), true),
     }
 }
 

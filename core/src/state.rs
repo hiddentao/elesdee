@@ -29,6 +29,7 @@ const GIT_TIMEOUT: Duration = Duration::from_secs(10);
 const GIT_PUSH_TIMEOUT: Duration = Duration::from_secs(30);
 const PREVIEW_THROTTLE: Duration = Duration::from_secs(2);
 const PERMISSION_TIMEOUT: Duration = Duration::from_secs(600);
+const PAUSE_GRACE: Duration = Duration::from_secs(20);
 const DEFAULT_PORT: u16 = 4319;
 pub const MAX_ACTIVE_SESSIONS: usize = 64;
 
@@ -374,6 +375,11 @@ pub struct Provider {
     pub usage_status: Option<UsageStatus>,
     #[serde(default)]
     pub usage_source: Option<String>,
+    /// The time an agent reported that this provider hit its limit. Auto-switch
+    /// treats the provider as out of usage until a fresh official reading
+    /// arrives.
+    #[serde(default)]
+    pub limit_reported_at: Option<String>,
 }
 
 /// A provider with the clients it can run. The client list is computed from the
@@ -507,6 +513,7 @@ pub fn migrate_legacy(accounts: Vec<LegacyAccount>, presets: Vec<LegacyPreset>) 
             usage_checked_at: account.usage_checked_at,
             usage_status: account.usage_status,
             usage_source: account.usage_source,
+            limit_reported_at: None,
         });
         let id = with_suffix(&account.id, |candidate| used.contains(candidate));
         used.insert(id.clone());
@@ -818,6 +825,7 @@ struct Inner {
     git_push_timeout: Duration,
     preview_throttle: Duration,
     permission_timeout: Duration,
+    pause_grace: Duration,
     port: u16,
     agent_identity: AsyncMutex<()>,
     store: Option<Arc<StateStore>>,
@@ -1232,6 +1240,7 @@ impl AppState {
                 git_push_timeout: GIT_PUSH_TIMEOUT,
                 preview_throttle: PREVIEW_THROTTLE,
                 permission_timeout: PERMISSION_TIMEOUT,
+                pause_grace: pause_grace_from_environment(),
                 port: DEFAULT_PORT,
                 agent_identity: AsyncMutex::new(()),
                 store,
@@ -1399,6 +1408,20 @@ impl AppState {
         self.inner.permission_timeout
     }
 
+    /// The time an agent has to commit, write its handoff note and push before
+    /// the app pauses the session.
+    pub fn pause_grace(&self) -> Duration {
+        self.inner.pause_grace
+    }
+
+    #[doc(hidden)]
+    pub fn with_test_pause_grace(mut self, grace: Duration) -> Self {
+        if let Some(inner) = Arc::get_mut(&mut self.inner) {
+            inner.pause_grace = grace;
+        }
+        self
+    }
+
     pub fn port(&self) -> u16 {
         self.inner.port
     }
@@ -1507,9 +1530,36 @@ impl AppState {
         provider.rows = rows;
         provider.usage_source = Some(source.to_owned());
         provider.usage_status = Some(UsageStatus::Fresh);
+        provider.limit_reported_at = None;
         provider.usage_read_at = Some(read_at.to_owned());
         provider.usage_checked_at = Some(checked_at.to_owned());
         provider.foot.clear();
+        Some(provider.clone())
+    }
+
+    /// Marks a provider as out of usage after an agent reports a limit.
+    pub fn set_provider_limit_reported(&self, id: &str, at: &str) -> Option<Provider> {
+        let mut providers = lock(&self.inner.providers);
+        let provider = providers.iter_mut().find(|provider| provider.id == id)?;
+        provider.limit_reported_at = Some(at.to_owned());
+        provider.foot = "The agent reported a limit.".to_owned();
+        Some(provider.clone())
+    }
+
+    /// Clears a reported limit after a fresh official reading or a manual
+    /// resume.
+    pub fn clear_provider_limit_report(&self, id: &str) -> Option<Provider> {
+        let mut providers = lock(&self.inner.providers);
+        let provider = providers.iter_mut().find(|provider| provider.id == id)?;
+        if provider.limit_reported_at.take().is_some()
+            && provider.foot == "The agent reported a limit."
+        {
+            provider.foot = if provider.rows.is_empty() {
+                "No official usage source.".to_owned()
+            } else {
+                String::new()
+            };
+        }
         Some(provider.clone())
     }
 
@@ -2435,4 +2485,12 @@ pub(crate) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 
 fn timestamp() -> String {
     Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true)
+}
+
+fn pause_grace_from_environment() -> Duration {
+    env::var("ELESDEE_PAUSE_GRACE_MS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .map(Duration::from_millis)
+        .unwrap_or(PAUSE_GRACE)
 }

@@ -354,6 +354,9 @@ pub enum UsageState {
 }
 
 pub fn usage_state(provider: &Provider) -> UsageState {
+    if provider.limit_reported_at.is_some() {
+        return UsageState::NearLimit;
+    }
     let mut known = false;
     let mut near = false;
     for row in &provider.rows {
@@ -527,6 +530,7 @@ mod tests {
             usage_checked_at: None,
             usage_status: None,
             usage_source: None,
+            limit_reported_at: None,
         }
     }
 
@@ -659,6 +663,14 @@ mod tests {
             resets_at: None,
         }];
         provider
+    }
+
+    #[test]
+    fn a_reported_limit_counts_as_near_the_limit() {
+        let mut reported = with_used(provider("deepseek", Auth::Key), 5);
+        assert_eq!(usage_state(&reported), UsageState::Room);
+        reported.limit_reported_at = Some("2026-11-20T12:00:00Z".to_owned());
+        assert_eq!(usage_state(&reported), UsageState::NearLimit);
     }
 
     #[test]
