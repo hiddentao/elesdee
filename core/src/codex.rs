@@ -10,7 +10,7 @@ use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::Message;
 
 use crate::sessions::SessionEntry;
-use crate::state::{AppState, PendingPermission, SessionEvent};
+use crate::state::{AppState, PendingPermission, SessionEvent, WaitingFor};
 
 pub struct Decision {
     pub request_id: String,
@@ -151,7 +151,10 @@ pub async fn run(
                     entry.record_history(change);
                 }
                 match turn_activity(method) {
-                    Some(TurnActivity::Working) if entry.session().pending_permission.is_none() => {
+                    Some(TurnActivity::Working)
+                        if entry.session().pending_permission.is_none()
+                            && entry.session().waiting_for != Some(WaitingFor::Question) =>
+                    {
                         if let Some(session) = entry.mark_working() {
                             state.emit(SessionEvent::updated(session));
                         }

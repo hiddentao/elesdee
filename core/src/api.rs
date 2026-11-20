@@ -5543,7 +5543,9 @@ pub(crate) fn start_opencode_poller(state: AppState, entry: Arc<SessionEntry>, b
                 }
                 let updated = match crate::opencode::activity(&messages) {
                     Some(crate::opencode::Activity::Working)
-                        if entry.session().pending_permission.is_none() =>
+                        if entry.session().pending_permission.is_none()
+                            && entry.session().waiting_for
+                                != Some(crate::state::WaitingFor::Question) =>
                     {
                         entry.mark_working()
                     }
