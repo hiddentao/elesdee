@@ -747,6 +747,8 @@ export const sv = {
   'panel.browserTabLabel': 'Sessionens webbläsarflikar',
   'panel.browserNoTitle': 'Sida utan titel',
   'panel.browserFailed': 'Webbläsaråtgärden misslyckades.',
+  'panel.browserLive': 'Webbläsarens livevy',
+  'panel.browserLiveHint': 'Klicka eller skriv i livevyn för att använda sidan.',
   'panel.close': 'Stäng sidopanelen',
   'panel.unsavedChanges': 'Ej sparade ändringar',
   'panel.loading': 'Läser in…',

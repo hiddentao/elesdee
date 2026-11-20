@@ -738,6 +738,8 @@ export const de = {
   'panel.browserTabLabel': 'Browser-Tabs der Sitzung',
   'panel.browserNoTitle': 'Seite ohne Titel',
   'panel.browserFailed': 'Die Browser-Aktion ist fehlgeschlagen.',
+  'panel.browserLive': 'Live-Browseransicht',
+  'panel.browserLiveHint': 'Klicken oder tippen Sie in der Live-Ansicht, um die Seite zu bedienen.',
   'panel.close': 'Seitenbereich schließen',
   'panel.unsavedChanges': 'Ungespeicherte Änderungen',
   'panel.loading': 'Wird geladen…',

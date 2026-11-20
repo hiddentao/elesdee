@@ -715,6 +715,8 @@ export const en = {
   'panel.browserTabLabel': 'Session browser tabs',
   'panel.browserNoTitle': 'Untitled page',
   'panel.browserFailed': 'The browser action failed.',
+  'panel.browserLive': 'Live browser page',
+  'panel.browserLiveHint': 'Click or type in the live view to use the page.',
   'panel.close': 'Close side panel',
   'panel.unsavedChanges': 'Unsaved changes',
   'panel.loading': 'Loading…',

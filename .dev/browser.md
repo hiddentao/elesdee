@@ -33,7 +33,7 @@ The core runs one browser binary for all sessions. Each session still gets its o
 - The process starts on the first browser action, not when the session starts. Opening the Browser tab with no address starts nothing.
 - Close and pause stop the process and clear the tabs. The profile stays, so logins survive a close, a reopen, a crash and a quit.
 - Delete and shutdown stop the process as well. The profile is not removed yet.
-- The profile is not encrypted at rest yet.
+- The profile is not encrypted at rest. Private permissions are the only protection today. A real fix encrypts the whole profile, because cookies, local storage, the cache and Chromium's own password file all hold login state. The documented platform options do not fit: APFS encryption needs a separate encrypted volume or disk image per session, and mounting one around each browser start adds stale-mount and crash recovery that the app does not have. Chromium's own `--password-store=basic` setting is not encryption. Until that work is designed and tested, the app does not claim encrypted storage.
 
 ## Core routes
 
@@ -49,6 +49,9 @@ All routes take the session id in the path. A closed session refuses every actio
 | `POST /api/sessions/{id}/browser/back` | Go back in the active tab |
 | `POST /api/sessions/{id}/browser/forward` | Go forward in the active tab |
 | `POST /api/sessions/{id}/browser/reload` | Reload the active tab |
+| `POST /api/sessions/{id}/browser/input/click` | Click the active page at a fraction of its viewport |
+| `POST /api/sessions/{id}/browser/input/type` | Insert text at the focused element |
+| `POST /api/sessions/{id}/browser/input/key` | Press one named key |
 | `POST /api/sessions/{id}/browser/tabs` | Add a tab, optionally at a URL |
 | `POST /api/sessions/{id}/browser/tabs/{tab}/activate` | Make a tab active |
 | `POST /api/sessions/{id}/browser/tabs/{tab}/close` | Close a tab |
@@ -56,9 +59,19 @@ All routes take the session id in the path. A closed session refuses every actio
 
 Only `http` and `https` addresses are accepted. A full address is required. Each session context has at most 12 tabs. The tab id includes the session, so a tab id from one session is unknown in another.
 
+## Live input
+
+The live view is a screenshot inside a focusable layer. The layer covers the image, so a pointer position has the same fraction on the image and on the page viewport. The panel sends that fraction, not a pixel position. The core reads the page's own viewport size and turns the fraction into CSS pixels, which keeps clicks correct when the image is scaled and when the display density differs.
+
+- A click sends a mouse move, press and release to the active tab. The page receives the click at the point the user chose.
+- A printed character collects with the characters typed just after it and travels as one insert. This keeps the order and lowers the number of requests. A named key flushes the pending text first, then presses.
+- Named keys are Enter, Tab, Escape, Backspace, Delete, the arrows, Home, End, PageUp and PageDown. Shift works with them. Control, Meta and Alt combinations stay with the desktop window and are not sent to the page.
+- All input for one panel runs in order through one queue, so a click cannot arrive before the typing that came before it.
+- The routes take the session id, and the manager uses that session's own context. A closed session is refused before the manager runs. A point outside the page and an unknown key return 400.
+
 ## Agent tools
 
-The MCP server exposes six browser tools. Each tool uses the calling session's own context; no tool takes a session id. A closed session gets an error and no page.
+The MCP server exposes eight browser tools. Each tool uses the calling session's own context; no tool takes a session id. A closed session gets an error and no page.
 
 | Tool | Arguments | Result |
 | --- | --- | --- |
@@ -68,8 +81,12 @@ The MCP server exposes six browser tools. Each tool uses the calling session's o
 | `browser_type` | `selector`, `text` | Focuses the element and types |
 | `browser_wait` | `selector?`, `text?`, `timeoutSeconds?` | Returns when the condition holds or the timeout ends (1–15 seconds) |
 | `browser_screenshot` | `caption?` | Captures a PNG, stores it in the shared file store and tells the UI |
+| `browser_console` | `limit?` (1–200) | The last console messages, oldest first |
+| `browser_network` | `limit?` (1–200) | The last network requests, oldest first |
 
 The Browser checks skill tells agents when to use them.
+
+The console and network records live in memory with the session browser. The core starts the Runtime, Log and Network protocol domains on each page and registers the listeners once per browser process. A listener stores one line per console call, page error, log entry, request, response and failure. The buffer keeps the last 200 of each kind and drops the oldest. Text is cleaned to one line and capped at 1000 characters. An address loses its login details and the values of sensitive query parameters such as a token, a key or a password. Before a tool returns text, the core removes every stored provider key, as it does for session output. The records are cleared when the browser stops. The tools do not start a browser: with no page they return the no-page error.
 
 ## UI
 
@@ -81,17 +98,19 @@ The Browser tab is the third tab of the session side panel.
 - A loading line shows while a request runs or the active tab is loading.
 - While the browser binary is prepared, the panel shows the step and the progress. A failure shows the reason and a Retry action.
 - The live view is the latest captured screenshot. It refreshes when the screenshot sequence changes. Polling reads the state once a second while the panel is mounted.
-- A tab, close button and address field carry labels for keyboard and screen-reader use. All text comes from the 12 language catalogs.
+- The screenshot has a focusable layer over it. A click on the layer becomes a click on the page at the same relative point. Typing goes to the focused page element. A short line under the image says that the view is live and takes clicks and keys.
+- The layer has an application role and a label. A tab, close button and address field carry labels for keyboard and screen-reader use. All text comes from the 12 language catalogs.
+- The console and network records have no separate panel view. The spec gives agents the tools and does not name a user view.
 
 ## Tests
 
-- `core/tests/api.rs` covers tool scoping between two sessions, a tab id from another session, a closed-session refusal, a non-http address, and the screenshot share. The core test state uses a stub engine that fetches a local page over HTTP and returns a small PNG. A separate test serves a fake browser archive over loopback, checks that a wrong checksum fails and leaves no browser, checks that the session still exists, and checks that Retry installs a verified archive and marks the program executable.
-- `app/src/components/BrowserPanel.test.tsx` covers opening an address, the loading state, Back, Reload, tab switching, adding and closing a tab, per-session state, an error, the download progress and the failed-install Retry.
-- `e2e/23-browser.spec.ts` drives two sessions against a local page with real Chromium. It checks separate tabs, a live image, and the type, click, wait and read tools. It uses the Playwright Chromium binary through the `CHROME` environment variable.
+- `core/src/browser/logs.rs` tests the length caps, the oldest-entry drop, the address redaction, the status and failure lines, and the empty messages.
+- `core/tests/api.rs` covers tool scoping between two sessions, a tab id from another session, a closed-session refusal, a non-http address, and the screenshot share. It also covers live click, type and key input staying inside one session, a click point outside the page, an unsupported key, the closed-session refusal for the input routes and both log tools, the console and network results, the 200-entry bound, sensitive-address redaction, and a stored provider key removed from a network address. The core test state uses a stub engine that fetches a local page over HTTP, returns a small PNG and records its own console and network lines. A separate test serves a fake browser archive over loopback, checks that a wrong checksum fails and leaves no browser, checks that the session still exists, and checks that Retry installs a verified archive and marks the program executable.
+- `app/src/components/BrowserPanel.test.tsx` covers opening an address, the loading state, Back, Reload, tab switching, adding and closing a tab, per-session state, an error, the download progress, the failed-install Retry, a live click mapped to a page point, and live typing, named keys, Shift and the ignored Control combination.
+- `e2e/23-browser.spec.ts` drives two sessions against a local page with real Chromium. It checks separate tabs, a live image, the type, click, wait and read tools, and that the console and network tools return a page message and the page request with its status. A second test clicks and types through the live view and checks the page changed. It uses the Playwright Chromium binary through the `CHROME` environment variable.
 
 ## Not built yet
 
-- Encrypting the profile at rest.
-- Clicking and typing directly in the live view.
-- Console and network log tools.
+- Encrypting the profile at rest. The reasons and the missing design are in Isolation and lifetime.
 - Removing the profile when a session is deleted.
+- A user view of the console and network records. The spec names the agent tools only.

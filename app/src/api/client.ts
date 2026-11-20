@@ -608,6 +608,35 @@ export function browserReload(id: string): Promise<BrowserState> {
   );
 }
 
+export function clickBrowserAt(
+  id: string,
+  x: number,
+  y: number,
+): Promise<BrowserState> {
+  return request<BrowserState>(
+    `/api/sessions/${encodeURIComponent(id)}/browser/input/click`,
+    post({ x, y }),
+  );
+}
+
+export function typeBrowserText(id: string, text: string): Promise<BrowserState> {
+  return request<BrowserState>(
+    `/api/sessions/${encodeURIComponent(id)}/browser/input/type`,
+    post({ text }),
+  );
+}
+
+export function pressBrowserKey(
+  id: string,
+  key: string,
+  modifiers = 0,
+): Promise<BrowserState> {
+  return request<BrowserState>(
+    `/api/sessions/${encodeURIComponent(id)}/browser/input/key`,
+    post({ key, modifiers }),
+  );
+}
+
 export function createBrowserTab(
   id: string,
   url?: string,

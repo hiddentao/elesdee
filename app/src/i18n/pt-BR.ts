@@ -750,6 +750,8 @@ export const ptBR = {
   'panel.browserTabLabel': 'Abas do navegador da sessão',
   'panel.browserNoTitle': 'Página sem título',
   'panel.browserFailed': 'A ação do navegador falhou.',
+  'panel.browserLive': 'Página do navegador ao vivo',
+  'panel.browserLiveHint': 'Clique ou digite na visualização ao vivo para usar a página.',
   'panel.close': 'Fechar painel lateral',
   'panel.unsavedChanges': 'Alterações não salvas',
   'panel.loading': 'Carregando…',

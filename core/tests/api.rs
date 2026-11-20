@@ -10470,6 +10470,189 @@ async fn mcp_browser_tools_are_scoped_to_the_calling_session() {
 }
 
 #[tokio::test]
+async fn browser_live_input_and_logs_stay_inside_one_session() {
+    let base = start_browser_page_server().await;
+    let folder = TempDirectory::new("browser-live-input");
+    let app = router(AppState::ephemeral());
+    let first = create_terminal(&app, &folder.path).await;
+    let second = create_terminal(&app, &folder.path).await;
+    let first_id = first["id"].as_str().expect("first id");
+    let second_id = second["id"].as_str().expect("second id");
+
+    for (id, page) in [(first_id, "a"), (second_id, "b")] {
+        let opened = mcp_tool(
+            &app,
+            id,
+            "browser_open",
+            json!({ "url": format!("{base}/{page}") }),
+        )
+        .await;
+        assert_eq!(opened["result"]["isError"], false, "{opened}");
+    }
+
+    let (status, body) = call(
+        &app,
+        "POST",
+        &format!("/api/sessions/{first_id}/browser/input/click"),
+        Some(json!({ "x": 0.5, "y": 0.25 })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let first_console = mcp_tool(&app, first_id, "browser_console", json!({})).await;
+    assert_eq!(first_console["result"]["isError"], false, "{first_console}");
+    assert!(tool_text(&first_console).contains("Live click at 0.500, 0.250"));
+    let second_console = mcp_tool(&app, second_id, "browser_console", json!({})).await;
+    assert!(
+        !tool_text(&second_console).contains("Live click"),
+        "{second_console}"
+    );
+
+    let (status, body) = call(
+        &app,
+        "POST",
+        &format!("/api/sessions/{second_id}/browser/input/type"),
+        Some(json!({ "text": "hello there" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let read_second = mcp_tool(&app, second_id, "browser_read", json!({})).await;
+    assert!(
+        tool_text(&read_second).contains("hello there"),
+        "{read_second}"
+    );
+    let read_first = mcp_tool(&app, first_id, "browser_read", json!({})).await;
+    assert!(
+        !tool_text(&read_first).contains("hello there"),
+        "{read_first}"
+    );
+    let second_console = mcp_tool(&app, second_id, "browser_console", json!({})).await;
+    assert!(tool_text(&second_console).contains("Live text was typed"));
+    let first_console = mcp_tool(&app, first_id, "browser_console", json!({})).await;
+    assert!(!tool_text(&first_console).contains("Live text was typed"));
+
+    let (status, body) = call(
+        &app,
+        "POST",
+        &format!("/api/sessions/{first_id}/browser/input/key"),
+        Some(json!({ "key": "Enter" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let first_console = mcp_tool(&app, first_id, "browser_console", json!({})).await;
+    assert!(tool_text(&first_console).contains("Live key Enter"));
+
+    let (status, body) = call(
+        &app,
+        "POST",
+        &format!("/api/sessions/{first_id}/browser/input/click"),
+        Some(json!({ "x": 1.5, "y": 0.5 })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    let (status, body) = call(
+        &app,
+        "POST",
+        &format!("/api/sessions/{first_id}/browser/input/key"),
+        Some(json!({ "key": "F13" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+
+    let (status, _) = close_session(&app, first_id).await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, body) = call(
+        &app,
+        "POST",
+        &format!("/api/sessions/{first_id}/browser/input/click"),
+        Some(json!({ "x": 0.5, "y": 0.5 })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    let refused = mcp_tool(&app, first_id, "browser_console", json!({})).await;
+    assert_eq!(refused["result"]["isError"], true, "{refused}");
+    assert_eq!(tool_text(&refused), "The session is closed.");
+    let refused = mcp_tool(&app, first_id, "browser_network", json!({ "limit": 5 })).await;
+    assert_eq!(refused["result"]["isError"], true, "{refused}");
+    assert_eq!(tool_text(&refused), "The session is closed.");
+
+    let (status, _) = close_session(&app, second_id).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn browser_logs_redact_secrets_and_return_short_lists() {
+    const SECRET: &str = "sk-browser-secret-abc123";
+    let base = start_browser_page_server().await;
+    let folder = TempDirectory::new("browser-logs");
+    let app = router(AppState::ephemeral());
+    let (status, account) = call(
+        &app,
+        "POST",
+        "/api/providers",
+        Some(json!({
+            "name": "Browser secret",
+            "vendor": "custom",
+            "auth": "key",
+            "apiStyle": "openai",
+            "key": SECRET,
+            "server": "https://gateway.example/v1"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{account}");
+    let session = create_terminal(&app, &folder.path).await;
+    let id = session["id"].as_str().expect("session id");
+
+    let opened = mcp_tool(
+        &app,
+        id,
+        "browser_open",
+        json!({ "url": format!("{base}/a?q={SECRET}&token=visible-secret") }),
+    )
+    .await;
+    assert_eq!(opened["result"]["isError"], false, "{opened}");
+
+    let network = mcp_tool(&app, id, "browser_network", json!({})).await;
+    assert_eq!(network["result"]["isError"], false, "{network}");
+    let text = tool_text(&network);
+    assert!(
+        !text.contains(SECRET),
+        "the network log leaked a key: {text}"
+    );
+    assert!(
+        !text.contains("visible-secret"),
+        "the network log leaked a token: {text}"
+    );
+    assert!(
+        text.contains("q=[redacted]") || text.contains("[redacted]"),
+        "{text}"
+    );
+    assert!(text.contains("token=[redacted]"), "{text}");
+    assert!(text.contains("returned 200"), "{text}");
+
+    let console = mcp_tool(&app, id, "browser_console", json!({})).await;
+    assert_eq!(console["result"]["isError"], false, "{console}");
+    assert!(tool_text(&console).contains("Loaded Page A"), "{console}");
+
+    let (status, body) = call(
+        &app,
+        "POST",
+        &format!("/api/sessions/{id}/browser/open"),
+        Some(json!({ "url": format!("{base}/b") })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let short = mcp_tool(&app, id, "browser_network", json!({ "limit": 1 })).await;
+    let text = tool_text(&short);
+    assert_eq!(text.lines().count(), 1, "{text}");
+    assert!(text.contains("/b"), "{text}");
+    assert!(!text.contains("/a?"), "{text}");
+
+    let (status, _) = close_session(&app, id).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
 async fn demo_servers_register_list_and_stop() {
     let data_dir = TempDirectory::new("demo-data");
     let repo = TempDirectory::new("demo-repo");

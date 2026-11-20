@@ -245,6 +245,26 @@ fn tools() -> Vec<Value> {
             }
         }),
         json!({
+            "name": "browser_console",
+            "description": "Read the recent console messages of this session's own browser. Messages are short, secret values are removed, and older messages drop off. Use this to find page errors.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "limit": { "type": "integer", "minimum": 1, "maximum": 200 }
+                }
+            }
+        }),
+        json!({
+            "name": "browser_network",
+            "description": "Read the recent network requests of this session's own browser: method, address, kind, status or failure. Login details and sensitive address values are removed, and older requests drop off.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "limit": { "type": "integer", "minimum": 1, "maximum": 200 }
+                }
+            }
+        }),
+        json!({
             "name": "register_demo_server",
             "description": "Tell the app that a demo server runs on a loopback port. The app records it for this session and returns the local address and, when Tailscale is running, a tailnet address to print. The user can open the local address on this computer, a paired phone can open the same port, and a device on the tailnet can open the tailnet address. Register again after a stop, pause or close.",
             "inputSchema": {
@@ -286,6 +306,8 @@ pub async fn call_tool(
         "browser_type" => browser_type(state, session_id, arguments).await,
         "browser_wait" => browser_wait(state, session_id, arguments).await,
         "browser_screenshot" => browser_screenshot(state, session_id, arguments).await,
+        "browser_console" => browser_console(state, session_id, arguments).await,
+        "browser_network" => browser_network(state, session_id, arguments).await,
         "register_demo_server" => register_demo_server(state, session_id, arguments),
         other => (format!("Unknown tool: {other}"), true),
     }
@@ -1060,6 +1082,51 @@ async fn browser_screenshot(
         }
         Err(error) => (share_error_message(error), true),
     }
+}
+
+async fn browser_console(state: &AppState, session_id: &str, arguments: Value) -> (String, bool) {
+    let limit = log_limit(&arguments);
+    browser_log(state, session_id, limit, false).await
+}
+
+async fn browser_network(state: &AppState, session_id: &str, arguments: Value) -> (String, bool) {
+    let limit = log_limit(&arguments);
+    browser_log(state, session_id, limit, true).await
+}
+
+async fn browser_log(
+    state: &AppState,
+    session_id: &str,
+    limit: usize,
+    network: bool,
+) -> (String, bool) {
+    if let Some(refusal) = browser_refusal(state, session_id) {
+        return refusal;
+    }
+    let result = if network {
+        state.browser().network_log(session_id, limit)
+    } else {
+        state.browser().console_log(session_id, limit)
+    };
+    match result {
+        Ok(text) => {
+            let secrets = match state.session(session_id) {
+                Some(entry) => shared_secret_values(state, entry.redactions()).await,
+                None => Vec::new(),
+            };
+            (crate::text::redact_secrets(text, &secrets), false)
+        }
+        Err(error) => (error.message(), true),
+    }
+}
+
+fn log_limit(arguments: &Value) -> usize {
+    arguments
+        .get("limit")
+        .and_then(Value::as_u64)
+        .map(|limit| limit as usize)
+        .unwrap_or(50)
+        .clamp(1, crate::browser::MAX_LOG_LIMIT)
 }
 
 fn page_summary(state: &crate::browser::BrowserState) -> String {

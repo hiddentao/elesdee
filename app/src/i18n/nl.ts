@@ -743,6 +743,8 @@ export const nl = {
   'panel.browserTabLabel': 'Browser-tabbladen van de sessie',
   'panel.browserNoTitle': 'Pagina zonder titel',
   'panel.browserFailed': 'De browseractie is mislukt.',
+  'panel.browserLive': 'Live browserpagina',
+  'panel.browserLiveHint': 'Klik of typ in de liveweergave om de pagina te gebruiken.',
   'panel.close': 'Zijpaneel sluiten',
   'panel.unsavedChanges': 'Niet-opgeslagen wijzigingen',
   'panel.loading': 'Laden…',

@@ -746,6 +746,8 @@ export const it = {
   'panel.browserTabLabel': 'Schede del browser della sessione',
   'panel.browserNoTitle': 'Pagina senza titolo',
   'panel.browserFailed': 'L’azione del browser non è riuscita.',
+  'panel.browserLive': 'Pagina del browser in tempo reale',
+  'panel.browserLiveHint': 'Fai clic o digita nella vista in tempo reale per usare la pagina.',
   'panel.close': 'Chiudi pannello laterale',
   'panel.unsavedChanges': 'Modifiche non salvate',
   'panel.loading': 'Caricamento…',

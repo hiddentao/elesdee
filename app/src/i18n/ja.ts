@@ -745,6 +745,8 @@ export const ja = {
   'panel.browserTabLabel': 'セッションのブラウザタブ',
   'panel.browserNoTitle': '無題のページ',
   'panel.browserFailed': 'ブラウザの操作に失敗しました。',
+  'panel.browserLive': 'ブラウザのライブページ',
+  'panel.browserLiveHint': 'ライブ表示をクリックするか入力してページを操作します。',
   'panel.close': 'サイドパネルを閉じる',
   'panel.unsavedChanges': '未保存の変更',
   'panel.loading': '読み込み中…',
