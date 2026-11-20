@@ -24,7 +24,7 @@ This file carries the rules that bind every prompt. Detail and decisions live in
 
 The application has its first working slice. The core service runs real PTYs, projects, accounts, four agent clients, Git branches and worktrees, persistence and a secured local API. It detects Claude Code, Codex, OpenCode 2 and Google Antigravity (`agy`). Accounts cover the supported providers with subscription, API-key and local-server sign-in, and custom OpenAI- or Anthropic-compatible endpoints; keys live in the system keychain and are redacted from session output. A fresh install starts with no projects and sample accounts marked as samples. The desktop UI runs real terminals and agent CLIs, creates, renames, closes, reopens and deletes sessions, adds projects, shows live previews and usage, starts sessions from a chosen branch with an optional first prompt and per-session environment overrides, switches a session to another account, lists and answers agent questions, approves or denies agent-started sessions, and answers Claude Code, Codex and OpenCode 2 permission prompts from a card. It asks before quitting while sessions run, and restores running sessions as paused after a restart. Usage near a limit switches a session to an account with room, pauses it when none has room, and resumes it when one does. Claude Code, Codex and OpenCode 2 sessions get the elesdee MCP server; Claude Code and OpenCode 2 also get the elesdee skill. The tools ask questions, notify, report done, read other sessions, send messages, check usage, withdraw questions and request new sessions for approval. A phone layout at `/phone.html` shows the session list, one session tab at a time with a numbered tab sheet, read-only terminals, permission cards and questions. The Tauri shell starts the core, embeds the UI, asks before quitting and opens a native folder picker.
 
-Not built yet: launch presets and project defaults, the Tauri phone shell with pairing and the remote connection, the elesdee skill for Codex, and signed packaging. The spec describes the target; the mockup is the visual reference.
+Not built yet: launch presets and project defaults, the Tauri phone shell with pairing and the remote connection, the elesdee skill for Codex, the built-in browser and file editor, demo servers, and interface translations. Packaging builds the macOS app and signs and notarizes it when the Apple secrets are set; without them the build is ad-hoc signed. The spec describes the target; the mockup is the visual reference.
 
 ## Running the app
 
@@ -38,7 +38,7 @@ Not built yet: launch presets and project defaults, the Tauri phone shell with p
 - Merging the release PR runs **Release Publish**: it tags the merge commit (no `v` prefix), builds the Apple Silicon macOS app and the core binary, and publishes the GitHub Release.
 - `scripts/release.mjs` is the version and changelog tool. `node scripts/release.mjs --dry-run` previews the next version.
 - Set the repository variable `RELEASE_APP_ID` and the secret `RELEASE_APP_PRIVATE_KEY` so the release PR triggers its own CI. Without them the PR opens with `GITHUB_TOKEN` and its CI does not start.
-- The macOS build is unsigned. It will be signed and notarized when the Apple Developer certificate secrets are added.
+- The macOS build is signed and notarized when `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD` and `APPLE_TEAM_ID` are set. Without them it is built and signed ad hoc, and the release notes say it is unsigned.
 
 ## Commit gates
 

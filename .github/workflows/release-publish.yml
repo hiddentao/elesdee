@@ -50,18 +50,48 @@ jobs:
         run: npx tauri icon src-tauri/icons/icon.png
 
       - name: Build the desktop bundle
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: npm run desktop:build
 
       - name: Build the core binary
         run: cargo build --release --manifest-path core/Cargo.toml
 
       - name: Add the core to the app bundle
+        id: sign
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: |
           app="src-tauri/target/release/bundle/macos/elesdee.app"
           cp core/target/release/elesdee-core "$app/Contents/MacOS/elesdee-core"
-          # The bundle was signed before the copy; re-sign it ad hoc so macOS
-          # does not reject the modified app. This is not a Developer ID signature.
-          codesign --force --deep --sign - "$app"
+          if [ -n "$APPLE_SIGNING_IDENTITY" ]; then
+            codesign --force --deep --options runtime \
+              --sign "$APPLE_SIGNING_IDENTITY" "$app"
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+          else
+            # No Developer ID certificate is configured. Re-sign ad hoc so macOS
+            # does not reject the app after the core copy.
+            codesign --force --deep --sign - "$app"
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Notarize the app
+        if: ${{ steps.sign.outputs.signed == 'true' && secrets.APPLE_ID != '' && secrets.APPLE_PASSWORD != '' && secrets.APPLE_TEAM_ID != '' }}
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          app="src-tauri/target/release/bundle/macos/elesdee.app"
+          ditto -c -k --keepParent "$app" /tmp/elesdee-notarize.zip
+          xcrun notarytool submit /tmp/elesdee-notarize.zip \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait
+          xcrun stapler staple "$app"
 
       - name: Package artifacts
         env:
@@ -80,6 +110,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          SIGNED: ${{ steps.sign.outputs.signed }}
         run: |
           version="${HEAD_REF#release/}"
           if git rev-parse "$version" >/dev/null 2>&1; then
@@ -95,6 +126,10 @@ jobs:
           if [ ! -s /tmp/release-notes.md ]; then
             printf 'elesdee %s\n' "$version" > /tmp/release-notes.md
           fi
-          printf '\n\n---\n\nThe macOS builds are unsigned and Apple Silicon only. macOS will warn on first open; allow the app in System Settings > Privacy & Security.\n' >> /tmp/release-notes.md
+          if [ "$SIGNED" = "true" ]; then
+            printf '\n\n---\n\nThe macOS build is signed and notarized. It supports Apple Silicon only.\n' >> /tmp/release-notes.md
+          else
+            printf '\n\n---\n\nThe macOS build is unsigned and Apple Silicon only. macOS will warn on first open; allow the app in System Settings > Privacy & Security.\n' >> /tmp/release-notes.md
+          fi
           gh release create "$version" --title "$version" \
             --notes-file /tmp/release-notes.md dist/release/*

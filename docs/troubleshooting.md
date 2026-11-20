@@ -40,7 +40,7 @@ The app keeps the worktree when it cannot commit, push or remove it. The session
 
 ## The app is blocked on first launch
 
-The current build is unsigned. Open System Settings, go to Privacy & Security, and choose Open Anyway for elesdee. Signing and notarization will follow.
+A build without a Developer ID signature is blocked by macOS. The release notes say whether the build is signed. If it is unsigned, open System Settings, go to Privacy & Security, and choose Open Anyway for elesdee.
 
 ## An API key was rejected
 
