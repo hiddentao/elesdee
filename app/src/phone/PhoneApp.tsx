@@ -16,7 +16,8 @@ import type {
 import { QuestionForm } from '../components/QuestionForm';
 import { SessionRequestForm } from '../components/SessionRequestForm';
 import { TerminalPane } from '../components/TerminalPane';
-import { formatNumber, type Translate } from '../i18n';
+import { GlobeIcon } from '../components/icons';
+import { LANGUAGES, formatNumber, type Translate } from '../i18n';
 import { useLanguage } from '../i18n/LanguageProvider';
 import { workLabel } from '../state/sessionStatus';
 
@@ -32,7 +33,7 @@ function sessionHashId(): string | null {
 }
 
 export default function PhoneApp() {
-  const { t, language } = useLanguage();
+  const { t, language, setLanguage } = useLanguage();
   const tRef = useRef(t);
   tRef.current = t;
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -44,9 +45,12 @@ export default function PhoneApp() {
   );
   const [filter, setFilter] = useState<Filter>('all');
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [languageSheetOpen, setLanguageSheetOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const tabStripRef = useRef<HTMLDivElement>(null);
+  const languageButtonRef = useRef<HTMLButtonElement>(null);
+  const languageSheetRef = useRef<HTMLDivElement>(null);
   const activeIdRef = useRef(activeId);
   activeIdRef.current = activeId;
 
@@ -139,6 +143,52 @@ export default function PhoneApp() {
       behavior: 'instant',
     });
   }, [activeIndex]);
+
+  useEffect(() => {
+    if (!languageSheetOpen) {
+      return;
+    }
+    const dialog = languageSheetRef.current;
+    const current = dialog?.querySelector<HTMLButtonElement>(
+      '[aria-pressed="true"]',
+    );
+    (current ?? dialog)?.focus();
+
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setLanguageSheetOpen(false);
+        languageButtonRef.current?.focus();
+        return;
+      }
+      if (event.key !== 'Tab' || !dialog) {
+        return;
+      }
+      const items = Array.from(
+        dialog.querySelectorAll<HTMLElement>('button:not([disabled])'),
+      );
+      if (items.length === 0) {
+        return;
+      }
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [languageSheetOpen]);
+
+  function closeLanguageSheet() {
+    setLanguageSheetOpen(false);
+    languageButtonRef.current?.focus();
+  }
 
   function selectSession(id: string) {
     setActiveId(id);
@@ -242,6 +292,17 @@ export default function PhoneApp() {
             <span className="phone-sub">{t('phone.thisComputer')}</span>
           </div>
         )}
+        <button
+          type="button"
+          className="phone-icon"
+          ref={languageButtonRef}
+          aria-label={t('settings.languages')}
+          aria-haspopup="dialog"
+          aria-expanded={languageSheetOpen}
+          onClick={() => setLanguageSheetOpen(true)}
+        >
+          <GlobeIcon />
+        </button>
       </header>
 
       {loading ? (
@@ -470,6 +531,57 @@ export default function PhoneApp() {
       ) : (
         <p className="phone-empty">{t('phone.chooseSession')}</p>
       )}
+
+      {languageSheetOpen ? (
+        <div className="phone-sheet-layer">
+          <button
+            type="button"
+            className="phone-sheet-scrim"
+            aria-label={t('common.close')}
+            onClick={closeLanguageSheet}
+          />
+          <div
+            className="phone-sheet"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="phone-language-title"
+            ref={languageSheetRef}
+            tabIndex={-1}
+          >
+            <h2 className="phone-sheet-title" id="phone-language-title">
+              {t('settings.languages')}
+            </h2>
+            <span className="phone-sheet-label">
+              {t('settings.languageLabel')}
+            </span>
+            {LANGUAGES.map((item) => {
+              const current = item.code === language;
+              return (
+                <button
+                  key={item.code}
+                  type="button"
+                  className={
+                    current ? 'phone-sheet-row is-on' : 'phone-sheet-row'
+                  }
+                  aria-pressed={current}
+                  onClick={() => {
+                    setLanguage(item.code);
+                    closeLanguageSheet();
+                  }}
+                >
+                  <span className="phone-sheet-row-name">{item.label}</span>
+                  {current ? (
+                    <span className="phone-language-check" aria-hidden="true">
+                      ✓
+                    </span>
+                  ) : null}
+                </button>
+              );
+            })}
+            <p className="phone-sheet-note">{t('settings.languageNote')}</p>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

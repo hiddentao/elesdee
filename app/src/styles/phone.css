@@ -46,9 +46,33 @@ body {
 
 .phone-head-text {
   display: flex;
+  flex: 1;
   min-width: 0;
   flex-direction: column;
   gap: 2px;
+}
+
+.phone-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  margin-left: auto;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-2);
+}
+
+.phone-icon:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.phone-icon svg {
+  width: 18px;
+  height: 18px;
 }
 
 .phone-title {
@@ -239,6 +263,26 @@ body {
 .phone-sheet-title {
   margin: 0;
   font-size: 16px;
+}
+
+.phone-sheet-label {
+  display: block;
+  margin: 14px 0 4px;
+  color: var(--text-3);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.phone-language-check {
+  color: var(--accent);
+  font-size: 13px;
+}
+
+.phone-sheet-note {
+  margin: 10px 0 0;
+  color: var(--text-3);
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .phone-sheet-row {
