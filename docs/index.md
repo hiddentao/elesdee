@@ -43,3 +43,5 @@ The core service listens only on this computer. It is not reachable from your ne
 - [Get started](getting-started.md)
 - [Learn about projects](projects.md)
 - [Learn about sessions](sessions.md)
+- [Session tools](session-tools.md)
+- [Phone layout](phone.md)

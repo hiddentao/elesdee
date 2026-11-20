@@ -12,6 +12,14 @@ export default defineConfig({
       '@tauri-apps/api/window'
     ]
   },
+  build: {
+    rollupOptions: {
+      input: {
+        main: 'index.html',
+        phone: 'phone.html'
+      }
+    }
+  },
   server: {
     port: 5173,
     strictPort: true,

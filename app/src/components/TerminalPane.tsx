@@ -47,14 +47,17 @@ const GAP_MARKER = '\x1b[33m[Earlier output is no longer available.]\x1b[0m';
 
 interface TerminalPaneProps {
   session: Session;
+  readOnly?: boolean;
 }
 
-export function TerminalPane({ session }: TerminalPaneProps) {
+export function TerminalPane({ session, readOnly = false }: TerminalPaneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const lastSeqRef = useRef(0);
   const closedRef = useRef(session.status === 'closed');
+  const readOnlyRef = useRef(readOnly);
   closedRef.current = session.status === 'closed';
+  readOnlyRef.current = readOnly;
   const [connectionError, setConnectionError] = useState(false);
   const [reconnected, setReconnected] = useState(false);
   const [attempt, setAttempt] = useState(0);
@@ -80,7 +83,7 @@ export function TerminalPane({ session }: TerminalPaneProps) {
       fontSize: 13,
       lineHeight: 1.55,
       screenReaderMode: true,
-      disableStdin: closedRef.current,
+      disableStdin: closedRef.current || readOnlyRef.current,
       theme: media?.matches ? DARK_THEME : LIGHT_THEME,
     });
     const fitAddon = new FitAddon();
@@ -89,7 +92,7 @@ export function TerminalPane({ session }: TerminalPaneProps) {
     termRef.current = term;
 
     const dataDisposable = term.onData((data) => {
-      if (closedRef.current) {
+      if (closedRef.current || readOnlyRef.current) {
         return;
       }
       void sendInput(session.id, data).catch(() => {
@@ -178,12 +181,13 @@ export function TerminalPane({ session }: TerminalPaneProps) {
 
   useEffect(() => {
     if (termRef.current) {
-      termRef.current.options.disableStdin = session.status === 'closed';
+      termRef.current.options.disableStdin =
+        session.status === 'closed' || readOnly;
     }
     if (session.status === 'closed') {
       setConnectionError(false);
     }
-  }, [session.status]);
+  }, [session.status, readOnly]);
 
   return (
     <>
