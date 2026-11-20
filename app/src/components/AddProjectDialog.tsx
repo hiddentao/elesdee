@@ -266,7 +266,10 @@ export function AddProjectDialog({
       setSignInError(
         error instanceof ApiError && error.status === 422
           ? 'addProject.githubNotConfigured'
-          : 'addProject.githubSignInFailed',
+          : error instanceof ApiError &&
+              (error.status === 502 || error.status === 408)
+            ? 'addProject.githubNetwork'
+            : 'addProject.githubSignInFailed',
       );
     }
   }
