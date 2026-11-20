@@ -6,6 +6,7 @@
 //! exits, while the profile stays on disk for the next start.
 
 mod chromium;
+pub(crate) mod install;
 mod stub;
 
 use std::collections::HashMap;
@@ -39,7 +40,7 @@ pub struct BrowserTab {
 /// The browser state of one session. It is safe to read while an action runs.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct BrowserState {
+pub(crate) struct BrowserState {
     pub session_id: String,
     pub started: bool,
     pub available: bool,
@@ -49,6 +50,8 @@ pub struct BrowserState {
     /// refresh the live image.
     pub screenshot_seq: u64,
     pub error: Option<String>,
+    /// Progress and result of finding or fetching the browser binary.
+    pub setup: install::Setup,
 }
 
 impl BrowserState {
@@ -61,6 +64,7 @@ impl BrowserState {
             active_tab_id: None,
             screenshot_seq: 0,
             error: None,
+            setup: install::Setup::idle(),
         }
     }
 }
@@ -77,9 +81,7 @@ pub enum BrowserError {
 impl BrowserError {
     pub fn message(&self) -> String {
         match self {
-            Self::Unavailable(reason) => format!(
-                "The browser is not available. {reason} Set the CHROME environment variable to a Chrome or Chromium binary."
-            ),
+            Self::Unavailable(reason) => format!("The browser is not available. {reason}"),
             Self::InvalidUrl(reason) => reason.clone(),
             Self::NoPage => "No page is open in this session's browser.".to_owned(),
             Self::TabLimit => format!("A session browser can have at most {MAX_TABS} tabs."),
@@ -89,18 +91,8 @@ impl BrowserError {
 }
 
 /// Finds the Chromium binary the core will run.
-pub fn chromium_path() -> Option<PathBuf> {
-    if let Some(path) = std::env::var_os("CHROME").filter(|value| !value.is_empty()) {
-        let path = PathBuf::from(path);
-        if path.is_file() {
-            return Some(path);
-        }
-    }
-    chromium::default_chromium_path()
-}
-
 #[derive(Clone)]
-pub struct BrowserManager {
+pub(crate) struct BrowserManager {
     inner: Arc<Inner>,
 }
 
@@ -108,6 +100,7 @@ struct Inner {
     profile_root: Option<PathBuf>,
     /// Tests use a small stand-in instead of launching Chromium.
     stub: bool,
+    installer: install::Installer,
     contexts: Mutex<HashMap<String, Arc<Context>>>,
 }
 
@@ -119,7 +112,6 @@ struct Context {
 }
 
 struct Meta {
-    available: bool,
     error: Option<String>,
     tabs: Vec<BrowserTab>,
     active: Option<String>,
@@ -132,7 +124,6 @@ struct Meta {
 impl Meta {
     fn new() -> Self {
         Self {
-            available: true,
             error: None,
             tabs: Vec::new(),
             active: None,
@@ -180,13 +171,19 @@ struct PageInfo {
 }
 
 impl BrowserManager {
-    /// `profile_root` is the folder that holds one profile per session. Tests
-    /// pass `None` for a temporary profile. `stub` selects the test engine.
-    pub fn new(profile_root: Option<PathBuf>, stub: bool) -> Self {
+    /// `profile_root` is the folder that holds one profile per session.
+    /// `install` names where a downloaded browser lives and which build to
+    /// fetch. Tests pass `None` for a temporary profile and the stub engine.
+    pub fn new(
+        profile_root: Option<PathBuf>,
+        stub: bool,
+        install: Option<install::Options>,
+    ) -> Self {
         Self {
             inner: Arc::new(Inner {
                 profile_root,
                 stub,
+                installer: install::Installer::new(install),
                 contexts: Mutex::new(HashMap::new()),
             }),
         }
@@ -227,19 +224,29 @@ impl BrowserManager {
     }
 
     pub fn state(&self, session_id: &str) -> BrowserState {
+        let setup = self.inner.installer.snapshot();
         let Some(context) = self.existing(session_id) else {
-            return BrowserState::empty(session_id);
+            return BrowserState {
+                setup,
+                ..BrowserState::empty(session_id)
+            };
         };
         let meta = lock_meta(&context);
         BrowserState {
             session_id: session_id.to_owned(),
             started: meta.runtime.is_some(),
-            available: meta.available,
+            available: available(&setup, &meta),
             tabs: meta.tabs.clone(),
             active_tab_id: meta.active.clone(),
             screenshot_seq: meta.screenshot_seq,
             error: meta.error.clone(),
+            setup,
         }
+    }
+
+    /// Starts fetching the browser binary when none is present.
+    pub fn setup(&self) -> Result<(), BrowserError> {
+        self.inner.installer.begin()
     }
 
     /// Starts the session's browser if it is not running. Chromium starts on
@@ -252,26 +259,22 @@ impl BrowserManager {
     }
 
     async fn ensure_runtime(&self, context: &Context) -> Result<(), BrowserError> {
-        {
-            let meta = lock_meta(context);
-            if meta.runtime.is_some() {
-                return Ok(());
-            }
-            if !meta.available {
-                return Err(BrowserError::Unavailable(
-                    "No Chrome or Chromium binary was found.".to_owned(),
-                ));
-            }
+        if lock_meta(context).runtime.is_some() {
+            return Ok(());
         }
         let engine = if self.inner.stub {
             Engine::Stub(stub::Stub::new())
         } else {
-            match chromium::Chromium::launch(&context.profile).await {
+            let Some(executable) = self.inner.installer.executable() else {
+                self.inner.installer.begin()?;
+                let message = setup_message(&self.inner.installer.snapshot());
+                lock_meta(context).error = Some(message.clone());
+                return Err(BrowserError::Unavailable(message));
+            };
+            match chromium::Chromium::launch(&context.profile, &executable).await {
                 Ok(chromium) => Engine::Chromium(chromium),
                 Err(error) => {
-                    let mut meta = lock_meta(context);
-                    meta.available = false;
-                    meta.error = Some(error.message());
+                    lock_meta(context).error = Some(error.message());
                     return Err(error);
                 }
             }
@@ -281,7 +284,6 @@ impl BrowserManager {
             engine,
             pages: HashMap::new(),
         });
-        meta.available = true;
         meta.error = None;
         Ok(())
     }
@@ -329,7 +331,8 @@ impl BrowserManager {
         mark_loading(&context, &tab_id, true);
         let (engine, page) = action_target(&context, &tab_id)?;
         let result = engine.goto(page.as_ref(), &url).await;
-        finish_action(&context, &engine, page.as_ref(), &tab_id, result).await
+        self.finish_action(&context, &engine, page.as_ref(), &tab_id, result)
+            .await
     }
 
     pub async fn new_tab(
@@ -350,7 +353,8 @@ impl BrowserManager {
                 mark_loading(&context, &tab_id, true);
                 let (engine, page) = action_target(&context, &tab_id)?;
                 let result = engine.goto(page.as_ref(), &url).await;
-                finish_action(&context, &engine, page.as_ref(), &tab_id, result).await
+                self.finish_action(&context, &engine, page.as_ref(), &tab_id, result)
+                    .await
             }
             None => Ok(self.state(session_id)),
         }
@@ -432,7 +436,8 @@ impl BrowserManager {
         } else {
             engine.forward(page.as_ref()).await
         };
-        finish_action(&context, &engine, page.as_ref(), &tab_id, result).await
+        self.finish_action(&context, &engine, page.as_ref(), &tab_id, result)
+            .await
     }
 
     pub async fn reload(&self, session_id: &str) -> Result<BrowserState, BrowserError> {
@@ -443,7 +448,8 @@ impl BrowserManager {
         mark_loading(&context, &tab_id, true);
         let (engine, page) = action_target(&context, &tab_id)?;
         let result = engine.reload(page.as_ref()).await;
-        finish_action(&context, &engine, page.as_ref(), &tab_id, result).await
+        self.finish_action(&context, &engine, page.as_ref(), &tab_id, result)
+            .await
     }
 
     /// Returns the visible text of the active page.
@@ -472,7 +478,8 @@ impl BrowserManager {
         let tab_id = active_tab(&context).ok_or(BrowserError::NoPage)?;
         let (engine, page) = action_target(&context, &tab_id)?;
         let result = engine.click(page.as_ref(), &selector).await;
-        finish_action(&context, &engine, page.as_ref(), &tab_id, result).await
+        self.finish_action(&context, &engine, page.as_ref(), &tab_id, result)
+            .await
     }
 
     pub async fn type_text(
@@ -493,7 +500,8 @@ impl BrowserManager {
         let tab_id = active_tab(&context).ok_or(BrowserError::NoPage)?;
         let (engine, page) = action_target(&context, &tab_id)?;
         let result = engine.type_text(page.as_ref(), &selector, text).await;
-        finish_action(&context, &engine, page.as_ref(), &tab_id, result).await
+        self.finish_action(&context, &engine, page.as_ref(), &tab_id, result)
+            .await
     }
 
     /// Waits for a selector, a text, or the timeout.
@@ -598,6 +606,70 @@ impl BrowserManager {
         }
         self.create_tab(context).await
     }
+
+    async fn finish_action(
+        &self,
+        context: &Context,
+        engine: &Engine,
+        page: Option<&PageRef>,
+        tab_id: &str,
+        result: Result<PageInfo, String>,
+    ) -> Result<BrowserState, BrowserError> {
+        match result {
+            Ok(info) => {
+                {
+                    let mut meta = lock_meta(context);
+                    if let Some(tab) = meta.tabs.iter_mut().find(|tab| tab.id == tab_id) {
+                        tab.url = info.url;
+                        tab.title = info.title;
+                        tab.loading = false;
+                        tab.can_go_back = info.can_go_back;
+                        tab.can_go_forward = info.can_go_forward;
+                    }
+                }
+                capture(context, engine, page, tab_id).await;
+                let meta = lock_meta(context);
+                let setup = self.inner.installer.snapshot();
+                Ok(BrowserState {
+                    session_id: context.session_id.clone(),
+                    started: meta.runtime.is_some(),
+                    available: available(&setup, &meta),
+                    tabs: meta.tabs.clone(),
+                    active_tab_id: meta.active.clone(),
+                    screenshot_seq: meta.screenshot_seq,
+                    error: meta.error.clone(),
+                    setup,
+                })
+            }
+            Err(error) => {
+                mark_loading(context, tab_id, false);
+                Err(BrowserError::Engine(error))
+            }
+        }
+    }
+}
+
+fn available(setup: &install::Setup, meta: &Meta) -> bool {
+    if setup.busy() || setup.phase == install::Phase::Failed {
+        return false;
+    }
+    meta.error.is_none()
+}
+
+fn setup_message(setup: &install::Setup) -> String {
+    match setup.phase {
+        install::Phase::Failed => setup
+            .error
+            .clone()
+            .unwrap_or_else(|| "The browser could not be prepared.".to_owned()),
+        install::Phase::Checking
+        | install::Phase::Downloading
+        | install::Phase::Verifying
+        | install::Phase::Unpacking => {
+            "Chrome for Testing is being prepared. Try again when the download finishes.".to_owned()
+        }
+        _ => "The browser is being prepared.".to_owned(),
+    }
 }
 
 fn profile_name(session_id: &str) -> String {
@@ -644,44 +716,6 @@ fn mark_loading(context: &Context, tab_id: &str, loading: bool) {
     let mut meta = lock_meta(context);
     if let Some(tab) = meta.tabs.iter_mut().find(|tab| tab.id == tab_id) {
         tab.loading = loading;
-    }
-}
-
-async fn finish_action(
-    context: &Context,
-    engine: &Engine,
-    page: Option<&PageRef>,
-    tab_id: &str,
-    result: Result<PageInfo, String>,
-) -> Result<BrowserState, BrowserError> {
-    match result {
-        Ok(info) => {
-            {
-                let mut meta = lock_meta(context);
-                if let Some(tab) = meta.tabs.iter_mut().find(|tab| tab.id == tab_id) {
-                    tab.url = info.url;
-                    tab.title = info.title;
-                    tab.loading = false;
-                    tab.can_go_back = info.can_go_back;
-                    tab.can_go_forward = info.can_go_forward;
-                }
-            }
-            capture(context, engine, page, tab_id).await;
-            let meta = lock_meta(context);
-            Ok(BrowserState {
-                session_id: context.session_id.clone(),
-                started: meta.runtime.is_some(),
-                available: meta.available,
-                tabs: meta.tabs.clone(),
-                active_tab_id: meta.active.clone(),
-                screenshot_seq: meta.screenshot_seq,
-                error: meta.error.clone(),
-            })
-        }
-        Err(error) => {
-            mark_loading(context, tab_id, false);
-            Err(BrowserError::Engine(error))
-        }
     }
 }
 

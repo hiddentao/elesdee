@@ -1,7 +1,8 @@
 use std::fs;
+use std::io::{Cursor, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -13,12 +14,15 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use http_body_util::BodyExt;
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 use tower::ServiceExt;
+use zip::write::SimpleFileOptions;
+use zip::{CompressionMethod, ZipWriter};
 
 use elesdee_core::api::router;
 use elesdee_core::auth::SignInOverrides;
 use elesdee_core::files::MAX_FILE_BYTES;
-use elesdee_core::state::{AiConfig, Auth, Client, Provider};
+use elesdee_core::state::{AiConfig, Auth, Client, Provider, TestBrowserInstall};
 use elesdee_core::{AppState, MemorySecretStore, SecretStore};
 
 const TEST_HOST: &str = "127.0.0.1:4319";
@@ -9793,6 +9797,97 @@ async fn start_browser_page_server() -> String {
     format!("http://{address}")
 }
 
+async fn start_browser_download_server(
+    good_archive: Vec<u8>,
+    serve_good: Arc<AtomicBool>,
+) -> String {
+    let good_archive = Arc::new(good_archive);
+    let app = Router::new().route(
+        "/chrome.zip",
+        get(move || {
+            let archive = Arc::clone(&good_archive);
+            let serve_good = Arc::clone(&serve_good);
+            async move {
+                if serve_good.load(Ordering::SeqCst) {
+                    (
+                        [(header::CONTENT_TYPE, "application/zip")],
+                        archive.as_ref().clone(),
+                    )
+                        .into_response()
+                } else {
+                    (
+                        [(header::CONTENT_TYPE, "application/zip")],
+                        b"a different archive".to_vec(),
+                    )
+                        .into_response()
+                }
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+        .await
+        .expect("bind download server");
+    let address = listener.local_addr().expect("download server address");
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    format!("http://{address}")
+}
+
+fn fake_browser_archive(platform: &str) -> Vec<u8> {
+    let mut writer = ZipWriter::new(Cursor::new(Vec::new()));
+    let options = SimpleFileOptions::default()
+        .compression_method(CompressionMethod::Stored)
+        .unix_permissions(0o755);
+    writer
+        .start_file(
+            format!(
+                "chrome-{platform}/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing"
+            ),
+            options,
+        )
+        .expect("add the browser program");
+    writer
+        .write_all(b"#!/bin/sh\nexit 0\n")
+        .expect("write the browser program");
+    writer.finish().expect("finish the archive").into_inner()
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    Sha256::digest(bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+async fn wait_for_browser_setup(app: &Router, id: &str, wanted: &str) -> Value {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        let (status, body) = call(app, "GET", &format!("/api/sessions/{id}/browser"), None).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let setup = body["setup"].clone();
+        if setup["phase"] == wanted {
+            return setup;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "setup did not reach {wanted}: {setup}"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+fn only_install_folders(root: &Path) -> Vec<String> {
+    fs::read_dir(root)
+        .map(|entries| {
+            entries
+                .flatten()
+                .map(|entry| entry.file_name().to_string_lossy().into_owned())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 async fn mcp_tool(app: &Router, id: &str, name: &str, arguments: Value) -> Value {
     let (status, body) = call(
         app,
@@ -10185,6 +10280,119 @@ async fn mcp_browser_refuses_a_non_http_address_and_shares_a_screenshot() {
 
     let (status, _) = close_session(&app, id).await;
     assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn browser_setup_verifies_the_download_and_retries_after_a_failure() {
+    let folder = TempDirectory::new("browser-install-folder");
+    let data_dir = TempDirectory::new("browser-install-data");
+    let platform = if cfg!(target_arch = "aarch64") {
+        "mac-arm64"
+    } else {
+        "mac-x64"
+    };
+    let version = "0.0.1-test";
+    let archive = fake_browser_archive(platform);
+    let serve_good = Arc::new(AtomicBool::new(false));
+    let base = start_browser_download_server(archive.clone(), Arc::clone(&serve_good)).await;
+    let root = data_dir.path.join("chromium");
+    let state = AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    )
+    .with_test_browser_install(TestBrowserInstall {
+        root: root.clone(),
+        url: format!("{base}/chrome.zip"),
+        version: version.to_owned(),
+        platform: platform.to_owned(),
+        sha256: sha256_hex(&archive),
+    });
+    let app = router(state);
+    let session = create_terminal(&app, &folder.path).await;
+    let id = session["id"].as_str().expect("session id");
+
+    let (status, body) = call(
+        &app,
+        "POST",
+        &format!("/api/sessions/{id}/browser/setup"),
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    let setup = wait_for_browser_setup(&app, id, "failed").await;
+    assert_eq!(setup["phase"], "failed");
+    assert!(
+        setup["error"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("checksum"),
+        "{setup}"
+    );
+    assert!(
+        !root.join(version).exists(),
+        "a failed download left a folder"
+    );
+    assert!(
+        only_install_folders(&root)
+            .iter()
+            .all(|name| !name.starts_with(".install-")),
+        "a failed download left staging files"
+    );
+
+    // The session is still usable while the browser is missing.
+    let (status, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    assert_eq!(status, StatusCode::OK, "{bootstrap}");
+    assert!(
+        bootstrap["sessions"]
+            .as_array()
+            .is_some_and(|items| items.iter().any(|item| item["id"] == id)),
+        "{bootstrap}"
+    );
+
+    serve_good.store(true, Ordering::SeqCst);
+    let (status, body) = call(
+        &app,
+        "POST",
+        &format!("/api/sessions/{id}/browser/setup"),
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    let setup = wait_for_browser_setup(&app, id, "ready").await;
+    assert_eq!(setup["source"], "download", "{setup}");
+    assert_eq!(setup["version"], version, "{setup}");
+    let executable = root.join(version).join(format!(
+        "chrome-{platform}/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing"
+    ));
+    assert!(executable.is_file(), "the browser program is missing");
+    assert_eq!(
+        fs::read_to_string(root.join("version")).expect("the version marker"),
+        version
+    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = fs::metadata(&executable)
+            .expect("the browser program")
+            .permissions()
+            .mode();
+        assert_ne!(mode & 0o111, 0, "the browser program is not executable");
+    }
+
+    // Deleting the private folder makes the next use start the download again.
+    fs::remove_dir_all(&root).expect("remove the browser folder");
+    let (status, body) = call(
+        &app,
+        "POST",
+        &format!("/api/sessions/{id}/browser/setup"),
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    wait_for_browser_setup(&app, id, "ready").await;
+    assert!(executable.is_file(), "the browser was not installed again");
 }
 
 #[tokio::test]

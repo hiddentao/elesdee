@@ -541,6 +541,13 @@ export function openBrowserUrl(id: string, url: string): Promise<BrowserState> {
   );
 }
 
+export function setupBrowser(id: string): Promise<BrowserState> {
+  return request<BrowserState>(
+    `/api/sessions/${encodeURIComponent(id)}/browser/setup`,
+    post({}),
+  );
+}
+
 export function browserBack(id: string): Promise<BrowserState> {
   return request<BrowserState>(
     `/api/sessions/${encodeURIComponent(id)}/browser/back`,

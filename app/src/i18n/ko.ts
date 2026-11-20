@@ -655,7 +655,16 @@ export const ko = {
     '이 세션의 브라우저에서 페이지를 열려면 주소를 입력하세요.',
   'panel.browserLoading': '페이지를 불러오는 중…',
   'panel.browserUnavailable':
-    '브라우저를 사용할 수 없습니다. Chrome 또는 Chromium을 설치하거나 CHROME 환경 변수를 설정하세요.',
+    '이 컴퓨터에서는 내장 브라우저를 사용할 수 없습니다.',
+  'panel.browserSetupChecking': '설치된 브라우저를 확인하는 중…',
+  'panel.browserSetupDownloading':
+    'Chrome for Testing을 다운로드하는 중…',
+  'panel.browserSetupVerifying': '다운로드를 확인하는 중…',
+  'panel.browserSetupUnpacking': '브라우저의 압축을 푸는 중…',
+  'panel.browserSetupProgress': '{percent}% 다운로드됨',
+  'panel.browserSetupFailed':
+    '브라우저를 설치하지 못했습니다.',
+  'panel.browserSetupRetry': '다시 시도',
   'panel.browserView': '{title} 실시간 보기',
   'panel.browserTabLabel': '세션 브라우저 탭',
   'panel.browserNoTitle': '제목 없는 페이지',

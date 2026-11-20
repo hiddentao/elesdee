@@ -612,6 +612,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/sessions/{id}/browser", get(browser_state))
         .route("/api/sessions/{id}/browser/start", post(browser_start))
         .route("/api/sessions/{id}/browser/stop", post(browser_stop))
+        .route("/api/sessions/{id}/browser/setup", post(browser_setup))
         .route("/api/sessions/{id}/browser/open", post(browser_open))
         .route("/api/sessions/{id}/browser/back", post(browser_back))
         .route("/api/sessions/{id}/browser/forward", post(browser_forward))
@@ -3767,6 +3768,15 @@ async fn browser_stop(
         return Err(ApiError::not_found("Unknown session."));
     }
     state.stop_browser(&id).await;
+    Ok(Json(state.browser().state(&id)))
+}
+
+async fn browser_setup(
+    State(state): State<AppState>,
+    UrlPath(id): UrlPath<String>,
+) -> Result<Json<crate::browser::BrowserState>, ApiError> {
+    active_session(&state, &id)?;
+    state.browser().setup().map_err(browser_error)?;
     Ok(Json(state.browser().state(&id)))
 }
 

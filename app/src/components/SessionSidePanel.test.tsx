@@ -49,6 +49,7 @@ vi.mock('../api/client', () => ({
   readFile: vi.fn(),
   readSharedFile: vi.fn(),
   sessionChanges: vi.fn(),
+  setupBrowser: vi.fn(),
   sharedFileUrl: vi.fn(),
   stopDemoServer: vi.fn(),
   writeFile: vi.fn(),
@@ -108,6 +109,14 @@ beforeEach(() => {
     activeTabId: null,
     screenshotSeq: 0,
     error: null,
+    setup: {
+      phase: 'idle',
+      downloaded: 0,
+      total: null,
+      version: null,
+      source: null,
+      error: null,
+    },
   };
   vi.mocked(getBrowserState).mockResolvedValue(browser);
   vi.mocked(browserScreenshotUrl).mockImplementation(

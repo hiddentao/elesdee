@@ -660,7 +660,16 @@ export const ptBR = {
     'Digite um endereço para abrir uma página no navegador desta sessão.',
   'panel.browserLoading': 'Carregando a página…',
   'panel.browserUnavailable':
-    'O navegador não está disponível. Instale o Chrome ou o Chromium, ou defina a variável de ambiente CHROME.',
+    'O navegador integrado não está disponível neste computador.',
+  'panel.browserSetupChecking':
+    'Procurando um navegador instalado…',
+  'panel.browserSetupDownloading': 'Baixando o Chrome for Testing…',
+  'panel.browserSetupVerifying': 'Verificando o download…',
+  'panel.browserSetupUnpacking': 'Extraindo o navegador…',
+  'panel.browserSetupProgress': '{percent}% baixado',
+  'panel.browserSetupFailed':
+    'Não foi possível instalar o navegador.',
+  'panel.browserSetupRetry': 'Tentar novamente',
   'panel.browserView': 'Visualização ao vivo de {title}',
   'panel.browserTabLabel': 'Abas do navegador da sessão',
   'panel.browserNoTitle': 'Página sem título',

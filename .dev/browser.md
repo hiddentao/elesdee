@@ -14,6 +14,18 @@ The Tauri shell could host a web view per session with a separate WebKit data st
 
 The core-owned Chromium is also what `.dev/SPEC.md` names. The shell stays a thin window.
 
+## Engine
+
+The core runs one browser binary for all sessions. Each session still gets its own process and profile.
+
+- An installed Chrome or Chromium is used first. The `CHROME` environment variable points at a specific binary.
+- When none exists, the core downloads the pinned Chrome for Testing build for the computer's architecture from `https://storage.googleapis.com/chrome-for-testing-public`. The version and the SHA-256 digest for each supported macOS architecture are constants in `core/src/browser/install.rs`.
+- The archive is saved below `<data dir>/chromium` with private permissions while its SHA-256 and the storage server's published MD5 (`x-goog-hash`) are computed. A mismatch removes the download and stops the install.
+- Unpacking rejects absolute paths, parent paths, drive letters, backslashes and links that leave the folder. It caps the entry count and the uncompressed size. Links are created only after every regular file, and only when their target stays inside the folder.
+- The unpacked build is renamed into `<data dir>/chromium/<version>`, the program is marked executable, and a `<data dir>/chromium/version` marker records the build. A later use reuses it. Deleting the folder makes the next use download again.
+- A failure removes the staging folder, so no partial browser stays. The session keeps its terminal. The Browser panel shows the phase and progress, and Retry asks the core to start again.
+- The download needs the network. Tests use a fake server and a fake archive, so the real pinned builds are downloaded only when the code runs on a computer without Chrome.
+
 ## Isolation and lifetime
 
 - Each session has a profile folder at `<data dir>/browsers/<session id>` with private permissions (0700).
@@ -32,6 +44,7 @@ All routes take the session id in the path. A closed session refuses every actio
 | `GET /api/sessions/{id}/browser` | Current tabs, active tab, loading and screenshot sequence |
 | `POST /api/sessions/{id}/browser/start` | Start the browser without opening a page |
 | `POST /api/sessions/{id}/browser/stop` | Stop the browser and close its tabs |
+| `POST /api/sessions/{id}/browser/setup` | Start or retry fetching the browser binary |
 | `POST /api/sessions/{id}/browser/open` | Open a URL in the active tab, or a new tab |
 | `POST /api/sessions/{id}/browser/back` | Go back in the active tab |
 | `POST /api/sessions/{id}/browser/forward` | Go forward in the active tab |
@@ -66,18 +79,18 @@ The Browser tab is the third tab of the session side panel.
 - One address field opens a page; Enter or the Open button submits.
 - Back, Forward and Reload act on the active tab and follow its history state.
 - A loading line shows while a request runs or the active tab is loading.
+- While the browser binary is prepared, the panel shows the step and the progress. A failure shows the reason and a Retry action.
 - The live view is the latest captured screenshot. It refreshes when the screenshot sequence changes. Polling reads the state once a second while the panel is mounted.
 - A tab, close button and address field carry labels for keyboard and screen-reader use. All text comes from the 12 language catalogs.
 
 ## Tests
 
-- `core/tests/api.rs` covers tool scoping between two sessions, a tab id from another session, a closed-session refusal, a non-http address, and the screenshot share. The core test state uses a stub engine that fetches a local page over HTTP and returns a small PNG.
-- `app/src/components/BrowserPanel.test.tsx` covers opening an address, the loading state, Back, Reload, tab switching, adding and closing a tab, per-session state and an error.
+- `core/tests/api.rs` covers tool scoping between two sessions, a tab id from another session, a closed-session refusal, a non-http address, and the screenshot share. The core test state uses a stub engine that fetches a local page over HTTP and returns a small PNG. A separate test serves a fake browser archive over loopback, checks that a wrong checksum fails and leaves no browser, checks that the session still exists, and checks that Retry installs a verified archive and marks the program executable.
+- `app/src/components/BrowserPanel.test.tsx` covers opening an address, the loading state, Back, Reload, tab switching, adding and closing a tab, per-session state, an error, the download progress and the failed-install Retry.
 - `e2e/23-browser.spec.ts` drives two sessions against a local page with real Chromium. It checks separate tabs, a live image, and the type, click, wait and read tools. It uses the Playwright Chromium binary through the `CHROME` environment variable.
 
 ## Not built yet
 
-- Downloading Chromium on first use.
 - Encrypting the profile at rest.
 - Clicking and typing directly in the live view.
 - Console and network log tools.

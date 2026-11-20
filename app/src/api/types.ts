@@ -544,6 +544,24 @@ export interface BrowserTab {
   canGoForward: boolean;
 }
 
+export type BrowserSetupPhase =
+  | 'idle'
+  | 'checking'
+  | 'downloading'
+  | 'verifying'
+  | 'unpacking'
+  | 'ready'
+  | 'failed';
+
+export interface BrowserSetup {
+  phase: BrowserSetupPhase;
+  downloaded: number;
+  total: number | null;
+  version: string | null;
+  source: 'system' | 'download' | null;
+  error: string | null;
+}
+
 export interface BrowserState {
   sessionId: string;
   started: boolean;
@@ -552,4 +570,5 @@ export interface BrowserState {
   activeTabId: string | null;
   screenshotSeq: number;
   error: string | null;
+  setup: BrowserSetup;
 }

@@ -9,6 +9,7 @@ import {
   createBrowserTab,
   getBrowserState,
   openBrowserUrl,
+  setupBrowser,
 } from '../api/client';
 import type { BrowserState, BrowserTab, Session } from '../api/types';
 import { useLanguage } from '../i18n/LanguageProvider';
@@ -107,8 +108,31 @@ export function BrowserPanel({ session }: BrowserPanelProps) {
   }
 
   const loading = busy !== null || activeTab?.loading === true;
-  const unavailable = state !== null && !state.available;
-  const message = state?.error ?? error;
+  const setup = state?.setup ?? null;
+  const setupPhase = setup?.phase ?? 'idle';
+  const setupActive =
+    setupPhase === 'checking' ||
+    setupPhase === 'downloading' ||
+    setupPhase === 'verifying' ||
+    setupPhase === 'unpacking';
+  const setupFailed = setupPhase === 'failed';
+  const setupLabel =
+    setupPhase === 'downloading'
+      ? t('panel.browserSetupDownloading')
+      : setupPhase === 'verifying'
+        ? t('panel.browserSetupVerifying')
+        : setupPhase === 'unpacking'
+          ? t('panel.browserSetupUnpacking')
+          : t('panel.browserSetupChecking');
+  const setupPercent =
+    setup?.total && setup.total > 0
+      ? Math.min(100, Math.round((setup.downloaded / setup.total) * 100))
+      : null;
+  const unavailable =
+    state !== null && !state.available && !setupActive && !setupFailed;
+  const message =
+    setupFailed || setupActive ? null : state?.error ?? error;
+  const controlsDisabled = busy !== null || setupActive;
 
   return (
     <div className="browser-panel">
@@ -119,7 +143,7 @@ export function BrowserPanel({ session }: BrowserPanelProps) {
             className="icon-btn browser-control"
             aria-label={t('panel.browserBack')}
             title={t('panel.browserBack')}
-            disabled={!activeTab?.canGoBack || busy !== null}
+            disabled={!activeTab?.canGoBack || controlsDisabled}
             onClick={() =>
               void run(() => browserBack(session.id), t('panel.browserLoading'))
             }
@@ -131,7 +155,7 @@ export function BrowserPanel({ session }: BrowserPanelProps) {
             className="icon-btn browser-control"
             aria-label={t('panel.browserForward')}
             title={t('panel.browserForward')}
-            disabled={!activeTab?.canGoForward || busy !== null}
+            disabled={!activeTab?.canGoForward || controlsDisabled}
             onClick={() =>
               void run(() => browserForward(session.id), t('panel.browserLoading'))
             }
@@ -143,7 +167,7 @@ export function BrowserPanel({ session }: BrowserPanelProps) {
             className="icon-btn browser-control"
             aria-label={t('panel.browserReload')}
             title={t('panel.browserReload')}
-            disabled={!activeTab || busy !== null}
+            disabled={!activeTab || controlsDisabled}
             onClick={() =>
               void run(() => browserReload(session.id), t('panel.browserLoading'))
             }
@@ -172,7 +196,7 @@ export function BrowserPanel({ session }: BrowserPanelProps) {
           <button
             type="submit"
             className="btn btn-ghost browser-go"
-            disabled={busy !== null || address.trim() === ''}
+            disabled={controlsDisabled || address.trim() === ''}
           >
             {t('panel.browserOpen')}
           </button>
@@ -230,17 +254,56 @@ export function BrowserPanel({ session }: BrowserPanelProps) {
           className="icon-btn browser-new-tab"
           aria-label={t('panel.browserNewTab')}
           title={t('panel.browserNewTab')}
-          disabled={busy !== null}
+          disabled={controlsDisabled}
           onClick={() => void newTab()}
         >
           <PlusIcon />
         </button>
       </div>
 
-      {message ? (
+      {setupFailed ? (
+        <div className="browser-setup" role="alert">
+          <p className="browser-setup-title">{t('panel.browserSetupFailed')}</p>
+          {setup?.error ? (
+            <p className="browser-setup-detail">{setup.error}</p>
+          ) : null}
+          <button
+            type="button"
+            className="btn btn-ghost browser-setup-retry"
+            disabled={busy !== null}
+            onClick={() =>
+              void run(
+                () => setupBrowser(session.id),
+                t('panel.browserSetupChecking'),
+              )
+            }
+          >
+            {t('panel.browserSetupRetry')}
+          </button>
+        </div>
+      ) : message ? (
         <p className="dock-error" role="alert">
           {message}
         </p>
+      ) : null}
+
+      {setupActive ? (
+        <div className="browser-setup" role="status" aria-live="polite">
+          <p className="browser-setup-title">{setupLabel}</p>
+          {setupPercent !== null ? (
+            <>
+              <progress
+                className="browser-setup-progress"
+                value={setup?.downloaded ?? 0}
+                max={setup?.total ?? undefined}
+                aria-label={setupLabel}
+              />
+              <p className="browser-setup-detail">
+                {t('panel.browserSetupProgress', { percent: setupPercent })}
+              </p>
+            </>
+          ) : null}
+        </div>
       ) : null}
 
       {loading ? (

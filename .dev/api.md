@@ -333,7 +333,8 @@ The phone shell reconnects after a drop. It waits 0.5 s, 1 s, 2 s, 4 s, 8 s, 15 
 - A closed session returns 409 for every browser action. Its state route still answers, with no tabs and `started: false`.
 - Only `http` and `https` addresses are accepted. A missing or malformed address, a relative address or another scheme returns 400. A session context holds at most 12 tabs; a further tab returns 409.
 - Close and pause stop the process and clear the tabs. The profile stays on disk. The core stops every browser at shutdown. The profile is not encrypted yet.
-- The state shape is `{ sessionId, started, available, tabs, activeTabId, screenshotSeq, error }`. Each tab is `{ id, url, title, loading, canGoBack, canGoForward }`. `screenshotSeq` changes when a new screenshot is captured; the UI uses it to refresh the image.
+- The core reuses an installed Chrome or Chromium. When none exists it downloads the pinned Chrome for Testing build into `<data dir>/chromium`, checks the pinned SHA-256 and the checksum published with the download, and unpacks it with path and link checks. The setup route starts that work. The shared setup state is `{ phase, downloaded, total, version, source, error }`; `phase` is `idle`, `checking`, `downloading`, `verifying`, `unpacking`, `ready` or `failed`, and `source` is `system`, `download` or `null`.
+- The state shape is `{ sessionId, started, available, tabs, activeTabId, screenshotSeq, error, setup }`. Each tab is `{ id, url, title, loading, canGoBack, canGoForward }`. `screenshotSeq` changes when a new screenshot is captured; the UI uses it to refresh the image.
 - The screenshot route returns the latest PNG for the given tab, or the active tab when `tab` is absent. It returns 404 when there is no page or no capture yet.
 - The six agent tools use the calling session's context and take no session id. A closed session gets an error tool result. `browser_open` and `browser_read` start the browser when needed. `browser_screenshot` writes a PNG into the shared file store and returns the `SharedFile` record.
 ## Demo servers
@@ -713,6 +714,7 @@ interface HistoryEvent {
 | GET | `/api/sessions/{id}/browser` | | `BrowserState` |
 | POST | `/api/sessions/{id}/browser/start` | `{}` | `BrowserState` |
 | POST | `/api/sessions/{id}/browser/stop` | `{}` | `BrowserState` |
+| POST | `/api/sessions/{id}/browser/setup` | `{}` | `BrowserState`; starts or retries the download |
 | POST | `/api/sessions/{id}/browser/open` | `{ url }` | `BrowserState` |
 | POST | `/api/sessions/{id}/browser/back` | `{}` | `BrowserState` |
 | POST | `/api/sessions/{id}/browser/forward` | `{}` | `BrowserState` |

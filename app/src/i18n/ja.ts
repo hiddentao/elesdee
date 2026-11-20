@@ -653,7 +653,17 @@ export const ja = {
     'このセッションのブラウザでページを開くには、アドレスを入力してください。',
   'panel.browserLoading': 'ページを読み込み中…',
   'panel.browserUnavailable':
-    'ブラウザを利用できません。Chrome または Chromium をインストールするか、CHROME 環境変数を設定してください。',
+    'このコンピューターでは内蔵ブラウザを利用できません。',
+  'panel.browserSetupChecking':
+    'インストール済みのブラウザを確認しています…',
+  'panel.browserSetupDownloading':
+    'Chrome for Testing をダウンロードしています…',
+  'panel.browserSetupVerifying': 'ダウンロードを検証しています…',
+  'panel.browserSetupUnpacking': 'ブラウザを展開しています…',
+  'panel.browserSetupProgress': '{percent}% ダウンロード済み',
+  'panel.browserSetupFailed':
+    'ブラウザをインストールできませんでした。',
+  'panel.browserSetupRetry': '再試行',
   'panel.browserView': '{title} のライブ表示',
   'panel.browserTabLabel': 'セッションのブラウザタブ',
   'panel.browserNoTitle': '無題のページ',

@@ -56,6 +56,8 @@ Files must be UTF-8 text up to 1 MiB. The app refuses binary files and larger fi
 
 **Browser** is this session's own browser. It has its own tabs, cookies, storage and logins, separate from every other session and from your personal browser. Type an address and press Enter, or choose **Open**, to open a page. Use **Back**, **Forward** and **Reload** for the active tab, and the tab strip to switch, add or close tabs. The panel shows a loading state while a page opens, then the latest picture of the page.
 
+The app uses Chrome or Chromium when it is installed. Otherwise the first use of a session browser downloads a pinned Chrome for Testing build. The panel shows the download step and the progress; if it fails, it shows the reason and a **Retry** button.
+
 The browser starts only when the session needs it. Closing or pausing the session stops the browser and closes its tabs, but keeps the session's logins for the next start. A closed session cannot use its browser.
 
 An agent can also use the session browser through its tools: open a page, read the visible text, click, type, wait for something to appear, and share a screenshot with you. A screenshot appears with the session's shared files and on the phone. A session cannot see or control another session's tabs.
