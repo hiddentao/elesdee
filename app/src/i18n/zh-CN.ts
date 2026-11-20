@@ -427,6 +427,16 @@ export const zhCN = {
   'newSession.busyLabel': '正在启动会话…',
   'newSession.submitting': '正在启动…',
   'newSession.submit': '启动会话',
+  'newSession.cloneFolder': '克隆文件夹',
+  'newSession.cloneFolderPlaceholder': '选择父文件夹',
+  'newSession.cloneFolderHint':
+    '仓库将克隆到 {path}，随后会话在该处启动。',
+  'newSession.githubPrivate': '私有',
+  'newSession.githubPublic': '公开',
+  'newSession.githubAdded': '已添加',
+  'newSession.githubClone': '克隆',
+  'newSession.errorClone': '无法克隆仓库。',
+  'newSession.errorCloneFolder': '请选择克隆文件夹。',
 
   'permission.needed': '需要权限',
   'permission.tool': '工具',

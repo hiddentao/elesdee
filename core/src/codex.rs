@@ -453,6 +453,7 @@ mod tests {
                 legacy_preset_id: None,
                 branch: None,
                 folder: "/tmp".to_owned(),
+                source_repository: None,
                 preview: String::new(),
                 waiting_for: None,
                 pending_permission: None,

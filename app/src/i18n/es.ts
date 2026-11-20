@@ -471,6 +471,16 @@ export const es = {
   'newSession.busyLabel': 'Iniciando sesión…',
   'newSession.submitting': 'Iniciando…',
   'newSession.submit': 'Iniciar sesión',
+  'newSession.cloneFolder': 'Carpeta de clonación',
+  'newSession.cloneFolderPlaceholder': 'Elige la carpeta principal',
+  'newSession.cloneFolderHint':
+    'El repositorio se clona en {path} y luego la sesión empieza allí.',
+  'newSession.githubPrivate': 'Privado',
+  'newSession.githubPublic': 'Público',
+  'newSession.githubAdded': 'Añadido',
+  'newSession.githubClone': 'Clonar',
+  'newSession.errorClone': 'No se pudo clonar el repositorio.',
+  'newSession.errorCloneFolder': 'Elige una carpeta de clonación.',
 
   'permission.needed': 'Se necesita permiso',
   'permission.tool': 'Herramienta',

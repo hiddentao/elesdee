@@ -2,6 +2,7 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  getGitHubStatus,
   listBranches,
   listConfigs,
   listProjects,
@@ -11,11 +12,16 @@ import type {
   AiConfig,
   Branch,
   CreateSessionInput,
+  GitHubRepo,
+  GitHubStatus,
   Project,
   Provider,
   Session,
 } from '../api/types';
-import { NewSessionDialog } from './NewSessionDialog';
+import {
+  NewSessionDialog,
+  type RepositoryGitHubActions,
+} from './NewSessionDialog';
 
 vi.mock('../api/client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../api/client')>();
@@ -25,6 +31,7 @@ vi.mock('../api/client', async (importOriginal) => {
     listConfigs: vi.fn(),
     listBranches: vi.fn(),
     getGitStatus: vi.fn(),
+    getGitHubStatus: vi.fn(),
   };
 });
 
@@ -96,6 +103,32 @@ const branches: Branch[] = [
   { name: 'dev', current: false },
 ];
 
+const disconnectedGitHub: GitHubStatus = {
+  connected: false,
+  login: null,
+  name: null,
+  avatarUrl: null,
+  defaultCloneFolder: '/dev/projects',
+};
+
+const connectedGitHub: GitHubStatus = {
+  ...disconnectedGitHub,
+  connected: true,
+  login: 'octocat',
+  name: 'The Octocat',
+};
+
+function githubActions(
+  overrides: Partial<RepositoryGitHubActions> = {},
+): RepositoryGitHubActions {
+  return {
+    status: vi.fn(async () => connectedGitHub),
+    listRepos: vi.fn(async () => []),
+    clone: vi.fn(async () => webProject),
+    ...overrides,
+  };
+}
+
 beforeEach(() => {
   vi.mocked(listProjects).mockResolvedValue([coreProject, webProject]);
   vi.mocked(listConfigs).mockResolvedValue([config]);
@@ -103,12 +136,14 @@ beforeEach(() => {
     branches.filter((branch) => !query || branch.name.includes(query)),
   );
   vi.mocked(getGitStatus).mockResolvedValue({ git: true, dirty: false });
+  vi.mocked(getGitHubStatus).mockResolvedValue(disconnectedGitHub);
 });
 
 interface RenderOptions {
   sessions?: Session[];
   initialProjectId?: string | null;
   onCreate?: (input: CreateSessionInput) => Promise<Session>;
+  github?: RepositoryGitHubActions;
 }
 
 function renderDialog(options: RenderOptions = {}) {
@@ -135,6 +170,7 @@ function renderDialog(options: RenderOptions = {}) {
       onCreate={onCreate}
       onCreated={onCreated}
       onClose={onClose}
+      github={options.github}
     />,
   );
 
@@ -244,6 +280,30 @@ describe('NewSessionDialog', () => {
     expect(labels[1]).toContain('/dev/web');
   });
 
+  it('lists the saved source repository of a moved session', async () => {
+    const user = userEvent.setup();
+    renderDialog({
+      sessions: [
+        makeSession({
+          id: 'moved',
+          projectId: 'p2',
+          folder: '/data/worktrees/moved',
+          sourceRepository: '/dev/source-repo',
+          startedAt: '2026-01-05T00:00:00.000Z',
+        }),
+      ],
+    });
+
+    await user.click(screen.getByLabelText('Repository folder'));
+    const option = await screen.findByRole('option', {
+      name: /source-repo/,
+    });
+    expect(option).toBeInTheDocument();
+    expect(
+      screen.queryByRole('option', { name: /\/dev\/web/ }),
+    ).not.toBeInTheDocument();
+  });
+
   it('prefills the repository from the list without changing other choices', async () => {
     const user = userEvent.setup();
     const { onCreate } = renderDialog({
@@ -294,6 +354,118 @@ describe('NewSessionDialog', () => {
       folder: '/dev/web',
       name: 'Keep my name',
       firstPrompt: 'Keep my prompt',
+    });
+  });
+
+  it('merges recent and GitHub repositories without duplicating', async () => {
+    const user = userEvent.setup();
+    const repos: GitHubRepo[] = [
+      {
+        id: 1,
+        fullName: 'acme/web',
+        name: 'web',
+        owner: 'acme',
+        private: false,
+        cloneUrl: 'https://github.com/acme/web.git',
+        htmlUrl: 'https://github.com/acme/web',
+        description: '',
+        updatedAt: null,
+        added: true,
+      },
+      {
+        id: 2,
+        fullName: 'acme/api',
+        name: 'api',
+        owner: 'acme',
+        private: true,
+        cloneUrl: 'https://github.com/acme/api.git',
+        htmlUrl: 'https://github.com/acme/api',
+        description: '',
+        updatedAt: null,
+        added: false,
+      },
+    ];
+    const github = githubActions({
+      listRepos: vi.fn(async () => repos),
+    });
+    renderDialog({
+      sessions: [
+        makeSession({
+          id: 'web',
+          projectId: 'p2',
+          folder: '/data/worktrees/web',
+          sourceRepository: '/dev/web',
+          startedAt: '2026-01-03T00:00:00.000Z',
+        }),
+      ],
+      github,
+    });
+
+    await user.click(screen.getByLabelText('Repository folder'));
+    await screen.findByRole('option', { name: /acme\/api/ });
+
+    const options = screen.getAllByRole('option').map((option) => option.textContent ?? '');
+    expect(options).toHaveLength(2);
+    expect(
+      screen.getAllByRole('option', { name: /web/ }),
+    ).toHaveLength(1);
+    expect(
+      screen.getByRole('option', { name: /acme\/api/ }),
+    ).toBeInTheDocument();
+  });
+
+  it('clones a remote repository into the chosen parent and starts there', async () => {
+    const user = userEvent.setup();
+    const repo: GitHubRepo = {
+      id: 2,
+      fullName: 'acme/api',
+      name: 'api',
+      owner: 'acme',
+      private: true,
+      cloneUrl: 'https://github.com/acme/api.git',
+      htmlUrl: 'https://github.com/acme/api',
+      description: '',
+      updatedAt: null,
+      added: false,
+    };
+    const clone = vi.fn(async () => ({
+      id: 'api',
+      name: 'api',
+      folder: '/dev/clones/api',
+    }));
+    const github = githubActions({
+      listRepos: vi.fn(async () => [repo]),
+      clone,
+    });
+    const { onCreate } = renderDialog({ github });
+
+    await user.click(screen.getByLabelText('Repository folder'));
+    const option = await screen.findByRole('option', { name: /acme\/api/ });
+    await option.click();
+
+    const cloneFolder = screen.getByLabelText('Clone folder');
+    expect(cloneFolder).toHaveValue('/dev/projects');
+    await user.clear(cloneFolder);
+    await user.type(cloneFolder, '/dev/clones');
+    expect(
+      screen.getByText(
+        'The repository is cloned into /dev/clones/api, then the session starts there.',
+      ),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Start session' }));
+
+    await waitFor(() =>
+      expect(clone).toHaveBeenCalledWith({
+        fullName: 'acme/api',
+        parentFolder: '/dev/clones',
+      }),
+    );
+    await waitFor(() => expect(onCreate).toHaveBeenCalledOnce());
+    expect(onCreate.mock.calls[0][0]).toMatchObject({
+      projectId: 'p1',
+      kind: 'agent',
+      folder: '/dev/clones/api',
     });
   });
 });

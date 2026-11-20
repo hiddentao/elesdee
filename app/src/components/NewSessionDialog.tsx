@@ -1,15 +1,21 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import {
   ApiError,
+  cloneGitHubRepo,
+  getGitHubStatus,
   getGitStatus,
   listBranches,
   listConfigs,
+  listGitHubRepos,
   listProjects,
 } from '../api/client';
 import { isTauri, pickFolder } from '../api/shell';
 import type {
   AiConfig,
+  CloneGitHubRepoInput,
   CreateSessionInput,
+  GitHubRepo,
+  GitHubStatus,
   Project,
   Provider,
   Session,
@@ -36,13 +42,28 @@ interface NewSessionDialogProps {
   onCreate: (input: CreateSessionInput) => Promise<Session>;
   onCreated: (session: Session) => void;
   onClose: () => void;
+  github?: RepositoryGitHubActions;
 }
+
+/** The GitHub calls the repository search uses. Tests replace them. */
+export interface RepositoryGitHubActions {
+  status: () => Promise<GitHubStatus>;
+  listRepos: (query: string, signal?: AbortSignal) => Promise<GitHubRepo[]>;
+  clone: (input: CloneGitHubRepoInput) => Promise<Project>;
+}
+
+const DEFAULT_GITHUB_ACTIONS: RepositoryGitHubActions = {
+  status: getGitHubStatus,
+  listRepos: listGitHubRepos,
+  clone: cloneGitHubRepo,
+};
 
 interface FormErrors {
   project?: string;
   config?: string;
   allowed?: string;
   folder?: string;
+  cloneFolder?: string;
   env?: string;
   form?: string;
 }
@@ -62,6 +83,18 @@ function folderLabel(folder: string): string {
 }
 
 const RECENT_REPOSITORY_LIMIT = 20;
+const GITHUB_REPO_PREFIX = 'github:';
+
+function sessionRepository(
+  session: Session,
+  projectsById: Map<string, Project>,
+): string | undefined {
+  const source = session.sourceRepository?.trim();
+  if (source) {
+    return source;
+  }
+  return projectsById.get(session.projectId)?.folder?.trim() || undefined;
+}
 
 function recentRepositoryOptions(
   sessions: Session[],
@@ -75,7 +108,7 @@ function recentRepositoryOptions(
   const latest = new Map<string, number>();
 
   for (const session of sessions) {
-    const path = projectsById.get(session.projectId)?.folder?.trim();
+    const path = sessionRepository(session, projectsById);
     if (!path) {
       continue;
     }
@@ -104,6 +137,69 @@ function recentRepositoryOptions(
     }
   }
   return options;
+}
+
+/** The local folder of a repository that a project already holds. */
+function githubRepoLocalFolder(
+  repo: GitHubRepo,
+  sessions: Session[],
+  projects: Project[],
+): string | null {
+  if (!repo.added) {
+    return null;
+  }
+  const name = repo.name.toLowerCase();
+  const matches = new Set<string>();
+  for (const project of projects) {
+    if (folderLabel(project.folder).toLowerCase() === name) {
+      matches.add(project.folder);
+    }
+  }
+  const projectsById = new Map(
+    projects.map((project) => [project.id, project]),
+  );
+  for (const session of sessions) {
+    const path = sessionRepository(session, projectsById);
+    if (path && folderLabel(path).toLowerCase() === name) {
+      matches.add(path);
+    }
+  }
+  return matches.size === 1 ? [...matches][0] : null;
+}
+
+function mergeRepositoryOptions(
+  recent: ComboboxOption[],
+  repos: GitHubRepo[],
+  sessions: Session[],
+  projects: Project[],
+  t: ReturnType<typeof useLanguage>['t'],
+): ComboboxOption[] {
+  const options = [...recent];
+  const seen = new Set(recent.map((option) => option.id));
+  for (const repo of repos) {
+    const local = githubRepoLocalFolder(repo, sessions, projects);
+    const id = local ?? `${GITHUB_REPO_PREFIX}${repo.fullName}`;
+    if (seen.has(id)) {
+      continue;
+    }
+    seen.add(id);
+    const visibility = repo.private
+      ? t('newSession.githubPrivate')
+      : t('newSession.githubPublic');
+    options.push({
+      id,
+      label: local ? folderLabel(local) : repo.fullName,
+      closedLabel: local ?? repo.fullName,
+      meta: local ?? `${visibility} · ${repo.cloneUrl}`,
+      tag: local ? t('newSession.githubAdded') : t('newSession.githubClone'),
+    });
+  }
+  return options;
+}
+
+function joinFolder(parent: string, name: string): string {
+  const trimmed = parent.replace(/[\\/]+$/, '');
+  return trimmed ? `${trimmed}/${name}` : name;
 }
 
 function defaultAllowedConfigs(
@@ -172,6 +268,7 @@ export function NewSessionDialog({
   onCreate,
   onCreated,
   onClose,
+  github = DEFAULT_GITHUB_ACTIONS,
 }: NewSessionDialogProps) {
   const { t, language } = useLanguage();
   const initialProject =
@@ -206,6 +303,30 @@ export function NewSessionDialog({
   const [errors, setErrors] = useState<FormErrors>({});
   const [submitting, setSubmitting] = useState(false);
   const [focusTarget, setFocusTarget] = useState<string | null>(null);
+  const [githubStatus, setGithubStatus] = useState<GitHubStatus | null>(null);
+  const [remoteRepo, setRemoteRepo] = useState<GitHubRepo | null>(null);
+  const [cloneFolder, setCloneFolder] = useState('');
+  const githubRepos = useRef(new Map<string, GitHubRepo>());
+  const githubStatusRequest = useRef<Promise<GitHubStatus | null> | null>(null);
+
+  useEffect(() => {
+    if (!githubStatusRequest.current) {
+      githubStatusRequest.current = github.status().catch(() => null);
+    }
+    let cancelled = false;
+    void githubStatusRequest.current.then((next) => {
+      if (cancelled || !next) {
+        return;
+      }
+      setGithubStatus(next);
+      if (next.connected && next.defaultCloneFolder) {
+        setCloneFolder((current) => current || next.defaultCloneFolder);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [github]);
 
   useEffect(() => {
     if (!focusTarget) {
@@ -307,9 +428,35 @@ export function NewSessionDialog({
       if (signal.aborted) {
         return [];
       }
-      return recentRepositoryOptions(sessions, projects, query);
+      const recent = recentRepositoryOptions(sessions, projects, query);
+      if (!githubStatusRequest.current) {
+        githubStatusRequest.current = github.status().catch(() => null);
+      }
+      const status = githubStatus ?? (await githubStatusRequest.current);
+      if (signal.aborted) {
+        return recent;
+      }
+      if (!status?.connected) {
+        return recent;
+      }
+      let repos: GitHubRepo[] = [];
+      try {
+        repos = await github.listRepos(query, signal);
+      } catch {
+        repos = [];
+      }
+      if (signal.aborted) {
+        return recent;
+      }
+      for (const repo of repos) {
+        githubRepos.current.set(
+          `${GITHUB_REPO_PREFIX}${repo.fullName}`,
+          repo,
+        );
+      }
+      return mergeRepositoryOptions(recent, repos, sessions, projects, t);
     },
-    [kind, projects, sessions],
+    [kind, projects, sessions, githubStatus, github, t],
   );
 
   const selectedProject = projectId
@@ -388,10 +535,18 @@ export function NewSessionDialog({
     }));
   }
 
+  function chooseKind(next: SessionKind) {
+    if (next !== 'agent') {
+      setRemoteRepo(null);
+    }
+    setKind(next);
+  }
+
   function applyRepository(next: string) {
     if (next !== folder.trim()) {
       setSourceBranch(null);
     }
+    setRemoteRepo(null);
     setFolder(next);
     setFolderEdited(true);
     setErrors((current) => ({ ...current, folder: undefined }));
@@ -411,8 +566,63 @@ export function NewSessionDialog({
     }
   }
 
+  function chooseGitHubRepository(repo: GitHubRepo) {
+    const local = githubRepoLocalFolder(repo, sessions, projects);
+    if (local) {
+      applyRepository(local);
+      return;
+    }
+    const parent =
+      cloneFolder.trim() || githubStatus?.defaultCloneFolder || '';
+    if (parent && !cloneFolder.trim()) {
+      setCloneFolder(parent);
+    }
+    const target = parent ? joinFolder(parent, repo.name) : '';
+    if (target !== folder.trim()) {
+      setSourceBranch(null);
+    }
+    setRemoteRepo(repo);
+    setFolder(target);
+    setFolderEdited(true);
+    setErrors((current) => ({
+      ...current,
+      folder: undefined,
+      cloneFolder: undefined,
+    }));
+  }
+
   function chooseRepository(id: string | null) {
+    if (id?.startsWith(GITHUB_REPO_PREFIX)) {
+      const repo = githubRepos.current.get(id);
+      if (repo) {
+        chooseGitHubRepository(repo);
+        return;
+      }
+    }
     applyRepository(id?.trim() ?? '');
+  }
+
+  function changeCloneFolder(next: string) {
+    setCloneFolder(next);
+    setErrors((current) => ({ ...current, cloneFolder: undefined }));
+    if (remoteRepo) {
+      setFolder(joinFolder(next.trim(), remoteRepo.name));
+      setFolderEdited(true);
+    }
+  }
+
+  async function browseCloneFolder() {
+    try {
+      const chosen = await pickFolder();
+      if (chosen) {
+        changeCloneFolder(chosen);
+      }
+    } catch {
+      setErrors((current) => ({
+        ...current,
+        form: t('newSession.errorPicker'),
+      }));
+    }
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -435,7 +645,11 @@ export function NewSessionDialog({
       }
     }
 
-    if (folder.trim() === '') {
+    if (kind === 'agent' && remoteRepo) {
+      if (cloneFolder.trim() === '') {
+        nextErrors.cloneFolder = t('newSession.errorCloneFolder');
+      }
+    } else if (folder.trim() === '') {
       nextErrors.folder = t('newSession.errorFolder');
     }
 
@@ -465,9 +679,11 @@ export function NewSessionDialog({
             ? 'new-session-allowed'
             : nextErrors.folder
               ? 'new-session-folder'
-              : nextErrors.env
-                ? 'new-session-env'
-                : null;
+              : nextErrors.cloneFolder
+                ? 'new-session-clone-folder'
+                : nextErrors.env
+                  ? 'new-session-env'
+                  : null;
 
       setErrors(nextErrors);
       setFocusTarget(firstInvalid);
@@ -501,6 +717,13 @@ export function NewSessionDialog({
     setErrors({});
     setSubmitting(true);
     try {
+      if (kind === 'agent' && remoteRepo) {
+        const cloned = await github.clone({
+          fullName: remoteRepo.fullName,
+          parentFolder: cloneFolder.trim(),
+        });
+        input.folder = cloned.folder;
+      }
       const session = await onCreate(input);
       onCreated(session);
     } catch (error) {
@@ -508,7 +731,9 @@ export function NewSessionDialog({
         form:
           error instanceof ApiError
             ? error.message
-            : t('newSession.errorCreate'),
+            : kind === 'agent' && remoteRepo
+              ? t('newSession.errorClone')
+              : t('newSession.errorCreate'),
       });
       setSubmitting(false);
     }
@@ -557,7 +782,7 @@ export function NewSessionDialog({
                   name="session-kind"
                   value="agent"
                   checked={kind === 'agent'}
-                  onChange={() => setKind('agent')}
+                  onChange={() => chooseKind('agent')}
                 />
                 <span>{t('status.agent')}</span>
               </label>
@@ -567,7 +792,7 @@ export function NewSessionDialog({
                   name="session-kind"
                   value="terminal"
                   checked={kind === 'terminal'}
-                  onChange={() => setKind('terminal')}
+                  onChange={() => chooseKind('terminal')}
                 />
                 <span>{t('status.terminal')}</span>
               </label>
@@ -661,17 +886,29 @@ export function NewSessionDialog({
             <Combobox
               id="new-session-folder"
               label={t('newSession.repositoryFolder')}
-              value={folder.trim() || null}
+              value={
+                remoteRepo
+                  ? `${GITHUB_REPO_PREFIX}${remoteRepo.fullName}`
+                  : folder.trim() || null
+              }
               loadOptions={loadRepositoryOptions}
               selectedOption={
-                folder.trim()
+                remoteRepo
                   ? {
-                      id: folder.trim(),
-                      label: folderLabel(folder.trim()),
-                      closedLabel: folder.trim(),
-                      meta: folder.trim(),
+                      id: `${GITHUB_REPO_PREFIX}${remoteRepo.fullName}`,
+                      label: remoteRepo.fullName,
+                      closedLabel: remoteRepo.fullName,
+                      meta: remoteRepo.cloneUrl,
+                      tag: t('newSession.githubClone'),
                     }
-                  : null
+                  : folder.trim()
+                    ? {
+                        id: folder.trim(),
+                        label: folderLabel(folder.trim()),
+                        closedLabel: folder.trim(),
+                        meta: folder.trim(),
+                      }
+                    : null
               }
               onChange={chooseRepository}
               placeholder={t('newSession.repositoryPlaceholder')}
@@ -729,6 +966,54 @@ export function NewSessionDialog({
               ) : null}
             </div>
           )}
+
+          {kind === 'agent' && remoteRepo ? (
+            <div className="field">
+              <label htmlFor="new-session-clone-folder">
+                {t('newSession.cloneFolder')}
+              </label>
+              <div className="field-row">
+                <input
+                  id="new-session-clone-folder"
+                  className="text-input"
+                  value={cloneFolder}
+                  placeholder={t('newSession.cloneFolderPlaceholder')}
+                  spellCheck={false}
+                  aria-invalid={errors.cloneFolder ? true : undefined}
+                  aria-describedby={
+                    errors.cloneFolder
+                      ? 'new-session-clone-folder-error'
+                      : 'new-session-clone-folder-hint'
+                  }
+                  onChange={(event) => changeCloneFolder(event.target.value)}
+                />
+                {isTauri() ? (
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    onClick={() => void browseCloneFolder()}
+                  >
+                    {t('newSession.browse')}
+                  </button>
+                ) : null}
+              </div>
+              {errors.cloneFolder ? (
+                <p
+                  className="field-error"
+                  id="new-session-clone-folder-error"
+                  role="alert"
+                >
+                  {errors.cloneFolder}
+                </p>
+              ) : (
+                <p className="field-hint" id="new-session-clone-folder-hint">
+                  {t('newSession.cloneFolderHint', {
+                    path: joinFolder(cloneFolder.trim(), remoteRepo.name),
+                  })}
+                </p>
+              )}
+            </div>
+          ) : null}
 
           {kind === 'agent' ? (
             <Combobox

@@ -470,6 +470,16 @@ export const sv = {
   'newSession.busyLabel': 'Startar sessionen…',
   'newSession.submitting': 'Startar…',
   'newSession.submit': 'Starta sessionen',
+  'newSession.cloneFolder': 'Klonmapp',
+  'newSession.cloneFolderPlaceholder': 'Välj den överordnade mappen',
+  'newSession.cloneFolderHint':
+    'Arkivet klonas till {path} och sedan startar sessionen där.',
+  'newSession.githubPrivate': 'Privat',
+  'newSession.githubPublic': 'Offentligt',
+  'newSession.githubAdded': 'Tillagd',
+  'newSession.githubClone': 'Klona',
+  'newSession.errorClone': 'Arkivet kunde inte klonas.',
+  'newSession.errorCloneFolder': 'Välj en klonmapp.',
 
   'permission.needed': 'Behörighet krävs',
   'permission.tool': 'Verktyg',

@@ -466,6 +466,16 @@ export const ko = {
   'newSession.busyLabel': '세션 시작 중…',
   'newSession.submitting': '시작 중…',
   'newSession.submit': '세션 시작',
+  'newSession.cloneFolder': '복제 폴더',
+  'newSession.cloneFolderPlaceholder': '상위 폴더 선택',
+  'newSession.cloneFolderHint':
+    '저장소가 {path}에 복제된 다음 세션이 그곳에서 시작됩니다.',
+  'newSession.githubPrivate': '비공개',
+  'newSession.githubPublic': '공개',
+  'newSession.githubAdded': '추가됨',
+  'newSession.githubClone': '복제',
+  'newSession.errorClone': '저장소를 복제할 수 없습니다.',
+  'newSession.errorCloneFolder': '복제 폴더를 선택하세요.',
 
   'permission.needed': '권한 필요',
   'permission.tool': '도구',

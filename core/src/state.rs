@@ -173,6 +173,10 @@ pub struct Session {
     pub legacy_preset_id: Option<String>,
     pub branch: Option<String>,
     pub folder: String,
+    /// The Git repository the session was launched from, before the worktree
+    /// replaced the folder. It stays the same when the session moves project.
+    #[serde(default)]
+    pub source_repository: Option<String>,
     pub preview: String,
     pub waiting_for: Option<WaitingFor>,
     #[serde(default)]
@@ -1142,8 +1146,14 @@ impl AppState {
             store,
             fake_browser,
         );
-        let migrated = migration.is_some();
+        let mut migrated = migration.is_some();
         for mut session in sessions {
+            if session.session.source_repository.is_none()
+                && let Some(source) = Self::legacy_source_repository(&session, &state)
+            {
+                session.session.source_repository = Some(source);
+                migrated = true;
+            }
             if session.session.config_id.is_none() {
                 migrate_session_config(&mut session.session, migration.as_ref(), &state.configs());
             }
@@ -1191,6 +1201,20 @@ impl AppState {
             state.save();
         }
         state
+    }
+
+    /// Fills the source repository of a record written before the field
+    /// existed. An agent record keeps the repository root that its worktree
+    /// came from; otherwise the project folder stands in.
+    fn legacy_source_repository(persisted: &PersistedSession, state: &AppState) -> Option<String> {
+        if persisted.session.kind != SessionKind::Agent {
+            return None;
+        }
+        persisted.repo_root.clone().or_else(|| {
+            state
+                .project(&persisted.session.project_id)
+                .map(|project| project.folder)
+        })
     }
 
     #[allow(clippy::too_many_arguments)]

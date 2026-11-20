@@ -1208,6 +1208,70 @@ async fn agent_sessions_use_the_supplied_folder_and_unique_short_names() {
 }
 
 #[tokio::test]
+async fn agent_session_saves_the_resolved_source_repository() {
+    let data_dir = TempDirectory::new("source-repository-data");
+    let repo = TempDirectory::new("source-repository-repo");
+    init_git_repo(&repo.path);
+    let nested = repo.path.join("nested");
+    fs::create_dir_all(&nested).expect("create nested folder");
+    let app = router(AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    ));
+    ensure_test_project(&app, &repo.path).await;
+
+    let (status, session) = call(
+        &app,
+        "POST",
+        "/api/sessions",
+        Some(json!({
+            "projectId": "web",
+            "kind": "agent",
+            "providerId": "max",
+            "client": "Claude Code",
+            "name": "From nested",
+            "folder": nested.to_string_lossy()
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+
+    let source = fs::canonicalize(&repo.path)
+        .expect("canonical repository")
+        .to_string_lossy()
+        .into_owned();
+    assert_eq!(session["sourceRepository"], source.as_str());
+    let id = session["id"].as_str().expect("session id");
+    let (status, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    assert_eq!(status, StatusCode::OK, "{bootstrap}");
+    let fetched = bootstrap["sessions"]
+        .as_array()
+        .and_then(|sessions| sessions.iter().find(|item| item["id"] == id))
+        .expect("the session is in the bootstrap");
+    assert_eq!(fetched["sourceRepository"], source.as_str());
+
+    let (status, closed) = close_session(&app, id).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+}
+
+#[tokio::test]
+async fn terminal_session_has_no_source_repository() {
+    let app = router(AppState::with_test_command(vec![
+        "/bin/sh".to_owned(),
+        "-c".to_owned(),
+        "sleep 30".to_owned(),
+    ]));
+    let folder = TempDirectory::new("terminal-source-repository");
+    ensure_test_project(&app, &folder.path).await;
+
+    let session = create_terminal(&app, &folder.path).await;
+    assert_eq!(session["sourceRepository"], Value::Null);
+    let id = session["id"].as_str().expect("session id");
+    let (status, _) = close_session(&app, id).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
 async fn branch_listing_reports_local_and_remote_branches() {
     let repo = TempDirectory::new("branch-list");
     init_git_repo(&repo.path);
@@ -5371,6 +5435,59 @@ async fn old_project_state_loads_without_defaults() {
 }
 
 #[tokio::test]
+async fn old_sessions_load_with_a_source_repository() {
+    let data_dir = TempDirectory::new("source-old-state");
+    let repo = TempDirectory::new("source-old-repo");
+    let source = repo.path.to_string_lossy().into_owned();
+    let stored = json!({
+        "version": 2,
+        "projects": [{
+            "id": "web",
+            "name": "web",
+            "folder": repo.path.to_string_lossy()
+        }],
+        "providers": [],
+        "configs": [],
+        "sessions": [{
+            "session": {
+                "id": "old",
+                "name": "Old session",
+                "short": "old-session",
+                "projectId": "web",
+                "kind": "agent",
+                "status": "closed",
+                "branch": "elesdee/web/old-session",
+                "folder": "/tmp/old-worktree",
+                "preview": "",
+                "startedAt": "2026-01-01T00:00:00Z",
+                "shortcuts": []
+            },
+            "cols": 120,
+            "rows": 32,
+            "output": [],
+            "nextSeq": 1,
+            "repoRoot": source
+        }]
+    });
+    fs::write(data_dir.path.join("state.json"), stored.to_string()).expect("write old state");
+
+    let app = router(AppState::with_data_dir(data_dir.path.clone()));
+    let (status, body) = call(&app, "GET", "/api/bootstrap", None).await;
+
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let session = &body["sessions"][0];
+    assert_eq!(session["id"], "old");
+    assert_eq!(session["sourceRepository"], source);
+
+    let state_text = fs::read_to_string(data_dir.path.join("state.json")).expect("state file");
+    let state: Value = serde_json::from_str(&state_text).expect("state json");
+    assert_eq!(
+        state["sessions"][0]["session"]["sourceRepository"], source,
+        "the filled source repository is saved"
+    );
+}
+
+#[tokio::test]
 async fn method_not_allowed_returns_a_json_error() {
     let app = router(AppState::ephemeral());
 
@@ -5666,6 +5783,14 @@ async fn moving_a_running_session_keeps_its_folder_branch_and_process() {
     let branch = session["branch"].clone();
     let folder = session["folder"].clone();
     let short = session["short"].clone();
+    let source = session["sourceRepository"].clone();
+    assert_eq!(
+        source,
+        fs::canonicalize(&repo.path)
+            .expect("canonical repository")
+            .to_string_lossy()
+            .as_ref()
+    );
 
     while events.try_recv().is_ok() {}
 
@@ -5681,6 +5806,10 @@ async fn moving_a_running_session_keeps_its_folder_branch_and_process() {
     assert_eq!(moved["folder"], folder, "the worktree stays");
     assert_eq!(moved["branch"], branch, "the branch stays");
     assert_eq!(moved["short"], short);
+    assert_eq!(
+        moved["sourceRepository"], source,
+        "the source repository stays"
+    );
     assert_eq!(moved["status"], "active");
 
     let event = tokio::time::timeout(Duration::from_secs(2), async {
@@ -5708,6 +5837,10 @@ async fn moving_a_running_session_keeps_its_folder_branch_and_process() {
         })
         .expect("stored session");
     assert_eq!(stored["session"]["projectId"], other_id);
+    assert_eq!(
+        stored["session"]["sourceRepository"], source,
+        "a moved session keeps its original source repository"
+    );
 
     let (status, body) = call(
         &app,

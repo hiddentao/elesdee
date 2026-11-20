@@ -472,6 +472,16 @@ export const fr = {
   'newSession.busyLabel': 'Démarrage de la session…',
   'newSession.submitting': 'Démarrage…',
   'newSession.submit': 'Démarrer la session',
+  'newSession.cloneFolder': 'Dossier de clonage',
+  'newSession.cloneFolderPlaceholder': 'Choisir le dossier parent',
+  'newSession.cloneFolderHint':
+    'Le dépôt est cloné dans {path}, puis la session démarre là.',
+  'newSession.githubPrivate': 'Privé',
+  'newSession.githubPublic': 'Public',
+  'newSession.githubAdded': 'Ajouté',
+  'newSession.githubClone': 'Cloner',
+  'newSession.errorClone': "Le dépôt n'a pas pu être cloné.",
+  'newSession.errorCloneFolder': 'Choisissez un dossier de clonage.',
 
   'permission.needed': 'Autorisation requise',
   'permission.tool': 'Outil',

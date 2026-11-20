@@ -244,4 +244,28 @@ mod tests {
             serde_json::from_value(stored_state(None)).expect("parse state");
         assert!(state.sessions[0].session.agent_session_id.is_none());
     }
+
+    #[test]
+    fn older_sessions_without_a_source_repository_still_load() {
+        let state: PersistedState =
+            serde_json::from_value(stored_state(Some("conversation-1"))).expect("parse state");
+        assert!(state.sessions[0].session.source_repository.is_none());
+    }
+
+    #[test]
+    fn a_session_writes_its_source_repository() {
+        let mut value = stored_state(None);
+        value["sessions"][0]["session"]["sourceRepository"] = serde_json::json!("/tmp/source");
+        let state: PersistedState = serde_json::from_value(value).expect("parse state");
+        assert_eq!(
+            state.sessions[0].session.source_repository.as_deref(),
+            Some("/tmp/source")
+        );
+
+        let value = serde_json::to_value(&state).expect("serialize state");
+        assert_eq!(
+            value["sessions"][0]["session"]["sourceRepository"],
+            "/tmp/source"
+        );
+    }
 }

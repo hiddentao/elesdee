@@ -470,6 +470,16 @@ export const ja = {
   'newSession.busyLabel': 'セッションを開始しています…',
   'newSession.submitting': '開始しています…',
   'newSession.submit': 'セッションを開始',
+  'newSession.cloneFolder': 'クローンフォルダー',
+  'newSession.cloneFolderPlaceholder': '親フォルダーを選択',
+  'newSession.cloneFolderHint':
+    'リポジトリは {path} にクローンされ、そこでセッションが始まります。',
+  'newSession.githubPrivate': 'プライベート',
+  'newSession.githubPublic': '公開',
+  'newSession.githubAdded': '追加済み',
+  'newSession.githubClone': 'クローン',
+  'newSession.errorClone': 'リポジトリをクローンできませんでした。',
+  'newSession.errorCloneFolder': 'クローンフォルダーを選択してください。',
 
   'permission.needed': '許可が必要です',
   'permission.tool': 'ツール',

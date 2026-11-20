@@ -471,6 +471,16 @@ export const pl = {
   'newSession.busyLabel': 'Uruchamianie sesji…',
   'newSession.submitting': 'Uruchamianie…',
   'newSession.submit': 'Uruchom sesję',
+  'newSession.cloneFolder': 'Folder klonowania',
+  'newSession.cloneFolderPlaceholder': 'Wybierz folder nadrzędny',
+  'newSession.cloneFolderHint':
+    'Repozytorium zostanie sklonowane do {path}, a następnie sesja zacznie się tam.',
+  'newSession.githubPrivate': 'Prywatne',
+  'newSession.githubPublic': 'Publiczne',
+  'newSession.githubAdded': 'Dodane',
+  'newSession.githubClone': 'Klonuj',
+  'newSession.errorClone': 'Nie udało się sklonować repozytorium.',
+  'newSession.errorCloneFolder': 'Wybierz folder klonowania.',
 
   'permission.needed': 'Wymagane uprawnienie',
   'permission.tool': 'Narzędzie',
