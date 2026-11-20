@@ -19,7 +19,7 @@ const tailscaleBin = path.join(runDir, 'tailscale-bin');
 fs.mkdirSync(tailscaleBin, { recursive: true });
 fs.writeFileSync(
   path.join(tailscaleBin, 'tailscale'),
-  '#!/bin/sh\nif [ "$1 $2" = "status --json" ]; then\n  printf \'{"BackendState":"Running","Self":{"DNSName":"elesdee-e2e.tailnet.ts.net.","TailscaleIPs":["100.101.102.103","fd7a:115c:a1e0::1"]}}\'\n  exit 0\nfi\nexit 1\n',
+  '#!/bin/sh\nif [ "$1 $2" = "status --json" ]; then\n  printf \'{"BackendState":"Running","Self":{"DNSName":"elesdee-e2e.tailnet.ts.net.","TailscaleIPs":["100.101.102.103","fd7a:115c:a1e0::1"]}}\'\n  exit 0\nfi\nif [ "$1" = "funnel" ]; then\n  exit 0\nfi\nexit 1\n',
 );
 fs.chmodSync(path.join(tailscaleBin, 'tailscale'), 0o755);
 const corePath = `${tailscaleBin}${path.delimiter}${process.env.PATH ?? ''}`;
