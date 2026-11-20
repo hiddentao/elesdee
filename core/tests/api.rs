@@ -1242,8 +1242,12 @@ async fn agent_session_saves_the_resolved_source_repository() {
         .into_owned();
     assert_eq!(session["sourceRepository"], source.as_str());
     let id = session["id"].as_str().expect("session id");
-    let (status, fetched) = call(&app, "GET", &format!("/api/sessions/{id}"), None).await;
-    assert_eq!(status, StatusCode::OK, "{fetched}");
+    let (status, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    assert_eq!(status, StatusCode::OK, "{bootstrap}");
+    let fetched = bootstrap["sessions"]
+        .as_array()
+        .and_then(|sessions| sessions.iter().find(|item| item["id"] == id))
+        .expect("the session is in the bootstrap");
     assert_eq!(fetched["sourceRepository"], source.as_str());
 
     let (status, closed) = close_session(&app, id).await;
