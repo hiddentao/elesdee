@@ -24,10 +24,12 @@ pub enum FileError {
 
 impl From<io::Error> for FileError {
     fn from(error: io::Error) -> Self {
-        if error.kind() == io::ErrorKind::NotFound {
-            FileError::NotFound
-        } else {
-            FileError::Io(error)
+        match error.kind() {
+            io::ErrorKind::NotFound => FileError::NotFound,
+            io::ErrorKind::NotADirectory => FileError::NotADirectory,
+            io::ErrorKind::IsADirectory => FileError::NotAFile,
+            io::ErrorKind::InvalidInput => FileError::InvalidPath,
+            _ => FileError::Io(error),
         }
     }
 }

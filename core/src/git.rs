@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::thread;
@@ -499,25 +500,54 @@ where
         Ok(child) => child,
         Err(_) => return GitRun::Failed,
     };
+    let stdout = child.stdout.take().map(|mut pipe| {
+        thread::spawn(move || {
+            let mut bytes = Vec::new();
+            let _ = pipe.read_to_end(&mut bytes);
+            bytes
+        })
+    });
+    let stderr = child.stderr.take().map(|mut pipe| {
+        thread::spawn(move || {
+            let mut bytes = Vec::new();
+            let _ = pipe.read_to_end(&mut bytes);
+            bytes
+        })
+    });
     let deadline = Instant::now() + timeout;
 
     loop {
         match child.try_wait() {
-            Ok(Some(_)) => {
-                return match child.wait_with_output() {
-                    Ok(output) => GitRun::Output(output),
-                    Err(_) => GitRun::Failed,
-                };
+            Ok(Some(status)) => {
+                let stdout = stdout
+                    .and_then(|handle| handle.join().ok())
+                    .unwrap_or_default();
+                let stderr = stderr
+                    .and_then(|handle| handle.join().ok())
+                    .unwrap_or_default();
+                return GitRun::Output(Output {
+                    status,
+                    stdout,
+                    stderr,
+                });
             }
             Ok(None) => {
                 if Instant::now() >= deadline {
                     let _ = child.kill();
                     let _ = child.wait();
+                    let _ = stdout.and_then(|handle| handle.join().ok());
+                    let _ = stderr.and_then(|handle| handle.join().ok());
                     return GitRun::Timeout;
                 }
                 thread::sleep(POLL_INTERVAL);
             }
-            Err(_) => return GitRun::Failed,
+            Err(_) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                let _ = stdout.and_then(|handle| handle.join().ok());
+                let _ = stderr.and_then(|handle| handle.join().ok());
+                return GitRun::Failed;
+            }
         }
     }
 }
@@ -641,7 +671,14 @@ fn changes_blocking(folder: &Path, agent_repo_root: Option<&Path>, timeout: Dura
     let mut entries = parse_name_status(&diff_status);
     if let GitRun::Output(output) = run_git(
         folder,
-        ["status", "--porcelain=v1", "-z", "--", "."],
+        [
+            "status",
+            "--porcelain=v1",
+            "-z",
+            "--untracked-files=all",
+            "--",
+            ".",
+        ],
         timeout,
     ) && output.status.success()
     {

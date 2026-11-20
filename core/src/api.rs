@@ -713,11 +713,7 @@ async fn update_project(
     }
 
     let updated = state
-        .update_project_defaults(
-            &id,
-            account_update.unwrap_or(project.default_account_id),
-            branch_update.unwrap_or(project.default_source_branch),
-        )
+        .update_project_defaults(&id, account_update, branch_update)
         .ok_or_else(|| ApiError::not_found("Unknown project."))?;
     state.save();
 
@@ -3181,6 +3177,9 @@ fn clip(input: &str, limit: usize) -> String {
 }
 
 fn invalid_json(rejection: JsonRejection) -> ApiError {
+    if rejection.status() == StatusCode::PAYLOAD_TOO_LARGE {
+        return ApiError::payload_too_large("The request body is too large.");
+    }
     ApiError::bad_request(format!("Invalid request body: {rejection}"))
 }
 

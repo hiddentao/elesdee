@@ -5637,6 +5637,21 @@ async fn file_endpoints_reject_unsafe_and_oversized_content() {
     .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
 
+    for route in ["file", "files"] {
+        let (status, body) = call(
+            &app,
+            "GET",
+            &format!("/api/sessions/{id}/{route}?path=note.txt/x"),
+            None,
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "a file used as a folder must not be a server error: {body}"
+        );
+    }
+
     let (status, body) = call(
         &app,
         "GET",
@@ -5667,6 +5682,20 @@ async fn file_endpoints_reject_unsafe_and_oversized_content() {
     assert_eq!(
         fs::read_to_string(folder.path.join("note.txt")).expect("read note"),
         "hello\n"
+    );
+
+    let beyond_axum_limit = "a".repeat(3 * 1024 * 1024);
+    let (status, body) = call(
+        &app,
+        "POST",
+        &format!("/api/sessions/{id}/file"),
+        Some(json!({ "path": "note.txt", "content": beyond_axum_limit })),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::PAYLOAD_TOO_LARGE,
+        "a request body over the framework limit must be 413: {body}"
     );
 
     let (status, body) = call(
@@ -5768,6 +5797,50 @@ async fn terminal_changes_report_tracked_and_untracked_files() {
     assert_eq!(status, StatusCode::OK, "{changes}");
     assert_eq!(changes["git"], false);
     assert!(changes["files"].as_array().expect("files").is_empty());
+    let (status, closed) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+}
+
+#[tokio::test]
+async fn large_diffs_and_nested_untracked_files_are_listed() {
+    let repo = TempDirectory::new("changes-large-repo");
+    init_git_repo(&repo.path);
+    let large = (0..4000)
+        .map(|line| format!("changed line {line} with enough text to fill the pipe\n"))
+        .collect::<String>();
+    fs::write(repo.path.join("README.md"), large).expect("write large change");
+    fs::create_dir_all(repo.path.join("nested").join("deeper")).expect("create nested folder");
+    fs::write(repo.path.join("nested").join("a.txt"), "alpha\n").expect("write a");
+    fs::write(
+        repo.path.join("nested").join("deeper").join("b.txt"),
+        "beta\n",
+    )
+    .expect("write b");
+
+    let app = router(AppState::ephemeral());
+    let session = create_terminal(&app, &repo.path).await;
+    let id = session["id"].as_str().expect("session id").to_owned();
+
+    let (status, changes) = call(&app, "GET", &format!("/api/sessions/{id}/changes"), None).await;
+    assert_eq!(status, StatusCode::OK, "{changes}");
+    assert_eq!(changes["git"], true);
+    assert!(changes["error"].is_null(), "git timed out: {changes}");
+    let files = changes["files"].as_array().expect("changed files");
+    let paths = files
+        .iter()
+        .map(|file| file["path"].as_str().unwrap_or_default())
+        .collect::<Vec<_>>();
+    assert!(paths.contains(&"nested/a.txt"), "{paths:?}");
+    assert!(paths.contains(&"nested/deeper/b.txt"), "{paths:?}");
+    let readme = files
+        .iter()
+        .find(|file| file["path"] == "README.md")
+        .expect("README change");
+    assert!(
+        readme["diff"].as_str().unwrap_or_default().len() > 100_000,
+        "the diff was truncated before the file cap"
+    );
+
     let (status, closed) = close_session(&app, &id).await;
     assert_eq!(status, StatusCode::OK, "{closed}");
 }

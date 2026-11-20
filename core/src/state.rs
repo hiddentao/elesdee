@@ -1020,13 +1020,17 @@ impl AppState {
     pub fn update_project_defaults(
         &self,
         id: &str,
-        default_account_id: Option<String>,
-        default_source_branch: Option<String>,
+        default_account_id: Option<Option<String>>,
+        default_source_branch: Option<Option<String>>,
     ) -> Option<Project> {
         let mut projects = lock(&self.inner.projects);
         let project = projects.iter_mut().find(|project| project.id == id)?;
-        project.default_account_id = default_account_id;
-        project.default_source_branch = default_source_branch;
+        if let Some(value) = default_account_id {
+            project.default_account_id = value;
+        }
+        if let Some(value) = default_source_branch {
+            project.default_source_branch = value;
+        }
         Some(project.clone())
     }
 
