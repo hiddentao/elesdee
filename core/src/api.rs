@@ -831,7 +831,10 @@ async fn create_preset(
 
     let name = match cleaned_optional(request.name) {
         Some(name) => validated_preset_name(&name)?,
-        None => account.name.clone(),
+        None => {
+            let fallback = account.name.chars().take(64).collect::<String>();
+            validated_preset_name(&fallback)?
+        }
     };
     let model = validated_model(account.client, request.model)?;
     let env = validated_env(request.env)?;

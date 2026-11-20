@@ -1948,6 +1948,16 @@ async fn preset_accounts_and_models_are_validated() {
     assert_eq!(status, StatusCode::OK, "{created}");
     let id = created["id"].as_str().expect("preset id");
 
+    let (status, unnamed) = call(
+        &app,
+        "POST",
+        "/api/presets",
+        Some(json!({ "accountId": "codex" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{unnamed}");
+    assert_eq!(unnamed["name"], "ChatGPT Pro");
+
     let (status, body) = call(
         &app,
         "PATCH",
