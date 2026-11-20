@@ -67,7 +67,7 @@ Sample providers and AI configs appear on a new install. They are marked **Sampl
 8. Open **Additional settings** to enter the first prompt, add environment variables for this launch, and choose what to do with uncommitted changes. The first prompt names the session when the name is empty.
 9. Choose **Start**.
 
-The session opens in a tab. Its terminal is live. Type into it as you would in a normal terminal.
+The session opens in a tab and the tab takes focus. Its terminal is live. Type into it as you would in a normal terminal.
 
 ## Next steps
 

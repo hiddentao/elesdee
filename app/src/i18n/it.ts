@@ -592,6 +592,7 @@ export const it = {
 
   'terminal.disconnected': 'L’output è disconnesso.',
   'terminal.reconnected': 'Output riconnesso.',
+  'terminal.outputLabel': 'Output del terminale per {name}',
 
   'usage.title': 'Utilizzo',
   'usage.subtitle':

@@ -3,6 +3,32 @@ import { englishT, type Translate } from '../i18n';
 
 export type StatusTone = 'running' | 'waiting' | 'input' | 'paused' | 'done' | 'closed';
 
+export type StatusShape =
+  | 'dot'
+  | 'diamond'
+  | 'square'
+  | 'square-ring'
+  | 'thick-ring'
+  | 'hollow';
+
+/** A marker shape that tells each work state apart without colour. */
+export function statusShape(tone: StatusTone): StatusShape {
+  switch (tone) {
+    case 'waiting':
+      return 'diamond';
+    case 'input':
+      return 'square';
+    case 'paused':
+      return 'square-ring';
+    case 'done':
+      return 'thick-ring';
+    case 'closed':
+      return 'hollow';
+    default:
+      return 'dot';
+  }
+}
+
 export function statusTone(session: Session): StatusTone {
   if (session.status === 'closed') {
     return 'closed';

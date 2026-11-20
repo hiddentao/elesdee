@@ -586,6 +586,7 @@ export const ko = {
 
   'terminal.disconnected': '출력이 끊겼습니다.',
   'terminal.reconnected': '출력이 다시 연결되었습니다.',
+  'terminal.outputLabel': '{name}의 터미널 출력',
 
   'usage.title': '사용량',
   'usage.subtitle':

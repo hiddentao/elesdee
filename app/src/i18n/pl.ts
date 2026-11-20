@@ -592,6 +592,7 @@ export const pl = {
 
   'terminal.disconnected': 'Dane wyjściowe są rozłączone.',
   'terminal.reconnected': 'Dane wyjściowe połączone ponownie.',
+  'terminal.outputLabel': 'Dane wyjściowe terminala dla {name}',
 
   'usage.title': 'Użycie',
   'usage.subtitle':

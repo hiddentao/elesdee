@@ -591,6 +591,7 @@ export const es = {
 
   'terminal.disconnected': 'La salida está desconectada.',
   'terminal.reconnected': 'Salida reconectada.',
+  'terminal.outputLabel': 'Salida del terminal de {name}',
 
   'usage.title': 'Uso',
   'usage.subtitle':

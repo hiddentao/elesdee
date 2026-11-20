@@ -179,6 +179,15 @@ The agents write their conversation to files on disk, and each keeps its own int
 - A tab cannot be closed. There is no minimize. The session keeps running and stays in the sidebar.
 - The last active tab of each project is restored when I return to it.
 
+**Keyboard and screen readers**
+
+- The app name and the open session name are level-one headings, and headings below them do not skip a level.
+- A dialog moves focus into it, keeps Tab and Shift+Tab inside it, closes on Escape unless it is busy, and returns focus to the control that opened it. A busy dialog keeps focus inside and says that it is working.
+- Starting a session moves focus to that session's tab.
+- Each session state has a marker shape as well as a colour, so the state does not depend on colour alone.
+- Terminal output has an accessible name that holds the session name, and new output is announced politely.
+- Code comments, line numbers and diff metadata keep at least 4.5:1 contrast against the code background in both themes.
+
 **Session side panel**
 
 - Each session has its own side panel, closed by default. Switching sessions switches its content and open state. The panel sits beside the terminal, which stays usable while the panel is open. It keeps at least 320px and stacks the session name above the branch on narrower windows. A diff scrolls both ways when it is wider than the panel, and the scrollbar stays visible.

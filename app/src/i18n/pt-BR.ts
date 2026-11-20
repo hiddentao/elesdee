@@ -594,6 +594,7 @@ export const ptBR = {
 
   'terminal.disconnected': 'A saída está desconectada.',
   'terminal.reconnected': 'Saída reconectada.',
+  'terminal.outputLabel': 'Saída do terminal de {name}',
 
   'usage.title': 'Uso',
   'usage.subtitle':

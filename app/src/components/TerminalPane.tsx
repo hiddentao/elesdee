@@ -64,6 +64,7 @@ export function TerminalPane({ session, readOnly = false }: TerminalPaneProps) {
   const [reconnected, setReconnected] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const hadErrorRef = useRef(false);
+  const outputLabel = t('terminal.outputLabel', { name: session.name });
 
   useEffect(() => {
     const container = containerRef.current;
@@ -144,6 +145,20 @@ export function TerminalPane({ session, readOnly = false }: TerminalPaneProps) {
       termRef.current = null;
     };
   }, [session.id]);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) {
+      return;
+    }
+
+    container
+      .querySelector('.xterm-accessibility-tree')
+      ?.setAttribute('aria-label', outputLabel);
+    container
+      .querySelector('.xterm-accessibility .live-region')
+      ?.setAttribute('aria-live', 'polite');
+  }, [outputLabel, session.id]);
 
   useEffect(() => {
     const term = termRef.current;

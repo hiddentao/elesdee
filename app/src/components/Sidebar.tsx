@@ -8,6 +8,7 @@ import { useLanguage } from '../i18n/LanguageProvider';
 import type { Translate } from '../i18n';
 import {
   sessionKindLabel,
+  statusShape,
   statusText,
   statusTone,
   tabStateLabel,
@@ -100,6 +101,7 @@ function SessionRow({
   t,
 }: SessionRowProps) {
   const waiting = Boolean(session.waitingFor);
+  const tone = statusTone(session);
   const classes = [
     'session-row',
     isActive ? 'is-active' : '',
@@ -136,7 +138,8 @@ function SessionRow({
     >
       <span
         className="status-marker"
-        data-status={statusTone(session)}
+        data-status={tone}
+        data-shape={statusShape(tone)}
         aria-hidden="true"
       />
       <span className="session-text">

@@ -589,6 +589,7 @@ export const nl = {
 
   'terminal.disconnected': 'De uitvoer is losgekoppeld.',
   'terminal.reconnected': 'Uitvoer weer verbonden.',
+  'terminal.outputLabel': 'Terminaluitvoer voor {name}',
 
   'usage.title': 'Gebruik',
   'usage.subtitle':

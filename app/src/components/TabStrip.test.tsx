@@ -45,6 +45,40 @@ describe('TabStrip', () => {
     expect(within(tabs[1]).queryByText('Working')).not.toBeInTheDocument();
   });
 
+  it('gives each work state a different marker shape', () => {
+    const states = [
+      makeSession({ id: 's1', name: 'Running', workState: 'working' }),
+      makeSession({ id: 's2', name: 'Waiting', workState: 'waiting' }),
+      makeSession({ id: 's3', name: 'Input', workState: 'input' }),
+      makeSession({ id: 's4', name: 'Paused', workState: 'paused' }),
+      makeSession({ id: 's5', name: 'Done', workState: 'done' }),
+    ];
+
+    render(
+      <TabStrip
+        project={project}
+        sessions={states}
+        activeSessionId="s1"
+        onSelectSession={vi.fn()}
+        onSessionMenu={vi.fn()}
+        onNewSession={vi.fn()}
+      />,
+    );
+
+    const shapes = screen.getAllByRole('tab').map((tab) =>
+      tab.querySelector('.status-marker')?.getAttribute('data-shape'),
+    );
+
+    expect(shapes).toEqual([
+      'dot',
+      'diamond',
+      'square',
+      'square-ring',
+      'thick-ring',
+    ]);
+    expect(new Set(shapes).size).toBe(states.length);
+  });
+
   it('opens a new session from the trailing plus', async () => {
     const user = userEvent.setup();
     const onNewSession = vi.fn();

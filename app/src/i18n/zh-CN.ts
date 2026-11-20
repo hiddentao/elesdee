@@ -536,6 +536,7 @@ export const zhCN = {
 
   'terminal.disconnected': '输出已断开。',
   'terminal.reconnected': '输出已重新连接。',
+  'terminal.outputLabel': '{name} 的终端输出',
 
   'usage.title': '用量',
   'usage.subtitle': '此计算机上每个提供商的限额。',
