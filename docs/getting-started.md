@@ -36,7 +36,7 @@ Install any missing agent before you start a session with it. The app uses the c
 
 1. Choose **Add project**.
 2. Enter a name.
-3. Enter the folder for the project.
+3. Enter the folder for the project, or choose **Browse…** in the desktop app.
 4. Save.
 
 A project folder can be a Git repository or a plain folder. Agent sessions need a Git repository. Terminal sessions work in either.

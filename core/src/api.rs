@@ -1322,11 +1322,14 @@ async fn resume_session(
         .session(&id)
         .ok_or_else(|| ApiError::not_found("Unknown session."))?;
     let session = entry.session();
-    if session.kind != SessionKind::Agent {
-        return Err(ApiError::unprocessable("Only agent sessions can pause."));
-    }
     if session.status != SessionState::Active || session.work_state != Some(WorkState::Paused) {
         return Err(ApiError::conflict("The session is not paused."));
+    }
+    if session.kind == SessionKind::Terminal {
+        let _guard = entry
+            .try_lifecycle()
+            .ok_or_else(|| ApiError::conflict("The session is busy."))?;
+        return relaunch_terminal(&state, &entry).await;
     }
     let Some(client) = session.client else {
         return Err(ApiError::unprocessable("The session has no client."));
@@ -1340,6 +1343,13 @@ async fn resume_session(
                 && crate::providers::usage_state(account) == crate::providers::UsageState::Room
         })
         .max_by_key(crate::providers::remaining_percent)
+        .or_else(|| {
+            session
+                .account_id
+                .as_deref()
+                .and_then(|id| state.account(id))
+                .filter(|account| account.client == client)
+        })
         .ok_or_else(|| ApiError::unprocessable("No account has usage left."))?;
     let _guard = entry
         .try_lifecycle()
@@ -1468,6 +1478,41 @@ async fn relaunch_with_account(
     state.emit(SessionEvent::updated(switched.clone()));
     state.save();
     Ok(Json(switched))
+}
+
+async fn relaunch_terminal(
+    state: &AppState,
+    entry: &Arc<SessionEntry>,
+) -> Result<Json<Session>, ApiError> {
+    let session = entry.session();
+    let command = session_command(state, SessionKind::Terminal, None)?;
+    let folder = canonical_directory(PathBuf::from(&session.folder))?;
+    let should_wait = entry
+        .begin_close()
+        .map_err(|_| ApiError::conflict("The session is closing."))?;
+    if should_wait {
+        let _ = wait_for_process_exit(entry, Duration::from_secs(2)).await;
+    }
+    entry.remove_session_files();
+    let resumed = entry.finish_resume();
+    let size = entry.stored_size();
+    if let Err(error) = sessions::spawn(
+        entry,
+        command,
+        &folder,
+        size,
+        state.stall_writer_for_tests(),
+        state.event_sender(),
+        &[],
+    ) {
+        let failed = entry.mark_switch_failed(&format!("The session did not resume: {error}"));
+        state.emit(SessionEvent::updated(failed));
+        state.save();
+        return Err(ApiError::unprocessable("The session did not resume."));
+    }
+    state.emit(SessionEvent::updated(resumed.clone()));
+    state.save();
+    Ok(Json(resumed))
 }
 
 async fn update_account_usage(

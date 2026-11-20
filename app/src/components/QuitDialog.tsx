@@ -47,7 +47,7 @@ export function QuitDialog({
       <div className="dialog-body">
         <p className="close-copy">
           Quitting stops the running sessions. They stay in the sidebar and can
-          be reopened next time.
+          be resumed next time.
         </p>
         {error ? (
           <div className="form-error" role="alert">

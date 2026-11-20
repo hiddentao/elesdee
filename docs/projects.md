@@ -17,7 +17,7 @@ A new install has no projects. Add one from the welcome screen.
 3. Enter the folder path.
 4. Choose **Add project**.
 
-The folder must exist on this computer. The app does not create it for you. A native folder picker is not built yet, so you type the path.
+The folder must exist on this computer. The app does not create it for you. In the desktop app, choose **Browse…** to pick the folder, or type the path.
 
 ## Sidebar views
 

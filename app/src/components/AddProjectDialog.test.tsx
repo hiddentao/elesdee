@@ -2,8 +2,14 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../api/client';
+import { isTauri, pickFolder } from '../api/shell';
 import type { Project } from '../api/types';
 import { AddProjectDialog } from './AddProjectDialog';
+
+vi.mock('../api/shell', () => ({
+  isTauri: vi.fn(() => true),
+  pickFolder: vi.fn(),
+}));
 
 const createdProject: Project = {
   id: 'p1',
@@ -63,6 +69,18 @@ describe('AddProjectDialog', () => {
       name: 'core',
       folder: '/dev/core',
     });
+  });
+
+  it('fills the folder from the desktop picker', async () => {
+    vi.mocked(isTauri).mockReturnValue(true);
+    vi.mocked(pickFolder).mockResolvedValue('/picked/folder');
+    const user = userEvent.setup();
+    renderDialog();
+
+    await user.click(screen.getByRole('button', { name: 'Browse…' }));
+
+    expect(pickFolder).toHaveBeenCalledOnce();
+    expect(screen.getByLabelText('Folder')).toHaveValue('/picked/folder');
   });
 
   it('shows a duplicate project error inline', async () => {

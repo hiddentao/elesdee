@@ -148,6 +148,7 @@ fn open_with(folder: &std::path::Path, terminal: bool) -> Result<(), String> {
 
 fn main() {
     let app = tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .manage(QuitState::default())
         .invoke_handler(tauri::generate_handler![
             open_folder,

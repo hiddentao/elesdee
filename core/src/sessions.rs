@@ -25,7 +25,7 @@ const MIN_COLS: u16 = 20;
 const MAX_COLS: u16 = 500;
 const MIN_ROWS: u16 = 5;
 const MAX_ROWS: u16 = 300;
-const RESTART_PREVIEW: &str = "The app restarted. Reopen to continue.";
+const RESTART_PREVIEW: &str = "Paused. The app restarted. Resume to continue.";
 pub(crate) const GROUP_KILL_GRACE: Duration = Duration::from_millis(200);
 
 type SharedWriter = Arc<Mutex<Box<dyn Write + Send>>>;
@@ -281,7 +281,8 @@ impl SessionEntry {
     ) -> Self {
         let mut session = session;
         if session.status == SessionState::Active {
-            session.status = SessionState::Closed;
+            session.work_state = Some(WorkState::Paused);
+            session.waiting_for = None;
             session.preview = RESTART_PREVIEW.to_owned();
         }
         if session.status == SessionState::Closed {
@@ -543,6 +544,20 @@ impl SessionEntry {
         state.session.clone()
     }
 
+    pub fn finish_resume(&self) -> Session {
+        let mut state = lock(&self.data);
+        state.closing = false;
+        state.process_exited = false;
+        state.session.status = SessionState::Active;
+        state.session.work_state = Some(WorkState::Working);
+        state.session.waiting_for = None;
+        state.session.pending_permission = None;
+        state.session.preview = "Resumed.".to_owned();
+        state.preview_tail.clear();
+        state.last_preview_at = None;
+        state.session.clone()
+    }
+
     pub fn pause(&self, reason: &str) -> Session {
         let mut state = lock(&self.data);
         state.closing = false;
@@ -681,6 +696,8 @@ impl SessionEntry {
     pub fn mark_restarted(&self) {
         let mut state = lock(&self.data);
         if state.session.status == SessionState::Closed {
+            state.session.status = SessionState::Active;
+            state.session.work_state = Some(WorkState::Paused);
             state.session.preview = RESTART_PREVIEW.to_owned();
         }
     }

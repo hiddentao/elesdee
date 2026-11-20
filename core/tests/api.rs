@@ -2607,22 +2607,27 @@ async fn active_session_restores_closed_with_the_restart_note() {
         .cloned()
         .expect("restored session");
 
-    assert_eq!(restored["status"], "closed");
-    assert!(restored["workState"].is_null());
+    assert_eq!(restored["status"], "active");
+    assert_eq!(restored["workState"], "paused");
     assert!(restored["waitingFor"].is_null());
     assert_eq!(
         restored["preview"],
-        "The app restarted. Reopen to continue."
+        "Paused. The app restarted. Resume to continue."
     );
 
-    let (status, body) = call(
+    let (status, resumed) = call(
         &restarted,
         "POST",
-        &format!("/api/sessions/{id}/input"),
-        Some(json!({ "data": "x" })),
+        &format!("/api/sessions/{id}/resume"),
+        Some(json!({})),
     )
     .await;
-    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    assert_eq!(status, StatusCode::OK, "{resumed}");
+    assert_eq!(resumed["status"], "active");
+    assert_eq!(resumed["workState"], "working");
+
+    let (status, _) = close_session(&restarted, &id).await;
+    assert_eq!(status, StatusCode::OK);
 }
 
 #[tokio::test]
@@ -2781,10 +2786,11 @@ async fn graceful_shutdown_saves_the_restart_note_and_logs() {
 
     assert_eq!(restored_a["status"], "closed");
     assert_eq!(restored_a["preview"], "alpha");
-    assert_eq!(restored_b["status"], "closed");
+    assert_eq!(restored_b["status"], "active");
+    assert_eq!(restored_b["workState"], "paused");
     assert_eq!(
         restored_b["preview"],
-        "The app restarted. Reopen to continue."
+        "Paused. The app restarted. Resume to continue."
     );
 
     for id in [&id_a, &id_b] {

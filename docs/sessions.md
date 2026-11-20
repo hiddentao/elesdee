@@ -94,7 +94,11 @@ The app opens the session in a new tab, restores its log, and starts the agent a
 
 ## Quit
 
-When you quit while sessions run, the app asks first. The dialog shows how many sessions are still running. Cancel keeps working. Quit stops the sessions and closes the app. The sessions stay in the list for the next launch.
+When you quit while sessions run, the app asks first. The dialog shows how many sessions are still running. Cancel keeps working. Quit stops the sessions and closes the app. The sessions stay active and paused in the list; choose **Resume** after the next launch.
+
+## Restart recovery
+
+If the app or this computer restarts, the sessions stay in the list as paused. The app keeps their logs, branches and worktrees. Choose **Resume** to start the agent again in the same worktree. Claude Code and Antigravity continue their most recent conversation.
 
 ## Delete
 

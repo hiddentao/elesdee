@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { ApiError, listAccounts, listBranches, listProjects } from '../api/client';
+import { isTauri, pickFolder } from '../api/shell';
 import type {
   Account,
   Client,
@@ -162,6 +163,23 @@ export function NewSessionDialog({
   function chooseAccount(id: string | null) {
     setAccountId(id);
     setErrors((current) => ({ ...current, account: undefined }));
+  }
+
+  async function browse() {
+    try {
+      const chosen = await pickFolder();
+      if (chosen) {
+        setFolder(chosen);
+        setFolderEdited(true);
+        setSourceBranch(null);
+        setErrors((current) => ({ ...current, folder: undefined }));
+      }
+    } catch {
+      setErrors((current) => ({
+        ...current,
+        form: 'The folder picker is unavailable.',
+      }));
+    }
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -381,29 +399,36 @@ export function NewSessionDialog({
             <label htmlFor="new-session-folder">
               {kind === 'agent' ? 'Repository folder' : 'Folder'}
             </label>
-            <input
-              id="new-session-folder"
-              className="text-input"
-              value={folder}
-              placeholder="Type a folder path"
-              spellCheck={false}
-              required
-              aria-invalid={errors.folder ? true : undefined}
-              aria-describedby={
-                [
-                  kind === 'agent' ? 'new-session-folder-hint' : null,
-                  errors.folder ? 'new-session-folder-error' : null,
-                ]
-                  .filter(Boolean)
-                  .join(' ') || undefined
-              }
-              onChange={(event) => {
-                setFolder(event.target.value);
-                setFolderEdited(true);
-                setSourceBranch(null);
-                setErrors((current) => ({ ...current, folder: undefined }));
-              }}
-            />
+            <div className="field-row">
+              <input
+                id="new-session-folder"
+                className="text-input"
+                value={folder}
+                placeholder="Type a folder path"
+                spellCheck={false}
+                required
+                aria-invalid={errors.folder ? true : undefined}
+                aria-describedby={
+                  [
+                    kind === 'agent' ? 'new-session-folder-hint' : null,
+                    errors.folder ? 'new-session-folder-error' : null,
+                  ]
+                    .filter(Boolean)
+                    .join(' ') || undefined
+                }
+                onChange={(event) => {
+                  setFolder(event.target.value);
+                  setFolderEdited(true);
+                  setSourceBranch(null);
+                  setErrors((current) => ({ ...current, folder: undefined }));
+                }}
+              />
+              {isTauri() ? (
+                <button type="button" className="btn btn-ghost" onClick={() => void browse()}>
+                  Browse…
+                </button>
+              ) : null}
+            </div>
             {kind === 'agent' ? (
               <p className="field-hint" id="new-session-folder-hint">
                 The folder must be inside a Git repository.

@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { ApiError } from '../api/client';
+import { isTauri, pickFolder } from '../api/shell';
 import type { CreateProjectInput, Project } from '../api/types';
 import { Dialog } from './Dialog';
 import { AlertIcon } from './icons';
@@ -72,6 +73,21 @@ export function AddProjectDialog({
     }
   }
 
+  async function browse() {
+    try {
+      const chosen = await pickFolder();
+      if (chosen) {
+        setFolder(chosen);
+        setErrors((current) => ({ ...current, folder: undefined }));
+      }
+    } catch {
+      setErrors((current) => ({
+        ...current,
+        form: 'The folder picker is unavailable.',
+      }));
+    }
+  }
+
   return (
     <Dialog
       titleId="add-project-title"
@@ -118,22 +134,29 @@ export function AddProjectDialog({
 
           <div className="field">
             <label htmlFor="add-project-folder">Folder</label>
-            <input
-              id="add-project-folder"
-              className="text-input"
-              value={folder}
-              placeholder="Type a folder path"
-              spellCheck={false}
-              required
-              aria-invalid={errors.folder ? true : undefined}
-              aria-describedby={
-                errors.folder ? 'add-project-folder-error' : undefined
-              }
-              onChange={(event) => {
-                setFolder(event.target.value);
-                setErrors((current) => ({ ...current, folder: undefined }));
-              }}
-            />
+            <div className="field-row">
+              <input
+                id="add-project-folder"
+                className="text-input"
+                value={folder}
+                placeholder="Type a folder path"
+                spellCheck={false}
+                required
+                aria-invalid={errors.folder ? true : undefined}
+                aria-describedby={
+                  errors.folder ? 'add-project-folder-error' : undefined
+                }
+                onChange={(event) => {
+                  setFolder(event.target.value);
+                  setErrors((current) => ({ ...current, folder: undefined }));
+                }}
+              />
+              {isTauri() ? (
+                <button type="button" className="btn btn-ghost" onClick={() => void browse()}>
+                  Browse…
+                </button>
+              ) : null}
+            </div>
             {errors.folder ? (
               <p className="field-error" id="add-project-folder-error" role="alert">
                 {errors.folder}
