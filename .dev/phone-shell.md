@@ -1,6 +1,6 @@
 # Phone shell, pairing and remote connection
 
-Status: design. Steps 1 to 4, step 7's terminal input, session actions, permission and question cards, AI config switch and structured message view on both phone surfaces, and step 8's demo-server forwarding on both the computer and the phone are implemented in part. The native shell shows the message view with prompts, replies, tool rows, the context strip, the composer and the key rail, with one button to the read-only terminal. The desktop pairing dialog in Settings > Devices shows the QR image, the phone name and the six-digit code, and the approve, deny and cancel actions. Upload, file and image reads and diffs remain. The shell has not run on a device or an emulator, and the Android and iOS projects are not generated.
+Status: design. Steps 1 to 4, step 7's terminal input, session actions, permission and question cards, AI config switch, structured message view, upload, file and image reads and diffs on both phone surfaces, and step 8's demo-server forwarding on both the computer and the phone are implemented in part. The native shell shows the message view with prompts, replies, tool rows, the context strip, the composer and the key rail, with one button to the read-only terminal. It also lists the session's files, previews images and text, shows the changes since the branch point, and uploads one file with the native picker. The desktop pairing dialog in Settings > Devices shows the QR image, the phone name and the six-digit code, and the approve, deny and cancel actions. The shell has not run on a device or an emulator, and the Android and iOS projects are not generated.
 
 Read this with `.dev/SPEC.md` (Mobile companion app, Connection technology), `.dev/api.md` and `docs/phone.md`.
 
@@ -512,6 +512,8 @@ Step 3 implements the shell side of the bridge as these commands in `phone-shell
 | `phone_connect` | Open the app connection to one computer. |
 | `phone_disconnect` | Close the app connection. |
 | `phone_request` | Parse the method name against `Method::parse`, then send the request. |
+| `phone_pick_upload` | Open the native file picker, check the size and send one file to a session. |
+| `phone_read_image` | Send `files.image` and return the image type and base64 bytes. |
 
 `phone_request` is the only path that sends a method. It rejects a name outside the allowlist before it touches a connection, so the screens cannot reach a method that the link crate does not list. No command holds the shell state lock across a network wait: pairing, connect and request take what they need, drop the lock, then write the result back. A pairing call has its own gate, so two pairings cannot overlap while other commands still run. One timeout covers the whole request, including the send, so a computer that stops reading cannot hold a caller forever. The package bridge (`phone_rpc`, subscriptions and upload) comes with steps 4 and 5.
 
@@ -593,23 +595,34 @@ The phone cannot call:
 
 The link server rejects an unknown method with `forbidden`. A test compares the allowlist table with the local router, so a new route does not become reachable by accident.
 
-Step 4 dispatches every allowlisted method that has a local route: `bootstrap`, `health`, the project, branch, provider and account lists, session create, close, input, permission, account, config and resume, question list and answer, session request approve and deny, the file list and text read, the diff read, `demoServers.list`, and the event, output and history subscriptions. `sessions.create` drops a phone-supplied folder. `sessions.upload`, `files.image` and the UI package methods return `unsupported` until their steps. A method outside the allowlist is rejected while the request frame decodes, so it returns `forbidden`.
+Step 4 dispatches every allowlisted method that has a local route: `bootstrap`, `health`, the project, branch, provider and account lists, session create, close, input, permission, account, config and resume, question list and answer, session request approve and deny, the file list and text read, the diff read, `demoServers.list`, and the event, output and history subscriptions. `sessions.create` drops a phone-supplied folder. `sessions.upload` forwards its binary body and file name to the upload route, and `files.image` forwards its path to the image route and returns the bytes. The UI package methods return `unsupported` until their step. A method outside the allowlist is rejected while the request frame decodes, so it returns `forbidden`.
 
 A phone never chooses a job folder. When remote session creation is added, it starts in the project folder, and the link drops any `folder` parameter from a `sessions.create` request before a handler sees it.
 
 Account keys never cross the link. The existing account response omits them.
 
-### 6.3 Uploads
+### 6.3 Uploads, files and images
 
 - `sessions.upload` writes to `<data dir>/uploads/<session id>/<name>`, outside the repository.
-- The route is a new local route. It accepts `application/octet-stream` with an `X-El-Esdee-Filename` header. The request guard gets an explicit exception for this path; every other POST and PATCH keeps the JSON rule.
-- The core reduces the name to a single path component and removes control, bidi and zero-width characters. It rejects `.` and `..`.
-- The core does not overwrite an existing file. A repeated name gets a numeric suffix.
-- Mode is 0600. The size cap is 25 MiB per file.
-- The core writes the file, then sends one line to the session input with the absolute path. The file name is cleaned first, so the line cannot carry terminal control sequences.
-- The phone cannot read arbitrary files. `files.read` and `files.image` resolve a relative path under the session worktree or the session upload folder. Symlinks are not followed. A session created from a paired device always uses its project folder, so the readable root is chosen by the desktop, never by the phone.
+- The route is `POST /api/sessions/{id}/upload`. It accepts `application/octet-stream` with an `X-El-Esdee-Filename` header that carries the percent-encoded UTF-8 name. The request guard has an explicit exception for this path; every other POST and PATCH keeps the JSON rule. The body limit is 25 MiB.
+- The core reduces the name to a single path component and removes control, bidi and zero-width characters. It rejects `.` and `..`, and an empty result becomes `file`. A name over 120 characters is shortened and keeps its extension.
+- The core does not overwrite an existing file. A repeated name gets a numeric suffix. A file is created with `create_new`, so a lost race never replaces a file.
+- Mode is 0600 and the folder is 0700. The size cap is 25 MiB per file.
+- The core writes the file, then sends one line to the session input with the absolute path. The file name is cleaned first, so the line cannot carry terminal control sequences. A closed or stopped session returns 409 and stores nothing.
+- The phone cannot read arbitrary files. `files.read` and `files.image` resolve a relative path under the session folder: the worktree for an agent, the chosen folder for a terminal. Symlinks are not followed, and a hard link, a special file and a `.git` path are refused. A session created from a paired device always uses its project folder, so the readable root is chosen by the desktop, never by the phone.
+- `files.image` returns PNG, JPEG, GIF, WebP, AVIF or BMP detected from the file signature, never from the name. The cap is 10 MiB. A text file or any other type returns `unsupported` (415), a larger file returns `too_large` (413), and the phone shows a clear message instead of a broken image.
+- The phone never sends a path for an upload. It sends one file name, and the desktop chooses the folder.
 
-### 6.4 Demo-server forwarding
+### 6.4 Phone files, images and changes
+
+Both phone surfaces put **Files** and **Changes** beside the session actions.
+
+- **Files** lists the session folder one folder at a time. A folder row opens that folder and an Up action returns. An image row opens a preview through `files.image`; the native shell receives the bytes as base64 over the bridge and shows a data URL, and the browser layout uses an object URL. A text row opens the text from `files.read`. An unsupported image, a binary file and a file over a cap each show a clear message.
+- **Upload** opens the native file picker in the shell and a hidden file input in the browser layout. The picker checks the size before it reads the file. A completed upload shows the stored name; a cancelled picker shows nothing.
+- **Changes** lists every file changed since the branch point, with the added and removed line counts. A tap opens that file's unified diff, with added and removed lines marked. A binary file says it has no text diff. A folder outside Git says so, and the truncated flag and a Git error are shown.
+- The shell bridge has `phone_pick_upload`, which picks and reads one file and sends `sessions.upload`, and `phone_read_image`, which sends `files.image` and returns `{ contentType, data }` with base64 data. The screens never pass a path to the bridge for an upload.
+
+### 6.5 Demo-server forwarding
 
 - The phone sends a port from the registered demo-server list. The desktop checks the active list; any other port is refused. The forward handler checks the paired device list like the app handler.
 - The handshake is two big-endian port bytes from the phone, then one status byte from the computer: `0` open, `1` refused, `2` approved but nothing listens. The bytes are defined in `link/src/forward.rs` and the statuses are shared.

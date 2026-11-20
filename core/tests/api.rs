@@ -223,6 +223,21 @@ async fn get_raw(app: &Router, uri: &str) -> (StatusCode, axum::http::HeaderMap,
     (status, headers, bytes)
 }
 
+async fn post_upload(
+    app: &Router,
+    uri: &str,
+    name: Option<&str>,
+    content_type: &str,
+    bytes: Vec<u8>,
+) -> (StatusCode, Value) {
+    let mut builder = request_builder("POST", uri).header(header::CONTENT_TYPE, content_type);
+    if let Some(name) = name {
+        builder = builder.header("x-el-esdee-filename", name);
+    }
+    let request = builder.body(Body::from(bytes)).expect("build request");
+    send(app, request).await
+}
+
 async fn read_sse_until(mut body: Body, ready: impl Fn(&str) -> bool) -> String {
     let mut text = String::new();
     let deadline = tokio::time::Instant::now() + TIMEOUT;
@@ -4753,7 +4768,10 @@ async fn cors_preflight_and_allowed_origin_headers() {
     let request = request_builder("OPTIONS", "/api/sessions")
         .header(header::ORIGIN, "tauri://localhost")
         .header(header::ACCESS_CONTROL_REQUEST_METHOD, "POST")
-        .header(header::ACCESS_CONTROL_REQUEST_HEADERS, "content-type")
+        .header(
+            header::ACCESS_CONTROL_REQUEST_HEADERS,
+            "content-type, x-el-esdee-filename",
+        )
         .body(Body::empty())
         .expect("build request");
     let response = app.clone().oneshot(request).await.expect("call route");
@@ -4777,7 +4795,7 @@ async fn cors_preflight_and_allowed_origin_headers() {
             .headers()
             .get(header::ACCESS_CONTROL_ALLOW_HEADERS)
             .and_then(|value| value.to_str().ok()),
-        Some("content-type")
+        Some("content-type, x-el-esdee-filename")
     );
     assert_eq!(
         response
@@ -12159,6 +12177,199 @@ async fn a_paired_device_lists_its_connection_state() {
     assert_eq!(devices[0]["platform"], "Android");
     assert_eq!(devices[0]["lastSeen"], "2026-11-19T10:05:00Z");
     assert_eq!(devices[0]["connected"], false);
+}
+
+const PNG_SIGNATURE: [u8; 8] = [0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a];
+
+#[tokio::test]
+async fn an_upload_is_cleaned_stored_once_and_sent_to_the_session() {
+    let data_dir = TempDirectory::new("upload");
+    let app = router(AppState::with_test_command_and_data_dir(
+        vec![
+            "/bin/sh".to_owned(),
+            "-c".to_owned(),
+            "while IFS= read -r line; do printf 'got:%s\\n' \"$line\"; done".to_owned(),
+        ],
+        data_dir.path.clone(),
+    ));
+    let folder = TempDirectory::new("upload-session");
+    let session = create_terminal(&app, &folder.path).await;
+    let id = session["id"].as_str().expect("session id").to_owned();
+
+    let request = request_builder("GET", &format!("/api/sessions/{id}/output?after=0"))
+        .body(Body::empty())
+        .expect("build output request");
+    let response = app.clone().oneshot(request).await.expect("open output");
+    let output = response.into_body();
+
+    let upload_uri = format!("/api/sessions/{id}/upload");
+    let (status, uploaded) = post_upload(
+        &app,
+        &upload_uri,
+        Some("../../shot.png"),
+        "application/octet-stream",
+        PNG_SIGNATURE.to_vec(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{uploaded}");
+    assert_eq!(uploaded["name"], "shot.png");
+    let first_path = uploaded["path"].as_str().expect("upload path").to_owned();
+    assert!(
+        first_path.starts_with(
+            data_dir
+                .path
+                .join("uploads")
+                .join(&id)
+                .to_str()
+                .expect("data dir")
+        ),
+        "the upload was stored outside the data folder: {first_path}"
+    );
+    assert_eq!(fs::read(&first_path).expect("stored upload"), PNG_SIGNATURE);
+
+    let (status, second) = post_upload(
+        &app,
+        &upload_uri,
+        Some("shot.png"),
+        "application/octet-stream",
+        b"second".to_vec(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{second}");
+    assert_eq!(second["name"], "shot-1.png");
+    assert_ne!(second["path"], uploaded["path"]);
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = fs::metadata(&first_path)
+            .expect("upload metadata")
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(mode, 0o600);
+    }
+
+    let text = read_output_until(output, |text| text.contains("Uploaded file:")).await;
+    assert!(
+        text.contains(&first_path),
+        "the session did not get the upload path: {text}"
+    );
+
+    let (status, body) = post_upload(
+        &app,
+        &upload_uri,
+        None,
+        "application/octet-stream",
+        b"no name".to_vec(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+
+    let (status, body) = post_upload(
+        &app,
+        &upload_uri,
+        Some("note.txt"),
+        "application/json",
+        b"{}".to_vec(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNSUPPORTED_MEDIA_TYPE, "{body}");
+
+    let (status, _) = close_session(&app, &id).await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, body) = post_upload(
+        &app,
+        &upload_uri,
+        Some("late.txt"),
+        "application/octet-stream",
+        b"late".to_vec(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+}
+
+#[tokio::test]
+async fn an_upload_over_the_cap_is_refused() {
+    let data_dir = TempDirectory::new("upload-large");
+    let app = router(AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 5".to_owned()],
+        data_dir.path.clone(),
+    ));
+    let folder = TempDirectory::new("upload-large-session");
+    let session = create_terminal(&app, &folder.path).await;
+    let id = session["id"].as_str().expect("session id").to_owned();
+
+    let (status, body) = post_upload(
+        &app,
+        &format!("/api/sessions/{id}/upload"),
+        Some("big.bin"),
+        "application/octet-stream",
+        vec![0u8; elesdee_link::MAX_UPLOAD_BYTES + 1],
+    )
+    .await;
+    assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE, "{body}");
+}
+
+#[tokio::test]
+async fn an_image_is_served_by_signature_and_confined_to_the_folder() {
+    let data_dir = TempDirectory::new("image");
+    let app = router(AppState::with_data_dir(data_dir.path.clone()));
+    let folder = TempDirectory::new("image-session");
+    let session = create_terminal(&app, &folder.path).await;
+    let id = session["id"].as_str().expect("session id").to_owned();
+    let root = PathBuf::from(session["folder"].as_str().expect("session folder"));
+
+    let mut png = PNG_SIGNATURE.to_vec();
+    png.extend_from_slice(b"image body");
+    fs::write(root.join("shot.png"), &png).expect("write image");
+    fs::write(root.join("notes.txt"), "plain text\n").expect("write text");
+    fs::create_dir_all(root.join(".git")).expect("create git folder");
+    fs::write(root.join(".git").join("config"), "[remote]\n").expect("write git config");
+
+    let (status, headers, bytes) =
+        get_raw(&app, &format!("/api/sessions/{id}/image?path=shot.png")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(headers[header::CONTENT_TYPE], "image/png");
+    assert_eq!(headers[header::CACHE_CONTROL], "no-store");
+    assert_eq!(bytes, png);
+
+    let (status, _, body) =
+        get_raw(&app, &format!("/api/sessions/{id}/image?path=notes.txt")).await;
+    assert_eq!(status, StatusCode::UNSUPPORTED_MEDIA_TYPE);
+    assert!(
+        String::from_utf8_lossy(&body).contains("not a supported image"),
+        "unexpected body: {}",
+        String::from_utf8_lossy(&body)
+    );
+
+    let (status, _, _) = get_raw(&app, &format!("/api/sessions/{id}/image?path=../shot.png")).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (status, _, _) = get_raw(&app, &format!("/api/sessions/{id}/image?path=.git/config")).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    let (status, _, _) = get_raw(&app, &format!("/api/sessions/{id}/image?path=missing.png")).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn an_image_symlink_out_of_the_folder_is_refused() {
+    let data_dir = TempDirectory::new("image-symlink");
+    let outside = TempDirectory::new("image-symlink-outside");
+    let app = router(AppState::with_data_dir(data_dir.path.clone()));
+    let folder = TempDirectory::new("image-symlink-session");
+    let session = create_terminal(&app, &folder.path).await;
+    let id = session["id"].as_str().expect("session id").to_owned();
+    let root = PathBuf::from(session["folder"].as_str().expect("session folder"));
+
+    let mut png = PNG_SIGNATURE.to_vec();
+    png.extend_from_slice(b"outside");
+    fs::write(outside.path.join("shot.png"), &png).expect("write outside image");
+    std::os::unix::fs::symlink(outside.path.join("shot.png"), root.join("link.png"))
+        .expect("create symlink");
+
+    let (status, _, _) = get_raw(&app, &format!("/api/sessions/{id}/image?path=link.png")).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
 }
 
 #[tokio::test]

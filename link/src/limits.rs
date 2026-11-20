@@ -11,6 +11,9 @@ pub const MAX_PAIR_FRAME_BYTES: usize = 16 * 1024;
 /// Maximum binary upload body size in bytes.
 pub const MAX_UPLOAD_BYTES: usize = 25 * 1024 * 1024;
 
+/// Maximum image size that the core returns to a phone, in bytes.
+pub const MAX_IMAGE_BYTES: u64 = 10 * 1024 * 1024;
+
 /// Maximum UI package size in bytes.
 pub const MAX_UI_PACKAGE_BYTES: usize = 64 * 1024 * 1024;
 

@@ -460,6 +460,40 @@ mod tests {
     }
 
     #[test]
+    fn an_upload_request_carries_a_binary_body() {
+        let image = [0x89, b'P', b'N', b'G', 0x00, 0xff, 0x80];
+        let request = Request::new(
+            Method::SessionsUpload,
+            Some(json!({"sessionId": "s1", "filename": "shot.png"})),
+        )
+        .with_body(image.to_vec());
+
+        let frame = request.encode().expect("request encodes");
+        assert_eq!(header_json(&frame)["bytes"], image.len());
+        let decoded = Request::decode(&frame).expect("request decodes");
+        assert_eq!(decoded.method(), Method::SessionsUpload);
+        assert_eq!(decoded.body(), image);
+        assert_eq!(decoded.params().expect("params")["filename"], "shot.png");
+    }
+
+    #[test]
+    fn an_image_response_carries_bytes_and_a_type() {
+        let image = [0x89, b'P', b'N', b'G', 0x00, 0xff, 0x80];
+        let response = Response::ok_with_body(
+            json!({"contentType": "image/png", "size": image.len()}),
+            image.to_vec(),
+        );
+        let frame = response.encode().expect("response encodes");
+        assert_eq!(header_json(&frame)["bytes"], image.len());
+        let decoded = Response::decode(&frame).expect("response decodes");
+        assert_eq!(decoded.body(), image);
+        assert_eq!(
+            decoded.result().expect("result")["contentType"],
+            "image/png"
+        );
+    }
+
+    #[test]
     fn request_without_params_has_no_params_field() {
         let request = Request::new(Method::Bootstrap, None);
         let frame = request.encode().expect("request encodes");
