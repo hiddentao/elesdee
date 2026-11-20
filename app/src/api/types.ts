@@ -76,6 +76,16 @@ export interface Account {
   foot: string;
   server: string | null;
   model: string | null;
+  apiStyle?: string | null;
+}
+
+export interface ProviderInfo {
+  id: string;
+  label: string;
+  client: Client;
+  auth: Array<'subscription' | 'key' | 'local'>;
+  defaultModel: string | null;
+  custom: boolean;
 }
 
 export interface AgentCheck {
@@ -113,11 +123,13 @@ export interface CreateProjectInput {
 
 export interface CreateAccountInput {
   name: string;
-  providerId: 'google';
-  client: 'Antigravity';
-  auth: 'key';
-  key: string;
+  providerId: string;
+  client?: Client;
+  auth: 'subscription' | 'key' | 'local';
+  key?: string;
+  server?: string;
   model?: string;
+  apiStyle?: 'openai' | 'anthropic';
 }
 
 export interface ApiErrorPayload {

@@ -53,6 +53,12 @@ The sidebar shows two states:
 - **Active**, with a short preview of recent output, or **Waiting for you** when the session needs an answer.
 - **Closed**, when **Show closed sessions** is on.
 
+## Switch account
+
+Open the session menu and choose **Switch account…**. Choose another account and confirm. The session keeps its worktree and restarts with the new account. The same client continues its conversation. A different client starts again in the same worktree.
+
+The app switches by itself when an account is near its usage limit and another account has room. If none has room, the session pauses. Choose **Resume** when an account has room, or wait for the app to resume it.
+
 ## Rename
 
 Open the session menu and choose **Rename…**. The session name changes. The Git branch keeps its original name.

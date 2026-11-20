@@ -27,29 +27,56 @@ An account connects a client to a provider. The Settings page lists the accounts
 
 **Sample accounts**
 
-A new install includes sample accounts. They are marked **Sample**. They have no usage data and exist to show how the account list works. Add your own account for real provider setup.
+A new install includes sample accounts. They are marked **Sample**. They have no usage data and exist to show how the account list works. Add your own account for real provider setup. Auto-switch skips sample accounts.
 
-**Google accounts**
+**Supported providers**
 
-The current build can add a Google account for Antigravity.
+| Provider | Client | Sign-in |
+| --- | --- | --- |
+| Anthropic | Claude Code | Subscription or API key |
+| OpenAI | Codex | Subscription or API key |
+| Google | Antigravity | API key |
+| DeepSeek | Claude Code | API key |
+| Kimi (Moonshot) | Claude Code | API key |
+| Z.ai | Claude Code | API key |
+| OpenRouter | OpenCode 2 | API key |
+| Ollama | Claude Code | Local server |
+| LM Studio | Claude Code | Local server |
+| Custom provider | Codex, Claude Code or OpenCode 2 | API key or local server |
+
+**API keys**
 
 1. Open **Settings**.
 2. Open **Providers**.
 3. Choose **Add account**.
-4. Enter a name.
-5. Enter a Google API key.
-6. Optionally change the model. The default is `gemini-3.8-flash-medium`.
-7. Save.
+4. Choose the provider.
+5. Enter a name and the API key.
+6. Save.
 
-The API key goes to the system keychain. The app writes only account metadata to its state file. It never writes the key to a log, an API response or session output.
+The key goes to the system keychain. The app writes only account metadata to its state file. It removes the key from session output before the output is stored or shown.
 
-When an Antigravity session starts, the app creates a private home folder for that session, writes a settings file that selects Gemini, and passes the key in the child process environment. It removes the private home when the session closes.
+**Subscriptions**
+
+Choose **Subscription** as the sign-in. Sign in with the client itself on this computer first, for example with `claude auth login` or the Codex login command. The app uses that sign-in and does not ask for a provider password.
+
+**Local servers**
+
+Choose **Local server** and enter the server URL for Ollama or LM Studio. The app passes the URL to the client.
+
+**Custom providers**
+
+Choose **Custom provider** for any server that speaks the OpenAI or Anthropic API, such as a gateway or a company proxy.
+
+1. Choose the API style: OpenAI-compatible or Anthropic-compatible.
+2. Choose the client: Codex, Claude Code or OpenCode 2.
+3. Enter the server URL, an optional API key and an optional model.
+4. Save.
+
+The client follows the style. OpenCode 2 is the default client.
 
 ## How a session uses an account
 
-The session starts the client executable. For Claude Code, Codex and OpenCode 2, the client uses its own sign-in and configuration. For Google, the app supplies the key as described above.
-
-An agent session also needs a Git repository. The app creates a branch and worktree for it.
+The session starts the client executable and gives it the account's environment. For Claude Code and Codex subscriptions, the client uses its own sign-in. For API-key accounts, the app passes the key in the child process environment and redacts it from session output. For Google, the app creates a private home folder for the session, writes a settings file that selects Gemini, and removes the private home when the session closes.
 
 ## Antigravity permission prompts
 
@@ -60,6 +87,8 @@ The other clients also run their normal terminal interface. Claude Code addition
 ## Usage
 
 Account usage appears where the provider reports a number. A Google account has no official usage source, so it shows **No usage data**. Usage belongs to the computer and is not part of a session.
+
+When a usage report shows 90% or more used, the app moves the session to another account of the same client that has room. It skips sample accounts and accounts without usage data. If no account has room, the session pauses and keeps its worktree. It resumes by itself when an account has room again. You can also choose **Resume** in the session.
 
 ## Next steps
 

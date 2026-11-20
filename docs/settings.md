@@ -12,7 +12,7 @@ Open **Settings** from the bottom of the sidebar. Settings opens over the sessio
 
 The Providers page lists the accounts on this computer. Each row shows the account name, client, plan and usage summary. Sample accounts carry a **Sample** tag.
 
-Choose **Add account** to connect a provider. The current build supports Google accounts for Antigravity. See [Agents and providers](agents.md).
+Choose **Add account** to connect a provider. Choose the provider, the sign-in method, and the fields it needs: an API key, a server URL, a model or an API style. See [Agents and providers](agents.md) for the provider list.
 
 ## About
 

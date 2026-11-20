@@ -1247,6 +1247,183 @@ fn git_ref_count(repo: &Path) -> usize {
 }
 
 #[tokio::test]
+async fn account_switch_relaunches_the_session_and_keeps_it_active() {
+    let data_dir = TempDirectory::new("switch-data");
+    let repo = TempDirectory::new("switch-repo");
+    init_git_repo(&repo.path);
+    let app = router(AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    ));
+    ensure_test_project(&app, &repo.path).await;
+    let first = create_test_account(&app, "Switch A", "sk-switch-a").await;
+    let second = create_test_account(&app, "Switch B", "sk-switch-b").await;
+
+    let (status, session) = call(
+        &app,
+        "POST",
+        "/api/sessions",
+        Some(json!({
+            "projectId": "web",
+            "kind": "agent",
+            "accountId": first,
+            "name": "Switch me",
+            "folder": repo.path.to_string_lossy()
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let id = session["id"].as_str().expect("session id");
+
+    let (status, switched) = call(
+        &app,
+        "POST",
+        &format!("/api/sessions/{id}/account"),
+        Some(json!({ "accountId": second })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{switched}");
+    assert_eq!(switched["accountId"], second);
+    assert_eq!(switched["status"], "active");
+    assert_eq!(switched["client"], "Claude Code");
+
+    let (status, _) = close_session(&app, id).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn usage_near_the_limit_switches_then_pauses_without_room() {
+    let data_dir = TempDirectory::new("auto-data");
+    let repo = TempDirectory::new("auto-repo");
+    init_git_repo(&repo.path);
+    let app = router(AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    ));
+    ensure_test_project(&app, &repo.path).await;
+    let first = create_test_account(&app, "Auto A", "sk-auto-a").await;
+    let second = create_test_account(&app, "Auto B", "sk-auto-b").await;
+
+    let (status, _) = call(
+        &app,
+        "POST",
+        &format!("/api/accounts/{second}/usage"),
+        Some(json!({ "rows": [{ "label": "Weekly", "used": 20 }] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    let (status, session) = call(
+        &app,
+        "POST",
+        "/api/sessions",
+        Some(json!({
+            "projectId": "web",
+            "kind": "agent",
+            "accountId": first,
+            "name": "Auto switch",
+            "folder": repo.path.to_string_lossy()
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let id = session["id"].as_str().expect("session id");
+
+    let (status, _) = call(
+        &app,
+        "POST",
+        &format!("/api/accounts/{first}/usage"),
+        Some(json!({ "rows": [{ "label": "Weekly", "used": 95 }] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    let switched = wait_for_session(&app, id, |session| {
+        session["accountId"] == second
+    })
+    .await;
+    assert_eq!(switched["status"], "active");
+    assert_eq!(switched["workState"], "working");
+
+    let (status, _) = call(
+        &app,
+        "POST",
+        &format!("/api/accounts/{second}/usage"),
+        Some(json!({ "rows": [{ "label": "Weekly", "used": 95 }] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    let paused = wait_for_session(&app, id, |session| {
+        session["workState"] == "paused"
+    })
+    .await;
+    assert_eq!(paused["status"], "active");
+    assert!(
+        paused["preview"]
+            .as_str()
+            .is_some_and(|preview| preview.contains("No account"))
+    );
+
+    let (status, _) = call(
+        &app,
+        "POST",
+        &format!("/api/accounts/{first}/usage"),
+        Some(json!({ "rows": [{ "label": "Weekly", "used": 30 }] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let resumed = wait_for_session(&app, id, |session| {
+        session["workState"] == "working"
+    })
+    .await;
+    assert_eq!(resumed["accountId"], first);
+
+    let (status, _) = close_session(&app, id).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+async fn create_test_account(app: &Router, name: &str, key: &str) -> String {
+    let (status, account) = call(
+        app,
+        "POST",
+        "/api/accounts",
+        Some(json!({
+            "name": name,
+            "providerId": "anthropic",
+            "auth": "key",
+            "key": key
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{account}");
+    account["id"].as_str().expect("account id").to_owned()
+}
+
+async fn wait_for_session(
+    app: &Router,
+    id: &str,
+    ready: impl Fn(&Value) -> bool,
+) -> Value {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        let (_, bootstrap) = call(app, "GET", "/api/bootstrap", None).await;
+        if let Some(session) = bootstrap["sessions"]
+            .as_array()
+            .and_then(|sessions| sessions.iter().find(|session| session["id"] == id))
+            && ready(session)
+        {
+            return session.clone();
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "session did not reach the expected state: {bootstrap}"
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
+#[tokio::test]
 async fn cors_preflight_and_allowed_origin_headers() {
     let app = router(AppState::ephemeral());
     let origins = [
@@ -4237,6 +4414,124 @@ async fn google_account_is_stored_without_its_key_and_validated() {
     }
     let (_, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
     assert_eq!(bootstrap["accounts"].as_array().expect("accounts").len(), 7);
+}
+
+#[tokio::test]
+async fn provider_list_matches_the_supported_table() {
+    let app = router(AppState::ephemeral());
+    let (status, providers) = call(&app, "GET", "/api/providers", None).await;
+    assert_eq!(status, StatusCode::OK, "{providers}");
+    let providers = providers.as_array().expect("providers");
+    let ids = providers
+        .iter()
+        .map(|provider| provider["id"].as_str().unwrap_or_default())
+        .collect::<Vec<_>>();
+    for id in [
+        "anthropic",
+        "openai",
+        "google",
+        "deepseek",
+        "kimi",
+        "zai",
+        "openrouter",
+        "ollama",
+        "lmstudio",
+        "custom",
+    ] {
+        assert!(ids.contains(&id), "missing provider {id}: {ids:?}");
+    }
+    let custom = providers
+        .iter()
+        .find(|provider| provider["id"] == "custom")
+        .expect("custom provider");
+    assert_eq!(custom["custom"], true);
+}
+
+#[tokio::test]
+async fn deepseek_account_keeps_its_key_out_of_the_state() {
+    let data_dir = TempDirectory::new("deepseek-data");
+    let secrets = Arc::new(MemorySecretStore::default());
+    let state = AppState::with_test_command_and_data_dir(
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), "sleep 30".to_owned()],
+        data_dir.path.clone(),
+    )
+    .with_test_secret_store(secrets.clone());
+    let app = router(state);
+
+    let (status, account) = call(
+        &app,
+        "POST",
+        "/api/accounts",
+        Some(json!({
+            "name": "DeepSeek work",
+            "providerId": "deepseek",
+            "auth": "key",
+            "key": "sk-deepseek-secret"
+        })),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK, "{account}");
+    assert_eq!(account["client"], "Claude Code");
+    assert_eq!(account["provider"], "deepseek");
+    assert!(account.get("key").is_none(), "the response leaked the key");
+    let id = account["id"].as_str().expect("account id");
+    assert_eq!(
+        secrets.get_key(id).expect("read key").as_deref(),
+        Some("sk-deepseek-secret")
+    );
+
+    let (status, bootstrap) = call(&app, "GET", "/api/bootstrap", None).await;
+    assert_eq!(status, StatusCode::OK);
+    let text = bootstrap.to_string();
+    assert!(!text.contains("sk-deepseek-secret"), "bootstrap leaked the key");
+    let state_text =
+        fs::read_to_string(data_dir.path.join("state.json")).expect("read state file");
+    assert!(!state_text.contains("sk-deepseek-secret"), "state leaked the key");
+}
+
+#[tokio::test]
+async fn custom_provider_account_validates_style_client_and_server() {
+    let app = router(AppState::ephemeral());
+    let valid = json!({
+        "name": "Gateway",
+        "providerId": "custom",
+        "auth": "key",
+        "apiStyle": "openai",
+        "client": "Codex",
+        "key": "sk-gateway",
+        "server": "https://gateway.example/v1",
+        "model": "gpt-test"
+    });
+    let (status, account) = call(&app, "POST", "/api/accounts", Some(valid)).await;
+    assert_eq!(status, StatusCode::OK, "{account}");
+    assert_eq!(account["client"], "Codex");
+    assert_eq!(account["apiStyle"], "openai");
+    assert_eq!(account["server"], "https://gateway.example/v1");
+    assert_eq!(account["model"], "gpt-test");
+
+    let invalid = [
+        (
+            json!({"name": "No style", "providerId": "custom", "auth": "key", "key": "k", "server": "https://example.com"}),
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            json!({"name": "Wrong client", "providerId": "custom", "auth": "key", "apiStyle": "anthropic", "client": "Codex", "key": "k", "server": "https://example.com"}),
+            StatusCode::UNPROCESSABLE_ENTITY,
+        ),
+        (
+            json!({"name": "No server", "providerId": "custom", "auth": "key", "apiStyle": "openai", "client": "Codex", "key": "k"}),
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            json!({"name": "Bad server", "providerId": "custom", "auth": "key", "apiStyle": "openai", "client": "Codex", "key": "k", "server": "ftp://example.com"}),
+            StatusCode::BAD_REQUEST,
+        ),
+    ];
+    for (request, expected) in invalid {
+        let (status, body) = call(&app, "POST", "/api/accounts", Some(request)).await;
+        assert_eq!(status, expected, "{body}");
+    }
 }
 
 #[tokio::test]

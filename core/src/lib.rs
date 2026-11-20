@@ -5,6 +5,7 @@ mod clients;
 mod git;
 mod persist;
 mod private_fs;
+mod providers;
 mod secrets;
 mod seed;
 mod sessions;

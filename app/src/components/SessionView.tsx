@@ -14,14 +14,20 @@ interface SessionViewProps {
   session: Session;
   onRespondPermission: (decision: PermissionDecision) => Promise<void>;
   onReopen: () => void;
+  onResume: () => void;
 }
 
 export function SessionView({
   session,
   onRespondPermission,
   onReopen,
+  onResume,
 }: SessionViewProps) {
   const closed = session.status === 'closed';
+  const paused =
+    session.status === 'active' &&
+    session.kind === 'agent' &&
+    session.workState === 'paused';
   const permission =
     session.status === 'active' && session.kind === 'agent'
       ? session.pendingPermission ?? null
@@ -48,6 +54,17 @@ export function SessionView({
           >
             Reopen
             <ChevronRightIcon />
+          </button>
+        </div>
+      ) : paused ? (
+        <div className="waiting-note" role="status">
+          <AlertIcon />
+          <div>
+            <strong>Paused</strong>
+            <span>{session.preview}</span>
+          </div>
+          <button type="button" className="btn btn-ghost" onClick={onResume}>
+            Resume
           </button>
         </div>
       ) : session.waitingFor && !permission ? (

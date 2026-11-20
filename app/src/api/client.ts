@@ -10,6 +10,7 @@ import type {
   HealthResponse,
   PermissionDecision,
   Project,
+  ProviderInfo,
   Session,
 } from './types';
 
@@ -60,6 +61,10 @@ export function bootstrap(): Promise<BootstrapResponse> {
 
 export function health(): Promise<HealthResponse> {
   return request<HealthResponse>('/api/health');
+}
+
+export function listProviders(): Promise<ProviderInfo[]> {
+  return request<ProviderInfo[]>('/api/providers');
 }
 
 export function listProjects(
@@ -122,6 +127,19 @@ export function renameSession(id: string, name: string): Promise<Session> {
 
 export function reopenSession(id: string): Promise<Session> {
   return request<Session>(`/api/sessions/${encodeURIComponent(id)}/reopen`, post({}));
+}
+
+export function switchSessionAccount(
+  id: string,
+  accountId: string,
+): Promise<Session> {
+  return request<Session>(`/api/sessions/${encodeURIComponent(id)}/account`, post({
+    accountId,
+  }));
+}
+
+export function resumeSession(id: string): Promise<Session> {
+  return request<Session>(`/api/sessions/${encodeURIComponent(id)}/resume`, post({}));
 }
 
 export function deleteSession(id: string): Promise<void> {

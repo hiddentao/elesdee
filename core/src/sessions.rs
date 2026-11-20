@@ -15,8 +15,8 @@ use tokio::sync::{Mutex as AsyncMutex, broadcast, oneshot, watch};
 
 use crate::claude;
 use crate::state::{
-    Client, PendingPermission, PermissionDecision, Session, SessionEvent, SessionState, WaitingFor,
-    WorkState, lock,
+    Client, PendingPermission, PermissionDecision, Session, SessionEvent, SessionState, Shortcut,
+    WaitingFor, WorkState, lock,
 };
 
 const OUTPUT_LOG_LIMIT: usize = 256 * 1024;
@@ -146,6 +146,7 @@ pub struct SessionEntry {
     preview_throttle: Duration,
     claude: Mutex<Option<ClaudeRuntime>>,
     home: Mutex<Option<PathBuf>>,
+    redactions: Mutex<Vec<String>>,
 }
 
 struct ClaudeRuntime {
@@ -332,7 +333,12 @@ impl SessionEntry {
             preview_throttle: config.preview_throttle,
             claude: Mutex::new(None),
             home: Mutex::new(None),
+            redactions: Mutex::new(Vec::new()),
         }
+    }
+
+    pub fn set_redactions(&self, secrets: Vec<String>) {
+        *lock(&self.redactions) = secrets;
     }
 
     pub fn persistence_output(&self) -> (Vec<(u64, String)>, u64) {
@@ -492,6 +498,53 @@ impl SessionEntry {
     pub fn set_preview(&self, preview: String) -> Session {
         let mut state = lock(&self.data);
         state.session.preview = preview;
+        state.session.clone()
+    }
+
+    pub fn finish_switch(
+        &self,
+        account_id: String,
+        client: Client,
+        shortcuts: Vec<Shortcut>,
+    ) -> Session {
+        let mut state = lock(&self.data);
+        state.closing = false;
+        state.process_exited = false;
+        state.session.status = SessionState::Active;
+        state.session.work_state = Some(WorkState::Working);
+        state.session.waiting_for = None;
+        state.session.pending_permission = None;
+        state.session.account_id = Some(account_id);
+        state.session.client = Some(client);
+        state.session.shortcuts = shortcuts;
+        state.session.preview = format!("Switched to {client}.");
+        state.preview_tail.clear();
+        state.last_preview_at = None;
+        state.session.clone()
+    }
+
+    pub fn mark_switch_failed(&self, reason: &str) -> Session {
+        let mut state = lock(&self.data);
+        state.closing = false;
+        state.process_exited = true;
+        state.session.work_state = Some(WorkState::Input);
+        state.session.waiting_for = None;
+        state.session.pending_permission = None;
+        state.session.preview = reason.to_owned();
+        state.session.clone()
+    }
+
+    pub fn pause(&self, reason: &str) -> Session {
+        let mut state = lock(&self.data);
+        state.closing = false;
+        state.process_exited = true;
+        state.session.status = SessionState::Active;
+        state.session.work_state = Some(WorkState::Paused);
+        state.session.waiting_for = None;
+        state.session.pending_permission = None;
+        state.session.preview = reason.to_owned();
+        state.preview_tail.clear();
+        state.last_preview_at = None;
         state.session.clone()
     }
 
@@ -789,6 +842,10 @@ impl SessionEntry {
     }
 
     pub fn append_output(&self, data: String) {
+        let data = {
+            let secrets = lock(&self.redactions);
+            redact_secrets(data, &secrets)
+        };
         let (chunk, delta, preview_event) = {
             let mut state = lock(&self.data);
             if !data.is_empty() {
@@ -1299,6 +1356,15 @@ fn clear_permission_state(state: &mut SessionData) {
 const PREVIEW_TAIL_LIMIT: usize = 8192;
 const PREVIEW_MAX_CHARS: usize = 80;
 
+fn redact_secrets(mut data: String, secrets: &[String]) -> String {
+    for secret in secrets {
+        if secret.chars().count() >= 8 {
+            data = data.replace(secret, "[redacted]");
+        }
+    }
+    data
+}
+
 fn append_preview_tail(tail: &mut String, data: &str) {
     tail.push_str(data);
     if tail.len() > PREVIEW_TAIL_LIMIT {
@@ -1542,6 +1608,46 @@ mod tests {
 
         assert_eq!(entry.session().preview, "keep me");
         assert!(receiver.try_recv().is_err());
+    }
+
+    #[test]
+    fn output_redacts_injected_secrets() {
+        let session = Session {
+            id: "redact".to_owned(),
+            name: "Redact".to_owned(),
+            short: "redact".to_owned(),
+            project_id: "web".to_owned(),
+            kind: SessionKind::Terminal,
+            status: SessionState::Active,
+            work_state: Some(WorkState::Working),
+            client: None,
+            account_id: None,
+            branch: None,
+            folder: "/tmp".to_owned(),
+            preview: String::new(),
+            waiting_for: None,
+            pending_permission: None,
+            first_prompt: None,
+            started_at: "2026-01-01T00:00:00Z".to_owned(),
+            shortcuts: Vec::new(),
+        };
+        let (events, _) = broadcast::channel(8);
+        let entry = SessionEntry::new(
+            session,
+            Arc::new(OutputBudget::new(1024 * 1024)),
+            SessionRuntimeConfig::new(events, Duration::from_secs(2)),
+        );
+        entry.set_redactions(vec!["sk-secret-value".to_owned()]);
+
+        entry.append_output("key is sk-secret-value now\n".to_owned());
+
+        let (chunks, _) = entry.persistence_output();
+        let text = chunks
+            .into_iter()
+            .map(|(_, data)| data)
+            .collect::<String>();
+        assert!(text.contains("[redacted]"), "{text}");
+        assert!(!text.contains("sk-secret-value"), "{text}");
     }
 
     #[test]

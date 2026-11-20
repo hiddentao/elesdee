@@ -10,7 +10,7 @@ const agentStub = path.join(runDir, 'agent-stub.sh');
 
 fs.writeFileSync(
   agentStub,
-  '#!/bin/sh\nfor arg in "$@"; do printf \'arg:%s\\n\' "$arg"; done\nwhile IFS= read -r line; do printf \'input:%s\\n\' "$line"; done\n',
+  '#!/bin/sh\nfor arg in "$@"; do printf \'arg:%s\\n\' "$arg"; done\nprintf \'env-anthropic-base:%s\\n\' "${ANTHROPIC_BASE_URL:-}"\nprintf \'env-anthropic-token:%s\\n\' "${ANTHROPIC_AUTH_TOKEN:-}"\nprintf \'env-anthropic-key:%s\\n\' "${ANTHROPIC_API_KEY:-}"\nprintf \'env-openai-key:%s\\n\' "${OPENAI_API_KEY:-}"\nprintf \'env-openai-base:%s\\n\' "${OPENAI_BASE_URL:-}"\nwhile IFS= read -r line; do printf \'input:%s\\n\' "$line"; done\n',
 );
 fs.chmodSync(agentStub, 0o755);
 
@@ -40,7 +40,7 @@ export default defineConfig({
   globalTeardown: './e2e/global-teardown.ts',
   webServer: [
     {
-      command: `ELESDEE_PORT=${corePort} ELESDEE_DATA_DIR=${JSON.stringify(path.join(runDir, 'data'))} ELESDEE_AGENT_BIN=${JSON.stringify(agentStub)} cargo run --manifest-path core/Cargo.toml`,
+      command: `ELESDEE_PORT=${corePort} ELESDEE_DATA_DIR=${JSON.stringify(path.join(runDir, 'data'))} ELESDEE_AGENT_BIN=${JSON.stringify(agentStub)} ELESDEE_MEMORY_SECRETS=1 cargo run --manifest-path core/Cargo.toml`,
       url: `http://127.0.0.1:${corePort}/api/health`,
       timeout: 300_000,
       reuseExistingServer: false,

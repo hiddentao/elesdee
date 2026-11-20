@@ -177,10 +177,12 @@ struct CreateProjectRequest {
 struct CreateAccountRequest {
     name: String,
     provider_id: String,
-    client: Client,
+    client: Option<Client>,
     auth: Auth,
-    key: String,
+    key: Option<String>,
+    server: Option<String>,
     model: Option<String>,
+    api_style: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -201,6 +203,17 @@ struct InputRequest {
 
 #[derive(Debug, Deserialize)]
 struct CloseRequest {}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SwitchAccountRequest {
+    account_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct UsageRequest {
+    rows: Vec<crate::state::UsageRow>,
+}
 
 #[derive(Debug, Deserialize)]
 struct RenameRequest {
@@ -249,6 +262,7 @@ struct PreparedSession {
     command: CommandBuilder,
     repo_root: Option<PathBuf>,
     antigravity_account: Option<String>,
+    environment: Vec<(String, String)>,
     startup_input: Option<String>,
 }
 
@@ -268,7 +282,9 @@ pub fn router(state: AppState) -> Router {
         .route("/api/bootstrap", get(bootstrap))
         .route("/api/projects", get(list_projects).post(create_project))
         .route("/api/branches", get(list_branches))
+        .route("/api/providers", get(list_providers))
         .route("/api/accounts", get(list_accounts).post(create_account))
+        .route("/api/accounts/{id}/usage", post(update_account_usage))
         .route("/api/sessions", post(create_session))
         .route(
             "/api/sessions/{id}",
@@ -278,6 +294,8 @@ pub fn router(state: AppState) -> Router {
         .route("/api/sessions/{id}/input", post(session_input))
         .route("/api/sessions/{id}/resize", post(resize_session))
         .route("/api/sessions/{id}/reopen", post(reopen_session))
+        .route("/api/sessions/{id}/account", post(switch_session_account))
+        .route("/api/sessions/{id}/resume", post(resume_session))
         .route("/api/sessions/{id}/permission", post(answer_permission))
         .layer(middleware::from_fn(request_timeout));
 
@@ -486,11 +504,37 @@ async fn list_branches(
     Ok(Json(branches))
 }
 
+async fn list_providers() -> Json<Vec<ProviderInfo>> {
+    Json(
+        crate::providers::PROVIDERS
+            .iter()
+            .map(|provider| ProviderInfo {
+                id: provider.id.to_owned(),
+                label: provider.label.to_owned(),
+                client: provider.client,
+                auth: provider.auth.to_vec(),
+                default_model: provider.default_model.map(str::to_owned),
+                custom: provider.custom,
+            })
+            .collect(),
+    )
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProviderInfo {
+    id: String,
+    label: String,
+    client: Client,
+    auth: Vec<Auth>,
+    default_model: Option<String>,
+    custom: bool,
+}
+
 async fn list_accounts(
     State(state): State<AppState>,
     query: Result<Query<ListQuery>, QueryRejection>,
-) -> Result<Json<Vec<Account>>, ApiError> {
-    let filter = list_filter(query)?;
+) -> Result<Json<Vec<Account>>, ApiError> {    let filter = list_filter(query)?;
     let mut accounts = state.accounts();
     if let Some(filter) = filter.as_deref() {
         accounts.retain(|account| {
@@ -551,52 +595,126 @@ async fn create_account(
         ));
     }
 
-    let provider = request.provider_id.trim().to_ascii_lowercase();
-    if provider != antigravity::PROVIDER_ID || request.client != Client::Antigravity {
+    let provider_id = request.provider_id.trim().to_ascii_lowercase();
+    let provider = crate::providers::find(&provider_id)
+        .ok_or_else(|| ApiError::unprocessable("This provider is not supported."))?;
+    let api_style = request
+        .api_style
+        .as_deref()
+        .map(str::trim)
+        .map(str::to_lowercase)
+        .filter(|style| !style.is_empty());
+
+    let client = if provider.custom {
+        let style = api_style
+            .as_deref()
+            .ok_or_else(|| ApiError::bad_request("Choose an API style."))?;
+        let allowed = crate::providers::clients_for_style(style);
+        let client = request.client.unwrap_or(provider.client);
+        if !allowed.contains(&client) {
+            return Err(ApiError::unprocessable(
+                "This client does not support that API style.",
+            ));
+        }
+        client
+    } else {
+        if let Some(client) = request.client
+            && client != provider.client
+        {
+            return Err(ApiError::unprocessable(
+                "This provider and client pair is not supported.",
+            ));
+        }
+        provider.client
+    };
+
+    if !provider.auth.contains(&request.auth) {
         return Err(ApiError::unprocessable(
-            "This provider and client pair is not supported.",
-        ));
-    }
-    if !matches!(request.auth, Auth::Key) {
-        return Err(ApiError::unprocessable(
-            "This account needs API-key authentication.",
+            "This account does not support that authentication method.",
         ));
     }
 
-    let key = request.key.trim();
-    if key.is_empty() {
+    let key = request
+        .key
+        .as_deref()
+        .map(str::trim)
+        .filter(|key| !key.is_empty());
+    if request.auth == Auth::Key && key.is_none() {
         return Err(ApiError::bad_request("API key is required."));
     }
+
+    let needs_server = provider.custom
+        || request.auth == Auth::Local
+        || matches!(provider.id, "ollama" | "lmstudio");
+    let server = request
+        .server
+        .as_deref()
+        .map(str::trim)
+        .filter(|server| !server.is_empty())
+        .map(str::to_owned);
+    if needs_server {
+        let Some(server) = server.as_deref() else {
+            return Err(ApiError::bad_request("Server URL is required."));
+        };
+        if !safe_server_url(server) {
+            return Err(ApiError::bad_request("The server URL is not valid."));
+        }
+    }
+
     let model = request
         .model
         .as_deref()
         .map(str::trim)
         .filter(|model| !model.is_empty())
-        .unwrap_or(antigravity::DEFAULT_MODEL);
-    if model.chars().count() > 120 {
+        .map(str::to_owned)
+        .or_else(|| provider.default_model.map(str::to_owned));
+    if model
+        .as_deref()
+        .is_some_and(|model| model.chars().count() > 120)
+    {
         return Err(ApiError::bad_request("Model name is too long."));
     }
 
+    let plan = match request.auth {
+        Auth::Subscription => "subscription",
+        Auth::Local => "local",
+        Auth::Key => "pay as you go",
+    };
     let account = state.add_account(Account {
         id: String::new(),
         name: name.to_owned(),
-        plan: "pay as you go".to_owned(),
-        client: Client::Antigravity,
-        provider,
-        auth: Auth::Key,
+        plan: plan.to_owned(),
+        client,
+        provider: provider_id,
+        auth: request.auth,
         sample: false,
         rows: Vec::new(),
         foot: "No official usage source.".to_owned(),
-        server: None,
-        model: Some(model.to_owned()),
+        server: if provider.custom || request.auth == Auth::Local {
+            server
+        } else {
+            None
+        },
+        model,
+        api_style: if provider.custom { api_style } else { None },
     });
-    if let Err(error) = store_account_key(&state, &account.id, key).await {
+    if let Some(key) = key
+        && let Err(error) = store_account_key(&state, &account.id, key).await
+    {
         state.remove_account(&account.id);
         tracing::error!(account = %account.id, %error, "could not store account key");
         return Err(ApiError::internal("Could not store the account key."));
     }
     state.save();
     Ok(Json(account))
+}
+
+fn safe_server_url(value: &str) -> bool {
+    (value.starts_with("https://") || value.starts_with("http://"))
+        && value.chars().count() <= 500
+        && !value.chars().any(|character| {
+            character.is_control() || character.is_whitespace()
+        })
 }
 
 async fn store_account_key(state: &AppState, account_id: &str, key: &str) -> Result<(), String> {
@@ -626,6 +744,27 @@ async fn account_key(state: &AppState, account_id: &str) -> Result<String, ApiEr
             Err(ApiError::internal("Could not read the account key."))
         }
     }
+}
+
+async fn account_environment(
+    state: &AppState,
+    account: &Account,
+) -> Result<Vec<(String, String)>, ApiError> {
+    let key = if account.auth == Auth::Key && account.provider != antigravity::PROVIDER_ID {
+        Some(account_key(state, &account.id).await?)
+    } else {
+        None
+    };
+    Ok(crate::providers::environment(account, key.as_deref()))
+}
+
+fn secret_environment_values(environment: &[(String, String)]) -> Vec<String> {
+    environment
+        .iter()
+        .filter(|(name, _)| name.contains("KEY") || name.contains("TOKEN"))
+        .map(|(_, value)| value.clone())
+        .filter(|value| !value.is_empty())
+        .collect()
 }
 
 async fn rollback_created_session(
@@ -666,6 +805,7 @@ async fn create_session(
     let output_budget = state.output_budget();
     let session_id = prepared.session.id.clone();
     let startup_input = prepared.startup_input.clone();
+    let session_environment = prepared.environment.clone();
     let entry = Arc::new(SessionEntry::new(
         prepared.session,
         Arc::clone(&output_budget),
@@ -768,7 +908,7 @@ async fn create_session(
         }
     }
 
-    let mut environment = Vec::new();
+    let mut environment = session_environment;
     if let Some(account_id) = prepared.antigravity_account.as_deref() {
         let Some(data_dir) = state.data_dir().map(Path::to_path_buf) else {
             rollback_created_session(&state, &entry, &session_id, worktree_cleanup).await;
@@ -797,6 +937,8 @@ async fn create_session(
             }
         }
     }
+
+    entry.set_redactions(secret_environment_values(&environment));
 
     if let Err(error) = sessions::spawn(
         &entry,
@@ -948,6 +1090,7 @@ async fn reopen_session(
     }
 
     let folder_path = PathBuf::from(&suspended.folder);
+    let mut environment = Vec::new();
     let folder = if suspended.kind == SessionKind::Agent {
         let account_id = suspended
             .account_id
@@ -956,6 +1099,7 @@ async fn reopen_session(
         let account = state
             .account(account_id)
             .ok_or_else(|| ApiError::unprocessable("Account is no longer available."))?;
+        environment = account_environment(&state, &account).await?;
         if state.command_override().is_none()
             && state.agent_bin().is_none()
             && clients::find_client(account.client).is_none()
@@ -1019,7 +1163,6 @@ async fn reopen_session(
             claude::add_settings_argument(&mut command, &settings_path);
         }
     }
-    let mut environment = Vec::new();
     if suspended.kind == SessionKind::Agent && suspended.client == Some(Client::Antigravity) {
         let account_id = suspended
             .account_id
@@ -1041,8 +1184,7 @@ async fn reopen_session(
     state.reserve_activation().map_err(|_| {
         entry.remove_session_files();
         ApiError::too_many_requests("Session limit reached. Close a session first.")
-    })?;
-    match entry.begin_reopen() {
+    })?;    match entry.begin_reopen() {
         Ok(()) => {}
         Err(crate::sessions::ReopenFailure::Closing) => {
             entry.remove_session_files();
@@ -1055,6 +1197,7 @@ async fn reopen_session(
             return Err(ApiError::conflict("Session is already active."));
         }
     }
+    entry.set_redactions(secret_environment_values(&environment));
     if let Err(error) = sessions::spawn(
         &entry,
         command,
@@ -1073,6 +1216,284 @@ async fn reopen_session(
     state.emit(SessionEvent::updated(session.clone()));
     state.save();
     Ok(Json(session))
+}
+
+async fn switch_session_account(
+    State(state): State<AppState>,
+    UrlPath(id): UrlPath<String>,
+    body: Result<Json<SwitchAccountRequest>, JsonRejection>,
+) -> Result<Json<Session>, ApiError> {
+    let Json(request) = body.map_err(invalid_json)?;
+    let entry = state
+        .session(&id)
+        .ok_or_else(|| ApiError::not_found("Unknown session."))?;
+    let session = entry.session();
+    if session.kind != SessionKind::Agent {
+        return Err(ApiError::unprocessable("Only agent sessions have accounts."));
+    }
+    if session.status != SessionState::Active {
+        return Err(ApiError::conflict("Reopen the session before switching."));
+    }
+    let account_id = request.account_id.trim();
+    if account_id.is_empty() {
+        return Err(ApiError::bad_request("Choose an account."));
+    }
+    let account = state
+        .account(account_id)
+        .ok_or_else(|| ApiError::not_found("Unknown account."))?;
+    let same_client = session.client == Some(account.client);
+    let _guard = entry
+        .try_lifecycle()
+        .ok_or_else(|| ApiError::conflict("The session is busy."))?;
+    relaunch_with_account(&state, &entry, &account, same_client).await
+}
+
+async fn resume_session(
+    State(state): State<AppState>,
+    UrlPath(id): UrlPath<String>,
+    body: Result<Json<ReopenRequest>, JsonRejection>,
+) -> Result<Json<Session>, ApiError> {
+    let _ = body.map_err(invalid_json)?;
+    let entry = state
+        .session(&id)
+        .ok_or_else(|| ApiError::not_found("Unknown session."))?;
+    let session = entry.session();
+    if session.kind != SessionKind::Agent {
+        return Err(ApiError::unprocessable("Only agent sessions can pause."));
+    }
+    if session.status != SessionState::Active || session.work_state != Some(WorkState::Paused) {
+        return Err(ApiError::conflict("The session is not paused."));
+    }
+    let Some(client) = session.client else {
+        return Err(ApiError::unprocessable("The session has no client."));
+    };
+    let account = state
+        .accounts()
+        .into_iter()
+        .filter(|account| {
+            !account.sample
+                && account.client == client
+                && crate::providers::usage_state(account) == crate::providers::UsageState::Room
+        })
+        .max_by_key(crate::providers::remaining_percent)
+        .ok_or_else(|| ApiError::unprocessable("No account has usage left."))?;
+    let _guard = entry
+        .try_lifecycle()
+        .ok_or_else(|| ApiError::conflict("The session is busy."))?;
+    relaunch_with_account(&state, &entry, &account, true).await
+}
+
+async fn relaunch_with_account(
+    state: &AppState,
+    entry: &Arc<SessionEntry>,
+    account: &Account,
+    resume: bool,
+) -> Result<Json<Session>, ApiError> {
+    let session = entry.session();
+    if state.command_override().is_none()
+        && state.agent_bin().is_none()
+        && clients::find_client(account.client).is_none()
+    {
+        return Err(ApiError::unprocessable(format!(
+            "{} is not installed.",
+            account.client
+        )));
+    }
+
+    let mut command = session_command(state, SessionKind::Agent, Some(account.client))?;
+    if resume {
+        for argument in sessions::resume_arguments(account.client) {
+            command.arg(*argument);
+        }
+    }
+    let mut environment = account_environment(state, account).await?;
+    let folder = canonical_directory(PathBuf::from(&session.folder))?;
+
+    let should_wait = entry
+        .begin_close()
+        .map_err(|_| ApiError::conflict("The session is closing."))?;
+    if should_wait {
+        let _ = wait_for_process_exit(entry, Duration::from_secs(2)).await;
+    }
+    entry.remove_session_files();
+
+    if account.client == Client::ClaudeCode {
+        match install_claude_settings(state, entry, &session.id) {
+            Ok(settings_path) => {
+                if state.command_override().is_none() && state.agent_bin().is_none() {
+                    claude::add_settings_argument(&mut command, &settings_path);
+                }
+            }
+            Err(error) => {
+                let failed = entry.mark_switch_failed("The account switch failed.");
+                state.emit(SessionEvent::updated(failed));
+                state.save();
+                return Err(error);
+            }
+        }
+    }
+    if account.client == Client::Antigravity {
+        let key = account_key(state, &account.id).await?;
+        let data_dir = state
+            .data_dir()
+            .ok_or_else(|| ApiError::unprocessable("Agent sessions need a data directory."))?;
+        match antigravity::prepare_home(data_dir, &session.id) {
+            Ok(home) => {
+                entry.set_home(home.clone());
+                environment.extend(antigravity::environment(&home, &key));
+            }
+            Err(error) => {
+                tracing::error!(session = %session.id, %error, "could not prepare the Antigravity home");
+                let failed = entry.mark_switch_failed("The account switch failed.");
+                state.emit(SessionEvent::updated(failed));
+                state.save();
+                return Err(ApiError::unprocessable(
+                    "Could not prepare the Antigravity session home.",
+                ));
+            }
+        }
+    }
+
+    entry.set_redactions(secret_environment_values(&environment));
+    let switched = entry.finish_switch(
+        account.id.clone(),
+        account.client,
+        shortcuts::for_client(account.client),
+    );
+    let size = entry.stored_size();
+    if let Err(error) = sessions::spawn(
+        entry,
+        command,
+        &folder,
+        size,
+        state.stall_writer_for_tests(),
+        state.event_sender(),
+        &environment,
+    ) {
+        let failed = entry.mark_switch_failed(&format!("The account switch failed: {error}"));
+        state.emit(SessionEvent::updated(failed));
+        state.save();
+        return Err(ApiError::unprocessable("The account switch failed."));
+    }
+
+    state.emit(SessionEvent::updated(switched.clone()));
+    state.save();
+    Ok(Json(switched))
+}
+
+async fn update_account_usage(
+    State(state): State<AppState>,
+    UrlPath(id): UrlPath<String>,
+    body: Result<Json<UsageRequest>, JsonRejection>,
+) -> Result<Json<Account>, ApiError> {
+    let Json(request) = body.map_err(invalid_json)?;
+    if request.rows.len() > 16 {
+        return Err(ApiError::bad_request("Too many usage rows."));
+    }
+    if request.rows.iter().any(|row| row.label.chars().count() > 80) {
+        return Err(ApiError::bad_request("A usage label is too long."));
+    }
+    let account = state
+        .update_account_rows(&id, request.rows)
+        .ok_or_else(|| ApiError::not_found("Unknown account."))?;
+    state.save();
+    auto_switch_account(&state, &account).await;
+    Ok(Json(account))
+}
+
+async fn auto_switch_account(state: &AppState, account: &Account) {
+    let usage = crate::providers::usage_state(account);
+    if usage == crate::providers::UsageState::Room {
+        resume_paused_sessions(state, account).await;
+        return;
+    }
+    if usage != crate::providers::UsageState::NearLimit {
+        return;
+    }
+
+    let entries = state.sessions();
+    for entry in entries {
+        let session = entry.session();
+        if session.status != SessionState::Active
+            || session.kind != SessionKind::Agent
+            || session.account_id.as_deref() != Some(account.id.as_str())
+        {
+            continue;
+        }
+        let Some(client) = session.client else {
+            continue;
+        };
+
+        let target = state
+            .accounts()
+            .into_iter()
+            .filter(|candidate| {
+                candidate.id != account.id
+                    && !candidate.sample
+                    && candidate.client == client
+                    && crate::providers::usage_state(candidate) == crate::providers::UsageState::Room
+            })
+            .max_by_key(crate::providers::remaining_percent);
+
+        let Some(target) = target else {
+            let Ok(_guard) = entry.try_lifecycle().ok_or(()) else {
+                continue;
+            };
+            let _ = pause_session(state, &entry, "Paused. No account has usage left.").await;
+            continue;
+        };
+
+        let Ok(_guard) = entry.try_lifecycle().ok_or(()) else {
+            continue;
+        };
+        if relaunch_with_account(state, &entry, &target, true)
+            .await
+            .is_err()
+        {
+            let _ = pause_session(state, &entry, "Paused. The account switch failed.").await;
+        }
+    }
+}
+
+async fn resume_paused_sessions(state: &AppState, account: &Account) {
+    for entry in state.sessions() {
+        let session = entry.session();
+        if session.status != SessionState::Active
+            || session.kind != SessionKind::Agent
+            || session.work_state != Some(WorkState::Paused)
+            || session.client != Some(account.client)
+        {
+            continue;
+        }
+        let Ok(_guard) = entry.try_lifecycle().ok_or(()) else {
+            continue;
+        };
+        if entry.session().work_state != Some(WorkState::Paused) {
+            continue;
+        }
+        if relaunch_with_account(state, &entry, account, true)
+            .await
+            .is_err()
+        {
+            let _ = pause_session(state, &entry, "Paused. The account switch failed.").await;
+        }
+    }
+}
+
+async fn pause_session(
+    state: &AppState,
+    entry: &Arc<SessionEntry>,
+    reason: &str,
+) -> Result<Session, ()> {
+    let should_wait = entry.begin_close().map_err(|_| ())?;
+    if should_wait {
+        let _ = wait_for_process_exit(entry, Duration::from_secs(2)).await;
+    }
+    entry.remove_session_files();
+    let session = entry.pause(reason);
+    state.emit(SessionEvent::updated(session.clone()));
+    state.save();
+    Ok(session)
 }
 
 async fn answer_permission(
@@ -1687,6 +2108,7 @@ fn prepare_terminal(
         command,
         repo_root: None,
         antigravity_account: None,
+        environment: Vec::new(),
         startup_input: None,
     })
 }
@@ -1707,6 +2129,7 @@ async fn prepare_agent(
         .ok_or_else(|| ApiError::not_found("Unknown account."))?;
 
     let command = session_command(state, SessionKind::Agent, Some(account.client))?;
+    let environment = account_environment(state, &account).await?;
     let folder = canonical_directory(requested_folder(request, project))?;
     let repo_root = git::repo_root(folder, state.git_timeout())
         .await
@@ -1759,6 +2182,7 @@ async fn prepare_agent(
         command,
         repo_root: Some(repo_root),
         antigravity_account: (account.client == Client::Antigravity).then(|| account.id.clone()),
+        environment,
         startup_input,
     })
 }

@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { expect, type APIRequestContext, type Page } from '@playwright/test';
@@ -17,6 +18,8 @@ export interface Session {
   projectId: string;
   kind: 'agent' | 'terminal';
   status: 'active' | 'closed';
+  workState: string | null;
+  accountId: string | null;
   branch: string | null;
   folder: string;
   preview: string;
@@ -48,6 +51,25 @@ export function uniqueName(prefix: string): string {
 export function createProjectFolder(label: string): string {
   const folder = path.join(projectsDir(), label);
   fs.mkdirSync(folder, { recursive: true });
+  return fs.realpathSync(folder);
+}
+
+export function createGitRepo(label: string): string {
+  const folder = path.join(projectsDir(), label);
+  fs.mkdirSync(folder, { recursive: true });
+  const git = (...args: string[]) =>
+    execFileSync('git', args, { cwd: folder, stdio: 'pipe' });
+  git('init', '-q', '-b', 'main');
+  git('config', 'user.name', 'Elesdee E2E');
+  git('config', 'user.email', 'e2e@example.com');
+  fs.writeFileSync(path.join(folder, 'README.md'), 'elesdee e2e\n');
+  git('add', '.');
+  git('commit', '-qm', 'Initial commit');
+  git('checkout', '-qb', 'feature');
+  fs.writeFileSync(path.join(folder, 'feature.txt'), 'feature branch\n');
+  git('add', '.');
+  git('commit', '-qm', 'Feature commit');
+  git('checkout', '-q', 'main');
   return fs.realpathSync(folder);
 }
 
@@ -87,6 +109,52 @@ export async function createProject(
   return (await response.json()) as Project;
 }
 
+export interface E2eAccount {
+  id: string;
+  name: string;
+  client: string;
+}
+
+export async function createAccount(
+  request: APIRequestContext,
+  input: {
+    name: string;
+    providerId?: string;
+    auth?: 'subscription' | 'key' | 'local';
+    key?: string;
+    server?: string;
+    model?: string;
+    apiStyle?: 'openai' | 'anthropic';
+    client?: string;
+  },
+): Promise<E2eAccount> {
+  const response = await request.post(`${CORE_URL}/api/accounts`, {
+    data: {
+      providerId: 'anthropic',
+      auth: 'key',
+      ...input,
+    },
+  });
+  if (!response.ok()) {
+    throw new Error(`${response.status()}: ${await response.text()}`);
+  }
+  return (await response.json()) as E2eAccount;
+}
+
+export async function setUsage(
+  request: APIRequestContext,
+  accountId: string,
+  rows: Array<{ label: string; used?: number; value?: string; min?: string }>,
+): Promise<void> {
+  const response = await request.post(
+    `${CORE_URL}/api/accounts/${encodeURIComponent(accountId)}/usage`,
+    { data: { rows } },
+  );
+  if (!response.ok()) {
+    throw new Error(`${response.status()}: ${await response.text()}`);
+  }
+}
+
 export async function createTerminalSession(
   request: APIRequestContext,
   input: { projectId: string; name: string; folder: string },
@@ -111,6 +179,7 @@ export async function createAgentSession(
     projectId: string;
     name?: string;
     folder: string;
+    accountId?: string;
     sourceBranch?: string;
     firstPrompt?: string;
   },
@@ -119,7 +188,7 @@ export async function createAgentSession(
     data: {
       projectId: input.projectId,
       kind: 'agent',
-      accountId: 'max',
+      accountId: input.accountId ?? 'max',
       name: input.name,
       folder: input.folder,
       sourceBranch: input.sourceBranch,

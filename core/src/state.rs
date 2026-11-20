@@ -104,7 +104,7 @@ impl std::fmt::Display for Client {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Auth {
     Subscription,
@@ -194,6 +194,8 @@ pub struct Account {
     pub foot: String,
     pub server: Option<String>,
     pub model: Option<String>,
+    #[serde(default)]
+    pub api_style: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -337,9 +339,14 @@ impl AppState {
     }
 
     pub fn new_with_port(port: u16) -> Self {
+        let secrets: Arc<dyn SecretStore> = if env::var_os("ELESDEE_MEMORY_SECRETS").is_some() {
+            Arc::new(MemorySecretStore::default())
+        } else {
+            Arc::new(KeyringStore::new())
+        };
         let mut state = Self::from_store(
             StateStore::from_environment().map(Arc::new),
-            Arc::new(KeyringStore::new()),
+            secrets,
             None,
             MAX_ACTIVE_SESSIONS,
             false,
@@ -625,6 +632,13 @@ impl AppState {
         lock(&self.inner.accounts).retain(|account| account.id != id);
     }
 
+    pub fn update_account_rows(&self, id: &str, rows: Vec<UsageRow>) -> Option<Account> {
+        let mut accounts = lock(&self.inner.accounts);
+        let account = accounts.iter_mut().find(|account| account.id == id)?;
+        account.rows = rows;
+        Some(account.clone())
+    }
+
     pub fn project(&self, id: &str) -> Option<Project> {
         lock(&self.inner.projects)
             .iter()
@@ -665,6 +679,10 @@ impl AppState {
     pub fn session(&self, id: &str) -> Option<Arc<SessionEntry>> {
         let store = lock(&self.inner.sessions);
         store.entries.get(id).cloned()
+    }
+
+    pub fn sessions(&self) -> Vec<Arc<SessionEntry>> {
+        self.entries_in_order()
     }
 
     pub fn bootstrap(&self) -> Bootstrap {

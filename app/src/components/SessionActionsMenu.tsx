@@ -8,6 +8,7 @@ import { createPortal } from 'react-dom';
 import type { Session } from '../api/types';
 import { statusText } from '../state/sessionStatus';
 import {
+  AgentIcon,
   BranchIcon,
   CloseIcon,
   FolderIcon,
@@ -18,6 +19,7 @@ import {
 
 export type SessionMenuAction =
   | 'rename'
+  | 'switch-account'
   | 'copy-folder'
   | 'copy-branch'
   | 'close'
@@ -58,6 +60,10 @@ export function menuItems(session: Session): MenuItem[] {
 
   items.push({ action: 'rename', label: 'Rename…' });
 
+  if (!closed && session.kind === 'agent') {
+    items.push({ action: 'switch-account', label: 'Switch account…' });
+  }
+
   if (session.folder.trim() !== '') {
     items.push({ action: 'copy-folder', label: 'Copy folder path' });
   }
@@ -89,6 +95,8 @@ function actionIcon(action: SessionMenuAction) {
   switch (action) {
     case 'rename':
       return <PencilIcon />;
+    case 'switch-account':
+      return <AgentIcon />;
     case 'copy-folder':
       return <FolderIcon />;
     case 'copy-branch':

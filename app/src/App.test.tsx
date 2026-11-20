@@ -13,6 +13,7 @@ import {
   health,
   listAccounts,
   listProjects,
+  listProviders,
   renameSession,
   reopenSession,
   respondPermission,
@@ -34,6 +35,7 @@ vi.mock('./api/client', async (importOriginal) => {
     health: vi.fn(),
     listAccounts: vi.fn(),
     listProjects: vi.fn(),
+    listProviders: vi.fn(),
     renameSession: vi.fn(),
     reopenSession: vi.fn(),
     respondPermission: vi.fn(),
@@ -98,6 +100,24 @@ beforeEach(() => {
     { id: 'p1', name: 'web', folder: '/dev/web' },
   ]);
   vi.mocked(listAccounts).mockResolvedValue([]);
+  vi.mocked(listProviders).mockResolvedValue([
+    {
+      id: 'anthropic',
+      label: 'Anthropic',
+      client: 'Claude Code',
+      auth: ['subscription', 'key'],
+      defaultModel: null,
+      custom: false,
+    },
+    {
+      id: 'google',
+      label: 'Google',
+      client: 'Antigravity',
+      auth: ['key'],
+      defaultModel: 'gemini-3.8-flash-medium',
+      custom: false,
+    },
+  ]);
   vi.mocked(createProject).mockResolvedValue({
     id: 'p2',
     name: 'added',
@@ -819,18 +839,21 @@ describe('settings', () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => {});
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
+    await within(add).findByRole('option', { name: 'Google' });
+    await user.selectOptions(within(add).getByLabelText('Provider'), 'google');
     await user.type(within(add).getByLabelText('Account name'), 'Google work');
-    await user.type(within(add).getByLabelText('API key'), key);
+    await user.type(
+      within(add).getByLabelText('API key', { selector: '#add-account-key' }),
+      key,
+    );
     await user.click(within(add).getByRole('button', { name: 'Add account' }));
 
     await waitFor(() =>
       expect(createAccount).toHaveBeenCalledWith({
         name: 'Google work',
         providerId: 'google',
-        client: 'Antigravity',
         auth: 'key',
         key,
-        model: 'gemini-3.8-flash-medium',
       }),
     );
     await waitFor(() =>

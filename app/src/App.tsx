@@ -20,6 +20,8 @@ import {
   renameSession,
   reopenSession,
   respondPermission,
+  resumeSession,
+  switchSessionAccount,
 } from './api/client';
 import { subscribeEvents } from './api/events';
 import { isTauri, openFolder, openTerminal } from './api/shell';
@@ -49,6 +51,7 @@ import { SessionHeader } from './components/SessionHeader';
 import { SessionView } from './components/SessionView';
 import { SettingsDialog } from './components/SettingsDialog';
 import { Sidebar } from './components/Sidebar';
+import { SwitchAccountDialog } from './components/SwitchAccountDialog';
 import { TabStrip } from './components/TabStrip';
 import { PlusIcon, SparkIcon, TerminalIcon } from './components/icons';
 import {
@@ -99,6 +102,7 @@ export default function App() {
   const [closeSessionId, setCloseSessionId] = useState<string | null>(null);
   const [renameSessionId, setRenameSessionId] = useState<string | null>(null);
   const [deleteSessionId, setDeleteSessionId] = useState<string | null>(null);
+  const [switchSessionId, setSwitchSessionId] = useState<string | null>(null);
   const [sessionMenu, setSessionMenu] = useState<SessionMenuState | null>(null);
   const [branchMenu, setBranchMenu] = useState<BranchMenuState | null>(null);
   const [dialogProjectId, setDialogProjectId] = useState<string | null>(null);
@@ -166,6 +170,9 @@ export default function App() {
   const deleteTarget = deleteSessionId
     ? sessions.find((session) => session.id === deleteSessionId) ?? null
     : null;
+  const switchTarget = switchSessionId
+    ? sessions.find((session) => session.id === switchSessionId) ?? null
+    : null;
   const menuSession = sessionMenu
     ? sessions.find((session) => session.id === sessionMenu.sessionId) ?? null
     : null;
@@ -178,6 +185,7 @@ export default function App() {
     closeTarget !== null ||
     renameTarget !== null ||
     deleteTarget !== null ||
+    switchTarget !== null ||
     settingsOpen ||
     quitOpen;
 
@@ -492,12 +500,33 @@ export default function App() {
     }
   }
 
+  async function handleResume(session: Session) {
+    try {
+      const resumed = await resumeSession(session.id);
+      setSessions((current) =>
+        current.map((item) => (item.id === resumed.id ? resumed : item)),
+      );
+      setToast({ message: 'Session resumed.', error: false });
+    } catch (error) {
+      setToast({
+        message:
+          error instanceof ApiError
+            ? error.message
+            : 'The session was not resumed.',
+        error: true,
+      });
+    }
+  }
+
   function handleMenuAction(action: SessionMenuAction, session: Session) {
     setSessionMenu(null);
 
     switch (action) {
       case 'rename':
         setRenameSessionId(session.id);
+        break;
+      case 'switch-account':
+        setSwitchSessionId(session.id);
         break;
       case 'copy-folder':
         void copyText(session.folder, 'Folder path copied.');
@@ -532,6 +561,18 @@ export default function App() {
           : item,
       ),
     );
+  }
+
+  async function performSwitch(accountId: string) {
+    if (!switchTarget) {
+      return;
+    }
+
+    const updated = await switchSessionAccount(switchTarget.id, accountId);
+    setSessions((current) =>
+      current.map((item) => (item.id === updated.id ? updated : item)),
+    );
+    setToast({ message: 'Account switched.', error: false });
   }
 
   async function answerPermission(
@@ -727,6 +768,7 @@ export default function App() {
                     answerPermission(activeSession, decision)
                   }
                   onReopen={() => void handleReopen(activeSession)}
+                  onResume={() => void handleResume(activeSession)}
                 />
               </div>
             ) : (
@@ -794,6 +836,15 @@ export default function App() {
           session={deleteTarget}
           onConfirm={confirmDelete}
           onClose={() => setDeleteSessionId(null)}
+        />
+      ) : null}
+
+      {switchTarget ? (
+        <SwitchAccountDialog
+          session={switchTarget}
+          accounts={accounts}
+          onSwitch={performSwitch}
+          onClose={() => setSwitchSessionId(null)}
         />
       ) : null}
 

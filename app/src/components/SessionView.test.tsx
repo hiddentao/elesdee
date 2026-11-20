@@ -15,12 +15,17 @@ const permission = {
   summary: 'pnpm test --filter web',
 };
 
-function renderView(session: Session, onReopen = vi.fn()) {
+function renderView(
+  session: Session,
+  onReopen = vi.fn(),
+  onResume = vi.fn(),
+) {
   return render(
     <SessionView
       session={session}
       onRespondPermission={vi.fn()}
       onReopen={onReopen}
+      onResume={onResume}
     />,
   );
 }
@@ -110,5 +115,29 @@ describe('SessionView permission card', () => {
     await user.click(screen.getByRole('button', { name: 'Reopen' }));
 
     expect(onReopen).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows a paused banner with a Resume button', async () => {
+    const user = userEvent.setup();
+    const onResume = vi.fn();
+    renderView(
+      {
+        ...makeSession({
+          status: 'active',
+          workState: 'paused',
+          client: 'Claude Code',
+        }),
+        preview: 'Paused. No account has usage left.',
+      },
+      vi.fn(),
+      onResume,
+    );
+
+    expect(screen.getByRole('status')).toHaveTextContent('Paused');
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'No account has usage left',
+    );
+    await user.click(screen.getByRole('button', { name: 'Resume' }));
+    expect(onResume).toHaveBeenCalledTimes(1);
   });
 });

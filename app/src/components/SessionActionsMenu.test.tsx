@@ -58,6 +58,9 @@ describe('SessionActionsMenu', () => {
     expect(screen.getByRole('menu')).toBeInTheDocument();
     expect(screen.getByRole('menuitem', { name: 'Rename…' })).toBeInTheDocument();
     expect(
+      screen.getByRole('menuitem', { name: 'Switch account…' }),
+    ).toBeInTheDocument();
+    expect(
       screen.getByRole('menuitem', { name: 'Copy folder path' }),
     ).toBeInTheDocument();
     expect(
@@ -148,7 +151,7 @@ describe('SessionActionsMenu', () => {
 
     await user.keyboard('{ArrowDown}');
     expect(
-      screen.getByRole('menuitem', { name: 'Copy folder path' }),
+      screen.getByRole('menuitem', { name: 'Switch account…' }),
     ).toHaveFocus();
 
     await user.keyboard('{End}');

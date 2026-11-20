@@ -17,6 +17,7 @@ pub fn accounts() -> Vec<Account> {
             foot: "No official usage source.".to_owned(),
             server: None,
             model: None,
+            api_style: None,
         },
         Account {
             id: "codex".to_owned(),
@@ -30,6 +31,7 @@ pub fn accounts() -> Vec<Account> {
             foot: "No official usage source.".to_owned(),
             server: None,
             model: None,
+            api_style: None,
         },
         Account {
             id: "deepseek".to_owned(),
@@ -43,6 +45,7 @@ pub fn accounts() -> Vec<Account> {
             foot: "No official usage source.".to_owned(),
             server: None,
             model: None,
+            api_style: None,
         },
         Account {
             id: "litellm".to_owned(),
@@ -56,6 +59,7 @@ pub fn accounts() -> Vec<Account> {
             foot: "No official usage source.".to_owned(),
             server: Some("http://localhost:4000/v1".to_owned()),
             model: Some("gpt-5.2".to_owned()),
+            api_style: None,
         },
     ]
 }

@@ -19,8 +19,8 @@ The app keeps your sessions, projects and accounts on this computer. It does not
 - Approve or deny Claude Code permission requests from a card.
 - Close, reopen, rename and delete sessions.
 - Confirm before quitting while sessions run.
-- Add a Google account for Antigravity.
-- See account usage where a provider reports it.
+- Add provider accounts with a subscription, API key or local server, including custom compatible endpoints.
+- Switch a session to another account, and let usage limits switch or pause it.
 
 This is an early build. The pages here describe what the app does today. Features that are not built yet do not appear in these pages.
 
